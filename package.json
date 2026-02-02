@@ -1,0 +1,27 @@
+{
+  "name": "@mndrk/agx",
+  "version": "1.0.0",
+  "description": "Unified AI Agent Wrapper for Gemini, Claude, and Ollama",
+  "main": "index.js",
+  "bin": {
+    "agx": "./index.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "gemini",
+    "claude",
+    "ollama",
+    "llm"
+  ],
+  "author": "mndrk",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mndrk/agx"
+  }
+}
