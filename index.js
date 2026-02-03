@@ -95,21 +95,29 @@ function commandExists(cmd) {
 // ==================== MEM INTEGRATION ====================
 
 // Find .mem directory (walk up from cwd, or check ~/.mem)
-function findMemDir(startDir = process.cwd()) {
+// If exactOnly=true, only return exact directory matches (for new task creation)
+function findMemDir(startDir = process.cwd(), exactOnly = false) {
   const HOME = process.env.HOME || process.env.USERPROFILE;
   const centralMem = path.join(HOME, '.mem');
-  
-  // First check local .mem (skip ~/.mem which is the central repo)
-  let dir = startDir;
-  while (dir !== path.dirname(dir)) {
-    const memDir = path.join(dir, '.mem');
-    // Skip central ~/.mem - it's not a local project .mem
-    if (memDir !== centralMem && fs.existsSync(memDir) && fs.existsSync(path.join(memDir, '.git'))) {
-      return { memDir, taskBranch: null, projectDir: dir, isLocal: true };
-    }
-    dir = path.dirname(dir);
+
+  // First check local .mem in exact directory only
+  const localMem = path.join(startDir, '.mem');
+  if (localMem !== centralMem && fs.existsSync(localMem) && fs.existsSync(path.join(localMem, '.git'))) {
+    return { memDir: localMem, taskBranch: null, projectDir: startDir, isLocal: true };
   }
-  
+
+  // Walk up for local .mem (unless exactOnly)
+  if (!exactOnly) {
+    let dir = path.dirname(startDir);
+    while (dir !== path.dirname(dir)) {
+      const memDir = path.join(dir, '.mem');
+      if (memDir !== centralMem && fs.existsSync(memDir) && fs.existsSync(path.join(memDir, '.git'))) {
+        return { memDir, taskBranch: null, projectDir: dir, isLocal: true };
+      }
+      dir = path.dirname(dir);
+    }
+  }
+
   // Then check ~/.mem with index
   const globalMem = centralMem;
   if (fs.existsSync(globalMem)) {
@@ -121,18 +129,20 @@ function findMemDir(startDir = process.cwd()) {
         if (index[startDir]) {
           return { memDir: globalMem, taskBranch: index[startDir], projectDir: startDir, isLocal: false };
         }
-        // Check parent directories (for monorepo/subdirectory usage)
-        let checkDir = startDir;
-        while (checkDir !== path.dirname(checkDir)) {
-          checkDir = path.dirname(checkDir);
-          if (index[checkDir]) {
-            return { memDir: globalMem, taskBranch: index[checkDir], projectDir: checkDir, isLocal: false };
+        // Check parent directories only if not exactOnly
+        if (!exactOnly) {
+          let checkDir = startDir;
+          while (checkDir !== path.dirname(checkDir)) {
+            checkDir = path.dirname(checkDir);
+            if (index[checkDir]) {
+              return { memDir: globalMem, taskBranch: index[checkDir], projectDir: checkDir, isLocal: false };
+            }
           }
         }
       } catch {}
     }
   }
-  
+
   return null;
 }
 
@@ -2086,15 +2096,17 @@ translatedArgs.push(...rawArgs);
 // ==================== MEM INTEGRATION ====================
 
 // Auto-detect mem if .mem exists (unless --no-mem)
+// For autonomous mode, only use exact directory match (don't inherit parent task)
 // Auto-detect mem unless explicitly disabled (--no-mem sets mem=false)
-let memInfo = options.mem === false ? null : findMemDir();
+const exactOnly = options.autonomous || options.taskName;
+let memInfo = options.mem === false ? null : findMemDir(process.cwd(), exactOnly);
 if (memInfo) {
   options.mem = true;
   options.memInfo = memInfo;
   options.memDir = memInfo.memDir; // For backwards compat
 }
 
-// Auto-create task if --autonomous or --task specified but no mem found
+// Auto-create task if --autonomous or --task specified but no mem found for this exact directory
 if ((options.autonomous || options.taskName) && !options.memInfo && finalPrompt) {
   const taskName = options.taskName || finalPrompt
     .toLowerCase()
