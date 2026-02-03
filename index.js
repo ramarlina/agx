@@ -1187,6 +1187,7 @@ async function checkOnboarding() {
       let status = 'unknown';
       let lastRun = '—';
       let nextRun = '—';
+      let progress = '—';
 
       try {
         const wakeOut = execSync('mem wake', { cwd: projectDir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
@@ -1199,6 +1200,13 @@ async function checkOnboarding() {
         else if (statusOut.includes('status: done')) status = 'done';
         else if (statusOut.includes('status: blocked')) status = 'blocked';
         else status = 'active';
+
+        // Get progress
+        try {
+          const progressOut = execSync('mem progress', { cwd: projectDir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+          const progressMatch = progressOut.match(/(\d+)%/);
+          if (progressMatch) progress = `${progressMatch[1]}%`;
+        } catch {}
 
         if (state.lastRun && state.lastRun[taskBranch]) {
           const lastMs = state.lastRun[taskBranch];
@@ -1214,7 +1222,7 @@ async function checkOnboarding() {
         }
       } catch {}
 
-      tasks.push({ taskName, taskBranch, projectDir, wake, status, lastRun, nextRun });
+      tasks.push({ taskName, taskBranch, projectDir, wake, status, lastRun, nextRun, progress });
     }
     return tasks;
   }
@@ -1449,7 +1457,8 @@ async function checkOnboarding() {
                          : `${c.yellow}○${c.reset}`;
         const name = selected ? `${c.bold}${task.taskName}${c.reset}` : task.taskName;
         const statusText = task.status === 'running' ? `${c.cyan}running${c.reset}` : task.status;
-        const info = `${c.dim}${statusText} · ${task.lastRun === '—' ? 'never run' : task.lastRun}${c.reset}`;
+        const progressText = task.progress !== '—' ? ` ${c.green}${task.progress}${c.reset}` : '';
+        const info = `${c.dim}${statusText}${c.reset}${progressText} ${c.dim}· ${task.lastRun === '—' ? 'never run' : task.lastRun}${c.reset}`;
 
         console.log(`${prefix} ${statusIcon} ${name}  ${info}`);
       });
@@ -1480,6 +1489,7 @@ async function checkOnboarding() {
       console.log(`${c.bold}${c.cyan}${task.taskName}${c.reset}\n`);
       console.log(`  ${c.dim}Path:${c.reset}     ${task.projectDir}`);
       console.log(`  ${c.dim}Status:${c.reset}   ${statusColor}${statusText}${c.reset}`);
+      console.log(`  ${c.dim}Progress:${c.reset} ${task.progress !== '—' ? c.green + task.progress + c.reset : c.dim + '—' + c.reset}`);
       console.log(`  ${c.dim}Wake:${c.reset}     ${task.wake}`);
       console.log(`  ${c.dim}Last run:${c.reset} ${task.lastRun}`);
       console.log(`  ${c.dim}Next run:${c.reset} ${task.nextRun}`);
@@ -1629,7 +1639,8 @@ async function checkOnboarding() {
                          : task.status === 'active' ? `${c.green}●${c.reset}`
                          : task.status === 'done' ? `${c.dim}✓${c.reset}`
                          : `${c.yellow}○${c.reset}`;
-        console.log(`${idx + 1}. ${statusIcon} ${task.taskName}  ${c.dim}${task.status} · ${task.lastRun}${c.reset}`);
+        const progressText = task.progress !== '—' ? ` ${c.green}${task.progress}${c.reset}` : '';
+        console.log(`${idx + 1}. ${statusIcon} ${task.taskName}${progressText}  ${c.dim}${task.status} · ${task.lastRun}${c.reset}`);
       });
       process.exit(0);
     }
