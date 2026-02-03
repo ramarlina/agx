@@ -85,24 +85,22 @@ Use these in agent output to save state:
 | --daemon | Loop on [continue] marker |
 | --until-done | Keep running until [done] |
 
-## Auto Wake (Continuous Work)
+## Continuous Work Loop
 
-New tasks auto-set \`wake: every 15m\`. The agent will:
-1. Work on the task
-2. Output [pause] or [continue] 
-3. Exit and wake again in 15m
-4. Continue until [done]
+New tasks auto-set \`wake: every 15m\`. The loop:
 
-Use \`mem cron export\` to install the wake schedule.
+\`\`\`
+WAKE → load context → review → work → save → SLEEP
+                                          ↓
+                              repeat until [done]
+\`\`\`
 
-## Loop Control
+Agent keeps working by default. Only output stopping markers when needed:
+- \`[done]\` → task complete, stop loop
+- \`[blocked: reason]\` → need human help, pause loop
+- \`[approve: question]\` → need approval, wait
 
-Agent controls execution via markers:
-- \`[done]\` → complete task, clear wake, exit
-- \`[pause]\` → save state, exit (wake resumes in 15m)
-- \`[blocked: ...]\` → mark stuck, notify human, exit
-- \`[continue]\` → keep going (--until-done loops locally)
-- \`[approve: ...]\` → halt until human approves
+Install wake: \`mem cron export >> crontab\`
 
 ## Task Splitting
 
@@ -1359,7 +1357,7 @@ if (options.mem && options.memDir && finalPrompt) {
     console.log(`${c.dim}[mem] Loaded context from ${options.memDir}${c.reset}\n`);
     
     // Prepend context to prompt with full marker documentation
-    const augmentedPrompt = `## Current Context (from mem)\n\n${context}\n\n## Task\n\n${finalPrompt}\n\n## Output Markers (use these to save state)\n\nUse these markers in your output to control state:\n\n- [checkpoint: message] - save progress point\n- [learn: insight] - record a learning\n- [next: step] - set next step\n- [approve: question] - halt and request human approval\n- [criteria: N] - mark criterion #N complete\n- [blocked: reason] - mark blocked, stop execution\n- [pause] - save state and stop (resume later)\n- [continue] - signal to keep going (daemon mode)\n- [done] - mark task complete\n- [split: name "goal"] - create a subtask`;
+    const augmentedPrompt = `## Current Context (from mem)\n\n${context}\n\n## Task\n\n${finalPrompt}\n\n## Instructions\n\nYou are continuing work on this task. Review the context above, then continue where you left off.\n\n## Output Markers\n\nUse these markers to save state (will be parsed automatically):\n\n- [checkpoint: message] - save progress point\n- [learn: insight] - record a learning  \n- [next: step] - set what to work on next\n- [criteria: N] - mark criterion #N complete\n- [split: name "goal"] - break into subtask\n\nStopping markers (only use when needed):\n- [done] - task complete (all criteria met)\n- [blocked: reason] - need human help, cannot proceed\n- [approve: question] - need human approval before continuing\n\nThe default is to keep working. You will wake again in 15 minutes to continue.`;
     
     // Replace the prompt in translatedArgs
     const promptIndex = translatedArgs.indexOf(finalPrompt);
@@ -1408,32 +1406,30 @@ if (options.mem && options.memDir) {
         }
       }
       
-      // Handle loop control
+      // Handle loop control - default is CONTINUE (wake again in 15m)
       if (result.isDone) {
         console.log(`\n${c.green}✓ Task complete!${c.reset}`);
         // Clear wake schedule on done
         try {
           execSync('mem wake clear', { cwd: process.cwd(), stdio: 'ignore' });
+          console.log(`${c.dim}Wake schedule cleared.${c.reset}`);
         } catch {}
         process.exit(0);
       } else if (result.isBlocked) {
-        console.log(`\n${c.yellow}Task blocked. Human intervention needed.${c.reset}`);
+        console.log(`\n${c.yellow}⚠ Task blocked. Human intervention needed.${c.reset}`);
+        console.log(`${c.dim}Wake continues - run 'mem stuck clear' when unblocked.${c.reset}`);
         process.exit(1);
-      } else if (result.shouldPause) {
-        console.log(`\n${c.cyan}Paused. Will resume on next wake (every 15m).${c.reset}`);
-        process.exit(0);
-      } else if (result.shouldContinue && options.untilDone) {
-        // Loop: wait and run again
-        console.log(`\n${c.cyan}Continuing in 5s...${c.reset}`);
+      } else if (options.untilDone) {
+        // Local loop mode: wait and run again
+        console.log(`\n${c.cyan}▶ Continuing in 10s...${c.reset}`);
         setTimeout(() => {
-          // Re-run same command
           const { spawnSync } = require('child_process');
           spawnSync(process.argv[0], process.argv.slice(1), { stdio: 'inherit' });
-        }, 5000);
-        return; // Don't exit yet
+        }, 10000);
+        return;
       } else {
-        // Default: save and exit, wake will resume
-        console.log(`\n${c.dim}State saved. Next wake in ~15m.${c.reset}`);
+        // Default: save and exit, wake will resume in 15m
+        console.log(`\n${c.dim}Progress saved. Will continue on next wake (~15m).${c.reset}`);
       }
     }
     
