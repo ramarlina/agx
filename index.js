@@ -1249,6 +1249,56 @@ async function checkOnboarding() {
     } catch { return []; }
   }
 
+  // Tail task log
+  if (cmd === 'tail') {
+    const tasks = loadTasks();
+    const taskArg = args[1];
+    let task = taskArg ? findTask(tasks, taskArg) : null;
+
+    // If no arg, try current directory
+    if (!task && !taskArg) {
+      const cwd = process.cwd();
+      task = tasks.find(t => t.projectDir === cwd);
+    }
+
+    if (!task) {
+      if (tasks.length === 0) {
+        console.log(`${c.yellow}No tasks found${c.reset}`);
+      } else {
+        console.log(`${c.yellow}Task not found${c.reset}${taskArg ? `: ${taskArg}` : ''}`);
+        console.log(`${c.dim}Available: ${tasks.map(t => t.taskName).join(', ')}${c.reset}`);
+      }
+      process.exit(1);
+    }
+
+    const logPath = getTaskLogPath(task.taskName);
+    if (!fs.existsSync(logPath)) {
+      console.log(`${c.dim}No logs yet for ${task.taskName}${c.reset}`);
+      console.log(`${c.dim}Log file: ${logPath}${c.reset}`);
+      process.exit(0);
+    }
+
+    console.log(`${c.dim}Tailing ${task.taskName} → ${logPath}${c.reset}\n`);
+
+    // Use spawn to tail -f the log file
+    const tail = spawn('tail', ['-f', logPath], {
+      stdio: ['ignore', 'inherit', 'inherit']
+    });
+
+    tail.on('error', (err) => {
+      console.error(`${c.red}Error:${c.reset} ${err.message}`);
+      process.exit(1);
+    });
+
+    // Handle ctrl-c gracefully
+    process.on('SIGINT', () => {
+      tail.kill();
+      process.exit(0);
+    });
+
+    return true;
+  }
+
   // Run task immediately
   if (cmd === 'run') {
     const tasks = loadTasks();
@@ -1829,10 +1879,10 @@ PROVIDERS:
   ollama, o    Local Ollama
 
 CHECKING ON TASKS:
-  agx status          Current task status
   agx tasks           Browse all tasks
-  agx progress        Show % complete
-  agx daemon logs     Recent activity
+  agx tail [task]     Live tail task log
+  agx status          Current task status
+  agx daemon logs     Daemon activity
 
 MANUAL CONTROL (optional):
   agx run [task]      Run task now
