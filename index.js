@@ -291,6 +291,15 @@ function createSubtasks(splits, memInfo) {
 const DAEMON_PID_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'daemon.pid');
 const DAEMON_LOG_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'daemon.log');
 const DAEMON_STATE_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'daemon-state.json');
+const TASK_LOGS_DIR = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'logs');
+
+// Get log file path for a task
+function getTaskLogPath(taskName) {
+  if (!fs.existsSync(TASK_LOGS_DIR)) {
+    fs.mkdirSync(TASK_LOGS_DIR, { recursive: true });
+  }
+  return path.join(TASK_LOGS_DIR, `${taskName}.log`);
+}
 
 function isDaemonRunning() {
   try {
@@ -445,12 +454,40 @@ async function runDaemon() {
         state.running = taskBranch;
         saveState(state);
 
-        // Run agx continue
+        // Run agx continue with output logging
+        const taskName = taskBranch.replace('task/', '');
+        const logPath = getTaskLogPath(taskName);
+        const logStream = fs.createWriteStream(logPath, { flags: 'a' });
+        logStream.write(`\n--- ${new Date().toISOString()} ---\n`);
+
         try {
-          execSync(`agx claude -y -p "continue"`, {
-            cwd: projectDir,
-            stdio: 'inherit',
-            timeout: 10 * 60 * 1000 // 10 min timeout
+          await new Promise((resolve, reject) => {
+            const child = spawn('agx', ['claude', '-y', '-p', 'continue'], {
+              cwd: projectDir,
+              stdio: ['ignore', 'pipe', 'pipe']
+            });
+
+            child.stdout.on('data', (data) => {
+              logStream.write(data);
+              process.stdout.write(data);
+            });
+            child.stderr.on('data', (data) => {
+              logStream.write(data);
+              process.stderr.write(data);
+            });
+
+            const timeout = setTimeout(() => {
+              child.kill();
+              reject(new Error('Timeout after 10 minutes'));
+            }, 10 * 60 * 1000);
+
+            child.on('close', (code) => {
+              clearTimeout(timeout);
+              logStream.end();
+              if (code === 0) resolve();
+              else reject(new Error(`Exit code ${code}`));
+            });
+            child.on('error', reject);
           });
         } catch (err) {
           console.log(`[${new Date().toISOString()}] Task ${taskBranch} error: ${err.message}`);
@@ -1190,14 +1227,13 @@ async function checkOnboarding() {
            tasks.find(t => t.taskBranch.includes(name));
   }
 
-  // Helper: get task logs
-  function getTaskLogs(task, limit = 10) {
-    if (!fs.existsSync(DAEMON_LOG_FILE)) return [];
+  // Helper: get task logs from per-task log file
+  function getTaskLogs(task, limit = 20) {
+    const logPath = getTaskLogPath(task.taskName);
+    if (!fs.existsSync(logPath)) return [];
     try {
-      const logs = fs.readFileSync(DAEMON_LOG_FILE, 'utf8');
-      return logs.split('\n')
-        .filter(line => line.includes(task.taskBranch) || line.includes(task.taskName))
-        .slice(-limit);
+      const logs = fs.readFileSync(logPath, 'utf8');
+      return logs.split('\n').slice(-limit);
     } catch { return []; }
   }
 
@@ -1238,23 +1274,43 @@ async function checkOnboarding() {
     if (!fs.existsSync(agxDir)) fs.mkdirSync(agxDir, { recursive: true });
     fs.writeFileSync(DAEMON_STATE_FILE, JSON.stringify(state, null, 2));
 
-    try {
-      execSync(`agx claude -y -p "continue"`, {
-        cwd: task.projectDir,
-        stdio: 'inherit',
-        timeout: 10 * 60 * 1000
-      });
-    } catch (err) {
-      console.error(`${c.red}Error:${c.reset} ${err.message}`);
-    } finally {
+    // Setup log file
+    const logPath = getTaskLogPath(task.taskName);
+    const logStream = fs.createWriteStream(logPath, { flags: 'a' });
+    logStream.write(`\n--- ${new Date().toISOString()} ---\n`);
+
+    const child = spawn('agx', ['claude', '-y', '-p', 'continue'], {
+      cwd: task.projectDir,
+      stdio: ['inherit', 'pipe', 'pipe']
+    });
+
+    child.stdout.on('data', (data) => {
+      logStream.write(data);
+      process.stdout.write(data);
+    });
+    child.stderr.on('data', (data) => {
+      logStream.write(data);
+      process.stderr.write(data);
+    });
+
+    child.on('close', (code) => {
+      logStream.end();
       // Clear running state
       try {
         state = JSON.parse(fs.readFileSync(DAEMON_STATE_FILE, 'utf8'));
         delete state.running;
         fs.writeFileSync(DAEMON_STATE_FILE, JSON.stringify(state, null, 2));
       } catch {}
-    }
-    process.exit(0);
+      process.exit(code || 0);
+    });
+
+    child.on('error', (err) => {
+      console.error(`${c.red}Error:${c.reset} ${err.message}`);
+      logStream.end();
+      process.exit(1);
+    });
+
+    return true; // Don't continue execution
   }
 
   // Pause task
@@ -1401,38 +1457,90 @@ async function checkOnboarding() {
       console.log(`\n${c.dim}↑/↓ select · enter view · r run · p pause · d done · x remove · q quit${c.reset}`);
     };
 
+    let tailInterval = null;
+
     const renderDetail = () => {
       clearScreen();
       const task = tasks[selectedIdx];
-      const statusColor = task.status === 'running' ? c.cyan
+
+      // Refresh task status for running check
+      let currentState = {};
+      try {
+        if (fs.existsSync(DAEMON_STATE_FILE)) {
+          currentState = JSON.parse(fs.readFileSync(DAEMON_STATE_FILE, 'utf8'));
+        }
+      } catch {}
+      const isRunning = currentState.running === task.taskBranch;
+
+      const statusColor = isRunning ? c.cyan
                         : task.status === 'active' ? c.green
                         : task.status === 'done' ? c.dim : c.yellow;
+      const statusText = isRunning ? 'running' : task.status;
 
       console.log(`${c.bold}${c.cyan}${task.taskName}${c.reset}\n`);
       console.log(`  ${c.dim}Path:${c.reset}     ${task.projectDir}`);
-      console.log(`  ${c.dim}Status:${c.reset}   ${statusColor}${task.status}${c.reset}`);
+      console.log(`  ${c.dim}Status:${c.reset}   ${statusColor}${statusText}${c.reset}`);
       console.log(`  ${c.dim}Wake:${c.reset}     ${task.wake}`);
       console.log(`  ${c.dim}Last run:${c.reset} ${task.lastRun}`);
       console.log(`  ${c.dim}Next run:${c.reset} ${task.nextRun}`);
 
-      const logs = getTaskLogs(task, 8);
+      // Get terminal height for log display
+      const termHeight = process.stdout.rows || 24;
+      const logLines = Math.max(5, termHeight - 12);
+
+      const logs = getTaskLogs(task, logLines);
+      const logTitle = isRunning ? `${c.bold}Live Log${c.reset} ${c.cyan}(tailing)${c.reset}` : `${c.bold}Recent Log${c.reset}`;
+      console.log(`\n${logTitle}\n`);
+
       if (logs.length > 0) {
-        console.log(`\n${c.bold}Recent Log${c.reset}\n`);
         logs.forEach(line => {
-          const match = line.match(/\[([^\]]+)\]\s*(.+)/);
-          if (match) {
-            const ts = new Date(match[1]);
-            const timeStr = ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-            const msg = match[2].replace(task.taskBranch, '').replace(task.taskName, '').trim();
-            console.log(`  ${c.dim}${timeStr}${c.reset} ${msg.slice(0, 65)}`);
-          }
+          // Truncate long lines
+          const maxWidth = (process.stdout.columns || 80) - 4;
+          const display = line.length > maxWidth ? line.slice(0, maxWidth - 1) + '…' : line;
+          console.log(`  ${c.dim}${display}${c.reset}`);
         });
+      } else {
+        console.log(`  ${c.dim}No logs yet${c.reset}`);
       }
 
       console.log(`\n${c.dim}esc back · r run now · p pause · d done · x remove · q quit${c.reset}`);
     };
 
-    const render = () => inDetailView ? renderDetail() : renderList();
+    const startTailing = () => {
+      if (tailInterval) return;
+      tailInterval = setInterval(() => {
+        if (inDetailView) renderDetail();
+      }, 1000);
+    };
+
+    const stopTailing = () => {
+      if (tailInterval) {
+        clearInterval(tailInterval);
+        tailInterval = null;
+      }
+    };
+
+    const render = () => {
+      if (inDetailView) {
+        renderDetail();
+        // Start tailing if task is running
+        const task = tasks[selectedIdx];
+        let currentState = {};
+        try {
+          if (fs.existsSync(DAEMON_STATE_FILE)) {
+            currentState = JSON.parse(fs.readFileSync(DAEMON_STATE_FILE, 'utf8'));
+          }
+        } catch {}
+        if (currentState.running === task.taskBranch) {
+          startTailing();
+        } else {
+          stopTailing();
+        }
+      } else {
+        stopTailing();
+        renderList();
+      }
+    };
 
     // Handle action
     const doAction = async (action) => {
@@ -1487,6 +1595,7 @@ async function checkOnboarding() {
         const k = key.toString();
 
         if (k === 'q' || k === '\x03') { // q or ctrl-c
+          stopTailing();
           showCursor();
           clearScreen();
           process.exit(0);
