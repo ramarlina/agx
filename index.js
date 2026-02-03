@@ -83,14 +83,25 @@ Use these in agent output to save state:
 | --task NAME | Specific task name |
 | --criteria "..." | Success criterion (repeatable) |
 | --daemon | Loop on [continue] marker |
+| --until-done | Keep running until [done] |
+
+## Auto Wake (Continuous Work)
+
+New tasks auto-set \`wake: every 15m\`. The agent will:
+1. Work on the task
+2. Output [pause] or [continue] 
+3. Exit and wake again in 15m
+4. Continue until [done]
+
+Use \`mem cron export\` to install the wake schedule.
 
 ## Loop Control
 
 Agent controls execution via markers:
-- \`[done]\` → complete task, exit
-- \`[pause]\` → save state, exit (resume later)
+- \`[done]\` → complete task, clear wake, exit
+- \`[pause]\` → save state, exit (wake resumes in 15m)
 - \`[blocked: ...]\` → mark stuck, notify human, exit
-- \`[continue]\` → keep going (daemon loops)
+- \`[continue]\` → keep going (--until-done loops locally)
 - \`[approve: ...]\` → halt until human approves
 
 ## Task Splitting
@@ -1099,7 +1110,9 @@ const options = {
   autoTask: false,
   taskName: null,
   criteria: [],
-  daemon: false
+  daemon: false,
+  untilDone: false,
+  wakeInterval: null
 };
 
 // Collect positional args (legacy support, but --prompt is preferred)
@@ -1174,6 +1187,16 @@ for (let i = 0; i < processedArgs.length; i++) {
       break;
     case '--daemon':
       options.daemon = true;
+      break;
+    case '--until-done':
+      options.untilDone = true;
+      options.daemon = true;
+      break;
+    case '--wake':
+      if (nextArg && !nextArg.startsWith('-')) {
+        options.wakeInterval = nextArg;
+        i++;
+      }
       break;
     default:
       if (arg.startsWith('-')) {
@@ -1316,7 +1339,13 @@ if ((options.autoTask || options.taskName) && !options.memDir && finalPrompt) {
     
     options.memDir = centralMem;
     console.log(`${c.green}✓${c.reset} Created task: ${c.bold}${taskName}${c.reset}`);
-    console.log(`${c.green}✓${c.reset} Mapped: ${c.dim}${process.cwd()} → ${branch}${c.reset}\n`);
+    console.log(`${c.green}✓${c.reset} Mapped: ${c.dim}${process.cwd()} → ${branch}${c.reset}`);
+    
+    // Auto-set wake schedule for new tasks
+    try {
+      execSync(`mem wake "every 15m"`, { cwd: process.cwd(), stdio: 'ignore' });
+      console.log(`${c.green}✓${c.reset} Wake: ${c.dim}every 15m (until done)${c.reset}\n`);
+    } catch {}
     
   } catch (err) {
     console.error(`${c.yellow}Warning: Could not create task:${c.reset} ${err.message}`);
@@ -1382,14 +1411,29 @@ if (options.mem && options.memDir) {
       // Handle loop control
       if (result.isDone) {
         console.log(`\n${c.green}✓ Task complete!${c.reset}`);
-        // Could trigger mem done here
+        // Clear wake schedule on done
+        try {
+          execSync('mem wake clear', { cwd: process.cwd(), stdio: 'ignore' });
+        } catch {}
+        process.exit(0);
       } else if (result.isBlocked) {
         console.log(`\n${c.yellow}Task blocked. Human intervention needed.${c.reset}`);
+        process.exit(1);
       } else if (result.shouldPause) {
-        console.log(`\n${c.cyan}Paused. Run again to continue.${c.reset}`);
-      } else if (result.shouldContinue && options.daemon) {
-        console.log(`\n${c.cyan}Continuing in daemon mode...${c.reset}`);
-        // Daemon would loop here - for now just note it
+        console.log(`\n${c.cyan}Paused. Will resume on next wake (every 15m).${c.reset}`);
+        process.exit(0);
+      } else if (result.shouldContinue && options.untilDone) {
+        // Loop: wait and run again
+        console.log(`\n${c.cyan}Continuing in 5s...${c.reset}`);
+        setTimeout(() => {
+          // Re-run same command
+          const { spawnSync } = require('child_process');
+          spawnSync(process.argv[0], process.argv.slice(1), { stdio: 'inherit' });
+        }, 5000);
+        return; // Don't exit yet
+      } else {
+        // Default: save and exit, wake will resume
+        console.log(`\n${c.dim}State saved. Next wake in ~15m.${c.reset}`);
       }
     }
     
