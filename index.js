@@ -17,49 +17,79 @@ description: Run AI agents with persistent memory. Wraps Claude, Gemini, Ollama 
 
 # agx - AI Agent CLI with Persistent Memory
 
-Run AI agents with automatic state persistence via mem integration.
+Unified CLI for running AI agents with automatic state persistence.
 
 ## Basic Usage
 
 \`\`\`bash
-agx claude -p "explain this code"     # simple prompt
-agx -p "what does this do?"           # use default provider
-agx c --yolo -p "fix the bug"         # skip confirmations
+agx -p "explain this code"            # simple prompt (default provider)
+agx claude -p "fix the bug"           # specific provider
+agx c -y -p "refactor this"           # skip confirmations
 \`\`\`
 
-## Memory Integration
+## Task Management
 
-agx auto-detects \`~/.mem\` and loads context:
+agx handles all task state internally:
 
 \`\`\`bash
-# Auto-load context if task exists for cwd
-agx claude -p "continue working"
+# Create a new task
+agx init myproject "Build a todo app"
 
-# Auto-create task (non-interactive, for agents)
-agx claude --autonomous -p "Build todo app"
+# Check status
+agx status
 
-# Explicit task with criteria
-agx claude --task todo-app \\
-  --criteria "CRUD working" \\
-  --criteria "Deployed" \\
-  -p "Build a todo app"
+# Autonomous mode (creates task + starts daemon)
+agx -a -p "Build a REST API with auth"
+
+# With explicit criteria
+agx init api-task "Build REST API" \\
+  && agx criteria add "CRUD endpoints working" \\
+  && agx criteria add "Auth implemented"
+\`\`\`
+
+## Task Commands
+
+\`\`\`bash
+agx init <name> "<goal>"    # Create new task
+agx status                  # Show current state
+agx tasks                   # List all tasks
+agx done                    # Mark complete
+agx stuck [reason|clear]    # Mark/clear blocker
+agx switch <name>           # Switch tasks
+agx checkpoint "<msg>"      # Save progress point
+agx learn "<insight>"       # Record learning
+agx next "<step>"           # Set next step
+agx wake "<schedule>"       # Set wake (e.g. "every 15m")
+agx progress                # Show % complete
+agx criteria add "<text>"   # Add criterion
+agx criteria <N>            # Mark criterion #N complete
 \`\`\`
 
 ## Output Markers
 
-Use these in agent output to save state:
+Use these in agent output to save state (parsed automatically):
 
 \`\`\`
 [checkpoint: message]      Save progress point
 [learn: insight]           Record learning
 [next: step]               Set next step
 [criteria: N]              Mark criterion #N complete
-[approve: question]        Halt for human approval
-[blocked: reason]          Mark blocked, stop
-[pause]                    Save and stop (resume later)
-[continue]                 Keep going (daemon mode)
-[done]                     Mark task complete
-[split: name "goal"]       Create subtask
+\`\`\`
+
+Stopping markers (only when needed):
+\`\`\`
+[done]                     Task complete, stop
+[blocked: reason]          Need human help
+[approve: question]        Need approval first
+\`\`\`
+
+## Daemon (Background Runner)
+
+\`\`\`bash
+agx daemon start           # Start background runner
+agx daemon stop            # Stop it
+agx daemon status          # Check if running
+agx daemon logs            # View recent logs
 \`\`\`
 
 ## Providers
@@ -77,43 +107,21 @@ Use these in agent output to save state:
 | --prompt, -p | The prompt to send |
 | --model, -m | Model name |
 | --yolo, -y | Skip permission prompts |
-| --mem | Enable mem (auto-detected) |
-| --no-mem | Disable mem |
-| --autonomous, -a | Create task and run autonomously until done |
+| --autonomous, -a | Create task + daemon, run unattended |
 | --task NAME | Specific task name |
 | --criteria "..." | Success criterion (repeatable) |
-| --daemon | Loop on [continue] marker |
-| --until-done | Keep running until [done] |
 
 ## Continuous Work Loop
 
-New tasks auto-set \`wake: every 15m\`. The loop:
+Autonomous tasks wake every 15m by default:
 
 \`\`\`
-WAKE → load context → review → work → save → SLEEP
-                                          ↓
-                              repeat until [done]
+WAKE → load context → work → save → SLEEP → repeat until [done]
 \`\`\`
 
-Agent keeps working by default. Only output stopping markers when needed:
-- \`[done]\` → task complete, stop loop
-- \`[blocked: reason]\` → need human help, pause loop
-- \`[approve: question]\` → need approval, wait
-
-Install wake: \`mem cron export >> crontab\`
-
-## Task Splitting
-
-Break large tasks into subtasks:
-
-\`\`\`
-[split: setup "Project scaffolding"]
-[split: auth "Authentication system"]
-[split: crud "CRUD operations"]
-[next: Start with setup]
-\`\`\`
-
-Creates subtask branches in ~/.mem, linked to parent.
+Default behavior is to keep working. Only use stopping markers when:
+- \`[done]\` → all criteria met, task complete
+- \`[blocked: reason]\` → cannot proceed without human
 `;
 
 // ANSI colors
@@ -1125,16 +1133,49 @@ async function checkOnboarding() {
     return true;
   }
 
-  // Tasks command - list tasks with schedules
-  if (cmd === 'tasks') {
+  // ==================== MEM PASSTHROUGH COMMANDS ====================
+  // These wrap mem CLI so users only need agx
+  
+  const memPassthroughCommands = {
+    'init': true,      // agx init <name> "<goal>" → mem init
+    'done': true,      // agx done → mem done
+    'stuck': true,     // agx stuck [reason|clear] → mem stuck
+    'switch': true,    // agx switch <name> → mem switch
+    'checkpoint': true,// agx checkpoint "<msg>" → mem checkpoint  
+    'learn': true,     // agx learn "<insight>" → mem learn
+    'next': true,      // agx next "<step>" → mem next
+    'wake': true,      // agx wake "<schedule>" → mem wake
+    'context': true,   // agx context → mem context
+    'progress': true,  // agx progress → mem progress
+    'criteria': true,  // agx criteria [add|N] → mem criteria
+    'goal': true,      // agx goal [value] → mem goal
+    'learnings': true, // agx learnings → mem learnings
+    'playbook': true,  // agx playbook → mem playbook
+  };
+  
+  if (memPassthroughCommands[cmd]) {
+    // Pass through to mem with all remaining args
+    const memArgs = args.slice(1).map(a => a.includes(' ') ? `"${a}"` : a).join(' ');
+    const memCmd = `mem ${cmd} ${memArgs}`.trim();
+    
+    try {
+      execSync(memCmd, { stdio: 'inherit' });
+    } catch (err) {
+      // mem already printed error
+      process.exit(err.status || 1);
+    }
+    process.exit(0);
+  }
+  
+  // ==================== TASK MANAGEMENT ====================
+
+  // Helper: load all tasks with their info
+  function loadTasks() {
     const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
     const indexFile = path.join(memDir, 'index.json');
-    
-    if (!fs.existsSync(indexFile)) {
-      console.log(`${c.yellow}No tasks found${c.reset}`);
-      process.exit(0);
-    }
-    
+
+    if (!fs.existsSync(indexFile)) return [];
+
     const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
     let state = {};
     try {
@@ -1142,36 +1183,31 @@ async function checkOnboarding() {
         state = JSON.parse(fs.readFileSync(DAEMON_STATE_FILE, 'utf8'));
       }
     } catch {}
-    
-    console.log(`${c.bold}Tasks${c.reset}\n`);
-    
+
+    const tasks = [];
     for (const [projectDir, taskBranch] of Object.entries(index)) {
       const taskName = taskBranch.replace('task/', '');
       let wake = '—';
       let status = 'unknown';
       let lastRun = '—';
       let nextRun = '—';
-      
+
       try {
-        // Get wake schedule
-        const wakeOut = execSync('mem wake', { cwd: projectDir, encoding: 'utf8' });
+        const wakeOut = execSync('mem wake', { cwd: projectDir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
         const wakeMatch = wakeOut.match(/Wake:\s*(.+)/);
         if (wakeMatch) wake = wakeMatch[1].trim();
-        
-        // Get status
+
         execSync(`mem switch ${taskName}`, { cwd: projectDir, stdio: 'ignore' });
-        const statusOut = execSync('mem status', { cwd: projectDir, encoding: 'utf8' });
+        const statusOut = execSync('mem status', { cwd: projectDir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
         if (statusOut.includes('status: done')) status = 'done';
         else if (statusOut.includes('status: blocked')) status = 'blocked';
         else status = 'active';
-        
-        // Get last run time
+
         if (state.lastRun && state.lastRun[taskBranch]) {
           const lastMs = state.lastRun[taskBranch];
           const ago = Date.now() - lastMs;
           lastRun = `${Math.round(ago / 60000)}m ago`;
-          
-          // Calculate next run
+
           const interval = parseWakeInterval(wake);
           if (interval) {
             const nextMs = lastMs + interval - Date.now();
@@ -1180,50 +1216,331 @@ async function checkOnboarding() {
           }
         }
       } catch {}
-      
-      const statusColor = status === 'active' ? c.green : status === 'done' ? c.dim : c.yellow;
-      console.log(`${c.cyan}${taskName}${c.reset}`);
-      console.log(`  ${c.dim}Path:${c.reset}     ${projectDir}`);
-      console.log(`  ${c.dim}Status:${c.reset}   ${statusColor}${status}${c.reset}`);
-      console.log(`  ${c.dim}Wake:${c.reset}     ${wake}`);
-      console.log(`  ${c.dim}Last run:${c.reset} ${lastRun}`);
-      console.log(`  ${c.dim}Next run:${c.reset} ${nextRun}`);
 
-      // Show recent log entries for this task
-      if (fs.existsSync(DAEMON_LOG_FILE)) {
-        try {
-          const logs = fs.readFileSync(DAEMON_LOG_FILE, 'utf8');
-          const taskLogs = logs.split('\n')
-            .filter(line => line.includes(taskBranch) || line.includes(taskName))
-            .slice(-3); // Last 3 entries
-          if (taskLogs.length > 0) {
-            console.log(`  ${c.dim}Log:${c.reset}`);
-            taskLogs.forEach(line => {
-              // Extract timestamp and message, format nicely
-              const match = line.match(/\[([^\]]+)\]\s*(.+)/);
-              if (match) {
-                const ts = new Date(match[1]);
-                const timeStr = ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-                const msg = match[2].replace(taskBranch, '').replace(taskName, '').trim();
-                console.log(`    ${c.dim}${timeStr}${c.reset} ${msg.slice(0, 60)}`);
-              } else {
-                console.log(`    ${c.dim}${line.slice(0, 70)}${c.reset}`);
-              }
-            });
-          }
-        } catch {}
-      }
-      console.log('');
+      tasks.push({ taskName, taskBranch, projectDir, wake, status, lastRun, nextRun });
     }
-    
-    const pid = isDaemonRunning();
-    if (pid) {
-      console.log(`${c.green}Daemon running${c.reset} (pid ${pid})`);
-    } else {
-      console.log(`${c.yellow}Daemon not running${c.reset} — start with: agx daemon start`);
+    return tasks;
+  }
+
+  // Helper: find task by name (partial match)
+  function findTask(tasks, name) {
+    if (!name) return null;
+    return tasks.find(t => t.taskName === name) ||
+           tasks.find(t => t.taskName.includes(name)) ||
+           tasks.find(t => t.taskBranch.includes(name));
+  }
+
+  // Helper: get task logs
+  function getTaskLogs(task, limit = 10) {
+    if (!fs.existsSync(DAEMON_LOG_FILE)) return [];
+    try {
+      const logs = fs.readFileSync(DAEMON_LOG_FILE, 'utf8');
+      return logs.split('\n')
+        .filter(line => line.includes(task.taskBranch) || line.includes(task.taskName))
+        .slice(-limit);
+    } catch { return []; }
+  }
+
+  // Run task immediately
+  if (cmd === 'run') {
+    const tasks = loadTasks();
+    if (tasks.length === 0) {
+      console.log(`${c.yellow}No tasks found${c.reset}`);
+      process.exit(1);
     }
-    
+
+    const taskArg = args[1];
+    let task = taskArg ? findTask(tasks, taskArg) : null;
+
+    // If no arg, try current directory
+    if (!task && !taskArg) {
+      const cwd = process.cwd();
+      task = tasks.find(t => t.projectDir === cwd);
+    }
+
+    if (!task) {
+      console.log(`${c.yellow}Task not found${c.reset}${taskArg ? `: ${taskArg}` : ''}`);
+      console.log(`${c.dim}Available: ${tasks.map(t => t.taskName).join(', ')}${c.reset}`);
+      process.exit(1);
+    }
+
+    console.log(`${c.cyan}▶${c.reset} Running ${c.bold}${task.taskName}${c.reset}...\n`);
+
+    try {
+      execSync(`agx claude -y -p "continue"`, {
+        cwd: task.projectDir,
+        stdio: 'inherit',
+        timeout: 10 * 60 * 1000
+      });
+    } catch (err) {
+      console.error(`${c.red}Error:${c.reset} ${err.message}`);
+    }
     process.exit(0);
+  }
+
+  // Pause task
+  if (cmd === 'pause') {
+    const tasks = loadTasks();
+    const taskArg = args[1];
+    let task = taskArg ? findTask(tasks, taskArg) : tasks.find(t => t.projectDir === process.cwd());
+
+    if (!task) {
+      console.log(`${c.yellow}Task not found${c.reset}`);
+      process.exit(1);
+    }
+
+    try {
+      execSync('mem wake clear', { cwd: task.projectDir, stdio: 'ignore' });
+      console.log(`${c.yellow}⏸${c.reset} Paused ${c.bold}${task.taskName}${c.reset}`);
+      console.log(`${c.dim}Resume with: agx resume ${task.taskName}${c.reset}`);
+    } catch (err) {
+      console.error(`${c.red}Error:${c.reset} ${err.message}`);
+    }
+    process.exit(0);
+  }
+
+  // Resume task (re-enable wake)
+  if (cmd === 'resume') {
+    const tasks = loadTasks();
+    const taskArg = args[1];
+    let task = taskArg ? findTask(tasks, taskArg) : tasks.find(t => t.projectDir === process.cwd());
+
+    if (!task) {
+      console.log(`${c.yellow}Task not found${c.reset}`);
+      process.exit(1);
+    }
+
+    try {
+      execSync('mem wake "every 15m"', { cwd: task.projectDir, stdio: 'ignore' });
+      console.log(`${c.green}▶${c.reset} Resumed ${c.bold}${task.taskName}${c.reset} (wake: every 15m)`);
+    } catch (err) {
+      console.error(`${c.red}Error:${c.reset} ${err.message}`);
+    }
+    process.exit(0);
+  }
+
+  // Stop task (mark done)
+  if (cmd === 'stop') {
+    const tasks = loadTasks();
+    const taskArg = args[1];
+    let task = taskArg ? findTask(tasks, taskArg) : tasks.find(t => t.projectDir === process.cwd());
+
+    if (!task) {
+      console.log(`${c.yellow}Task not found${c.reset}`);
+      process.exit(1);
+    }
+
+    try {
+      const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
+      execSync(`git checkout ${task.taskBranch}`, { cwd: memDir, stdio: 'ignore' });
+      const statePath = path.join(memDir, 'state.md');
+      if (fs.existsSync(statePath)) {
+        let st = fs.readFileSync(statePath, 'utf8');
+        st = st.replace(/^status:\s*.+$/m, 'status: done');
+        fs.writeFileSync(statePath, st);
+        execSync('git add state.md && git commit -m "done: marked complete"', { cwd: memDir, stdio: 'ignore', shell: true });
+      }
+      execSync('mem wake clear', { cwd: task.projectDir, stdio: 'ignore' });
+      console.log(`${c.green}✓${c.reset} Stopped ${c.bold}${task.taskName}${c.reset} (marked done)`);
+    } catch (err) {
+      console.error(`${c.red}Error:${c.reset} ${err.message}`);
+    }
+    process.exit(0);
+  }
+
+  // Remove task
+  if (cmd === 'remove' || cmd === 'rm') {
+    const tasks = loadTasks();
+    const taskArg = args[1];
+    let task = taskArg ? findTask(tasks, taskArg) : null;
+
+    if (!task) {
+      console.log(`${c.yellow}Task not found: ${taskArg || '(none)'}${c.reset}`);
+      console.log(`${c.dim}Available: ${tasks.map(t => t.taskName).join(', ')}${c.reset}`);
+      process.exit(1);
+    }
+
+    try {
+      const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
+      const indexFile = path.join(memDir, 'index.json');
+
+      // Remove from index
+      const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
+      delete index[task.projectDir];
+      fs.writeFileSync(indexFile, JSON.stringify(index, null, 2));
+
+      // Delete branch
+      execSync(`git checkout main`, { cwd: memDir, stdio: 'ignore' });
+      execSync(`git branch -D ${task.taskBranch}`, { cwd: memDir, stdio: 'ignore' });
+
+      console.log(`${c.red}✗${c.reset} Removed ${c.bold}${task.taskName}${c.reset}`);
+    } catch (err) {
+      console.error(`${c.red}Error:${c.reset} ${err.message}`);
+    }
+    process.exit(0);
+  }
+
+  // Interactive tasks browser
+  if (cmd === 'tasks') {
+    const tasks = loadTasks();
+
+    if (tasks.length === 0) {
+      console.log(`${c.yellow}No tasks found${c.reset}`);
+      process.exit(0);
+    }
+
+    let selectedIdx = 0;
+    let inDetailView = false;
+
+    const clearScreen = () => process.stdout.write('\x1b[2J\x1b[H');
+    const hideCursor = () => process.stdout.write('\x1b[?25l');
+    const showCursor = () => process.stdout.write('\x1b[?25h');
+
+    const renderList = () => {
+      clearScreen();
+      const pid = isDaemonRunning();
+      const daemonStatus = pid
+        ? `${c.green}●${c.reset} Daemon running`
+        : `${c.yellow}○${c.reset} Daemon stopped`;
+
+      console.log(`${c.bold}Tasks${c.reset}  ${c.dim}│${c.reset}  ${daemonStatus}\n`);
+
+      tasks.forEach((task, idx) => {
+        const selected = idx === selectedIdx;
+        const prefix = selected ? `${c.cyan}❯${c.reset}` : ' ';
+        const statusIcon = task.status === 'active' ? `${c.green}●${c.reset}`
+                         : task.status === 'done' ? `${c.dim}✓${c.reset}`
+                         : `${c.yellow}○${c.reset}`;
+        const name = selected ? `${c.bold}${task.taskName}${c.reset}` : task.taskName;
+        const info = `${c.dim}${task.status} · ${task.lastRun === '—' ? 'never run' : task.lastRun}${c.reset}`;
+
+        console.log(`${prefix} ${statusIcon} ${name}  ${info}`);
+      });
+
+      console.log(`\n${c.dim}↑/↓ select · enter view · r run · p pause · d done · x remove · q quit${c.reset}`);
+    };
+
+    const renderDetail = () => {
+      clearScreen();
+      const task = tasks[selectedIdx];
+      const statusColor = task.status === 'active' ? c.green : task.status === 'done' ? c.dim : c.yellow;
+
+      console.log(`${c.bold}${c.cyan}${task.taskName}${c.reset}\n`);
+      console.log(`  ${c.dim}Path:${c.reset}     ${task.projectDir}`);
+      console.log(`  ${c.dim}Status:${c.reset}   ${statusColor}${task.status}${c.reset}`);
+      console.log(`  ${c.dim}Wake:${c.reset}     ${task.wake}`);
+      console.log(`  ${c.dim}Last run:${c.reset} ${task.lastRun}`);
+      console.log(`  ${c.dim}Next run:${c.reset} ${task.nextRun}`);
+
+      const logs = getTaskLogs(task, 8);
+      if (logs.length > 0) {
+        console.log(`\n${c.bold}Recent Log${c.reset}\n`);
+        logs.forEach(line => {
+          const match = line.match(/\[([^\]]+)\]\s*(.+)/);
+          if (match) {
+            const ts = new Date(match[1]);
+            const timeStr = ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+            const msg = match[2].replace(task.taskBranch, '').replace(task.taskName, '').trim();
+            console.log(`  ${c.dim}${timeStr}${c.reset} ${msg.slice(0, 65)}`);
+          }
+        });
+      }
+
+      console.log(`\n${c.dim}esc back · r run now · p pause · d done · x remove · q quit${c.reset}`);
+    };
+
+    const render = () => inDetailView ? renderDetail() : renderList();
+
+    // Handle action
+    const doAction = async (action) => {
+      const task = tasks[selectedIdx];
+      showCursor();
+      clearScreen();
+
+      if (action === 'run') {
+        console.log(`${c.cyan}▶${c.reset} Running ${c.bold}${task.taskName}${c.reset}...\n`);
+        try {
+          execSync(`agx claude -y -p "continue"`, { cwd: task.projectDir, stdio: 'inherit' });
+        } catch {}
+        process.exit(0);
+      } else if (action === 'pause') {
+        execSync('mem wake clear', { cwd: task.projectDir, stdio: 'ignore' });
+        console.log(`${c.yellow}⏸${c.reset} Paused ${c.bold}${task.taskName}${c.reset}`);
+        process.exit(0);
+      } else if (action === 'done') {
+        const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
+        execSync(`git checkout ${task.taskBranch}`, { cwd: memDir, stdio: 'ignore' });
+        const statePath = path.join(memDir, 'state.md');
+        if (fs.existsSync(statePath)) {
+          let st = fs.readFileSync(statePath, 'utf8');
+          st = st.replace(/^status:\s*.+$/m, 'status: done');
+          fs.writeFileSync(statePath, st);
+          execSync('git add state.md && git commit -m "done: marked complete"', { cwd: memDir, stdio: 'ignore', shell: true });
+        }
+        execSync('mem wake clear', { cwd: task.projectDir, stdio: 'ignore' });
+        console.log(`${c.green}✓${c.reset} Marked ${c.bold}${task.taskName}${c.reset} done`);
+        process.exit(0);
+      } else if (action === 'remove') {
+        const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
+        const indexFile = path.join(memDir, 'index.json');
+        const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
+        delete index[task.projectDir];
+        fs.writeFileSync(indexFile, JSON.stringify(index, null, 2));
+        execSync(`git checkout main`, { cwd: memDir, stdio: 'ignore' });
+        execSync(`git branch -D ${task.taskBranch}`, { cwd: memDir, stdio: 'ignore' });
+        console.log(`${c.red}✗${c.reset} Removed ${c.bold}${task.taskName}${c.reset}`);
+        process.exit(0);
+      }
+    };
+
+    // Setup raw input
+    if (process.stdin.isTTY) {
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+      hideCursor();
+      render();
+
+      process.stdin.on('data', async (key) => {
+        const k = key.toString();
+
+        if (k === 'q' || k === '\x03') { // q or ctrl-c
+          showCursor();
+          clearScreen();
+          process.exit(0);
+        } else if (k === '\x1b[A') { // up
+          selectedIdx = Math.max(0, selectedIdx - 1);
+          render();
+        } else if (k === '\x1b[B') { // down
+          selectedIdx = Math.min(tasks.length - 1, selectedIdx + 1);
+          render();
+        } else if (k === '\r' || k === '\n') { // enter
+          inDetailView = true;
+          render();
+        } else if (k === '\x1b' || k === '\x1b[D') { // esc or left
+          inDetailView = false;
+          render();
+        } else if (k === 'r') {
+          await doAction('run');
+        } else if (k === 'p') {
+          await doAction('pause');
+        } else if (k === 'd') {
+          await doAction('done');
+        } else if (k === 'x') {
+          await doAction('remove');
+        }
+      });
+    } else {
+      // Non-interactive: just list
+      console.log(`${c.bold}Tasks${c.reset}\n`);
+      tasks.forEach((task, idx) => {
+        const statusIcon = task.status === 'active' ? `${c.green}●${c.reset}`
+                         : task.status === 'done' ? `${c.dim}✓${c.reset}`
+                         : `${c.yellow}○${c.reset}`;
+        console.log(`${idx + 1}. ${statusIcon} ${task.taskName}  ${c.dim}${task.status} · ${task.lastRun}${c.reset}`);
+      });
+      process.exit(0);
+    }
+    return true;
   }
 
   // Daemon commands
@@ -1376,36 +1693,56 @@ PROVIDERS:
   ollama, ol, o      Local Ollama (via Claude interface)${defaultNote}
 
 OPTIONS:
-  --prompt, -p <text>    The prompt to send (recommended for clarity)
+  --prompt, -p <text>    The prompt to send
   --model, -m <name>     Model name to use
   --yolo, -y             Skip permission prompts
-  --print                Non-interactive mode (output and exit)
+  --autonomous, -a       Create task + daemon, run unattended
+  --task NAME            Specific task name
+  --criteria "..."       Success criterion (repeatable)
+  --print                Non-interactive mode
   --interactive, -i      Force interactive mode
-  --sandbox, -s          Enable sandbox (gemini only)
   --debug, -d            Enable debug output
-  --mcp <config>         MCP config file (claude/ollama only)
 
-COMMANDS:
-  init, setup            Run setup wizard
+TASK COMMANDS:
+  init <name> "<goal>"   Create new task
+  status                 Show task status
+  tasks                  List all tasks with schedules
+  done                   Mark task complete
+  stuck [reason|clear]   Mark/clear blocker
+  switch <name>          Switch to task
+  checkpoint "<msg>"     Save progress point
+  learn "<insight>"      Record learning
+  next "<step>"          Set next step
+  wake "<schedule>"      Set wake schedule (e.g. "every 15m")
+  context                Show full task context
+  progress               Show % complete
+  criteria [add|N]       Add/mark criteria
+  goal [value]           Get/set goal
+
+DAEMON COMMANDS:
+  daemon start           Start background runner
+  daemon stop            Stop daemon
+  daemon status          Check if running
+  daemon logs            Show recent logs
+
+SETUP COMMANDS:
+  setup                  Run setup wizard
   config                 Configuration menu
-  add <provider>         Install a provider (claude, gemini, ollama)
-  login <provider>       Login/authenticate to a provider
-  status                 Show current configuration
-  skill                  View agx skill (LLM instructions)
-  skill install          Install skill to Claude/Gemini
+  add <provider>         Install a provider
+  login <provider>       Authenticate to provider
+  skill                  View/install agx skill
 
 EXAMPLES:
-  agx --prompt "hello"                        Use default provider
-  agx claude --prompt "explain this code"
-  agx gemini -m gemini-2.0-flash --prompt "hello"
-  agx ollama --model qwen3:8b --prompt "write a poem"
-  agx c --yolo -p "fix the bug"
+  agx -p "hello"                              Simple prompt
+  agx claude -p "explain this code"           Specific provider
+  agx init myproject "Build a todo app"       Create task
+  agx -a -p "Build a REST API"                Autonomous mode
+  agx status                                  Check current task
+  agx done                                    Mark complete
 
 RAW PASSTHROUGH:
   Use -- to pass arguments directly to underlying CLI:
-  agx claude -- --resume
-
-NOTE: For predictable LLM usage, always use --prompt or -p flag.`);
+  agx claude -- --resume`);
   process.exit(0);
 }
 

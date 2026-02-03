@@ -1,6 +1,6 @@
 # agx
 
-Unified AI Agent CLI with persistent memory. Wraps Claude, Gemini, and Ollama with automatic state management via [mem](https://github.com/ramarlina/memx).
+Unified AI Agent CLI with persistent memory. Wraps Claude, Gemini, and Ollama with automatic state management.
 
 ```bash
 npm install -g @mndrk/agx
@@ -10,33 +10,81 @@ npm install -g @mndrk/agx
 
 ```bash
 # Simple prompt
-agx claude -p "explain this code"
+agx -p "explain this code"
 
-# Use default provider
-agx -p "what does this function do?"
+# Specific provider
+agx claude -p "fix this bug"
 
-# With persistent memory (auto-detected)
-agx claude -p "continue working on the todo app"
-
-# Autonomous mode - creates task and works until done
-agx claude --autonomous -p "Build a todo app with React"
+# Autonomous mode - creates task + daemon, runs until done
+agx -a -p "Build a React todo app with auth"
 ```
 
-## Memory Integration
+## Task Management
 
-agx integrates with [mem](https://github.com/ramarlina/memx) for persistent state across sessions:
+agx handles all persistent state internally:
 
 ```bash
-# If ~/.mem has a task mapped to cwd, context is auto-loaded
-cd ~/Projects/my-app
-agx claude -p "continue"   # Knows where it left off
+# Create a task
+agx init myproject "Build a todo app"
 
-# Create task with explicit criteria
-agx claude --task todo-app \
-  --criteria "CRUD working" \
-  --criteria "Tests passing" \
-  --criteria "Deployed to Vercel" \
-  -p "Build a todo app"
+# Check status
+agx status
+
+# List all tasks
+agx tasks
+
+# Continue work (context auto-loaded)
+agx -p "continue"
+
+# Mark complete
+agx done
+```
+
+## Task Commands
+
+```bash
+agx init <name> "<goal>"    # Create new task
+agx status                  # Show current state
+agx tasks                   # List all tasks with schedules
+agx done                    # Mark task complete
+agx stuck [reason|clear]    # Mark/clear blocker
+agx switch <name>           # Switch between tasks
+agx checkpoint "<msg>"      # Save progress point
+agx learn "<insight>"       # Record learning
+agx next "<step>"           # Set next step
+agx wake "<schedule>"       # Set wake (e.g. "every 15m")
+agx progress                # Show % complete
+agx criteria add "<text>"   # Add success criterion
+agx criteria <N>            # Mark criterion #N complete
+```
+
+## Autonomous Mode
+
+Start a task that runs autonomously until complete:
+
+```bash
+agx -a -p "Build a REST API with authentication"
+# ✓ Created task: build-rest-api
+# ✓ Mapped: ~/Projects/api → task/build-rest-api
+# ✓ Daemon started (pid 12345)
+# ✓ Autonomous mode: daemon will continue work every 15m
+```
+
+The `-a` flag:
+- Creates a task with your prompt as the goal
+- Starts background daemon
+- Skips permission prompts (`-y` implied)
+- Continues until `[done]` or `[blocked]`
+
+## Daemon
+
+Background runner for unattended work:
+
+```bash
+agx daemon start       # Start
+agx daemon stop        # Stop
+agx daemon status      # Check if running
+agx daemon logs        # View recent logs
 ```
 
 ## Output Markers
@@ -48,12 +96,13 @@ Agents control state via markers in their output:
 [learn: Tailwind is fast]             # Record learning
 [next: Add auth system]               # Set next step
 [criteria: 2]                         # Mark criterion #2 done
-[approve: Deploy to production?]      # Halt for approval
-[blocked: Need API key from client]   # Mark stuck
-[pause]                               # Stop, resume later
-[continue]                            # Keep going (daemon)
+```
+
+Stopping markers (only when needed):
+```
 [done]                                # Task complete
-[split: auth "Handle authentication"] # Create subtask
+[blocked: Need API key from client]   # Can't proceed
+[approve: Deploy to production?]      # Need human ok
 ```
 
 ## Providers
@@ -70,13 +119,22 @@ Agents control state via markers in their output:
 --prompt, -p <text>    Prompt to send
 --model, -m <name>     Model name
 --yolo, -y             Skip permission prompts
---print                Non-interactive output
---interactive, -i      Force interactive mode
---mem                  Enable mem integration (auto-detected)
---no-mem               Disable mem integration
---autonomous, -a       Create task and run autonomously (starts daemon)
+--autonomous, -a       Create task + daemon, run unattended
 --task <name>          Specific task name
 --criteria <text>      Success criterion (repeatable)
+--print                Non-interactive output
+--interactive, -i      Force interactive mode
+```
+
+## Setup Commands
+
+```bash
+agx setup              # First-time setup wizard
+agx config             # Configuration menu
+agx add <provider>     # Install a provider
+agx login <provider>   # Authenticate
+agx skill              # View agx skill (for LLMs)
+agx skill install      # Install skill to Claude/Gemini
 ```
 
 ## Claude Code Plugin
@@ -87,88 +145,33 @@ Install as a Claude Code plugin:
 claude plugin install github:ramarlina/agx
 ```
 
-This adds:
-- **Skill**: Claude learns how to spawn background agents
-- **Commands**: `/agx:spawn <goal>`, `/agx:continue`
-
-## Commands
-
-```bash
-agx init               # Setup wizard
-agx config             # Configuration menu
-agx status             # Show current config
-agx skill              # View LLM skill
-agx skill install      # Install skill to Claude/Gemini
-
-# Daemon management
-agx daemon start       # Start background daemon
-agx daemon stop        # Stop daemon
-agx daemon status      # Check if running
-agx daemon logs        # Show recent logs
-```
-
-## Autonomous Mode
-
-Start a task that runs autonomously until complete:
-
-```bash
-agx claude --autonomous -p "Build a React todo app with auth"
-# ✓ Created task: build-react-todo
-# ✓ Mapped: ~/Projects/app → task/build-react-todo
-# ✓ Daemon started (pid 12345)
-# ✓ Autonomous mode: daemon will continue work every 15m
-```
-
-The daemon:
-- Runs in background (survives terminal close)
-- Wakes every 15 minutes
-- Continues work on active tasks
-- Stops when task is `[done]` or `[blocked]`
-
-## Loop Control
-
-The agent controls execution flow via markers:
-
-- `[done]` → Task complete, exit
-- `[pause]` → Save state, exit (resume later with same command)
-- `[blocked: reason]` → Mark stuck, notify human, exit
-- `[continue]` → Keep going (daemon mode loops)
-- `[approve: question]` → Halt until human approves
-
-## Task Splitting
-
-Break large tasks into subtasks:
-
-```
-Agent output:
-This is too big. Breaking it down.
-
-[split: setup "Project scaffolding"]
-[split: auth "Authentication system"]
-[split: crud "CRUD operations"]
-[next: Start with setup subtask]
-[pause]
-```
-
-agx creates subtask branches in ~/.mem linked to the parent.
-
 ## Example: Full Workflow
 
 ```bash
 # Day 1: Start project
 mkdir ~/Projects/my-app && cd ~/Projects/my-app
-agx claude --auto-task -p "Build a React todo app with auth"
+agx init todo-app "Build a React todo app with auth"
+agx criteria add "CRUD operations working"
+agx criteria add "Auth with JWT"
+agx criteria add "Deployed to Vercel"
+agx -p "Let's build this"
 
-# Agent works, outputs markers
+# Agent works, saves progress automatically
 # [checkpoint: Scaffolded with Vite]
 # [learn: Vite is faster than CRA]
 # [next: Add todo list component]
-# [pause]
 
 # Day 2: Continue
 cd ~/Projects/my-app
-agx claude -p "continue"
-# Context auto-loaded, agent picks up where it left off
+agx -p "continue"
+# Context auto-loaded, picks up where it left off
+
+# Check progress
+agx progress
+# Progress: 33% (1/3 criteria complete)
+
+# Mark done when finished
+agx done
 ```
 
 ## License

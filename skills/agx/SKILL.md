@@ -1,6 +1,6 @@
-# agx - Unified AI Agent Wrapper
+# agx - Unified AI Agent CLI
 
-Use `agx` to run AI agents (Claude Code, Gemini, Ollama) with persistent memory integration. Spawn autonomous tasks that work in the background until complete.
+Use `agx` to run AI agents (Claude Code, Gemini, Ollama) with persistent memory. Spawn autonomous tasks that work in the background until complete.
 
 ## When to Use
 
@@ -12,29 +12,49 @@ Use `agx` to run AI agents (Claude Code, Gemini, Ollama) with persistent memory 
 ## Basic Usage
 
 ```bash
-agx claude -p "prompt"              # Run Claude Code
-agx gemini -p "prompt"              # Run Gemini
-agx ollama -p "prompt"              # Run Ollama (local)
+agx -p "prompt"                     # Default provider
+agx claude -p "prompt"              # Claude Code
+agx gemini -p "prompt"              # Gemini
+agx ollama -p "prompt"              # Ollama (local)
 ```
 
-## Autonomous Mode (Recommended)
+## Task Management
+
+```bash
+agx init <name> "<goal>"    # Create new task
+agx status                  # Show current state
+agx tasks                   # List all tasks
+agx done                    # Mark complete
+agx stuck [reason|clear]    # Mark/clear blocker
+agx switch <name>           # Switch tasks
+agx checkpoint "<msg>"      # Save progress point
+agx learn "<insight>"       # Record learning
+agx next "<step>"           # Set next step
+agx wake "<schedule>"       # Set wake (e.g. "every 15m")
+agx progress                # Show % complete
+agx criteria add "<text>"   # Add criterion
+agx criteria <N>            # Mark criterion #N complete
+```
+
+## Autonomous Mode
 
 Start a task that runs autonomously until complete:
 
 ```bash
 cd ~/Projects/my-app
-agx claude --autonomous -p "Build a React todo app with auth"
+agx -a -p "Build a React todo app with auth"
 # ✓ Created task: build-react-todo
 # ✓ Mapped: ~/Projects/my-app → task/build-react-todo
 # ✓ Daemon started (pid 12345)
 # ✓ Autonomous mode: daemon will continue work every 15m
 ```
 
-This:
-1. Creates a mem task branch
+The `-a` flag:
+1. Creates a task with your prompt as the goal
 2. Starts the agx daemon (if not running)
-3. Daemon wakes every 15m to continue work
-4. Runs until agent outputs [done] or [blocked]
+3. Skips prompts (`-y` implied)
+4. Daemon wakes every 15m to continue
+5. Stops when agent outputs [done] or [blocked]
 
 ## Daemon Management
 
@@ -49,7 +69,7 @@ The daemon:
 - Runs in background (survives terminal close)
 - Wakes every 15 minutes
 - Continues work on active tasks
-- Stops when task is [done] or [blocked]
+- Respects per-task wake intervals
 
 ## Output Markers
 
@@ -68,7 +88,6 @@ Use these in agent output to control state:
 [done]                  # Task complete, stop
 [blocked: reason]       # Need human help, pause
 [approve: question]     # Need approval, wait
-[pause]                 # Stop, resume on next wake
 ```
 
 **Default behavior:** Keep working. Only output stopping markers when needed.
@@ -79,40 +98,49 @@ Use these in agent output to control state:
 |----------|---------|-------------|
 | claude | c, cl | Anthropic Claude Code |
 | gemini | g, gem | Google Gemini |
-| ollama | o, oll | Local Ollama |
+| ollama | o, ol | Local Ollama |
 
 ## Common Flags
 
 ```bash
---autonomous, -a    # Create task and run autonomously (starts daemon)
+--autonomous, -a    # Create task + daemon, run unattended
 --task NAME         # Specific task name
 --criteria "..."    # Success criterion (repeatable)
--y                  # Skip confirmations
+--yolo, -y          # Skip confirmations
+--model, -m         # Model name
 ```
 
 ## Examples
 
 ### Quick one-shot
 ```bash
-agx claude -p "Explain this error" -y
+agx -p "Explain this error" -y
+```
+
+### Create task with criteria
+```bash
+agx init api-task "Build REST API"
+agx criteria add "CRUD endpoints"
+agx criteria add "Auth with JWT"
+agx -p "Let's build this"
 ```
 
 ### Autonomous task
 ```bash
 cd ~/Projects/api
-agx claude --autonomous -p "Add user authentication with JWT"
+agx -a -p "Add user authentication with JWT"
 # Daemon continues work every 15m until done
 ```
 
 ### Check on a running task
 ```bash
 agx daemon status   # Check daemon
-mem status          # Task summary
-mem progress        # % complete
+agx status          # Task summary
+agx progress        # % complete
 ```
 
 ### Manual continue
 ```bash
 cd ~/Projects/api
-agx claude -p "continue"   # Resume from last checkpoint
+agx -p "continue"   # Resume from last checkpoint
 ```
