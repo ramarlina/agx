@@ -388,10 +388,12 @@ function parseWakeInterval(pattern) {
 }
 
 async function runDaemon() {
-  console.log(`[${new Date().toISOString()}] Daemon starting (continuous mode)...`);
+  console.log(`[${new Date().toISOString()}] Daemon starting (parallel mode)...`);
 
   const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
-  const POLL_INTERVAL = 1000; // Check every 1 second
+  const POLL_INTERVAL = 1000;
+  const MAX_PARALLEL = 5; // Max concurrent tasks
+  const runningTasks = new Set(); // Track running task branches
 
   function loadState() {
     try {
@@ -399,17 +401,18 @@ async function runDaemon() {
         return JSON.parse(fs.readFileSync(DAEMON_STATE_FILE, 'utf8'));
       }
     } catch {}
-    return { lastRun: {} };
+    return { lastRun: {}, running: [] };
   }
 
   function saveState(state) {
     const dir = path.dirname(DAEMON_STATE_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    state.running = Array.from(runningTasks);
     fs.writeFileSync(DAEMON_STATE_FILE, JSON.stringify(state, null, 2));
   }
 
   // Get active tasks (not done/blocked, not currently running)
-  function getActiveTasks(state) {
+  function getActiveTasks() {
     const indexFile = path.join(memDir, 'index.json');
     if (!fs.existsSync(indexFile)) return [];
 
@@ -418,7 +421,7 @@ async function runDaemon() {
 
     for (const [projectDir, taskBranch] of Object.entries(index)) {
       if (!fs.existsSync(projectDir)) continue;
-      if (state.running === taskBranch) continue; // Already running
+      if (runningTasks.has(taskBranch)) continue; // Already running
 
       try {
         const taskName = taskBranch.replace('task/', '');
@@ -436,81 +439,78 @@ async function runDaemon() {
     return active;
   }
 
-  // Run a single task iteration
-  async function runTask(task, state) {
+  // Run a single task iteration (returns promise)
+  function runTask(task) {
     const { taskName, taskBranch, projectDir } = task;
     const logPath = getTaskLogPath(taskName);
 
-    console.log(`[${new Date().toISOString()}] Running: ${taskName}`);
+    console.log(`[${new Date().toISOString()}] Starting: ${taskName}`);
 
     // Mark as running
-    state.running = taskBranch;
+    runningTasks.add(taskBranch);
+    const state = loadState();
     state.lastRun[taskBranch] = Date.now();
     saveState(state);
 
     const logStream = fs.createWriteStream(logPath, { flags: 'a' });
     logStream.write(`\n=== ${new Date().toISOString()} ===\n`);
 
-    try {
-      await new Promise((resolve, reject) => {
-        const child = spawn('agx', ['claude', '-y', '-p', 'continue'], {
-          cwd: projectDir,
-          stdio: ['ignore', 'pipe', 'pipe']
-        });
-
-        child.stdout.on('data', (data) => {
-          logStream.write(data);
-          process.stdout.write(data);
-        });
-        child.stderr.on('data', (data) => {
-          logStream.write(data);
-          process.stderr.write(data);
-        });
-
-        const timeout = setTimeout(() => {
-          child.kill();
-          reject(new Error('Timeout after 30 minutes'));
-        }, 30 * 60 * 1000);
-
-        child.on('close', (code) => {
-          clearTimeout(timeout);
-          logStream.end();
-          resolve(code);
-        });
-        child.on('error', reject);
+    return new Promise((resolve) => {
+      // Use --continue to load task context
+      const child = spawn('agx', ['claude', '--continue', taskName], {
+        cwd: projectDir,
+        stdio: ['ignore', 'pipe', 'pipe']
       });
 
-      console.log(`[${new Date().toISOString()}] Completed: ${taskName}`);
-    } catch (err) {
-      console.log(`[${new Date().toISOString()}] Error: ${taskName} - ${err.message}`);
-      logStream.write(`\nERROR: ${err.message}\n`);
-      logStream.end();
-    } finally {
-      delete state.running;
-      saveState(state);
-    }
+      child.stdout.on('data', (data) => {
+        logStream.write(data);
+      });
+      child.stderr.on('data', (data) => {
+        logStream.write(data);
+      });
+
+      const timeout = setTimeout(() => {
+        child.kill();
+        logStream.write(`\nTIMEOUT: Killed after 30 minutes\n`);
+      }, 30 * 60 * 1000);
+
+      child.on('close', (code) => {
+        clearTimeout(timeout);
+        logStream.end();
+        runningTasks.delete(taskBranch);
+        saveState(loadState());
+        console.log(`[${new Date().toISOString()}] Finished: ${taskName} (code ${code})`);
+        resolve(code);
+      });
+
+      child.on('error', (err) => {
+        logStream.write(`\nERROR: ${err.message}\n`);
+        logStream.end();
+        runningTasks.delete(taskBranch);
+        saveState(loadState());
+        console.log(`[${new Date().toISOString()}] Error: ${taskName} - ${err.message}`);
+        resolve(1);
+      });
+    });
   }
 
-  // Main loop - continuously process tasks
-  const loop = async () => {
-    while (true) {
-      const state = loadState();
-      const activeTasks = getActiveTasks(state);
+  // Main loop
+  console.log(`[${new Date().toISOString()}] Daemon running, max ${MAX_PARALLEL} parallel tasks`);
 
-      if (activeTasks.length > 0) {
-        // Run the first active task
-        const task = activeTasks[0];
-        await runTask(task, state);
-        // Immediately check for more work (no delay)
-      } else {
-        // No active tasks, wait before checking again
-        await new Promise(r => setTimeout(r, POLL_INTERVAL));
+  while (true) {
+    const activeTasks = getActiveTasks();
+    const availableSlots = MAX_PARALLEL - runningTasks.size;
+
+    if (activeTasks.length > 0 && availableSlots > 0) {
+      // Start tasks up to available slots (don't await - run in parallel)
+      const toStart = activeTasks.slice(0, availableSlots);
+      for (const task of toStart) {
+        runTask(task); // Fire and forget
       }
     }
-  };
 
-  console.log(`[${new Date().toISOString()}] Daemon running continuously, polling every ${POLL_INTERVAL}ms`);
-  await loop();
+    await new Promise(r => setTimeout(r, POLL_INTERVAL));
+  }
 }
 
 // Handle approval prompts
@@ -2037,6 +2037,15 @@ for (let i = 0; i < processedArgs.length; i++) {
         i++;
       }
       break;
+    case '--continue':
+      // Continue existing task (used by daemon)
+      if (nextArg && !nextArg.startsWith('-')) {
+        options.continueTask = nextArg;
+        options.mem = true;
+        options.yolo = true;
+        i++;
+      }
+      break;
     case '--daemon':
       options.daemon = true;
       break;
@@ -2130,24 +2139,35 @@ translatedArgs.push(...rawArgs);
 // - agx -p "..." → one-shot, no task
 // - agx -a -p "..." → create new task
 // - agx -a --task <name> → use/create specific task
+// - agx --continue <name> → continue existing task (used by daemon)
 
 let memInfo = null;
+const centralMem = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
 
-// Only use mem in autonomous mode
-if (options.autonomous && options.mem !== false) {
-  if (options.taskName) {
-    // Specific task requested: check if it exists
-    const centralMem = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
-    if (fs.existsSync(centralMem)) {
-      const branch = `task/${options.taskName}`;
-      try {
-        execSync(`git show-ref --verify refs/heads/${branch}`, { cwd: centralMem, stdio: 'ignore' });
-        memInfo = { memDir: centralMem, taskBranch: branch, projectDir: process.cwd(), isLocal: false };
-      } catch {} // Task doesn't exist, will be created
+// --continue: load existing task context (used by daemon)
+if (options.continueTask && options.mem !== false) {
+  const branch = `task/${options.continueTask}`;
+  if (fs.existsSync(centralMem)) {
+    try {
+      execSync(`git show-ref --verify refs/heads/${branch}`, { cwd: centralMem, stdio: 'ignore' });
+      memInfo = { memDir: centralMem, taskBranch: branch, projectDir: process.cwd(), isLocal: false };
+    } catch {
+      console.error(`${c.red}Task not found:${c.reset} ${options.continueTask}`);
+      process.exit(1);
     }
   }
-  // else: autonomous without --task creates new task below
 }
+// -a with --task: use/create specific task
+else if (options.autonomous && options.taskName && options.mem !== false) {
+  if (fs.existsSync(centralMem)) {
+    const branch = `task/${options.taskName}`;
+    try {
+      execSync(`git show-ref --verify refs/heads/${branch}`, { cwd: centralMem, stdio: 'ignore' });
+      memInfo = { memDir: centralMem, taskBranch: branch, projectDir: process.cwd(), isLocal: false };
+    } catch {} // Task doesn't exist, will be created
+  }
+}
+// -a without --task: create new task (handled below)
 
 if (memInfo) {
   options.mem = true;
