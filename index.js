@@ -143,18 +143,22 @@ function commandExists(cmd) {
 
 // Find .mem directory (walk up from cwd, or check ~/.mem)
 function findMemDir(startDir = process.cwd()) {
-  // First check local .mem
+  const HOME = process.env.HOME || process.env.USERPROFILE;
+  const centralMem = path.join(HOME, '.mem');
+  
+  // First check local .mem (skip ~/.mem which is the central repo)
   let dir = startDir;
   while (dir !== path.dirname(dir)) {
     const memDir = path.join(dir, '.mem');
-    if (fs.existsSync(memDir) && fs.existsSync(path.join(memDir, '.git'))) {
+    // Skip central ~/.mem - it's not a local project .mem
+    if (memDir !== centralMem && fs.existsSync(memDir) && fs.existsSync(path.join(memDir, '.git'))) {
       return { memDir, taskBranch: null, projectDir: dir, isLocal: true };
     }
     dir = path.dirname(dir);
   }
   
   // Then check ~/.mem with index
-  const globalMem = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
+  const globalMem = centralMem;
   if (fs.existsSync(globalMem)) {
     const indexFile = path.join(globalMem, 'index.json');
     if (fs.existsSync(indexFile)) {
