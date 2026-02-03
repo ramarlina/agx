@@ -10,7 +10,38 @@ npm link
 ```
 Now you can use `agx` globally.
 
+## Quick Start
+
+When you run `agx` for the first time, it will automatically start the setup wizard:
+
+```bash
+agx
+```
+
+The setup wizard will:
+1. Detect which AI providers are installed on your system
+2. Guide you through installing any missing providers
+3. Help you authenticate with your chosen providers
+4. Set your default provider
+
+After setup, you can start using agx immediately:
+
+```bash
+agx --prompt "hello world"
+```
+
 ## Usage
+
+### With Default Provider
+
+Once configured, you can run prompts without specifying a provider:
+
+```bash
+agx --prompt "explain this code"
+agx -p "summarize the file"
+```
+
+### With Specific Provider
 
 ```bash
 agx <provider> [options] --prompt "<prompt>"
@@ -44,11 +75,105 @@ Use `--` to pass arguments directly to the underlying CLI:
 agx claude -- --resume
 ```
 
+## Configuration Commands
+
+### `agx init`
+
+Run the setup wizard manually. This is useful if you want to reconfigure agx or add new providers:
+
+```bash
+agx init
+```
+
+The wizard will:
+- Detect installed providers (claude, gemini, ollama)
+- Guide you through installation and authentication
+- Let you set or change your default provider
+
+### `agx config`
+
+Open an interactive configuration menu to manage your agx settings:
+
+```bash
+agx config
+```
+
+### `agx add <provider>`
+
+Install a specific AI provider:
+
+```bash
+agx add claude    # Install Claude CLI
+agx add gemini    # Install Gemini CLI
+agx add ollama    # Install Ollama
+```
+
+### `agx login <provider>`
+
+Authenticate with a provider:
+
+```bash
+agx login claude    # Login to Claude
+agx login gemini    # Login to Gemini
+```
+
+### `agx status`
+
+View your current configuration, including installed providers and default settings:
+
+```bash
+agx status
+```
+
+Example output:
+```
+agx Configuration Status
+------------------------
+Default Provider: claude
+
+Installed Providers:
+  ✓ claude (authenticated)
+  ✓ gemini (authenticated)
+  ✓ ollama (running)
+
+Config file: ~/.agx/config.json
+```
+
+## Skill System
+
+agx includes a skill system that helps AI agents understand how to use agx effectively.
+
+### `agx skill`
+
+View the agx skill (LLM instructions):
+
+```bash
+agx skill
+```
+
+This displays the skill file that describes agx's capabilities and usage patterns for AI agents.
+
+### `agx skill install`
+
+Install the agx skill to Claude and/or Gemini so AI agents know how to use agx:
+
+```bash
+agx skill install
+```
+
+This adds the agx skill to your AI provider's skill directory, enabling features like:
+- AI agents can call other AI providers through agx
+- Cross-provider collaboration (e.g., Claude can ask Gemini for help)
+- Consistent command patterns across all providers
+
 ## LLM-Predictable Command Patterns
 
 For LLMs constructing commands, use these canonical patterns:
 
 ```bash
+# Pattern: agx --prompt "<prompt>" (uses default provider)
+agx --prompt "explain this code"
+
 # Pattern: agx <provider> --prompt "<prompt>"
 agx claude --prompt "explain this code"
 agx gemini --prompt "summarize the file"
@@ -69,7 +194,7 @@ agx claude --print --prompt "what is 2+2"
 ### Command Structure
 
 ```
-agx <provider> [--model <name>] [--yolo] [--print] --prompt "<prompt>"
+agx [provider] [--model <name>] [--yolo] [--print] --prompt "<prompt>"
 ```
 
 **Rules for LLMs:**
@@ -77,6 +202,30 @@ agx <provider> [--model <name>] [--yolo] [--print] --prompt "<prompt>"
 2. Quote the prompt with double quotes
 3. Place options before `--prompt`
 4. Use full provider names (`claude`, `gemini`, `ollama`) for clarity
+5. Provider is optional if a default is configured
+
+## Configuration File
+
+agx stores its configuration in `~/.agx/config.json`:
+
+```json
+{
+  "defaultProvider": "claude",
+  "providers": {
+    "claude": {
+      "installed": true,
+      "authenticated": true
+    },
+    "gemini": {
+      "installed": true,
+      "authenticated": true
+    },
+    "ollama": {
+      "installed": true
+    }
+  }
+}
+```
 
 ## Ollama Support
 
