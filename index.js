@@ -1184,6 +1184,31 @@ async function checkOnboarding() {
       console.log(`  ${c.dim}Wake:${c.reset}     ${wake}`);
       console.log(`  ${c.dim}Last run:${c.reset} ${lastRun}`);
       console.log(`  ${c.dim}Next run:${c.reset} ${nextRun}`);
+
+      // Show recent log entries for this task
+      if (fs.existsSync(DAEMON_LOG_FILE)) {
+        try {
+          const logs = fs.readFileSync(DAEMON_LOG_FILE, 'utf8');
+          const taskLogs = logs.split('\n')
+            .filter(line => line.includes(taskBranch) || line.includes(taskName))
+            .slice(-3); // Last 3 entries
+          if (taskLogs.length > 0) {
+            console.log(`  ${c.dim}Log:${c.reset}`);
+            taskLogs.forEach(line => {
+              // Extract timestamp and message, format nicely
+              const match = line.match(/\[([^\]]+)\]\s*(.+)/);
+              if (match) {
+                const ts = new Date(match[1]);
+                const timeStr = ts.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+                const msg = match[2].replace(taskBranch, '').replace(taskName, '').trim();
+                console.log(`    ${c.dim}${timeStr}${c.reset} ${msg.slice(0, 60)}`);
+              } else {
+                console.log(`    ${c.dim}${line.slice(0, 70)}${c.reset}`);
+              }
+            });
+          }
+        } catch {}
+      }
       console.log('');
     }
     
@@ -1436,7 +1461,7 @@ const options = {
   sandbox: false,
   debug: false,
   mcp: null,
-  mem: false,
+  mem: null, // null = auto-detect, true = force on, false = force off
   memDir: null,
   autonomous: false,
   taskName: null,
@@ -1609,8 +1634,9 @@ translatedArgs.push(...rawArgs);
 // ==================== MEM INTEGRATION ====================
 
 // Auto-detect mem if .mem exists (unless --no-mem)
-let memInfo = options.mem !== false ? findMemDir() : null;
-if (memInfo && options.mem !== false) {
+// Auto-detect mem unless explicitly disabled (--no-mem sets mem=false)
+let memInfo = options.mem === false ? null : findMemDir();
+if (memInfo) {
   options.mem = true;
   options.memInfo = memInfo;
   options.memDir = memInfo.memDir; // For backwards compat
