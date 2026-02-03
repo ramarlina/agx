@@ -2095,18 +2095,39 @@ translatedArgs.push(...rawArgs);
 
 // ==================== MEM INTEGRATION ====================
 
-// Auto-detect mem if .mem exists (unless --no-mem)
-// For autonomous mode, only use exact directory match (don't inherit parent task)
-// Auto-detect mem unless explicitly disabled (--no-mem sets mem=false)
-const exactOnly = options.autonomous || options.taskName;
-let memInfo = options.mem === false ? null : findMemDir(process.cwd(), exactOnly);
+// Mem context detection logic:
+// - agx -a -p "..." → always create new task (don't look for existing)
+// - agx -a --task <name> → use/create that specific task
+// - agx -p "..." → use existing task if found
+
+let memInfo = null;
+if (options.mem !== false) {
+  if (options.autonomous && !options.taskName) {
+    // Autonomous without --task: always create new task, skip lookup
+    memInfo = null;
+  } else if (options.taskName) {
+    // Specific task requested: check if it exists
+    const centralMem = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
+    if (fs.existsSync(centralMem)) {
+      const branch = `task/${options.taskName}`;
+      try {
+        execSync(`git show-ref --verify refs/heads/${branch}`, { cwd: centralMem, stdio: 'ignore' });
+        memInfo = { memDir: centralMem, taskBranch: branch, projectDir: process.cwd(), isLocal: false };
+      } catch {} // Task doesn't exist, will be created
+    }
+  } else {
+    // Normal mode: find existing task
+    memInfo = findMemDir();
+  }
+}
+
 if (memInfo) {
   options.mem = true;
   options.memInfo = memInfo;
-  options.memDir = memInfo.memDir; // For backwards compat
+  options.memDir = memInfo.memDir;
 }
 
-// Auto-create task if --autonomous or --task specified but no mem found for this exact directory
+// Auto-create task if --autonomous or --task specified but no mem found
 if ((options.autonomous || options.taskName) && !options.memInfo && finalPrompt) {
   const taskName = options.taskName || finalPrompt
     .toLowerCase()
