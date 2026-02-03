@@ -27,6 +27,6 @@
     "url": "https://github.com/ramarlina/agx"
   },
   "dependencies": {
-    "@mndrk/memx": "^0.2.0"
+    "@mndrk/memx": "^0.3.0"
   }
 }
