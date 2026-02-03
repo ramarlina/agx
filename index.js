@@ -1119,8 +1119,17 @@ async function checkOnboarding() {
     return true;
   }
 
-  // Status command
+  // Status command - show task status if in project, else config
   if (cmd === 'status') {
+    // Check if we're in a task project
+    const memInfo = findMemDir();
+    if (memInfo && memInfo.taskBranch) {
+      try {
+        execSync('mem status', { stdio: 'inherit' });
+        process.exit(0);
+      } catch {}
+    }
+    // Fall back to config status
     await showConfigStatus();
     process.exit(0);
     return true;
@@ -1704,10 +1713,15 @@ OPTIONS:
   --debug, -d            Enable debug output
 
 TASK COMMANDS:
+  tasks                  Interactive task browser (↑/↓ navigate)
+  run [task]             Run task immediately
+  pause [task]           Pause task (clear wake)
+  resume [task]          Resume paused task
+  stop [task]            Mark task done
+  remove [task]          Remove task completely
+
   init <name> "<goal>"   Create new task
-  status                 Show task status
-  tasks                  List all tasks with schedules
-  done                   Mark task complete
+  done                   Mark current task complete
   stuck [reason|clear]   Mark/clear blocker
   switch <name>          Switch to task
   checkpoint "<msg>"     Save progress point
