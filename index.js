@@ -1340,12 +1340,14 @@ if ((options.autoTask || options.taskName) && !options.memDir && finalPrompt) {
     console.log(`${c.green}✓${c.reset} Mapped: ${c.dim}${process.cwd()} → ${branch}${c.reset}`);
     
     // Auto-set wake schedule for new tasks with proper command
+    // Use full path for cron (no PATH), -y to skip prompts
     try {
       const projectDir = process.cwd();
-      const wakeCmd = `cd ${projectDir} && agx claude -p "continue"`;
+      const agxPath = '/opt/homebrew/bin/agx';
+      const wakeCmd = `cd ${projectDir} && ${agxPath} claude -y -p "continue"`;
       execSync(`mem wake "every 15m" --run "${wakeCmd}"`, { cwd: process.cwd(), stdio: 'ignore' });
       console.log(`${c.green}✓${c.reset} Wake: ${c.dim}every 15m (until done)${c.reset}`);
-      console.log(`${c.dim}       Run: agx claude -p "continue"${c.reset}\n`);
+      console.log(`${c.dim}       Run: agx claude -y -p "continue"${c.reset}\n`);
     } catch {}
     
   } catch (err) {
