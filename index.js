@@ -43,6 +43,8 @@ agx [options] --prompt "<prompt>"   # uses default provider
 | --yolo | -y | Skip permission prompts |
 | --print | | Non-interactive output |
 | --interactive | -i | Force interactive mode |
+| --mem | | Enable mem integration (auto-detects .mem) |
+| --no-mem | | Disable mem integration |
 
 ## Examples
 
@@ -92,6 +94,153 @@ function commandExists(cmd) {
   } catch {
     return false;
   }
+}
+
+// ==================== MEM INTEGRATION ====================
+
+// Find .mem directory (walk up from cwd, or check ~/.mem)
+function findMemDir(startDir = process.cwd()) {
+  // First check local .mem
+  let dir = startDir;
+  while (dir !== path.dirname(dir)) {
+    const memDir = path.join(dir, '.mem');
+    if (fs.existsSync(memDir) && fs.existsSync(path.join(memDir, '.git'))) {
+      return memDir;
+    }
+    dir = path.dirname(dir);
+  }
+  
+  // Then check ~/.mem with index
+  const globalMem = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
+  if (fs.existsSync(globalMem)) {
+    const indexFile = path.join(globalMem, 'index.json');
+    if (fs.existsSync(indexFile)) {
+      try {
+        const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
+        if (index[startDir]) {
+          return globalMem;
+        }
+      } catch {}
+    }
+  }
+  
+  return null;
+}
+
+// Load mem context
+function loadMemContext(memDir) {
+  try {
+    const result = execSync('mem context', { 
+      cwd: path.dirname(memDir),
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    return result.trim();
+  } catch {
+    return null;
+  }
+}
+
+// Parse output markers
+function parseMemMarkers(output) {
+  const markers = [];
+  const patterns = [
+    { type: 'checkpoint', regex: /\[checkpoint:\s*([^\]]+)\]/gi },
+    { type: 'learn', regex: /\[learn:\s*([^\]]+)\]/gi },
+    { type: 'next', regex: /\[next:\s*([^\]]+)\]/gi },
+    { type: 'stuck', regex: /\[stuck:\s*([^\]]+)\]/gi },
+    { type: 'done', regex: /\[done\]/gi },
+    { type: 'approve', regex: /\[approve:\s*([^\]]+)\]/gi },
+    { type: 'criteria', regex: /\[criteria:\s*(\d+)\]/gi },
+  ];
+  
+  for (const { type, regex } of patterns) {
+    let match;
+    while ((match = regex.exec(output)) !== null) {
+      markers.push({ type, value: match[1] || true });
+    }
+  }
+  
+  return markers;
+}
+
+// Apply mem markers
+function applyMemMarkers(markers, memDir) {
+  const workDir = path.dirname(memDir);
+  const approvals = [];
+  
+  for (const marker of markers) {
+    try {
+      switch (marker.type) {
+        case 'checkpoint':
+          execSync(`mem checkpoint "${marker.value.replace(/"/g, '\\"')}"`, { 
+            cwd: workDir, stdio: 'ignore' 
+          });
+          console.log(`${c.green}✓${c.reset} ${c.dim}Checkpoint:${c.reset} ${marker.value}`);
+          break;
+        case 'learn':
+          execSync(`mem learn "${marker.value.replace(/"/g, '\\"')}"`, { 
+            cwd: workDir, stdio: 'ignore' 
+          });
+          console.log(`${c.green}✓${c.reset} ${c.dim}Learned:${c.reset} ${marker.value}`);
+          break;
+        case 'next':
+          execSync(`mem next "${marker.value.replace(/"/g, '\\"')}"`, { 
+            cwd: workDir, stdio: 'ignore' 
+          });
+          console.log(`${c.green}✓${c.reset} ${c.dim}Next:${c.reset} ${marker.value}`);
+          break;
+        case 'stuck':
+          execSync(`mem stuck "${marker.value.replace(/"/g, '\\"')}"`, { 
+            cwd: workDir, stdio: 'ignore' 
+          });
+          console.log(`${c.yellow}⚠${c.reset} ${c.dim}Stuck:${c.reset} ${marker.value}`);
+          break;
+        case 'done':
+          console.log(`${c.green}✓${c.reset} ${c.dim}Task marked done${c.reset}`);
+          break;
+        case 'approve':
+          approvals.push(marker.value);
+          break;
+        case 'criteria':
+          execSync(`mem criteria ${marker.value}`, { 
+            cwd: workDir, stdio: 'ignore' 
+          });
+          console.log(`${c.green}✓${c.reset} ${c.dim}Criteria #${marker.value} complete${c.reset}`);
+          break;
+      }
+    } catch (err) {
+      console.error(`${c.red}mem error:${c.reset} ${err.message}`);
+    }
+  }
+  
+  return approvals;
+}
+
+// Handle approval prompts
+async function handleApprovals(approvals) {
+  if (approvals.length === 0) return true;
+  
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
+  
+  for (const approval of approvals) {
+    const answer = await new Promise(resolve => {
+      rl.question(`\n${c.yellow}⚠ APPROVAL REQUIRED:${c.reset} ${approval}\n${c.dim}Continue? [y/N]:${c.reset} `, resolve);
+    });
+    
+    if (answer.toLowerCase() !== 'y' && answer.toLowerCase() !== 'yes') {
+      console.log(`${c.red}✗${c.reset} Rejected. Workflow halted.`);
+      rl.close();
+      return false;
+    }
+    console.log(`${c.green}✓${c.reset} Approved.`);
+  }
+  
+  rl.close();
+  return true;
 }
 
 // Load config
@@ -862,7 +1011,9 @@ const options = {
   interactive: false,
   sandbox: false,
   debug: false,
-  mcp: null
+  mcp: null,
+  mem: false,
+  memDir: null
 };
 
 // Collect positional args (legacy support, but --prompt is preferred)
@@ -911,6 +1062,12 @@ for (let i = 0; i < processedArgs.length; i++) {
         options.mcp = nextArg;
         i++;
       }
+      break;
+    case '--mem':
+      options.mem = true;
+      break;
+    case '--no-mem':
+      options.mem = false;
       break;
     default:
       if (arg.startsWith('-')) {
@@ -986,29 +1143,103 @@ if (provider === 'gemini') {
 // Append raw args at the end
 translatedArgs.push(...rawArgs);
 
-const child = spawn(command, translatedArgs, {
-  env,
-  stdio: 'inherit',
-  shell: false
-});
+// ==================== MEM INTEGRATION ====================
 
-child.on('exit', (code) => {
-  process.exit(code || 0);
-});
+// Auto-detect mem if .mem exists (unless --no-mem)
+const memDir = options.mem !== false ? findMemDir() : null;
+if (memDir && options.mem !== false) {
+  options.mem = true;
+  options.memDir = memDir;
+}
 
-child.on('error', (err) => {
-  if (err.code === 'ENOENT') {
-    console.error(`${c.red}Error:${c.reset} "${command}" command not found.`);
-    console.error(`\n${c.dim}Install it first:${c.reset}`);
-    if (command === 'claude') {
-      console.error(`  npm install -g @anthropic-ai/claude-code`);
-    } else if (command === 'gemini') {
-      console.error(`  npm install -g @anthropic-ai/gemini-cli`);
+// Prepend mem context to prompt if mem is enabled
+if (options.mem && options.memDir && finalPrompt) {
+  const context = loadMemContext(options.memDir);
+  if (context) {
+    console.log(`${c.dim}[mem] Loaded context from ${options.memDir}${c.reset}\n`);
+    
+    // Prepend context to prompt
+    const augmentedPrompt = `## Current Context (from mem)\n\n${context}\n\n## Task\n\n${finalPrompt}\n\n## Output Markers (use these to save state)\n\n- [checkpoint: message] - save progress\n- [learn: insight] - record learning\n- [next: step] - set next step\n- [approve: question] - request human approval before continuing\n- [criteria: N] - mark criterion #N complete`;
+    
+    // Replace the prompt in translatedArgs
+    const promptIndex = translatedArgs.indexOf(finalPrompt);
+    if (promptIndex !== -1) {
+      translatedArgs[promptIndex] = augmentedPrompt;
     }
-  } else {
-    console.error(`${c.red}Failed to start ${command}:${c.reset}`, err.message);
   }
-  process.exit(1);
-});
+}
+
+// Run with mem output capture or normal mode
+if (options.mem && options.memDir) {
+  // Capture output for marker parsing
+  const child = spawn(command, translatedArgs, {
+    env,
+    stdio: ['inherit', 'pipe', 'inherit'],
+    shell: false
+  });
+  
+  let output = '';
+  
+  child.stdout.on('data', (data) => {
+    const text = data.toString();
+    output += text;
+    process.stdout.write(text);
+  });
+  
+  child.on('exit', async (code) => {
+    // Parse and apply mem markers
+    const markers = parseMemMarkers(output);
+    
+    if (markers.length > 0) {
+      console.log(`\n${c.dim}[mem] Processing markers...${c.reset}`);
+      const approvals = applyMemMarkers(markers, options.memDir);
+      
+      // Handle approvals
+      if (approvals.length > 0) {
+        const approved = await handleApprovals(approvals);
+        if (!approved) {
+          process.exit(1);
+        }
+      }
+    }
+    
+    process.exit(code || 0);
+  });
+  
+  child.on('error', (err) => {
+    if (err.code === 'ENOENT') {
+      console.error(`${c.red}Error:${c.reset} "${command}" command not found.`);
+    } else {
+      console.error(`${c.red}Failed to start ${command}:${c.reset}`, err.message);
+    }
+    process.exit(1);
+  });
+} else {
+  // Normal mode - stdio inherit
+  const child = spawn(command, translatedArgs, {
+    env,
+    stdio: 'inherit',
+    shell: false
+  });
+
+  child.on('exit', (code) => {
+    process.exit(code || 0);
+  });
+
+  child.on('error', (err) => {
+    if (err.code === 'ENOENT') {
+      console.error(`${c.red}Error:${c.reset} "${command}" command not found.`);
+      console.error(`\n${c.dim}Install it first:${c.reset}`);
+      if (command === 'claude') {
+        console.error(`  npm install -g @anthropic-ai/claude-code`);
+      } else if (command === 'gemini') {
+        console.error(`  npm install -g @anthropic-ai/gemini-cli`);
+      }
+    } else {
+      console.error(`${c.red}Failed to start ${command}:${c.reset}`, err.message);
+    }
+    process.exit(1);
+  });
+}
 
 })();

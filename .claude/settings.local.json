@@ -4,7 +4,8 @@
       "Bash(node --check:*)",
       "Bash(node index.js:*)",
       "Bash(python:*)",
-      "Bash(npm publish:*)"
+      "Bash(npm publish:*)",
+      "Bash(npm uninstall:*)"
     ]
   }
 }
