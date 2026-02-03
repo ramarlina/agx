@@ -1357,6 +1357,7 @@ for (let i = 0; i < processedArgs.length; i++) {
     case '-a':
       options.autonomous = true;
       options.mem = true;
+      options.yolo = true; // Autonomous = unattended, skip prompts
       break;
     case '--task':
       if (nextArg && !nextArg.startsWith('-')) {
