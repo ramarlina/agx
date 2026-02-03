@@ -160,8 +160,17 @@ function findMemDir(startDir = process.cwd()) {
     if (fs.existsSync(indexFile)) {
       try {
         const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
+        // Exact match
         if (index[startDir]) {
           return globalMem;
+        }
+        // Check parent directories (for monorepo/subdirectory usage)
+        let checkDir = startDir;
+        while (checkDir !== path.dirname(checkDir)) {
+          checkDir = path.dirname(checkDir);
+          if (index[checkDir]) {
+            return globalMem;
+          }
         }
       } catch {}
     }
