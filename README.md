@@ -4,11 +4,21 @@ Unified AI Agent Wrapper for Gemini, Claude, and Ollama.
 
 ## Installation
 
-From the `agx` directory:
+### Via npm (recommended)
+
 ```bash
+npm install -g @mndrk/agx
+```
+
+### From source
+
+Clone the repository and link locally:
+
+```bash
+git clone https://github.com/ramarlina/agx.git
+cd agx
 npm link
 ```
-Now you can use `agx` globally.
 
 ## Quick Start
 
