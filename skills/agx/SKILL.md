@@ -17,23 +17,24 @@ agx gemini -p "prompt"              # Run Gemini
 agx ollama -p "prompt"              # Run Ollama (local)
 ```
 
-## Auto-Task Mode (Recommended)
+## Autonomous Mode (Recommended)
 
-Create a task with automatic wake schedule:
+Start a task that runs autonomously until complete:
 
 ```bash
 cd ~/Projects/my-app
-agx claude --auto-task -p "Build a React todo app with auth"
+agx claude --autonomous -p "Build a React todo app with auth"
 # ✓ Created task: build-react-todo
 # ✓ Mapped: ~/Projects/my-app → task/build-react-todo
-# ✓ Wake: every 15m (until done)
+# ✓ Daemon started (pid 12345)
+# ✓ Autonomous mode: daemon will continue work every 15m
 ```
 
 This:
 1. Creates a mem task branch
-2. Sets wake schedule (every 15m)
-3. Installs cron to continue automatically
-4. Agent works until [done] or [blocked]
+2. Starts the agx daemon (if not running)
+3. Daemon wakes every 15m to continue work
+4. Runs until agent outputs [done] or [blocked]
 
 ## Wake Loop
 

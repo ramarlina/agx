@@ -36,7 +36,7 @@ agx auto-detects \`~/.mem\` and loads context:
 agx claude -p "continue working"
 
 # Auto-create task (non-interactive, for agents)
-agx claude --auto-task -p "Build todo app"
+agx claude --autonomous -p "Build todo app"
 
 # Explicit task with criteria
 agx claude --task todo-app \\
@@ -79,7 +79,7 @@ Use these in agent output to save state:
 | --yolo, -y | Skip permission prompts |
 | --mem | Enable mem (auto-detected) |
 | --no-mem | Disable mem |
-| --auto-task | Auto-create task from prompt |
+| --autonomous, -a | Create task and run autonomously until done |
 | --task NAME | Specific task name |
 | --criteria "..." | Success criterion (repeatable) |
 | --daemon | Loop on [continue] marker |
@@ -327,6 +327,129 @@ function createSubtasks(splits, memInfo) {
       console.error(`${c.red}Failed to create subtask ${split.name}:${c.reset} ${err.message}`);
     }
   }
+}
+
+// ==================== DAEMON ====================
+
+const DAEMON_PID_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'daemon.pid');
+const DAEMON_LOG_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'daemon.log');
+
+function isDaemonRunning() {
+  try {
+    if (!fs.existsSync(DAEMON_PID_FILE)) return false;
+    const pid = parseInt(fs.readFileSync(DAEMON_PID_FILE, 'utf8').trim());
+    process.kill(pid, 0); // Check if process exists
+    return pid;
+  } catch {
+    return false;
+  }
+}
+
+function startDaemon() {
+  const existingPid = isDaemonRunning();
+  if (existingPid) {
+    console.log(`${c.dim}Daemon already running (pid ${existingPid})${c.reset}`);
+    return existingPid;
+  }
+
+  // Ensure .agx directory exists
+  const agxDir = path.dirname(DAEMON_PID_FILE);
+  if (!fs.existsSync(agxDir)) {
+    fs.mkdirSync(agxDir, { recursive: true });
+  }
+
+  // Spawn daemon process
+  const agxPath = process.argv[1]; // Current script path
+  const daemon = spawn(process.execPath, [agxPath, 'daemon', '--run'], {
+    detached: true,
+    stdio: ['ignore', 
+      fs.openSync(DAEMON_LOG_FILE, 'a'), 
+      fs.openSync(DAEMON_LOG_FILE, 'a')
+    ],
+    env: { ...process.env, AGX_DAEMON: '1' }
+  });
+
+  daemon.unref();
+  fs.writeFileSync(DAEMON_PID_FILE, String(daemon.pid));
+  
+  console.log(`${c.green}✓${c.reset} Daemon started (pid ${daemon.pid})`);
+  console.log(`${c.dim}  Logs: ${DAEMON_LOG_FILE}${c.reset}`);
+  
+  return daemon.pid;
+}
+
+function stopDaemon() {
+  const pid = isDaemonRunning();
+  if (!pid) {
+    console.log(`${c.yellow}Daemon not running${c.reset}`);
+    return false;
+  }
+  
+  try {
+    process.kill(pid, 'SIGTERM');
+    fs.unlinkSync(DAEMON_PID_FILE);
+    console.log(`${c.green}✓${c.reset} Daemon stopped (pid ${pid})`);
+    return true;
+  } catch (err) {
+    console.error(`${c.red}Failed to stop daemon:${c.reset} ${err.message}`);
+    return false;
+  }
+}
+
+async function runDaemon() {
+  console.log(`[${new Date().toISOString()}] Daemon starting...`);
+  
+  const WAKE_INTERVAL = 15 * 60 * 1000; // 15 minutes
+  
+  const tick = async () => {
+    console.log(`[${new Date().toISOString()}] Daemon tick - checking tasks...`);
+    
+    const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
+    const indexFile = path.join(memDir, 'index.json');
+    
+    if (!fs.existsSync(indexFile)) {
+      console.log(`[${new Date().toISOString()}] No tasks found`);
+      return;
+    }
+    
+    const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
+    
+    for (const [projectDir, taskBranch] of Object.entries(index)) {
+      if (!fs.existsSync(projectDir)) continue;
+      
+      // Check if task is active
+      try {
+        execSync(`git checkout ${taskBranch}`, { cwd: memDir, stdio: 'ignore' });
+        const state = fs.readFileSync(path.join(memDir, 'state.md'), 'utf8');
+        
+        if (state.includes('status: active')) {
+          console.log(`[${new Date().toISOString()}] Continuing task: ${taskBranch} in ${projectDir}`);
+          
+          // Run agx continue
+          try {
+            execSync(`agx claude -y -p "continue"`, { 
+              cwd: projectDir, 
+              stdio: 'inherit',
+              timeout: 10 * 60 * 1000 // 10 min timeout
+            });
+          } catch (err) {
+            console.log(`[${new Date().toISOString()}] Task ${taskBranch} error: ${err.message}`);
+          }
+        }
+      } catch (err) {
+        console.log(`[${new Date().toISOString()}] Error checking ${taskBranch}: ${err.message}`);
+      }
+    }
+  };
+  
+  // Initial tick
+  await tick();
+  
+  // Schedule recurring ticks
+  setInterval(tick, WAKE_INTERVAL);
+  
+  // Keep alive
+  console.log(`[${new Date().toISOString()}] Daemon running, wake interval: ${WAKE_INTERVAL / 1000 / 60}m`);
 }
 
 // Handle approval prompts
@@ -927,6 +1050,48 @@ async function checkOnboarding() {
     return true;
   }
 
+  // Daemon commands
+  if (cmd === 'daemon') {
+    const subcmd = args[1];
+    if (subcmd === 'start') {
+      startDaemon();
+      process.exit(0);
+    } else if (subcmd === 'stop') {
+      stopDaemon();
+      process.exit(0);
+    } else if (subcmd === 'status') {
+      const pid = isDaemonRunning();
+      if (pid) {
+        console.log(`${c.green}Daemon running${c.reset} (pid ${pid})`);
+        console.log(`${c.dim}Logs: ${DAEMON_LOG_FILE}${c.reset}`);
+      } else {
+        console.log(`${c.yellow}Daemon not running${c.reset}`);
+      }
+      process.exit(0);
+    } else if (subcmd === 'logs') {
+      if (fs.existsSync(DAEMON_LOG_FILE)) {
+        const logs = fs.readFileSync(DAEMON_LOG_FILE, 'utf8');
+        console.log(logs.split('\n').slice(-50).join('\n'));
+      } else {
+        console.log(`${c.dim}No logs yet${c.reset}`);
+      }
+      process.exit(0);
+    } else if (subcmd === '--run') {
+      // Internal: actually run the daemon loop
+      await runDaemon();
+      return true; // Never exits
+    } else {
+      console.log(`${c.bold}agx daemon${c.reset} - Background task runner\n`);
+      console.log(`Commands:`);
+      console.log(`  agx daemon start   Start the daemon`);
+      console.log(`  agx daemon stop    Stop the daemon`);
+      console.log(`  agx daemon status  Check if running`);
+      console.log(`  agx daemon logs    Show recent logs`);
+      process.exit(0);
+    }
+    return true;
+  }
+
   // Login command
   if (cmd === 'login') {
     const provider = args[1];
@@ -1126,7 +1291,7 @@ const options = {
   mcp: null,
   mem: false,
   memDir: null,
-  autoTask: false,
+  autonomous: false,
   taskName: null,
   criteria: [],
   daemon: false,
@@ -1187,8 +1352,10 @@ for (let i = 0; i < processedArgs.length; i++) {
     case '--no-mem':
       options.mem = false;
       break;
-    case '--auto-task':
-      options.autoTask = true;
+    case '--autonomous':
+    case '--auto':
+    case '-a':
+      options.autonomous = true;
       options.mem = true;
       break;
     case '--task':
@@ -1301,8 +1468,8 @@ if (memInfo && options.mem !== false) {
   options.memDir = memInfo.memDir; // For backwards compat
 }
 
-// Auto-create task if --auto-task or --task specified but no mem found
-if ((options.autoTask || options.taskName) && !options.memDir && finalPrompt) {
+// Auto-create task if --autonomous or --task specified but no mem found
+if ((options.autonomous || options.taskName) && !options.memInfo && finalPrompt) {
   const taskName = options.taskName || finalPrompt
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, '')
@@ -1362,19 +1529,16 @@ if ((options.autoTask || options.taskName) && !options.memDir && finalPrompt) {
     console.log(`${c.green}✓${c.reset} Created task: ${c.bold}${taskName}${c.reset}`);
     console.log(`${c.green}✓${c.reset} Mapped: ${c.dim}${process.cwd()} → ${branch}${c.reset}`);
     
-    // Auto-set wake schedule for new tasks with proper command
-    // Detect agx path dynamically for cron (no PATH in cron env)
+    // Auto-set wake schedule 
     try {
-      const projectDir = process.cwd();
-      let agxPath = 'agx';
-      try {
-        agxPath = execSync('which agx', { encoding: 'utf8' }).trim();
-      } catch {}
-      const wakeCmd = `cd ${projectDir} && ${agxPath} claude -y -p "continue"`;
-      execSync(`mem wake "every 15m" --run "${wakeCmd}"`, { cwd: process.cwd(), stdio: 'ignore' });
-      console.log(`${c.green}✓${c.reset} Wake: ${c.dim}every 15m (until done)${c.reset}`);
-      console.log(`${c.dim}       Run: agx claude -y -p "continue"${c.reset}\n`);
+      execSync(`mem wake "every 15m"`, { cwd: process.cwd(), stdio: 'ignore' });
     } catch {}
+    
+    // Start daemon for autonomous mode
+    if (options.autonomous) {
+      startDaemon();
+      console.log(`${c.green}✓${c.reset} Autonomous mode: daemon will continue work every 15m\n`);
+    }
     
   } catch (err) {
     console.error(`${c.yellow}Warning: Could not create task:${c.reset} ${err.message}`);

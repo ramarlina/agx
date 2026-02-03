@@ -18,8 +18,8 @@ agx -p "what does this function do?"
 # With persistent memory (auto-detected)
 agx claude -p "continue working on the todo app"
 
-# Auto-create task (for agents, non-interactive)
-agx claude --auto-task -p "Build a todo app with React"
+# Autonomous mode - creates task and works until done
+agx claude --autonomous -p "Build a todo app with React"
 ```
 
 ## Memory Integration
@@ -74,10 +74,9 @@ Agents control state via markers in their output:
 --interactive, -i      Force interactive mode
 --mem                  Enable mem integration (auto-detected)
 --no-mem               Disable mem integration
---auto-task            Auto-create task from prompt
+--autonomous, -a       Create task and run autonomously (starts daemon)
 --task <name>          Specific task name
 --criteria <text>      Success criterion (repeatable)
---daemon               Loop on [continue] marker
 ```
 
 ## Claude Code Plugin
@@ -100,7 +99,31 @@ agx config             # Configuration menu
 agx status             # Show current config
 agx skill              # View LLM skill
 agx skill install      # Install skill to Claude/Gemini
+
+# Daemon management
+agx daemon start       # Start background daemon
+agx daemon stop        # Stop daemon
+agx daemon status      # Check if running
+agx daemon logs        # Show recent logs
 ```
+
+## Autonomous Mode
+
+Start a task that runs autonomously until complete:
+
+```bash
+agx claude --autonomous -p "Build a React todo app with auth"
+# ✓ Created task: build-react-todo
+# ✓ Mapped: ~/Projects/app → task/build-react-todo
+# ✓ Daemon started (pid 12345)
+# ✓ Autonomous mode: daemon will continue work every 15m
+```
+
+The daemon:
+- Runs in background (survives terminal close)
+- Wakes every 15 minutes
+- Continues work on active tasks
+- Stops when task is `[done]` or `[blocked]`
 
 ## Loop Control
 
