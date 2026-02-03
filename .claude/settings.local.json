@@ -3,7 +3,8 @@
     "allow": [
       "Bash(node --check:*)",
       "Bash(node index.js:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(npm publish:*)"
     ]
   }
 }
