@@ -388,13 +388,11 @@ function parseWakeInterval(pattern) {
 }
 
 async function runDaemon() {
-  console.log(`[${new Date().toISOString()}] Daemon starting...`);
-  
-  const DEFAULT_WAKE_INTERVAL = 15 * 60 * 1000; // 15 minutes fallback
-  const TICK_INTERVAL = 60 * 1000; // Check every 1 minute
+  console.log(`[${new Date().toISOString()}] Daemon starting (continuous mode)...`);
+
   const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
-  
-  // Load/save daemon state (last run times per task)
+  const POLL_INTERVAL = 1000; // Check every 1 second
+
   function loadState() {
     try {
       if (fs.existsSync(DAEMON_STATE_FILE)) {
@@ -403,133 +401,116 @@ async function runDaemon() {
     } catch {}
     return { lastRun: {} };
   }
-  
+
   function saveState(state) {
     const dir = path.dirname(DAEMON_STATE_FILE);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(DAEMON_STATE_FILE, JSON.stringify(state, null, 2));
   }
-  
-  // Get wake interval for a specific task
-  function getTaskWakeInterval(projectDir) {
-    try {
-      const wake = execSync('mem wake', { cwd: projectDir, encoding: 'utf8' });
-      const wakeMatch = wake.match(/Wake:\s*(.+)/);
-      if (wakeMatch) {
-        const interval = parseWakeInterval(wakeMatch[1]);
-        if (interval) return interval;
-      }
-    } catch {}
-    return DEFAULT_WAKE_INTERVAL;
-  }
-  
-  const tick = async () => {
-    const now = Date.now();
-    const state = loadState();
-    
-    // Get task list from mem index
+
+  // Get active tasks (not done/blocked, not currently running)
+  function getActiveTasks(state) {
     const indexFile = path.join(memDir, 'index.json');
-    if (!fs.existsSync(indexFile)) return;
-    
+    if (!fs.existsSync(indexFile)) return [];
+
     const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
-    let ranAny = false;
-    
+    const active = [];
+
     for (const [projectDir, taskBranch] of Object.entries(index)) {
       if (!fs.existsSync(projectDir)) continue;
-      
+      if (state.running === taskBranch) continue; // Already running
+
       try {
-        // Check if task is due based on its wake interval
-        const wakeInterval = getTaskWakeInterval(projectDir);
-        const lastRun = state.lastRun[taskBranch] || 0;
-        const elapsed = now - lastRun;
-        
-        if (elapsed < wakeInterval) {
-          continue; // Not due yet
-        }
-        
-        // Use mem to switch and check status
-        execSync(`mem switch ${taskBranch.replace('task/', '')}`, { cwd: projectDir, stdio: 'ignore' });
-        const status = execSync('mem status', { cwd: projectDir, encoding: 'utf8' });
-        
-        // Check if task is active (not done/blocked)
-        if (status.includes('status: done') || status.includes('status: blocked')) {
-          continue; // Skip inactive tasks
-        }
-        
-        console.log(`[${new Date().toISOString()}] Running task: ${taskBranch} (due after ${Math.round(wakeInterval/60000)}m)`);
-        ranAny = true;
-
-        // Update last run time and mark as running
-        state.lastRun[taskBranch] = now;
-        state.running = taskBranch;
-        saveState(state);
-
-        // Run agx continue with output logging
         const taskName = taskBranch.replace('task/', '');
-        const logPath = getTaskLogPath(taskName);
-        const logStream = fs.createWriteStream(logPath, { flags: 'a' });
-        logStream.write(`\n--- ${new Date().toISOString()} ---\n`);
+        execSync(`mem switch ${taskName}`, { cwd: projectDir, stdio: 'ignore' });
+        const status = execSync('mem status', { cwd: projectDir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
 
-        try {
-          await new Promise((resolve, reject) => {
-            const child = spawn('agx', ['claude', '-y', '-p', 'continue'], {
-              cwd: projectDir,
-              stdio: ['ignore', 'pipe', 'pipe']
-            });
-
-            child.stdout.on('data', (data) => {
-              logStream.write(data);
-              process.stdout.write(data);
-            });
-            child.stderr.on('data', (data) => {
-              logStream.write(data);
-              process.stderr.write(data);
-            });
-
-            const timeout = setTimeout(() => {
-              child.kill();
-              reject(new Error('Timeout after 10 minutes'));
-            }, 10 * 60 * 1000);
-
-            child.on('close', (code) => {
-              clearTimeout(timeout);
-              logStream.end();
-              if (code === 0) resolve();
-              else reject(new Error(`Exit code ${code}`));
-            });
-            child.on('error', reject);
-          });
-        } catch (err) {
-          console.log(`[${new Date().toISOString()}] Task ${taskBranch} error: ${err.message}`);
-        } finally {
-          // Clear running state
-          delete state.running;
-          saveState(state);
+        if (status.includes('status: done') || status.includes('status: blocked')) {
+          continue;
         }
-        
-      } catch (err) {
-        console.log(`[${new Date().toISOString()}] Error checking ${taskBranch}: ${err.message}`);
-      }
+
+        active.push({ taskName, taskBranch, projectDir });
+      } catch {}
     }
-    
-    if (!ranAny) {
-      // Only log periodically to avoid spam
-      const lastLog = state.lastLog || 0;
-      if (now - lastLog > 5 * 60 * 1000) { // Every 5 min
-        console.log(`[${new Date().toISOString()}] Daemon tick - no tasks due`);
-        state.lastLog = now;
-        saveState(state);
+
+    return active;
+  }
+
+  // Run a single task iteration
+  async function runTask(task, state) {
+    const { taskName, taskBranch, projectDir } = task;
+    const logPath = getTaskLogPath(taskName);
+
+    console.log(`[${new Date().toISOString()}] Running: ${taskName}`);
+
+    // Mark as running
+    state.running = taskBranch;
+    state.lastRun[taskBranch] = Date.now();
+    saveState(state);
+
+    const logStream = fs.createWriteStream(logPath, { flags: 'a' });
+    logStream.write(`\n=== ${new Date().toISOString()} ===\n`);
+
+    try {
+      await new Promise((resolve, reject) => {
+        const child = spawn('agx', ['claude', '-y', '-p', 'continue'], {
+          cwd: projectDir,
+          stdio: ['ignore', 'pipe', 'pipe']
+        });
+
+        child.stdout.on('data', (data) => {
+          logStream.write(data);
+          process.stdout.write(data);
+        });
+        child.stderr.on('data', (data) => {
+          logStream.write(data);
+          process.stderr.write(data);
+        });
+
+        const timeout = setTimeout(() => {
+          child.kill();
+          reject(new Error('Timeout after 30 minutes'));
+        }, 30 * 60 * 1000);
+
+        child.on('close', (code) => {
+          clearTimeout(timeout);
+          logStream.end();
+          resolve(code);
+        });
+        child.on('error', reject);
+      });
+
+      console.log(`[${new Date().toISOString()}] Completed: ${taskName}`);
+    } catch (err) {
+      console.log(`[${new Date().toISOString()}] Error: ${taskName} - ${err.message}`);
+      logStream.write(`\nERROR: ${err.message}\n`);
+      logStream.end();
+    } finally {
+      delete state.running;
+      saveState(state);
+    }
+  }
+
+  // Main loop - continuously process tasks
+  const loop = async () => {
+    while (true) {
+      const state = loadState();
+      const activeTasks = getActiveTasks(state);
+
+      if (activeTasks.length > 0) {
+        // Run the first active task
+        const task = activeTasks[0];
+        await runTask(task, state);
+        // Immediately check for more work (no delay)
+      } else {
+        // No active tasks, wait before checking again
+        await new Promise(r => setTimeout(r, POLL_INTERVAL));
       }
     }
   };
-  
-  // Initial tick
-  await tick();
-  
-  // Check every minute, but only run tasks when their interval is due
-  setInterval(tick, TICK_INTERVAL);
-  
-  console.log(`[${new Date().toISOString()}] Daemon running, checking every ${TICK_INTERVAL / 1000}s`);
+
+  console.log(`[${new Date().toISOString()}] Daemon running continuously, polling every ${POLL_INTERVAL}ms`);
+  await loop();
 }
 
 // Handle approval prompts
