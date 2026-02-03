@@ -185,7 +185,10 @@ if (provider === 'gemini') {
 
   // Claude-specific translations
   if (options.yolo) translatedArgs.push('--dangerously-skip-permissions');
-  if (options.print) translatedArgs.push('--print');
+  // Default to --print when prompt is provided and --interactive not specified
+  if (options.print || (finalPrompt && !options.interactive)) {
+    translatedArgs.push('--print');
+  }
   if (options.mcp) translatedArgs.push('--mcp-config', options.mcp);
 
   // Ollama-specific environment setup
