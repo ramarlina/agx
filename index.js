@@ -1201,11 +1201,24 @@ async function checkOnboarding() {
         else if (statusOut.includes('status: blocked')) status = 'blocked';
         else status = 'active';
 
-        // Get progress
+        // Get progress and criteria
+        let criteria = [];
         try {
           const progressOut = execSync('mem progress', { cwd: projectDir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
           const progressMatch = progressOut.match(/(\d+)%/);
           if (progressMatch) progress = `${progressMatch[1]}%`;
+
+          // Parse criteria from progress output (format: [x] or [ ] criterion text)
+          const lines = progressOut.split('\n');
+          for (const line of lines) {
+            const criteriaMatch = line.match(/^\s*\[([x ])\]\s*(.+)/i);
+            if (criteriaMatch) {
+              criteria.push({
+                done: criteriaMatch[1].toLowerCase() === 'x',
+                text: criteriaMatch[2].trim()
+              });
+            }
+          }
         } catch {}
 
         if (state.lastRun && state.lastRun[taskBranch]) {
@@ -1222,7 +1235,7 @@ async function checkOnboarding() {
         }
       } catch {}
 
-      tasks.push({ taskName, taskBranch, projectDir, wake, status, lastRun, nextRun, progress });
+      tasks.push({ taskName, taskBranch, projectDir, wake, status, lastRun, nextRun, progress, criteria });
     }
     return tasks;
   }
@@ -1494,9 +1507,20 @@ async function checkOnboarding() {
       console.log(`  ${c.dim}Last run:${c.reset} ${task.lastRun}`);
       console.log(`  ${c.dim}Next run:${c.reset} ${task.nextRun}`);
 
+      // Show criteria checklist
+      if (task.criteria && task.criteria.length > 0) {
+        console.log(`\n${c.bold}Checklist${c.reset}\n`);
+        task.criteria.forEach(item => {
+          const check = item.done ? `${c.green}✓${c.reset}` : `${c.dim}○${c.reset}`;
+          const text = item.done ? `${c.dim}${item.text}${c.reset}` : item.text;
+          console.log(`  ${check} ${text}`);
+        });
+      }
+
       // Get terminal height for log display
       const termHeight = process.stdout.rows || 24;
-      const logLines = Math.max(5, termHeight - 12);
+      const criteriaLines = task.criteria ? task.criteria.length + 2 : 0;
+      const logLines = Math.max(3, termHeight - 14 - criteriaLines);
 
       const logs = getTaskLogs(task, logLines);
       const logTitle = isRunning ? `${c.bold}Live Log${c.reset} ${c.cyan}(tailing)${c.reset}` : `${c.bold}Recent Log${c.reset}`;
