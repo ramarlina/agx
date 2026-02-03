@@ -439,20 +439,25 @@ async function runDaemon() {
         
         console.log(`[${new Date().toISOString()}] Running task: ${taskBranch} (due after ${Math.round(wakeInterval/60000)}m)`);
         ranAny = true;
-        
-        // Update last run time before executing (in case it takes a while)
+
+        // Update last run time and mark as running
         state.lastRun[taskBranch] = now;
+        state.running = taskBranch;
         saveState(state);
-        
+
         // Run agx continue
         try {
-          execSync(`agx claude -y -p "continue"`, { 
-            cwd: projectDir, 
+          execSync(`agx claude -y -p "continue"`, {
+            cwd: projectDir,
             stdio: 'inherit',
             timeout: 10 * 60 * 1000 // 10 min timeout
           });
         } catch (err) {
           console.log(`[${new Date().toISOString()}] Task ${taskBranch} error: ${err.message}`);
+        } finally {
+          // Clear running state
+          delete state.running;
+          saveState(state);
         }
         
       } catch (err) {
@@ -1153,7 +1158,8 @@ async function checkOnboarding() {
 
         execSync(`mem switch ${taskName}`, { cwd: projectDir, stdio: 'ignore' });
         const statusOut = execSync('mem status', { cwd: projectDir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-        if (statusOut.includes('status: done')) status = 'done';
+        if (state.running === taskBranch) status = 'running';
+        else if (statusOut.includes('status: done')) status = 'done';
         else if (statusOut.includes('status: blocked')) status = 'blocked';
         else status = 'active';
 
@@ -1220,6 +1226,18 @@ async function checkOnboarding() {
 
     console.log(`${c.cyan}▶${c.reset} Running ${c.bold}${task.taskName}${c.reset}...\n`);
 
+    // Mark as running
+    let state = {};
+    try {
+      if (fs.existsSync(DAEMON_STATE_FILE)) {
+        state = JSON.parse(fs.readFileSync(DAEMON_STATE_FILE, 'utf8'));
+      }
+    } catch {}
+    state.running = task.taskBranch;
+    const agxDir = path.dirname(DAEMON_STATE_FILE);
+    if (!fs.existsSync(agxDir)) fs.mkdirSync(agxDir, { recursive: true });
+    fs.writeFileSync(DAEMON_STATE_FILE, JSON.stringify(state, null, 2));
+
     try {
       execSync(`agx claude -y -p "continue"`, {
         cwd: task.projectDir,
@@ -1228,6 +1246,13 @@ async function checkOnboarding() {
       });
     } catch (err) {
       console.error(`${c.red}Error:${c.reset} ${err.message}`);
+    } finally {
+      // Clear running state
+      try {
+        state = JSON.parse(fs.readFileSync(DAEMON_STATE_FILE, 'utf8'));
+        delete state.running;
+        fs.writeFileSync(DAEMON_STATE_FILE, JSON.stringify(state, null, 2));
+      } catch {}
     }
     process.exit(0);
   }
@@ -1362,11 +1387,13 @@ async function checkOnboarding() {
       tasks.forEach((task, idx) => {
         const selected = idx === selectedIdx;
         const prefix = selected ? `${c.cyan}❯${c.reset}` : ' ';
-        const statusIcon = task.status === 'active' ? `${c.green}●${c.reset}`
+        const statusIcon = task.status === 'running' ? `${c.cyan}▶${c.reset}`
+                         : task.status === 'active' ? `${c.green}●${c.reset}`
                          : task.status === 'done' ? `${c.dim}✓${c.reset}`
                          : `${c.yellow}○${c.reset}`;
         const name = selected ? `${c.bold}${task.taskName}${c.reset}` : task.taskName;
-        const info = `${c.dim}${task.status} · ${task.lastRun === '—' ? 'never run' : task.lastRun}${c.reset}`;
+        const statusText = task.status === 'running' ? `${c.cyan}running${c.reset}` : task.status;
+        const info = `${c.dim}${statusText} · ${task.lastRun === '—' ? 'never run' : task.lastRun}${c.reset}`;
 
         console.log(`${prefix} ${statusIcon} ${name}  ${info}`);
       });
@@ -1377,7 +1404,9 @@ async function checkOnboarding() {
     const renderDetail = () => {
       clearScreen();
       const task = tasks[selectedIdx];
-      const statusColor = task.status === 'active' ? c.green : task.status === 'done' ? c.dim : c.yellow;
+      const statusColor = task.status === 'running' ? c.cyan
+                        : task.status === 'active' ? c.green
+                        : task.status === 'done' ? c.dim : c.yellow;
 
       console.log(`${c.bold}${c.cyan}${task.taskName}${c.reset}\n`);
       console.log(`  ${c.dim}Path:${c.reset}     ${task.projectDir}`);
@@ -1487,7 +1516,8 @@ async function checkOnboarding() {
       // Non-interactive: just list
       console.log(`${c.bold}Tasks${c.reset}\n`);
       tasks.forEach((task, idx) => {
-        const statusIcon = task.status === 'active' ? `${c.green}●${c.reset}`
+        const statusIcon = task.status === 'running' ? `${c.cyan}▶${c.reset}`
+                         : task.status === 'active' ? `${c.green}●${c.reset}`
                          : task.status === 'done' ? `${c.dim}✓${c.reset}`
                          : `${c.yellow}○${c.reset}`;
         console.log(`${idx + 1}. ${statusIcon} ${task.taskName}  ${c.dim}${task.status} · ${task.lastRun}${c.reset}`);
