@@ -80,6 +80,18 @@ Agents control state via markers in their output:
 --daemon               Loop on [continue] marker
 ```
 
+## Claude Code Plugin
+
+Install as a Claude Code plugin:
+
+```bash
+claude plugin install github:ramarlina/agx
+```
+
+This adds:
+- **Skill**: Claude learns how to spawn background agents
+- **Commands**: `/agx:spawn <goal>`, `/agx:continue`
+
 ## Commands
 
 ```bash
