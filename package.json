@@ -1,6 +1,6 @@
 {
   "name": "@mndrk/agx",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Unified AI Agent Wrapper for Gemini, Claude, and Ollama",
   "main": "index.js",
   "bin": {
@@ -16,12 +16,17 @@
     "gemini",
     "claude",
     "ollama",
-    "llm"
+    "llm",
+    "memory",
+    "persistent"
   ],
   "author": "mndrk",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/ramarlina/agx"
+  },
+  "dependencies": {
+    "@mnrdk/memx": "^0.2.0"
   }
 }
