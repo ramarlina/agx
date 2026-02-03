@@ -1,6 +1,6 @@
 {
   "name": "@mndrk/agx",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Unified AI Agent Wrapper for Gemini, Claude, and Ollama",
   "main": "index.js",
   "bin": {
