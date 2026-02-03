@@ -12,116 +12,61 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 // agx skill - instructions for LLMs on how to use agx
 const AGX_SKILL = `---
 name: agx
-description: Run AI agents with persistent memory. Wraps Claude, Gemini, Ollama with automatic state management.
+description: Autonomous AI agents. One command, works until done.
 ---
 
-# agx - AI Agent CLI with Persistent Memory
+# agx - Autonomous AI Agents
 
-Unified CLI for running AI agents with automatic state persistence.
+One command starts an agent that works until done.
 
-## Basic Usage
-
-\`\`\`bash
-agx -p "explain this code"            # simple prompt (default provider)
-agx claude -p "fix the bug"           # specific provider
-agx c -y -p "refactor this"           # skip confirmations
-\`\`\`
-
-## Task Management
-
-agx handles all task state internally:
+## Autonomous Mode
 
 \`\`\`bash
-# Create a new task
-agx init myproject "Build a todo app"
-
-# Check status
-agx status
-
-# Autonomous mode (creates task + starts daemon)
 agx -a -p "Build a REST API with auth"
-
-# With explicit criteria
-agx init api-task "Build REST API" \\
-  && agx criteria add "CRUD endpoints working" \\
-  && agx criteria add "Auth implemented"
+# ✓ Created task, started daemon, working...
 \`\`\`
 
-## Task Commands
+Agent continues automatically until \`[done]\` or \`[blocked]\`.
+
+## One-Shot Mode
 
 \`\`\`bash
-agx init <name> "<goal>"    # Create new task
-agx status                  # Show current state
-agx tasks                   # List all tasks
-agx done                    # Mark complete
-agx stuck [reason|clear]    # Mark/clear blocker
-agx switch <name>           # Switch tasks
-agx checkpoint "<msg>"      # Save progress point
-agx learn "<insight>"       # Record learning
-agx next "<step>"           # Set next step
-agx wake "<schedule>"       # Set wake (e.g. "every 15m")
-agx progress                # Show % complete
-agx criteria add "<text>"   # Add criterion
-agx criteria <N>            # Mark criterion #N complete
+agx -p "explain this code"
+agx claude -p "fix this bug" -y
 \`\`\`
 
 ## Output Markers
 
-Use these in agent output to save state (parsed automatically):
-
+Progress (parsed automatically):
 \`\`\`
-[checkpoint: message]      Save progress point
-[learn: insight]           Record learning
-[next: step]               Set next step
-[criteria: N]              Mark criterion #N complete
+[checkpoint: message]   # Save progress
+[learn: insight]        # Record learning
+[next: step]            # Set next step
 \`\`\`
 
-Stopping markers (only when needed):
+Stopping (only when genuinely done/stuck):
 \`\`\`
-[done]                     Task complete, stop
-[blocked: reason]          Need human help
-[approve: question]        Need approval first
+[done]                  # Task complete
+[blocked: reason]       # Need human help
 \`\`\`
 
-## Daemon (Background Runner)
+## Checking Tasks
 
 \`\`\`bash
-agx daemon start           # Start background runner
-agx daemon stop            # Stop it
-agx daemon status          # Check if running
-agx daemon logs            # View recent logs
+agx status          # Current task
+agx tasks           # All tasks  
+agx daemon logs     # Recent activity
 \`\`\`
 
 ## Providers
 
-| Provider | Aliases | Description |
-|----------|---------|-------------|
-| claude | c, cl | Anthropic Claude Code |
-| gemini | g, gem | Google Gemini CLI |
-| ollama | o, ol | Local Ollama models |
+claude (c), gemini (g), ollama (o)
 
-## Options
+## Key Flags
 
-| Option | Description |
-|--------|-------------|
-| --prompt, -p | The prompt to send |
-| --model, -m | Model name |
-| --yolo, -y | Skip permission prompts |
-| --autonomous, -a | Create task + daemon, run unattended |
-| --task NAME | Specific task name |
-| --criteria "..." | Success criterion (repeatable) |
-
-## Continuous Work Loop
-
-Autonomous tasks wake every 15m by default:
-
-\`\`\`
-WAKE → load context → work → save → SLEEP → repeat until [done]
-\`\`\`
-
-Default behavior is to keep working. Only use stopping markers when:
-- \`[done]\` → all criteria met, task complete
-- \`[blocked: reason]\` → cannot proceed without human
+-a  Autonomous mode (task + daemon + work until done)
+-p  Prompt/goal
+-y  Skip confirmations (implied by -a)
 `;
 
 // ANSI colors
@@ -1688,75 +1633,53 @@ const VALID_PROVIDERS = ['gemini', 'claude', 'ollama'];
 // Handle help
 if (args.includes('--help') || args.includes('-h')) {
   const defaultNote = config?.defaultProvider
-    ? `\n  Default provider: ${config.defaultProvider} (from ~/.agx/config.json)`
+    ? `  Default: ${config.defaultProvider}`
     : '';
-  console.log(`agx - Unified AI Agent CLI
+  console.log(`agx - Autonomous AI Agent CLI
 
-SYNTAX:
-  agx [options] --prompt "<prompt>"          Use default provider
-  agx <provider> [options] --prompt "<prompt>"
-
-PROVIDERS:
-  gemini, gem, g     Google Gemini
-  claude, cl, c      Anthropic Claude
-  ollama, ol, o      Local Ollama (via Claude interface)${defaultNote}
+USAGE:
+  agx -a -p "build something"     Autonomous: works until done
+  agx -p "quick question"         One-shot prompt
+${defaultNote}
+AUTONOMOUS MODE (-a):
+  One command does everything:
+  
+  $ agx -a -p "Build a REST API with auth"
+  ✓ Created task: build-rest-api
+  ✓ Daemon started (wakes every 15m)
+  ✓ Working...
+  
+  Agent continues automatically until [done] or [blocked].
+  That's it. No manual task management needed.
 
 OPTIONS:
-  --prompt, -p <text>    The prompt to send
-  --model, -m <name>     Model name to use
-  --yolo, -y             Skip permission prompts
-  --autonomous, -a       Create task + daemon, run unattended
-  --task NAME            Specific task name
-  --criteria "..."       Success criterion (repeatable)
-  --print                Non-interactive mode
-  --interactive, -i      Force interactive mode
-  --debug, -d            Enable debug output
+  -a, --autonomous    Full auto: task + daemon + work until done
+  -p, --prompt        The prompt/goal
+  -y, --yolo          Skip prompts (implied by -a)
+  -m, --model         Model name
 
-TASK COMMANDS:
-  tasks                  Interactive task browser (↑/↓ navigate)
-  run [task]             Run task immediately
-  pause [task]           Pause task (clear wake)
-  resume [task]          Resume paused task
-  stop [task]            Mark task done
-  remove [task]          Remove task completely
+PROVIDERS:
+  claude, c    Anthropic Claude Code
+  gemini, g    Google Gemini
+  ollama, o    Local Ollama
 
-  init <name> "<goal>"   Create new task
-  done                   Mark current task complete
-  stuck [reason|clear]   Mark/clear blocker
-  switch <name>          Switch to task
-  checkpoint "<msg>"     Save progress point
-  learn "<insight>"      Record learning
-  next "<step>"          Set next step
-  wake "<schedule>"      Set wake schedule (e.g. "every 15m")
-  context                Show full task context
-  progress               Show % complete
-  criteria [add|N]       Add/mark criteria
-  goal [value]           Get/set goal
+CHECKING ON TASKS:
+  agx status          Current task status
+  agx tasks           Browse all tasks
+  agx progress        Show % complete
+  agx daemon logs     Recent activity
 
-DAEMON COMMANDS:
-  daemon start           Start background runner
-  daemon stop            Stop daemon
-  daemon status          Check if running
-  daemon logs            Show recent logs
-
-SETUP COMMANDS:
-  setup                  Run setup wizard
-  config                 Configuration menu
-  add <provider>         Install a provider
-  login <provider>       Authenticate to provider
-  skill                  View/install agx skill
+MANUAL CONTROL (optional):
+  agx run [task]      Run task now
+  agx pause [task]    Pause scheduled runs
+  agx stop [task]     Mark done
+  agx stuck <reason>  Mark blocked
 
 EXAMPLES:
-  agx -p "hello"                              Simple prompt
-  agx claude -p "explain this code"           Specific provider
-  agx init myproject "Build a todo app"       Create task
-  agx -a -p "Build a REST API"                Autonomous mode
-  agx status                                  Check current task
-  agx done                                    Mark complete
-
-RAW PASSTHROUGH:
-  Use -- to pass arguments directly to underlying CLI:
-  agx claude -- --resume`);
+  agx -a -p "Build a todo app"    # Start autonomous task
+  agx claude -p "explain this"    # One-shot question
+  agx tasks                       # Check on tasks
+  agx daemon logs                 # See what's happening`);
   process.exit(0);
 }
 
