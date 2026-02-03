@@ -182,8 +182,10 @@ function findMemDir(startDir = process.cwd()) {
 // Load mem context
 function loadMemContext(memDir) {
   try {
+    // Run from current directory so mem can find the task mapping
+    // (central ~/.mem uses cwd to look up the task in index.json)
     const result = execSync('mem context', { 
-      cwd: path.dirname(memDir),
+      cwd: process.cwd(),
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe']
     });
