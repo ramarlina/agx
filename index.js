@@ -1339,10 +1339,13 @@ if ((options.autoTask || options.taskName) && !options.memDir && finalPrompt) {
     console.log(`${c.green}✓${c.reset} Created task: ${c.bold}${taskName}${c.reset}`);
     console.log(`${c.green}✓${c.reset} Mapped: ${c.dim}${process.cwd()} → ${branch}${c.reset}`);
     
-    // Auto-set wake schedule for new tasks
+    // Auto-set wake schedule for new tasks with proper command
     try {
-      execSync(`mem wake "every 15m"`, { cwd: process.cwd(), stdio: 'ignore' });
-      console.log(`${c.green}✓${c.reset} Wake: ${c.dim}every 15m (until done)${c.reset}\n`);
+      const projectDir = process.cwd();
+      const wakeCmd = `cd ${projectDir} && agx claude -p "continue"`;
+      execSync(`mem wake "every 15m" --run "${wakeCmd}"`, { cwd: process.cwd(), stdio: 'ignore' });
+      console.log(`${c.green}✓${c.reset} Wake: ${c.dim}every 15m (until done)${c.reset}`);
+      console.log(`${c.dim}       Run: agx claude -p "continue"${c.reset}\n`);
     } catch {}
     
   } catch (err) {
