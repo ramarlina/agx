@@ -396,15 +396,55 @@ function stopDaemon() {
   }
 }
 
+// Parse wake pattern to milliseconds (e.g., "every 15m" → 900000)
+function parseWakeInterval(pattern) {
+  if (!pattern) return null;
+  
+  const match = pattern.match(/every\s+(\d+)\s*(m|min|h|hr|hour)/i);
+  if (match) {
+    const value = parseInt(match[1]);
+    const unit = match[2].toLowerCase();
+    if (unit.startsWith('h')) return value * 60 * 60 * 1000;
+    return value * 60 * 1000; // minutes
+  }
+  return null;
+}
+
 async function runDaemon() {
   console.log(`[${new Date().toISOString()}] Daemon starting...`);
   
-  const WAKE_INTERVAL = 15 * 60 * 1000; // 15 minutes
+  const DEFAULT_WAKE_INTERVAL = 15 * 60 * 1000; // 15 minutes fallback
+  const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
+  
+  // Read wake interval from mem state (use shortest interval across all tasks)
+  function getWakeInterval() {
+    try {
+      const indexFile = path.join(memDir, 'index.json');
+      if (!fs.existsSync(indexFile)) return DEFAULT_WAKE_INTERVAL;
+      
+      const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
+      let minInterval = DEFAULT_WAKE_INTERVAL;
+      
+      for (const taskBranch of Object.values(index)) {
+        try {
+          execSync(`git checkout ${taskBranch}`, { cwd: memDir, stdio: 'ignore' });
+          const state = fs.readFileSync(path.join(memDir, 'state.md'), 'utf8');
+          const wakeMatch = state.match(/^wake:\s*(.+)$/m);
+          if (wakeMatch) {
+            const interval = parseWakeInterval(wakeMatch[1]);
+            if (interval && interval < minInterval) minInterval = interval;
+          }
+        } catch {}
+      }
+      return minInterval;
+    } catch {
+      return DEFAULT_WAKE_INTERVAL;
+    }
+  }
   
   const tick = async () => {
     console.log(`[${new Date().toISOString()}] Daemon tick - checking tasks...`);
     
-    const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
     const indexFile = path.join(memDir, 'index.json');
     
     if (!fs.existsSync(indexFile)) {
@@ -445,11 +485,11 @@ async function runDaemon() {
   // Initial tick
   await tick();
   
-  // Schedule recurring ticks
-  setInterval(tick, WAKE_INTERVAL);
+  // Get interval from mem (with fallback) and schedule recurring ticks
+  const wakeInterval = getWakeInterval();
+  setInterval(tick, wakeInterval);
   
-  // Keep alive
-  console.log(`[${new Date().toISOString()}] Daemon running, wake interval: ${WAKE_INTERVAL / 1000 / 60}m`);
+  console.log(`[${new Date().toISOString()}] Daemon running, wake interval: ${wakeInterval / 1000 / 60}m`);
 }
 
 // Handle approval prompts
