@@ -1121,6 +1121,82 @@ async function checkOnboarding() {
     return true;
   }
 
+  // Tasks command - list tasks with schedules
+  if (cmd === 'tasks') {
+    const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
+    const indexFile = path.join(memDir, 'index.json');
+    
+    if (!fs.existsSync(indexFile)) {
+      console.log(`${c.yellow}No tasks found${c.reset}`);
+      process.exit(0);
+    }
+    
+    const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
+    let state = {};
+    try {
+      if (fs.existsSync(DAEMON_STATE_FILE)) {
+        state = JSON.parse(fs.readFileSync(DAEMON_STATE_FILE, 'utf8'));
+      }
+    } catch {}
+    
+    console.log(`${c.bold}Tasks${c.reset}\n`);
+    
+    for (const [projectDir, taskBranch] of Object.entries(index)) {
+      const taskName = taskBranch.replace('task/', '');
+      let wake = '—';
+      let status = 'unknown';
+      let lastRun = '—';
+      let nextRun = '—';
+      
+      try {
+        // Get wake schedule
+        const wakeOut = execSync('mem wake', { cwd: projectDir, encoding: 'utf8' });
+        const wakeMatch = wakeOut.match(/Wake:\s*(.+)/);
+        if (wakeMatch) wake = wakeMatch[1].trim();
+        
+        // Get status
+        execSync(`mem switch ${taskName}`, { cwd: projectDir, stdio: 'ignore' });
+        const statusOut = execSync('mem status', { cwd: projectDir, encoding: 'utf8' });
+        if (statusOut.includes('status: done')) status = 'done';
+        else if (statusOut.includes('status: blocked')) status = 'blocked';
+        else status = 'active';
+        
+        // Get last run time
+        if (state.lastRun && state.lastRun[taskBranch]) {
+          const lastMs = state.lastRun[taskBranch];
+          const ago = Date.now() - lastMs;
+          lastRun = `${Math.round(ago / 60000)}m ago`;
+          
+          // Calculate next run
+          const interval = parseWakeInterval(wake);
+          if (interval) {
+            const nextMs = lastMs + interval - Date.now();
+            if (nextMs > 0) nextRun = `in ${Math.round(nextMs / 60000)}m`;
+            else nextRun = 'due';
+          }
+        }
+      } catch {}
+      
+      const statusColor = status === 'active' ? c.green : status === 'done' ? c.dim : c.yellow;
+      console.log(`${c.cyan}${taskName}${c.reset}`);
+      console.log(`  ${c.dim}Path:${c.reset}     ${projectDir}`);
+      console.log(`  ${c.dim}Status:${c.reset}   ${statusColor}${status}${c.reset}`);
+      console.log(`  ${c.dim}Wake:${c.reset}     ${wake}`);
+      console.log(`  ${c.dim}Last run:${c.reset} ${lastRun}`);
+      console.log(`  ${c.dim}Next run:${c.reset} ${nextRun}`);
+      console.log('');
+    }
+    
+    const pid = isDaemonRunning();
+    if (pid) {
+      console.log(`${c.green}Daemon running${c.reset} (pid ${pid})`);
+    } else {
+      console.log(`${c.yellow}Daemon not running${c.reset} — start with: agx daemon start`);
+    }
+    
+    process.exit(0);
+  }
+
   // Daemon commands
   if (cmd === 'daemon') {
     const subcmd = args[1];
