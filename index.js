@@ -416,7 +416,7 @@ async function runDaemon() {
   const DEFAULT_WAKE_INTERVAL = 15 * 60 * 1000; // 15 minutes fallback
   const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
   
-  // Read wake interval from mem state (use shortest interval across all tasks)
+  // Read wake interval from mem (use shortest interval across all tasks)
   function getWakeInterval() {
     try {
       const indexFile = path.join(memDir, 'index.json');
@@ -425,11 +425,11 @@ async function runDaemon() {
       const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
       let minInterval = DEFAULT_WAKE_INTERVAL;
       
-      for (const taskBranch of Object.values(index)) {
+      for (const [projectDir, taskBranch] of Object.entries(index)) {
         try {
-          execSync(`git checkout ${taskBranch}`, { cwd: memDir, stdio: 'ignore' });
-          const state = fs.readFileSync(path.join(memDir, 'state.md'), 'utf8');
-          const wakeMatch = state.match(/^wake:\s*(.+)$/m);
+          // Use mem wake to check the schedule
+          const wake = execSync('mem wake', { cwd: projectDir, encoding: 'utf8' });
+          const wakeMatch = wake.match(/Wake:\s*(.+)/);
           if (wakeMatch) {
             const interval = parseWakeInterval(wakeMatch[1]);
             if (interval && interval < minInterval) minInterval = interval;
@@ -445,8 +445,8 @@ async function runDaemon() {
   const tick = async () => {
     console.log(`[${new Date().toISOString()}] Daemon tick - checking tasks...`);
     
+    // Get task list from mem index
     const indexFile = path.join(memDir, 'index.json');
-    
     if (!fs.existsSync(indexFile)) {
       console.log(`[${new Date().toISOString()}] No tasks found`);
       return;
@@ -457,12 +457,13 @@ async function runDaemon() {
     for (const [projectDir, taskBranch] of Object.entries(index)) {
       if (!fs.existsSync(projectDir)) continue;
       
-      // Check if task is active
       try {
-        execSync(`git checkout ${taskBranch}`, { cwd: memDir, stdio: 'ignore' });
-        const state = fs.readFileSync(path.join(memDir, 'state.md'), 'utf8');
+        // Use mem to switch and check status
+        execSync(`mem switch ${taskBranch.replace('task/', '')}`, { cwd: projectDir, stdio: 'ignore' });
+        const status = execSync('mem status', { cwd: projectDir, encoding: 'utf8' });
         
-        if (state.includes('status: active')) {
+        // Check if task is active (not done/blocked)
+        if (!status.includes('status: done') && !status.includes('status: blocked')) {
           console.log(`[${new Date().toISOString()}] Continuing task: ${taskBranch} in ${projectDir}`);
           
           // Run agx continue
@@ -475,6 +476,8 @@ async function runDaemon() {
           } catch (err) {
             console.log(`[${new Date().toISOString()}] Task ${taskBranch} error: ${err.message}`);
           }
+        } else {
+          console.log(`[${new Date().toISOString()}] Skipping ${taskBranch} (not active)`);
         }
       } catch (err) {
         console.log(`[${new Date().toISOString()}] Error checking ${taskBranch}: ${err.message}`);
