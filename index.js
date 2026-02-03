@@ -2095,17 +2095,16 @@ translatedArgs.push(...rawArgs);
 
 // ==================== MEM INTEGRATION ====================
 
-// Mem context detection logic:
-// - agx -a -p "..." → always create new task (don't look for existing)
-// - agx -a --task <name> → use/create that specific task
-// - agx -p "..." → use existing task if found
+// Mem context logic:
+// - agx -p "..." → one-shot, no task
+// - agx -a -p "..." → create new task
+// - agx -a --task <name> → use/create specific task
 
 let memInfo = null;
-if (options.mem !== false) {
-  if (options.autonomous && !options.taskName) {
-    // Autonomous without --task: always create new task, skip lookup
-    memInfo = null;
-  } else if (options.taskName) {
+
+// Only use mem in autonomous mode
+if (options.autonomous && options.mem !== false) {
+  if (options.taskName) {
     // Specific task requested: check if it exists
     const centralMem = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
     if (fs.existsSync(centralMem)) {
@@ -2115,10 +2114,8 @@ if (options.mem !== false) {
         memInfo = { memDir: centralMem, taskBranch: branch, projectDir: process.cwd(), isLocal: false };
       } catch {} // Task doesn't exist, will be created
     }
-  } else {
-    // Normal mode: find existing task
-    memInfo = findMemDir();
   }
+  // else: autonomous without --task creates new task below
 }
 
 if (memInfo) {
