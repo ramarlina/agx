@@ -1,242 +1,141 @@
 # agx
 
-Unified AI Agent Wrapper for Gemini, Claude, and Ollama.
-
-## Installation
-
-### Via npm (recommended)
+Unified AI Agent CLI with persistent memory. Wraps Claude, Gemini, and Ollama with automatic state management via [mem](https://github.com/ramarlina/memx).
 
 ```bash
 npm install -g @mndrk/agx
 ```
 
-### From source
-
-Clone the repository and link locally:
-
-```bash
-git clone https://github.com/ramarlina/agx.git
-cd agx
-npm link
-```
-
 ## Quick Start
 
-When you run `agx` for the first time, it will automatically start the setup wizard:
+```bash
+# Simple prompt
+agx claude -p "explain this code"
+
+# Use default provider
+agx -p "what does this function do?"
+
+# With persistent memory (auto-detected)
+agx claude -p "continue working on the todo app"
+
+# Auto-create task (for agents, non-interactive)
+agx claude --auto-task -p "Build a todo app with React"
+```
+
+## Memory Integration
+
+agx integrates with [mem](https://github.com/ramarlina/memx) for persistent state across sessions:
 
 ```bash
-agx
+# If ~/.mem has a task mapped to cwd, context is auto-loaded
+cd ~/Projects/my-app
+agx claude -p "continue"   # Knows where it left off
+
+# Create task with explicit criteria
+agx claude --task todo-app \
+  --criteria "CRUD working" \
+  --criteria "Tests passing" \
+  --criteria "Deployed to Vercel" \
+  -p "Build a todo app"
 ```
 
-The setup wizard will:
-1. Detect which AI providers are installed on your system
-2. Guide you through installing any missing providers
-3. Help you authenticate with your chosen providers
-4. Set your default provider
+## Output Markers
 
-After setup, you can start using agx immediately:
+Agents control state via markers in their output:
+
+```
+[checkpoint: Hero section complete]   # Save progress
+[learn: Tailwind is fast]             # Record learning
+[next: Add auth system]               # Set next step
+[criteria: 2]                         # Mark criterion #2 done
+[approve: Deploy to production?]      # Halt for approval
+[blocked: Need API key from client]   # Mark stuck
+[pause]                               # Stop, resume later
+[continue]                            # Keep going (daemon)
+[done]                                # Task complete
+[split: auth "Handle authentication"] # Create subtask
+```
+
+## Providers
+
+| Provider | Aliases | Description |
+|----------|---------|-------------|
+| claude | c, cl | Anthropic Claude Code |
+| gemini | g, gem | Google Gemini CLI |
+| ollama | o, ol | Local Ollama models |
+
+## Options
+
+```
+--prompt, -p <text>    Prompt to send
+--model, -m <name>     Model name
+--yolo, -y             Skip permission prompts
+--print                Non-interactive output
+--interactive, -i      Force interactive mode
+--mem                  Enable mem integration (auto-detected)
+--no-mem               Disable mem integration
+--auto-task            Auto-create task from prompt
+--task <name>          Specific task name
+--criteria <text>      Success criterion (repeatable)
+--daemon               Loop on [continue] marker
+```
+
+## Commands
 
 ```bash
-agx --prompt "hello world"
+agx init               # Setup wizard
+agx config             # Configuration menu
+agx status             # Show current config
+agx skill              # View LLM skill
+agx skill install      # Install skill to Claude/Gemini
 ```
 
-## Usage
+## Loop Control
 
-### With Default Provider
+The agent controls execution flow via markers:
 
-Once configured, you can run prompts without specifying a provider:
+- `[done]` → Task complete, exit
+- `[pause]` → Save state, exit (resume later with same command)
+- `[blocked: reason]` → Mark stuck, notify human, exit
+- `[continue]` → Keep going (daemon mode loops)
+- `[approve: question]` → Halt until human approves
+
+## Task Splitting
+
+Break large tasks into subtasks:
+
+```
+Agent output:
+This is too big. Breaking it down.
+
+[split: setup "Project scaffolding"]
+[split: auth "Authentication system"]
+[split: crud "CRUD operations"]
+[next: Start with setup subtask]
+[pause]
+```
+
+agx creates subtask branches in ~/.mem linked to the parent.
+
+## Example: Full Workflow
 
 ```bash
-agx --prompt "explain this code"
-agx -p "summarize the file"
+# Day 1: Start project
+mkdir ~/Projects/my-app && cd ~/Projects/my-app
+agx claude --auto-task -p "Build a React todo app with auth"
+
+# Agent works, outputs markers
+# [checkpoint: Scaffolded with Vite]
+# [learn: Vite is faster than CRA]
+# [next: Add todo list component]
+# [pause]
+
+# Day 2: Continue
+cd ~/Projects/my-app
+agx claude -p "continue"
+# Context auto-loaded, agent picks up where it left off
 ```
 
-### With Specific Provider
+## License
 
-```bash
-agx <provider> [options] --prompt "<prompt>"
-```
-
-### Providers
-
-| Provider | Aliases | Backend |
-|----------|---------|---------|
-| `gemini` | `gem`, `g` | Google Gemini CLI |
-| `claude` | `cl`, `c` | Anthropic Claude CLI |
-| `ollama` | `ol`, `o` | Local Ollama via Claude interface |
-
-### Options
-
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--prompt <text>` | `-p` | The prompt to send |
-| `--model <name>` | `-m` | Model name to use |
-| `--yolo` | `-y` | Skip permission prompts |
-| `--print` | | Non-interactive mode (output and exit) |
-| `--interactive` | `-i` | Force interactive mode |
-| `--sandbox` | `-s` | Enable sandbox (gemini only) |
-| `--debug` | `-d` | Enable debug output |
-| `--mcp <config>` | | MCP config file (claude/ollama only) |
-
-### Raw Passthrough
-
-Use `--` to pass arguments directly to the underlying CLI:
-```bash
-agx claude -- --resume
-```
-
-## Configuration Commands
-
-### `agx init`
-
-Run the setup wizard manually. This is useful if you want to reconfigure agx or add new providers:
-
-```bash
-agx init
-```
-
-The wizard will:
-- Detect installed providers (claude, gemini, ollama)
-- Guide you through installation and authentication
-- Let you set or change your default provider
-
-### `agx config`
-
-Open an interactive configuration menu to manage your agx settings:
-
-```bash
-agx config
-```
-
-### `agx add <provider>`
-
-Install a specific AI provider:
-
-```bash
-agx add claude    # Install Claude CLI
-agx add gemini    # Install Gemini CLI
-agx add ollama    # Install Ollama
-```
-
-### `agx login <provider>`
-
-Authenticate with a provider:
-
-```bash
-agx login claude    # Login to Claude
-agx login gemini    # Login to Gemini
-```
-
-### `agx status`
-
-View your current configuration, including installed providers and default settings:
-
-```bash
-agx status
-```
-
-Example output:
-```
-agx Configuration Status
-------------------------
-Default Provider: claude
-
-Installed Providers:
-  ✓ claude (authenticated)
-  ✓ gemini (authenticated)
-  ✓ ollama (running)
-
-Config file: ~/.agx/config.json
-```
-
-## Skill System
-
-agx includes a skill system that helps AI agents understand how to use agx effectively.
-
-### `agx skill`
-
-View the agx skill (LLM instructions):
-
-```bash
-agx skill
-```
-
-This displays the skill file that describes agx's capabilities and usage patterns for AI agents.
-
-### `agx skill install`
-
-Install the agx skill to Claude and/or Gemini so AI agents know how to use agx:
-
-```bash
-agx skill install
-```
-
-This adds the agx skill to your AI provider's skill directory, enabling features like:
-- AI agents can call other AI providers through agx
-- Cross-provider collaboration (e.g., Claude can ask Gemini for help)
-- Consistent command patterns across all providers
-
-## LLM-Predictable Command Patterns
-
-For LLMs constructing commands, use these canonical patterns:
-
-```bash
-# Pattern: agx --prompt "<prompt>" (uses default provider)
-agx --prompt "explain this code"
-
-# Pattern: agx <provider> --prompt "<prompt>"
-agx claude --prompt "explain this code"
-agx gemini --prompt "summarize the file"
-agx ollama --prompt "write a function"
-
-# Pattern: agx <provider> --model <model> --prompt "<prompt>"
-agx claude --model claude-sonnet-4-20250514 --prompt "fix the bug"
-agx gemini --model gemini-2.0-flash --prompt "optimize this"
-agx ollama --model qwen3:8b --prompt "refactor"
-
-# Pattern: agx <provider> --yolo --prompt "<prompt>"
-agx claude --yolo --prompt "run the tests"
-
-# Pattern: agx <provider> --print --prompt "<prompt>"
-agx claude --print --prompt "what is 2+2"
-```
-
-### Command Structure
-
-```
-agx [provider] [--model <name>] [--yolo] [--print] --prompt "<prompt>"
-```
-
-**Rules for LLMs:**
-1. Always use `--prompt` flag for the prompt text
-2. Quote the prompt with double quotes
-3. Place options before `--prompt`
-4. Use full provider names (`claude`, `gemini`, `ollama`) for clarity
-5. Provider is optional if a default is configured
-
-## Configuration File
-
-agx stores its configuration in `~/.agx/config.json`:
-
-```json
-{
-  "defaultProvider": "claude",
-  "providers": {
-    "claude": {
-      "installed": true,
-      "authenticated": true
-    },
-    "gemini": {
-      "installed": true,
-      "authenticated": true
-    },
-    "ollama": {
-      "installed": true
-    }
-  }
-}
-```
-
-## Ollama Support
-
-`agx ollama` automatically configures the environment to use a local Ollama instance as the backend for Claude Code. Default model is `glm-4.7:cloud` unless specified with `--model`.
+MIT

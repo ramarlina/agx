@@ -12,18 +12,54 @@ const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 // agx skill - instructions for LLMs on how to use agx
 const AGX_SKILL = `---
 name: agx
-description: Use agx to run AI agents (Claude, Gemini, Ollama) from the command line
+description: Run AI agents with persistent memory. Wraps Claude, Gemini, Ollama with automatic state management.
 ---
 
-# agx - Unified AI Agent CLI
+# agx - AI Agent CLI with Persistent Memory
 
-Use \`agx\` to run AI agents from the command line. It wraps Claude Code, Gemini CLI, and Ollama.
+Run AI agents with automatic state persistence via mem integration.
 
-## Syntax
+## Basic Usage
 
 \`\`\`bash
-agx <provider> [options] --prompt "<prompt>"
-agx [options] --prompt "<prompt>"   # uses default provider
+agx claude -p "explain this code"     # simple prompt
+agx -p "what does this do?"           # use default provider
+agx c --yolo -p "fix the bug"         # skip confirmations
+\`\`\`
+
+## Memory Integration
+
+agx auto-detects \`~/.mem\` and loads context:
+
+\`\`\`bash
+# Auto-load context if task exists for cwd
+agx claude -p "continue working"
+
+# Auto-create task (non-interactive, for agents)
+agx claude --auto-task -p "Build todo app"
+
+# Explicit task with criteria
+agx claude --task todo-app \\
+  --criteria "CRUD working" \\
+  --criteria "Deployed" \\
+  -p "Build a todo app"
+\`\`\`
+
+## Output Markers
+
+Use these in agent output to save state:
+
+\`\`\`
+[checkpoint: message]      Save progress point
+[learn: insight]           Record learning
+[next: step]               Set next step
+[criteria: N]              Mark criterion #N complete
+[approve: question]        Halt for human approval
+[blocked: reason]          Mark blocked, stop
+[pause]                    Save and stop (resume later)
+[continue]                 Keep going (daemon mode)
+[done]                     Mark task complete
+[split: name "goal"]       Create subtask
 \`\`\`
 
 ## Providers
@@ -34,47 +70,41 @@ agx [options] --prompt "<prompt>"   # uses default provider
 | gemini | g, gem | Google Gemini CLI |
 | ollama | o, ol | Local Ollama models |
 
-## Common Options
+## Options
 
-| Option | Short | Description |
-|--------|-------|-------------|
-| --prompt | -p | The prompt to send |
-| --model | -m | Model name to use |
-| --yolo | -y | Skip permission prompts |
-| --print | | Non-interactive output |
-| --interactive | -i | Force interactive mode |
-| --mem | | Enable mem integration (auto-detects .mem) |
-| --no-mem | | Disable mem integration |
-| --auto-task | | Auto-create task from prompt (non-interactive) |
-| --task NAME | | Create/use specific task name |
-| --criteria "..." | | Add success criterion (repeatable) |
-| --daemon | | Enable daemon mode (loop on [continue]) |
+| Option | Description |
+|--------|-------------|
+| --prompt, -p | The prompt to send |
+| --model, -m | Model name |
+| --yolo, -y | Skip permission prompts |
+| --mem | Enable mem (auto-detected) |
+| --no-mem | Disable mem |
+| --auto-task | Auto-create task from prompt |
+| --task NAME | Specific task name |
+| --criteria "..." | Success criterion (repeatable) |
+| --daemon | Loop on [continue] marker |
 
-## Examples
+## Loop Control
 
-\`\`\`bash
-# Simple prompt
-agx claude --prompt "explain this code"
+Agent controls execution via markers:
+- \`[done]\` → complete task, exit
+- \`[pause]\` → save state, exit (resume later)
+- \`[blocked: ...]\` → mark stuck, notify human, exit
+- \`[continue]\` → keep going (daemon loops)
+- \`[approve: ...]\` → halt until human approves
 
-# Use default provider
-agx --prompt "what does this function do?"
+## Task Splitting
 
-# Skip confirmations
-agx c --yolo --prompt "fix the tests"
+Break large tasks into subtasks:
 
-# Specify model
-agx ollama --model qwen3:8b --prompt "write a function"
-
-# Non-interactive (just output)
-agx gemini --print --prompt "summarize README.md"
+\`\`\`
+[split: setup "Project scaffolding"]
+[split: auth "Authentication system"]
+[split: crud "CRUD operations"]
+[next: Start with setup]
 \`\`\`
 
-## When to use agx
-
-- Quick AI queries from terminal
-- Running prompts across different AI providers
-- Scripting AI interactions
-- When you need --yolo mode to skip confirmations
+Creates subtask branches in ~/.mem, linked to parent.
 `;
 
 // ANSI colors
