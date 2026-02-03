@@ -1188,6 +1188,7 @@ async function checkOnboarding() {
       let lastRun = '—';
       let nextRun = '—';
       let progress = '—';
+      let criteria = [];
 
       try {
         const wakeOut = execSync('mem wake', { cwd: projectDir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
@@ -1202,7 +1203,6 @@ async function checkOnboarding() {
         else status = 'active';
 
         // Get progress and criteria
-        let criteria = [];
         try {
           const progressOut = execSync('mem progress', { cwd: projectDir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
           const progressMatch = progressOut.match(/(\d+)%/);
