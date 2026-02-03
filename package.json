@@ -20,13 +20,13 @@
     "memory",
     "persistent"
   ],
-  "author": "mndrk",
+  "author": "Mendrika Ramarlina",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/ramarlina/agx"
   },
   "dependencies": {
-    "@mnrdk/memx": "^0.2.0"
+    "@mndrk/memx": "^0.2.0"
   }
 }
