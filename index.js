@@ -333,6 +333,7 @@ function createSubtasks(splits, memInfo) {
 
 const DAEMON_PID_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'daemon.pid');
 const DAEMON_LOG_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'daemon.log');
+const DAEMON_STATE_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'daemon-state.json');
 
 function isDaemonRunning() {
   try {
@@ -414,73 +415,101 @@ async function runDaemon() {
   console.log(`[${new Date().toISOString()}] Daemon starting...`);
   
   const DEFAULT_WAKE_INTERVAL = 15 * 60 * 1000; // 15 minutes fallback
+  const TICK_INTERVAL = 60 * 1000; // Check every 1 minute
   const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
   
-  // Read wake interval from mem (use shortest interval across all tasks)
-  function getWakeInterval() {
+  // Load/save daemon state (last run times per task)
+  function loadState() {
     try {
-      const indexFile = path.join(memDir, 'index.json');
-      if (!fs.existsSync(indexFile)) return DEFAULT_WAKE_INTERVAL;
-      
-      const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
-      let minInterval = DEFAULT_WAKE_INTERVAL;
-      
-      for (const [projectDir, taskBranch] of Object.entries(index)) {
-        try {
-          // Use mem wake to check the schedule
-          const wake = execSync('mem wake', { cwd: projectDir, encoding: 'utf8' });
-          const wakeMatch = wake.match(/Wake:\s*(.+)/);
-          if (wakeMatch) {
-            const interval = parseWakeInterval(wakeMatch[1]);
-            if (interval && interval < minInterval) minInterval = interval;
-          }
-        } catch {}
+      if (fs.existsSync(DAEMON_STATE_FILE)) {
+        return JSON.parse(fs.readFileSync(DAEMON_STATE_FILE, 'utf8'));
       }
-      return minInterval;
-    } catch {
-      return DEFAULT_WAKE_INTERVAL;
-    }
+    } catch {}
+    return { lastRun: {} };
+  }
+  
+  function saveState(state) {
+    const dir = path.dirname(DAEMON_STATE_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(DAEMON_STATE_FILE, JSON.stringify(state, null, 2));
+  }
+  
+  // Get wake interval for a specific task
+  function getTaskWakeInterval(projectDir) {
+    try {
+      const wake = execSync('mem wake', { cwd: projectDir, encoding: 'utf8' });
+      const wakeMatch = wake.match(/Wake:\s*(.+)/);
+      if (wakeMatch) {
+        const interval = parseWakeInterval(wakeMatch[1]);
+        if (interval) return interval;
+      }
+    } catch {}
+    return DEFAULT_WAKE_INTERVAL;
   }
   
   const tick = async () => {
-    console.log(`[${new Date().toISOString()}] Daemon tick - checking tasks...`);
+    const now = Date.now();
+    const state = loadState();
     
     // Get task list from mem index
     const indexFile = path.join(memDir, 'index.json');
-    if (!fs.existsSync(indexFile)) {
-      console.log(`[${new Date().toISOString()}] No tasks found`);
-      return;
-    }
+    if (!fs.existsSync(indexFile)) return;
     
     const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
+    let ranAny = false;
     
     for (const [projectDir, taskBranch] of Object.entries(index)) {
       if (!fs.existsSync(projectDir)) continue;
       
       try {
+        // Check if task is due based on its wake interval
+        const wakeInterval = getTaskWakeInterval(projectDir);
+        const lastRun = state.lastRun[taskBranch] || 0;
+        const elapsed = now - lastRun;
+        
+        if (elapsed < wakeInterval) {
+          continue; // Not due yet
+        }
+        
         // Use mem to switch and check status
         execSync(`mem switch ${taskBranch.replace('task/', '')}`, { cwd: projectDir, stdio: 'ignore' });
         const status = execSync('mem status', { cwd: projectDir, encoding: 'utf8' });
         
         // Check if task is active (not done/blocked)
-        if (!status.includes('status: done') && !status.includes('status: blocked')) {
-          console.log(`[${new Date().toISOString()}] Continuing task: ${taskBranch} in ${projectDir}`);
-          
-          // Run agx continue
-          try {
-            execSync(`agx claude -y -p "continue"`, { 
-              cwd: projectDir, 
-              stdio: 'inherit',
-              timeout: 10 * 60 * 1000 // 10 min timeout
-            });
-          } catch (err) {
-            console.log(`[${new Date().toISOString()}] Task ${taskBranch} error: ${err.message}`);
-          }
-        } else {
-          console.log(`[${new Date().toISOString()}] Skipping ${taskBranch} (not active)`);
+        if (status.includes('status: done') || status.includes('status: blocked')) {
+          continue; // Skip inactive tasks
         }
+        
+        console.log(`[${new Date().toISOString()}] Running task: ${taskBranch} (due after ${Math.round(wakeInterval/60000)}m)`);
+        ranAny = true;
+        
+        // Update last run time before executing (in case it takes a while)
+        state.lastRun[taskBranch] = now;
+        saveState(state);
+        
+        // Run agx continue
+        try {
+          execSync(`agx claude -y -p "continue"`, { 
+            cwd: projectDir, 
+            stdio: 'inherit',
+            timeout: 10 * 60 * 1000 // 10 min timeout
+          });
+        } catch (err) {
+          console.log(`[${new Date().toISOString()}] Task ${taskBranch} error: ${err.message}`);
+        }
+        
       } catch (err) {
         console.log(`[${new Date().toISOString()}] Error checking ${taskBranch}: ${err.message}`);
+      }
+    }
+    
+    if (!ranAny) {
+      // Only log periodically to avoid spam
+      const lastLog = state.lastLog || 0;
+      if (now - lastLog > 5 * 60 * 1000) { // Every 5 min
+        console.log(`[${new Date().toISOString()}] Daemon tick - no tasks due`);
+        state.lastLog = now;
+        saveState(state);
       }
     }
   };
@@ -488,11 +517,10 @@ async function runDaemon() {
   // Initial tick
   await tick();
   
-  // Get interval from mem (with fallback) and schedule recurring ticks
-  const wakeInterval = getWakeInterval();
-  setInterval(tick, wakeInterval);
+  // Check every minute, but only run tasks when their interval is due
+  setInterval(tick, TICK_INTERVAL);
   
-  console.log(`[${new Date().toISOString()}] Daemon running, wake interval: ${wakeInterval / 1000 / 60}m`);
+  console.log(`[${new Date().toISOString()}] Daemon running, checking every ${TICK_INTERVAL / 1000}s`);
 }
 
 // Handle approval prompts
