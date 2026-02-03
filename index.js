@@ -45,6 +45,10 @@ agx [options] --prompt "<prompt>"   # uses default provider
 | --interactive | -i | Force interactive mode |
 | --mem | | Enable mem integration (auto-detects .mem) |
 | --no-mem | | Disable mem integration |
+| --auto-task | | Auto-create task from prompt (non-interactive) |
+| --task NAME | | Create/use specific task name |
+| --criteria "..." | | Add success criterion (repeatable) |
+| --daemon | | Enable daemon mode (loop on [continue]) |
 
 ## Examples
 
@@ -149,25 +153,40 @@ function parseMemMarkers(output) {
     { type: 'learn', regex: /\[learn:\s*([^\]]+)\]/gi },
     { type: 'next', regex: /\[next:\s*([^\]]+)\]/gi },
     { type: 'stuck', regex: /\[stuck:\s*([^\]]+)\]/gi },
+    { type: 'blocked', regex: /\[blocked:\s*([^\]]+)\]/gi },
     { type: 'done', regex: /\[done\]/gi },
+    { type: 'pause', regex: /\[pause(?::\s*([^\]]*))?\]/gi },
+    { type: 'continue', regex: /\[continue\]/gi },
     { type: 'approve', regex: /\[approve:\s*([^\]]+)\]/gi },
     { type: 'criteria', regex: /\[criteria:\s*(\d+)\]/gi },
+    { type: 'split', regex: /\[split:\s*([^\s\]]+)(?:\s+"([^"]+)")?\]/gi },
   ];
   
   for (const { type, regex } of patterns) {
     let match;
     while ((match = regex.exec(output)) !== null) {
-      markers.push({ type, value: match[1] || true });
+      if (type === 'split') {
+        markers.push({ type, name: match[1], goal: match[2] || match[1] });
+      } else {
+        markers.push({ type, value: match[1] || true });
+      }
     }
   }
   
   return markers;
 }
 
-// Apply mem markers
+// Apply mem markers - returns control signals
 function applyMemMarkers(markers, memDir) {
   const workDir = path.dirname(memDir);
-  const approvals = [];
+  const result = {
+    approvals: [],
+    shouldContinue: false,
+    shouldPause: false,
+    isDone: false,
+    isBlocked: false,
+    splits: []
+  };
   
   for (const marker of markers) {
     try {
@@ -191,16 +210,27 @@ function applyMemMarkers(markers, memDir) {
           console.log(`${c.green}✓${c.reset} ${c.dim}Next:${c.reset} ${marker.value}`);
           break;
         case 'stuck':
+        case 'blocked':
           execSync(`mem stuck "${marker.value.replace(/"/g, '\\"')}"`, { 
             cwd: workDir, stdio: 'ignore' 
           });
-          console.log(`${c.yellow}⚠${c.reset} ${c.dim}Stuck:${c.reset} ${marker.value}`);
+          console.log(`${c.yellow}⚠${c.reset} ${c.dim}Blocked:${c.reset} ${marker.value}`);
+          result.isBlocked = true;
           break;
         case 'done':
           console.log(`${c.green}✓${c.reset} ${c.dim}Task marked done${c.reset}`);
+          result.isDone = true;
+          break;
+        case 'pause':
+          console.log(`${c.cyan}⏸${c.reset} ${c.dim}Pausing${marker.value ? ': ' + marker.value : ''}${c.reset}`);
+          result.shouldPause = true;
+          break;
+        case 'continue':
+          console.log(`${c.cyan}▶${c.reset} ${c.dim}Continuing...${c.reset}`);
+          result.shouldContinue = true;
           break;
         case 'approve':
-          approvals.push(marker.value);
+          result.approvals.push(marker.value);
           break;
         case 'criteria':
           execSync(`mem criteria ${marker.value}`, { 
@@ -208,13 +238,35 @@ function applyMemMarkers(markers, memDir) {
           });
           console.log(`${c.green}✓${c.reset} ${c.dim}Criteria #${marker.value} complete${c.reset}`);
           break;
+        case 'split':
+          result.splits.push({ name: marker.name, goal: marker.goal });
+          console.log(`${c.cyan}⑂${c.reset} ${c.dim}Split:${c.reset} ${marker.name} - ${marker.goal}`);
+          break;
       }
     } catch (err) {
       console.error(`${c.red}mem error:${c.reset} ${err.message}`);
     }
   }
   
-  return approvals;
+  return result;
+}
+
+// Create subtasks from split markers
+function createSubtasks(splits, memDir) {
+  const workDir = path.dirname(memDir);
+  
+  for (const split of splits) {
+    try {
+      // Create subtask as new branch
+      execSync(`mem init ${split.name} "${split.goal.replace(/"/g, '\\"')}"`, {
+        cwd: workDir,
+        stdio: 'ignore'
+      });
+      console.log(`${c.green}✓${c.reset} Created subtask: ${c.bold}${split.name}${c.reset}`);
+    } catch (err) {
+      console.error(`${c.red}Failed to create subtask ${split.name}:${c.reset} ${err.message}`);
+    }
+  }
 }
 
 // Handle approval prompts
@@ -1013,7 +1065,11 @@ const options = {
   debug: false,
   mcp: null,
   mem: false,
-  memDir: null
+  memDir: null,
+  autoTask: false,
+  taskName: null,
+  criteria: [],
+  daemon: false
 };
 
 // Collect positional args (legacy support, but --prompt is preferred)
@@ -1068,6 +1124,26 @@ for (let i = 0; i < processedArgs.length; i++) {
       break;
     case '--no-mem':
       options.mem = false;
+      break;
+    case '--auto-task':
+      options.autoTask = true;
+      options.mem = true;
+      break;
+    case '--task':
+      if (nextArg && !nextArg.startsWith('-')) {
+        options.taskName = nextArg;
+        options.mem = true;
+        i++;
+      }
+      break;
+    case '--criteria':
+      if (nextArg && !nextArg.startsWith('-')) {
+        options.criteria.push(nextArg);
+        i++;
+      }
+      break;
+    case '--daemon':
+      options.daemon = true;
       break;
     default:
       if (arg.startsWith('-')) {
@@ -1146,10 +1222,75 @@ translatedArgs.push(...rawArgs);
 // ==================== MEM INTEGRATION ====================
 
 // Auto-detect mem if .mem exists (unless --no-mem)
-const memDir = options.mem !== false ? findMemDir() : null;
+let memDir = options.mem !== false ? findMemDir() : null;
 if (memDir && options.mem !== false) {
   options.mem = true;
   options.memDir = memDir;
+}
+
+// Auto-create task if --auto-task or --task specified but no mem found
+if ((options.autoTask || options.taskName) && !options.memDir && finalPrompt) {
+  const taskName = options.taskName || finalPrompt
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .split(/\s+/)
+    .slice(0, 3)
+    .join('-');
+  
+  console.log(`${c.dim}[mem] Creating task: ${taskName}${c.reset}`);
+  
+  try {
+    // Build criteria args
+    const criteriaArgs = options.criteria.length 
+      ? options.criteria.map(c => `--criteria "${c}"`).join(' ')
+      : '';
+    
+    // Create task non-interactively
+    const centralMem = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
+    
+    // Ensure central mem exists
+    if (!fs.existsSync(centralMem)) {
+      fs.mkdirSync(centralMem, { recursive: true });
+      execSync('git init', { cwd: centralMem, stdio: 'ignore' });
+      fs.writeFileSync(path.join(centralMem, 'playbook.md'), '# Playbook\n\nGlobal learnings that transfer across tasks.\n');
+      execSync('git add -A && git commit -m "init: memory repo"', { cwd: centralMem, stdio: 'ignore', shell: true });
+    }
+    
+    // Create task branch
+    const branch = `task/${taskName}`;
+    try {
+      execSync(`git checkout main`, { cwd: centralMem, stdio: 'ignore' });
+    } catch {}
+    execSync(`git checkout -b ${branch}`, { cwd: centralMem, stdio: 'ignore' });
+    
+    // Create task files
+    const today = new Date().toISOString().split('T')[0];
+    const criteriaText = options.criteria.length 
+      ? options.criteria.map(c => `- [ ] ${c}`).join('\n')
+      : '- [ ] Define success criteria';
+    
+    fs.writeFileSync(path.join(centralMem, 'goal.md'), 
+      `---\ntask: ${taskName}\ncreated: ${today}\n---\n\n# Goal\n\n${finalPrompt}\n\n## Definition of Done\n\n${criteriaText}\n\n## Progress: 0%`);
+    fs.writeFileSync(path.join(centralMem, 'state.md'),
+      `---\nstatus: active\n---\n\n# State\n\n## Next Step\n\nBegin work\n\n## Checkpoints\n\n- [ ] Started`);
+    fs.writeFileSync(path.join(centralMem, 'memory.md'), '# Learnings\n\n');
+    
+    execSync('git add -A && git commit -m "init: ' + taskName + '"', { cwd: centralMem, stdio: 'ignore', shell: true });
+    
+    // Update index
+    const indexFile = path.join(centralMem, 'index.json');
+    let index = {};
+    try { index = JSON.parse(fs.readFileSync(indexFile, 'utf8')); } catch {}
+    index[process.cwd()] = branch;
+    fs.writeFileSync(indexFile, JSON.stringify(index, null, 2));
+    
+    options.memDir = centralMem;
+    console.log(`${c.green}✓${c.reset} Created task: ${c.bold}${taskName}${c.reset}`);
+    console.log(`${c.green}✓${c.reset} Mapped: ${c.dim}${process.cwd()} → ${branch}${c.reset}\n`);
+    
+  } catch (err) {
+    console.error(`${c.yellow}Warning: Could not create task:${c.reset} ${err.message}`);
+  }
 }
 
 // Prepend mem context to prompt if mem is enabled
@@ -1158,8 +1299,8 @@ if (options.mem && options.memDir && finalPrompt) {
   if (context) {
     console.log(`${c.dim}[mem] Loaded context from ${options.memDir}${c.reset}\n`);
     
-    // Prepend context to prompt
-    const augmentedPrompt = `## Current Context (from mem)\n\n${context}\n\n## Task\n\n${finalPrompt}\n\n## Output Markers (use these to save state)\n\n- [checkpoint: message] - save progress\n- [learn: insight] - record learning\n- [next: step] - set next step\n- [approve: question] - request human approval before continuing\n- [criteria: N] - mark criterion #N complete`;
+    // Prepend context to prompt with full marker documentation
+    const augmentedPrompt = `## Current Context (from mem)\n\n${context}\n\n## Task\n\n${finalPrompt}\n\n## Output Markers (use these to save state)\n\nUse these markers in your output to control state:\n\n- [checkpoint: message] - save progress point\n- [learn: insight] - record a learning\n- [next: step] - set next step\n- [approve: question] - halt and request human approval\n- [criteria: N] - mark criterion #N complete\n- [blocked: reason] - mark blocked, stop execution\n- [pause] - save state and stop (resume later)\n- [continue] - signal to keep going (daemon mode)\n- [done] - mark task complete\n- [split: name "goal"] - create a subtask`;
     
     // Replace the prompt in translatedArgs
     const promptIndex = translatedArgs.indexOf(finalPrompt);
@@ -1192,14 +1333,33 @@ if (options.mem && options.memDir) {
     
     if (markers.length > 0) {
       console.log(`\n${c.dim}[mem] Processing markers...${c.reset}`);
-      const approvals = applyMemMarkers(markers, options.memDir);
+      const result = applyMemMarkers(markers, options.memDir);
+      
+      // Create subtasks if any
+      if (result.splits.length > 0) {
+        createSubtasks(result.splits, options.memDir);
+      }
       
       // Handle approvals
-      if (approvals.length > 0) {
-        const approved = await handleApprovals(approvals);
+      if (result.approvals.length > 0) {
+        const approved = await handleApprovals(result.approvals);
         if (!approved) {
+          console.log(`${c.yellow}Workflow halted. Resume later.${c.reset}`);
           process.exit(1);
         }
+      }
+      
+      // Handle loop control
+      if (result.isDone) {
+        console.log(`\n${c.green}✓ Task complete!${c.reset}`);
+        // Could trigger mem done here
+      } else if (result.isBlocked) {
+        console.log(`\n${c.yellow}Task blocked. Human intervention needed.${c.reset}`);
+      } else if (result.shouldPause) {
+        console.log(`\n${c.cyan}Paused. Run again to continue.${c.reset}`);
+      } else if (result.shouldContinue && options.daemon) {
+        console.log(`\n${c.cyan}Continuing in daemon mode...${c.reset}`);
+        // Daemon would loop here - for now just note it
       }
     }
     
