@@ -1753,15 +1753,25 @@ if (options.mem && options.memDir) {
       // Handle loop control - default is CONTINUE (wake again in 15m)
       if (result.isDone) {
         console.log(`\n${c.green}✓ Task complete!${c.reset}`);
-        // Clear wake schedule on done
+        // Mark task as done and clear wake
         try {
+          // Set status to done in state.md
+          const memDir = options.memInfo?.memDir || path.join(process.env.HOME, '.mem');
+          const statePath = path.join(memDir, 'state.md');
+          if (fs.existsSync(statePath)) {
+            let state = fs.readFileSync(statePath, 'utf8');
+            state = state.replace(/^status:\s*.+$/m, 'status: done');
+            fs.writeFileSync(statePath, state);
+            execSync('git add state.md && git commit -m "done: task complete"', { cwd: memDir, stdio: 'ignore', shell: true });
+          }
           execSync('mem wake clear', { cwd: process.cwd(), stdio: 'ignore' });
-          console.log(`${c.dim}Wake schedule cleared.${c.reset}`);
+          console.log(`${c.dim}Task marked done. Wake cleared.${c.reset}`);
         } catch {}
         process.exit(0);
       } else if (result.isBlocked) {
         console.log(`\n${c.yellow}⚠ Task blocked. Human intervention needed.${c.reset}`);
-        console.log(`${c.dim}Wake continues - run 'mem stuck clear' when unblocked.${c.reset}`);
+        // mem stuck already sets status: blocked
+        console.log(`${c.dim}Task paused. Run 'mem stuck clear' when unblocked.${c.reset}`);
         process.exit(1);
       } else if (options.untilDone) {
         // Local loop mode: wait and run again
