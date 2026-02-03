@@ -148,7 +148,7 @@ function findMemDir(startDir = process.cwd()) {
   while (dir !== path.dirname(dir)) {
     const memDir = path.join(dir, '.mem');
     if (fs.existsSync(memDir) && fs.existsSync(path.join(memDir, '.git'))) {
-      return memDir;
+      return { memDir, taskBranch: null, projectDir: dir, isLocal: true };
     }
     dir = path.dirname(dir);
   }
@@ -162,14 +162,14 @@ function findMemDir(startDir = process.cwd()) {
         const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
         // Exact match
         if (index[startDir]) {
-          return globalMem;
+          return { memDir: globalMem, taskBranch: index[startDir], projectDir: startDir, isLocal: false };
         }
         // Check parent directories (for monorepo/subdirectory usage)
         let checkDir = startDir;
         while (checkDir !== path.dirname(checkDir)) {
           checkDir = path.dirname(checkDir);
           if (index[checkDir]) {
-            return globalMem;
+            return { memDir: globalMem, taskBranch: index[checkDir], projectDir: checkDir, isLocal: false };
           }
         }
       } catch {}
@@ -179,13 +179,22 @@ function findMemDir(startDir = process.cwd()) {
   return null;
 }
 
-// Load mem context
-function loadMemContext(memDir) {
+// Load mem context for a specific task
+function loadMemContext(memInfo) {
   try {
-    // Run from current directory so mem can find the task mapping
-    // (central ~/.mem uses cwd to look up the task in index.json)
+    // If we know the task branch, switch to it first to ensure correct context
+    if (memInfo.taskBranch && !memInfo.isLocal) {
+      try {
+        execSync(`git checkout ${memInfo.taskBranch}`, { 
+          cwd: memInfo.memDir, 
+          stdio: ['pipe', 'pipe', 'pipe'] 
+        });
+      } catch {}
+    }
+    
+    // Run mem context from the project directory
     const result = execSync('mem context', { 
-      cwd: process.cwd(),
+      cwd: memInfo.projectDir,
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'pipe']
     });
@@ -227,8 +236,9 @@ function parseMemMarkers(output) {
 }
 
 // Apply mem markers - returns control signals
-function applyMemMarkers(markers, memDir) {
-  const workDir = path.dirname(memDir);
+function applyMemMarkers(markers, memInfo) {
+  // Use project directory for commands (not parent of ~/.mem)
+  const workDir = memInfo.projectDir || path.dirname(memInfo.memDir || memInfo);
   const result = {
     approvals: [],
     shouldContinue: false,
@@ -302,8 +312,8 @@ function applyMemMarkers(markers, memDir) {
 }
 
 // Create subtasks from split markers
-function createSubtasks(splits, memDir) {
-  const workDir = path.dirname(memDir);
+function createSubtasks(splits, memInfo) {
+  const workDir = memInfo.projectDir || path.dirname(memInfo.memDir || memInfo);
   
   for (const split of splits) {
     try {
@@ -1284,10 +1294,11 @@ translatedArgs.push(...rawArgs);
 // ==================== MEM INTEGRATION ====================
 
 // Auto-detect mem if .mem exists (unless --no-mem)
-let memDir = options.mem !== false ? findMemDir() : null;
-if (memDir && options.mem !== false) {
+let memInfo = options.mem !== false ? findMemDir() : null;
+if (memInfo && options.mem !== false) {
   options.mem = true;
-  options.memDir = memDir;
+  options.memInfo = memInfo;
+  options.memDir = memInfo.memDir; // For backwards compat
 }
 
 // Auto-create task if --auto-task or --task specified but no mem found
@@ -1347,6 +1358,7 @@ if ((options.autoTask || options.taskName) && !options.memDir && finalPrompt) {
     fs.writeFileSync(indexFile, JSON.stringify(index, null, 2));
     
     options.memDir = centralMem;
+    options.memInfo = { memDir: centralMem, taskBranch: branch, projectDir: process.cwd(), isLocal: false };
     console.log(`${c.green}✓${c.reset} Created task: ${c.bold}${taskName}${c.reset}`);
     console.log(`${c.green}✓${c.reset} Mapped: ${c.dim}${process.cwd()} → ${branch}${c.reset}`);
     
@@ -1370,10 +1382,11 @@ if ((options.autoTask || options.taskName) && !options.memDir && finalPrompt) {
 }
 
 // Prepend mem context to prompt if mem is enabled
-if (options.mem && options.memDir && finalPrompt) {
-  const context = loadMemContext(options.memDir);
+if (options.mem && options.memInfo && finalPrompt) {
+  const context = loadMemContext(options.memInfo);
   if (context) {
-    console.log(`${c.dim}[mem] Loaded context from ${options.memDir}${c.reset}\n`);
+    const taskInfo = options.memInfo.taskBranch || 'local';
+    console.log(`${c.dim}[mem] Loaded context: ${taskInfo} (${options.memInfo.projectDir})${c.reset}\n`);
     
     // Prepend context to prompt with full marker documentation
     const augmentedPrompt = `## Current Context (from mem)\n\n${context}\n\n## Task\n\n${finalPrompt}\n\n## Instructions\n\nYou are continuing work on this task. Review the context above, then continue where you left off.\n\n## Output Markers\n\nUse these markers to save state (will be parsed automatically):\n\n- [checkpoint: message] - save progress point\n- [learn: insight] - record a learning  \n- [next: step] - set what to work on next\n- [criteria: N] - mark criterion #N complete\n- [split: name "goal"] - break into subtask\n\nStopping markers (only use when needed):\n- [done] - task complete (all criteria met)\n- [blocked: reason] - need human help, cannot proceed\n- [approve: question] - need human approval before continuing\n\nThe default is to keep working. You will wake again in 15 minutes to continue.`;
@@ -1409,11 +1422,11 @@ if (options.mem && options.memDir) {
     
     if (markers.length > 0) {
       console.log(`\n${c.dim}[mem] Processing markers...${c.reset}`);
-      const result = applyMemMarkers(markers, options.memDir);
+      const result = applyMemMarkers(markers, options.memInfo || { memDir: options.memDir, projectDir: process.cwd() });
       
       // Create subtasks if any
       if (result.splits.length > 0) {
-        createSubtasks(result.splits, options.memDir);
+        createSubtasks(result.splits, options.memInfo || { memDir: options.memDir, projectDir: process.cwd() });
       }
       
       // Handle approvals
