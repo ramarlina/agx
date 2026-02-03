@@ -1,13 +1,13 @@
 # agx - Unified AI Agent Wrapper
 
-Use `agx` to run AI agents (Claude Code, Gemini, Ollama) with persistent memory integration. Spawn background tasks that wake automatically and continue working.
+Use `agx` to run AI agents (Claude Code, Gemini, Ollama) with persistent memory integration. Spawn autonomous tasks that work in the background until complete.
 
 ## When to Use
 
-- **Spawning background agents** for long-running tasks
-- **Auto-task creation** with wake schedules
+- **Autonomous agents** for long-running tasks
+- **Background work** that continues without supervision
 - **Running different AI providers** with unified interface
-- **Autonomous work loops** that continue until done
+- **Persistent memory** across sessions
 
 ## Basic Usage
 
@@ -36,23 +36,24 @@ This:
 3. Daemon wakes every 15m to continue work
 4. Runs until agent outputs [done] or [blocked]
 
-## Wake Loop
+## Daemon Management
 
-```
-WAKE (cron) → Load context → Agent works → Save state → SLEEP
-                                                    ↓
-                                        repeat until [done]
-```
-
-Install the wake schedule:
 ```bash
-mem cron export                          # View entry
-(crontab -l; mem cron export) | crontab - # Install
+agx daemon start    # Start background daemon
+agx daemon stop     # Stop daemon
+agx daemon status   # Check if running
+agx daemon logs     # Show recent logs
 ```
+
+The daemon:
+- Runs in background (survives terminal close)
+- Wakes every 15 minutes
+- Continues work on active tasks
+- Stops when task is [done] or [blocked]
 
 ## Output Markers
 
-Use these in agent output to control the loop:
+Use these in agent output to control state:
 
 ### Progress (parsed automatically)
 ```
@@ -64,15 +65,10 @@ Use these in agent output to control the loop:
 
 ### Stopping Markers
 ```
-[done]                  # Task complete, clear wake, stop
-[blocked: reason]       # Need human help, pause loop
+[done]                  # Task complete, stop
+[blocked: reason]       # Need human help, pause
 [approve: question]     # Need approval, wait
 [pause]                 # Stop, resume on next wake
-```
-
-### Loop Control
-```
-[continue]              # Keep going (--daemon mode loops locally)
 ```
 
 **Default behavior:** Keep working. Only output stopping markers when needed.
@@ -88,11 +84,9 @@ Use these in agent output to control the loop:
 ## Common Flags
 
 ```bash
---auto-task         # Auto-create task from prompt
+--autonomous, -a    # Create task and run autonomously (starts daemon)
 --task NAME         # Specific task name
 --criteria "..."    # Success criterion (repeatable)
---daemon            # Loop on [continue] marker
---until-done        # Keep running until [done]
 -y                  # Skip confirmations
 ```
 
@@ -103,18 +97,18 @@ Use these in agent output to control the loop:
 agx claude -p "Explain this error" -y
 ```
 
-### Background task with wake
+### Autonomous task
 ```bash
 cd ~/Projects/api
-agx claude --auto-task -p "Add user authentication with JWT"
-# Agent works, saves progress, wakes every 15m to continue
+agx claude --autonomous -p "Add user authentication with JWT"
+# Daemon continues work every 15m until done
 ```
 
 ### Check on a running task
 ```bash
-mem status          # Quick summary
+agx daemon status   # Check daemon
+mem status          # Task summary
 mem progress        # % complete
-mem context         # Full state dump
 ```
 
 ### Manual continue

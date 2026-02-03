@@ -1,6 +1,6 @@
-# /agx:spawn - Spawn Background Agent
+# /agx:spawn - Start Autonomous Task
 
-Spawn a background agent task with automatic wake schedule.
+Spawn an autonomous agent task that runs until complete.
 
 ## Usage
 ```
@@ -15,17 +15,17 @@ Spawn a background agent task with automatic wake schedule.
 First, ensure you're in the correct project directory, then:
 
 ```bash
-agx claude --auto-task -p "$ARGUMENTS"
+agx claude --autonomous -p "$ARGUMENTS"
 ```
 
 This will:
 1. Create a mem task branch
-2. Set wake schedule (every 15m)
-3. Start the agent working
+2. Start the agx daemon (if not running)
+3. Begin working on the task
+4. Daemon wakes every 15m to continue until [done]
 
-After spawning, install the wake cron:
+Check status with:
 ```bash
-(crontab -l 2>/dev/null; mem cron export) | crontab -
+agx daemon status
+mem status
 ```
-
-Report the task name and confirm wake schedule is set.
