@@ -1838,6 +1838,14 @@ async function checkOnboarding() {
         encoding: 'utf8'
       });
 
+      // Save user's raw input as user_request for agent to analyze
+      try {
+        spawnSync('mem', ['set', 'user_request', goalText], {
+          cwd: projectDir,
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+      } catch {}
+
       // Pass through mem's output (includes JSON if --json)
       if (!runAfter || !jsonMode) {
         process.stdout.write(result);
@@ -2205,6 +2213,19 @@ async function checkOnboarding() {
     const centralMem = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
     const contextData = getTaskContextData(centralMem, task.taskBranch);
 
+    // Fetch user's raw request from KV (if set)
+    let userRequest = null;
+    try {
+      const result = spawnSync('mem', ['get', 'user_request'], {
+        cwd: task.projectDir,
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      if (result.status === 0 && result.stdout && !result.stdout.includes('Not set')) {
+        userRequest = result.stdout.trim();
+      }
+    } catch {}
+
     // Pop nudges from mem (read and clear)
     let nudges = [];
     try {
@@ -2224,6 +2245,10 @@ async function checkOnboarding() {
       }
     } catch {}
 
+    const hasCriteria = contextData.criteria && contextData.criteria.length > 0;
+    const hasGoal = contextData.goalText && contextData.goalText.trim();
+    const needsPlanning = !hasGoal || !hasCriteria;
+
     let prompt = `═══════════════════════════════════════════════════════════════════
                     AUTONOMOUS AGENT SESSION
 ═══════════════════════════════════════════════════════════════════
@@ -2232,37 +2257,63 @@ You are waking up to continue a task. You have NO MEMORY of previous sessions.
 Your only continuity is what's stored in mem. Read it carefully.
 
 TASK: ${task.taskName}
-GOAL: ${contextData.goalText || 'NOT SET - Define this first!'}
 `;
 
-    const hasCriteria = contextData.criteria && contextData.criteria.length > 0;
+    // Show user's raw request if available
+    if (userRequest) {
+      prompt += `
+┌─────────────────────────────────────────────────────────────────┐
+│ USER REQUEST (raw input from user)                              │
+└─────────────────────────────────────────────────────────────────┘
+${userRequest}
 
-    if (hasCriteria) {
+`;
+    }
+
+    // Show distilled goal if set
+    if (hasGoal) {
+      prompt += `GOAL: ${contextData.goalText}\n`;
+    }
+
+    if (needsPlanning) {
+      prompt += `
+═══════════════════════════════════════════════════════════════════
+                    ⚠️  PLANNING PHASE REQUIRED ⚠️
+═══════════════════════════════════════════════════════════════════
+
+Before doing ANY implementation work, you MUST complete the planning phase:
+`;
+      if (!hasGoal) {
+        prompt += `
+1. ANALYZE the user request above
+2. IDENTIFY the user's intent and desired outcome
+3. DISTILL into a clear, concise goal:
+   mem goal "<one-sentence goal statement>"
+`;
+      }
+      if (!hasCriteria) {
+        prompt += `
+${hasGoal ? '1' : '4'}. DEFINE measurable success criteria:
+   mem criteria add "<specific, testable criterion>"
+   mem criteria add "<another criterion>"
+   ...
+
+${hasGoal ? '2' : '5'}. SET your first step:
+   mem next "<what you'll do first>"
+`;
+      }
+      prompt += `
+ONLY after completing the above should you begin implementation.
+No goal = no direction. No criteria = no way to measure done.
+
+═══════════════════════════════════════════════════════════════════
+`;
+    } else {
       prompt += `\nPROGRESS: ${contextData.progress}% (${contextData.criteria.filter(c => c.done).length}/${contextData.criteria.length} criteria)\n`;
       prompt += `CRITERIA:\n`;
       contextData.criteria.forEach(c => {
         prompt += `  ${c.done ? '✓' : '○'} ${c.text}\n`;
       });
-    } else {
-      prompt += `
-⚠️  NO CRITERIA DEFINED - PLANNING PHASE REQUIRED ⚠️
-
-Before doing ANY work, you MUST first create a plan:
-
-1. Analyze the goal above
-2. Break it into concrete, measurable success criteria
-3. Add each criterion with: mem criteria add "<criterion>"
-4. Set your first step with: mem next "<step>"
-5. Only THEN begin execution
-
-Example:
-  mem criteria add "API endpoints return valid JSON"
-  mem criteria add "CLI can create posts"
-  mem criteria add "Web displays posts from API"
-  mem next "Set up API routes"
-
-DO NOT skip this. No criteria = no way to measure progress or completion.
-`;
     }
 
     if (contextData.nextStep) {
@@ -2363,10 +2414,10 @@ from the user about what to focus on or how to proceed.
 `;
     }
 
-    if (hasCriteria) {
-      prompt += `\nBEGIN: Review your criteria and progress, then continue working toward completion.`;
+    if (needsPlanning) {
+      prompt += `\nBEGIN: You are in PLANNING PHASE. Analyze the user request, define goal and criteria before any implementation.`;
     } else {
-      prompt += `\nBEGIN: You are in PLANNING PHASE. Define your success criteria before doing any implementation work.`;
+      prompt += `\nBEGIN: Review your criteria and progress, then continue working toward completion.`;
     }
 
     const child = spawn('agx', ['claude', '-y', '-p', prompt], {
