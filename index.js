@@ -2235,14 +2235,34 @@ TASK: ${task.taskName}
 GOAL: ${contextData.goalText || 'NOT SET - Define this first!'}
 `;
 
-    if (contextData.criteria && contextData.criteria.length > 0) {
+    const hasCriteria = contextData.criteria && contextData.criteria.length > 0;
+
+    if (hasCriteria) {
       prompt += `\nPROGRESS: ${contextData.progress}% (${contextData.criteria.filter(c => c.done).length}/${contextData.criteria.length} criteria)\n`;
       prompt += `CRITERIA:\n`;
       contextData.criteria.forEach(c => {
         prompt += `  ${c.done ? '✓' : '○'} ${c.text}\n`;
       });
     } else {
-      prompt += `\nCRITERIA: None defined - You must define success criteria first!\n`;
+      prompt += `
+⚠️  NO CRITERIA DEFINED - PLANNING PHASE REQUIRED ⚠️
+
+Before doing ANY work, you MUST first create a plan:
+
+1. Analyze the goal above
+2. Break it into concrete, measurable success criteria
+3. Add each criterion with: mem criteria add "<criterion>"
+4. Set your first step with: mem next "<step>"
+5. Only THEN begin execution
+
+Example:
+  mem criteria add "API endpoints return valid JSON"
+  mem criteria add "CLI can create posts"
+  mem criteria add "Web displays posts from API"
+  mem next "Set up API routes"
+
+DO NOT skip this. No criteria = no way to measure progress or completion.
+`;
     }
 
     if (contextData.nextStep) {
@@ -2343,7 +2363,11 @@ from the user about what to focus on or how to proceed.
 `;
     }
 
-    prompt += `\nBEGIN: Orient yourself, then continue toward the goal.`;
+    if (hasCriteria) {
+      prompt += `\nBEGIN: Review your criteria and progress, then continue working toward completion.`;
+    } else {
+      prompt += `\nBEGIN: You are in PLANNING PHASE. Define your success criteria before doing any implementation work.`;
+    }
 
     const child = spawn('agx', ['claude', '-y', '-p', prompt], {
       cwd: task.projectDir,
