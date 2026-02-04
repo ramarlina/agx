@@ -2832,6 +2832,15 @@ from the user about what to focus on or how to proceed.
         console.log(`${c.dim}No logs yet${c.reset}`);
       }
       process.exit(0);
+    } else if (subcmd === 'tail') {
+      if (!fs.existsSync(DAEMON_LOG_FILE)) {
+        console.log(`${c.dim}No logs yet. Start daemon with: agx daemon start${c.reset}`);
+        process.exit(0);
+      }
+      console.log(`${c.dim}Tailing ${DAEMON_LOG_FILE}... (Ctrl+C to stop)${c.reset}\n`);
+      const tail = spawn('tail', ['-f', DAEMON_LOG_FILE], { stdio: 'inherit' });
+      tail.on('close', () => process.exit(0));
+      return true;
     } else if (subcmd === '--run') {
       // Internal: actually run the daemon loop
       await runDaemon();
@@ -2843,6 +2852,7 @@ from the user about what to focus on or how to proceed.
       console.log(`  agx daemon stop    Stop the daemon`);
       console.log(`  agx daemon status  Check if running`);
       console.log(`  agx daemon logs    Show recent logs`);
+      console.log(`  agx daemon tail    Live tail daemon logs`);
       process.exit(0);
     }
     return true;
