@@ -7,7 +7,12 @@
     "agx": "./index.js"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest --forceExit",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage --forceExit",
+    "test:unit": "jest --testPathIgnorePatterns=integration --forceExit",
+    "test:integration": "jest --testPathPattern=integration --forceExit",
+    "test:all": "jest --coverage --forceExit"
   },
   "keywords": [
     "ai",
@@ -27,6 +32,11 @@
     "url": "https://github.com/ramarlina/agx"
   },
   "dependencies": {
-    "@mndrk/memx": "^0.3.0"
+    "@mndrk/memx": "^0.3.0",
+    "@supabase/supabase-js": "^2.47.0",
+    "eventsource": "^4.1.0"
+  },
+  "devDependencies": {
+    "jest": "^30.2.0"
   }
 }

@@ -1,1 +1,26 @@
-node_modules
+# Dependencies
+node_modules/
+
+# Coverage
+coverage/
+
+# Build artifacts
+*.tsbuildinfo
+
+# Environment
+.env
+.env*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*

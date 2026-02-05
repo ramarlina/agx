@@ -88,10 +88,27 @@ agx nudge <task> "msg"  # Send steering message
 ## Daemon
 
 \`\`\`bash
-agx daemon start        # Start background runner
-agx daemon stop         # Stop daemon
+agx daemon start        # Start local background runner
+agx daemon stop         # Stop local daemon
 agx daemon status       # Check if running
 agx daemon logs         # Recent logs
+agx daemon --cloud      # Pull from cloud, execute locally
+\`\`\`
+
+## Cloud Sync
+
+\`\`\`bash
+agx cloud login [url]   # Login to AGX Cloud
+agx cloud status        # Show connection status
+agx cloud list          # List cloud tasks
+agx cloud push "<task>" # Push task to cloud queue
+agx cloud pull          # Pull next task from queue
+agx cloud sync          # Sync local progress to cloud
+agx cloud complete      # Mark current stage complete
+agx cloud watch         # Watch task updates in real-time (SSE)
+agx cloud logs [id] -f  # View/tail task logs
+agx cloud logout        # Logout from cloud
+agx status --cloud      # Quick cloud queue status
 \`\`\`
 
 ## Output Markers
@@ -1485,15 +1502,11 @@ async function runInteractiveMenu() {
         // Launch provider in interactive mode
         let cmd, args;
         if (selectedProvider === 'ollama') {
-          cmd = 'claude';
-          args = ['--model', 'glm-4.7:cloud'];
-          const env = {
-            ...process.env,
-            ANTHROPIC_AUTH_TOKEN: 'ollama',
-            ANTHROPIC_BASE_URL: 'http://localhost:11434',
-            ANTHROPIC_API_KEY: 'none'
-          };
-          const child = spawn(cmd, args, { stdio: 'inherit', env });
+          // Ollama uses its own CLI directly (interactive mode)
+          cmd = 'ollama';
+          const ollamaModel = config?.ollama?.model || 'llama3.2:3b';
+          args = ['run', ollamaModel];
+          const child = spawn(cmd, args, { stdio: 'inherit' });
           child.on('close', (code) => process.exit(code || 0));
         } else {
           cmd = selectedProvider;
@@ -1614,8 +1627,9 @@ async function runInteractiveMenu() {
         } else if (actionChoice === '1') {
           let cmd = item.id;
           if (item.id === 'ollama') {
-            const env = { ...process.env, ANTHROPIC_AUTH_TOKEN: 'ollama', ANTHROPIC_BASE_URL: 'http://localhost:11434', ANTHROPIC_API_KEY: 'none' };
-            spawn('claude', ['--model', 'glm-4.7:cloud'], { stdio: 'inherit', env }).on('close', (code) => process.exit(code || 0));
+            // Ollama uses its own CLI directly (interactive mode)
+            const ollamaModel = config?.ollama?.model || 'llama3.2:3b';
+            spawn('ollama', ['run', ollamaModel], { stdio: 'inherit' }).on('close', (code) => process.exit(code || 0));
           } else {
             spawn(cmd, [], { stdio: 'inherit' }).on('close', (code) => process.exit(code || 0));
           }
@@ -1730,6 +1744,57 @@ async function checkOnboarding() {
 
   // Status command - show task status if in project, else config
   if (cmd === 'status') {
+    // --cloud flag: show cloud queue status
+    if (args.includes('--cloud')) {
+      const cloudConfig = (() => {
+        try {
+          const cfgPath = path.join(CONFIG_DIR, 'cloud.json');
+          if (fs.existsSync(cfgPath)) {
+            return JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+          }
+        } catch {}
+        return null;
+      })();
+
+      if (!cloudConfig?.apiUrl) {
+        console.log(`${c.yellow}Not connected to cloud${c.reset}`);
+        console.log(`${c.dim}Run: agx cloud login [url]${c.reset}`);
+        process.exit(0);
+      }
+
+      try {
+        const response = await fetch(`${cloudConfig.apiUrl}/api/tasks`, {
+          headers: {
+            'Authorization': `Bearer ${cloudConfig.token}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        const { tasks } = await response.json();
+
+        console.log(`${c.bold}Cloud Queue${c.reset} (${cloudConfig.apiUrl})\n`);
+
+        if (!tasks || tasks.length === 0) {
+          console.log(`${c.dim}  No tasks${c.reset}`);
+        } else {
+          // Group by stage
+          const stages = ['ideation', 'coding', 'qa', 'acceptance', 'deployment', 'smoke_test', 'release', 'done'];
+          for (const stage of stages) {
+            const stageTasks = tasks.filter(t => t.stage === stage);
+            if (stageTasks.length > 0) {
+              console.log(`  ${c.dim}${stage}${c.reset}`);
+              for (const t of stageTasks) {
+                const icon = t.status === 'in_progress' ? c.blue + '●' : t.status === 'completed' ? c.green + '✓' : c.yellow + '○';
+                console.log(`    ${icon}${c.reset} ${t.title || 'Untitled'} ${c.dim}(${t.id.slice(0,8)})${c.reset}`);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.log(`${c.red}✗${c.reset} Failed to fetch: ${err.message}`);
+      }
+      process.exit(0);
+    }
+
     // Check if we're in a task project
     const memInfo = findMemDir();
     if (memInfo && memInfo.taskBranch) {
@@ -2884,6 +2949,98 @@ from the user about what to focus on or how to proceed.
   // Daemon commands
   if (cmd === 'daemon') {
     const subcmd = args[1];
+    const isCloudMode = args.includes('--cloud');
+    const isRealtimeMode = args.includes('--realtime');
+
+    // agx daemon --realtime : Real-time daemon using Supabase Realtime (~100ms latency)
+    if (isRealtimeMode || subcmd === 'realtime') {
+      const cloudConfigPath = path.join(CONFIG_DIR, 'cloud.json');
+      let cloudConfig;
+      try {
+        cloudConfig = JSON.parse(fs.readFileSync(cloudConfigPath, 'utf8'));
+      } catch {
+        console.log(`${c.red}Not connected to cloud.${c.reset} Run: agx cloud login`);
+        process.exit(1);
+      }
+
+      if (!cloudConfig.apiUrl || !cloudConfig.token) {
+        console.log(`${c.yellow}Cloud not configured.${c.reset}`);
+        console.log(`${c.dim}Run: agx cloud login${c.reset}`);
+        process.exit(1);
+      }
+
+      if (!cloudConfig.supabaseUrl || !cloudConfig.supabaseKey) {
+        console.log(`${c.yellow}Realtime not configured.${c.reset}`);
+        console.log(`${c.dim}Run: agx cloud setup-realtime${c.reset}`);
+        process.exit(1);
+      }
+
+      // Load local config for engine preference
+      const localConfig = loadConfig() || {};
+      cloudConfig.engine = localConfig.defaultProvider || 'claude';
+
+      // Start realtime worker
+      const { RealtimeWorker } = require('./lib/realtime');
+      const worker = new RealtimeWorker(cloudConfig);
+
+      // Graceful shutdown
+      process.on('SIGINT', async () => {
+        console.log(`\n${c.yellow}⏳${c.reset} Shutting down...`);
+        await worker.stop();
+        process.exit(0);
+      });
+
+      process.on('SIGTERM', async () => {
+        await worker.stop();
+        process.exit(0);
+      });
+
+      await worker.start();
+      return true; // Never exits
+    }
+
+    // agx daemon --cloud : Local execution daemon that pulls from cloud (polling mode)
+    if (isCloudMode || subcmd === 'cloud') {
+      const cloudConfigPath = path.join(CONFIG_DIR, 'cloud.json');
+      let cloudConfig;
+      try {
+        cloudConfig = JSON.parse(fs.readFileSync(cloudConfigPath, 'utf8'));
+      } catch {
+        console.log(`${c.red}Not connected to cloud.${c.reset} Run: agx cloud login`);
+        process.exit(1);
+      }
+
+      if (!cloudConfig.apiUrl || !cloudConfig.token) {
+        console.log(`${c.yellow}Cloud not configured.${c.reset}`);
+        console.log(`${c.dim}Run: agx cloud login${c.reset}`);
+        process.exit(1);
+      }
+
+      // Load local config for engine preference
+      const localConfig = loadConfig() || {};
+      cloudConfig.engine = localConfig.defaultProvider || 'claude';
+      cloudConfig.pollIntervalMs = cloudConfig.pollIntervalMs || 10000;
+
+      // Start local worker (pulls from cloud, executes locally)
+      const { AgxWorker } = require('./lib/worker');
+      const worker = new AgxWorker(cloudConfig);
+
+      // Graceful shutdown
+      process.on('SIGINT', async () => {
+        console.log(`\n${c.yellow}⏳${c.reset} Shutting down...`);
+        await worker.stop();
+        process.exit(0);
+      });
+
+      process.on('SIGTERM', async () => {
+        await worker.stop();
+        process.exit(0);
+      });
+
+      await worker.start();
+      return true; // Never exits
+    }
+
     if (subcmd === 'start') {
       startDaemon();
       process.exit(0);
@@ -2922,15 +3079,718 @@ from the user about what to focus on or how to proceed.
       return true; // Never exits
     } else {
       console.log(`${c.bold}agx daemon${c.reset} - Background task runner\n`);
-      console.log(`Commands:`);
-      console.log(`  agx daemon start   Start the daemon`);
-      console.log(`  agx daemon stop    Stop the daemon`);
-      console.log(`  agx daemon status  Check if running`);
-      console.log(`  agx daemon logs    Show recent logs`);
-      console.log(`  agx daemon tail    Live tail daemon logs`);
+      console.log(`${c.bold}Local mode:${c.reset}`);
+      console.log(`  agx daemon start      Start the local daemon`);
+      console.log(`  agx daemon stop       Stop the local daemon`);
+      console.log(`  agx daemon status     Check if running`);
+      console.log(`  agx daemon logs       Show recent logs`);
+      console.log(`  agx daemon tail       Live tail daemon logs`);
+      console.log(`\n${c.bold}Cloud mode:${c.reset}`);
+      console.log(`  agx daemon --cloud    Pull from cloud via HTTP polling (~10s)`);
+      console.log(`  agx daemon --realtime Pull from cloud via Supabase Realtime (~100ms)`);
+      console.log(`\n${c.dim}Use --realtime for instant task dispatch. Requires: agx cloud setup-realtime${c.reset}`);
       process.exit(0);
     }
     return true;
+  }
+
+  // ============================================================
+  // CLOUD COMMANDS - Sync with agx-cloud
+  // ============================================================
+
+  const CLOUD_CONFIG_FILE = path.join(CONFIG_DIR, 'cloud.json');
+
+  function loadCloudConfig() {
+    try {
+      if (fs.existsSync(CLOUD_CONFIG_FILE)) {
+        return JSON.parse(fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8'));
+      }
+    } catch {}
+    return null;
+  }
+
+  function saveCloudConfig(config) {
+    if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    fs.writeFileSync(CLOUD_CONFIG_FILE, JSON.stringify(config, null, 2));
+  }
+
+  async function cloudRequest(method, endpoint, body = null) {
+    const config = loadCloudConfig();
+    if (!config?.apiUrl || !config?.token) {
+      throw new Error('Not logged in to cloud. Run: agx cloud login');
+    }
+
+    const url = `${config.apiUrl}${endpoint}`;
+    const options = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.token}`,
+        'x-user-id': config.userId || '',
+      },
+    };
+    if (body) options.body = JSON.stringify(body);
+
+    const response = await fetch(url, options);
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    return data;
+  }
+
+  if (cmd === 'cloud') {
+    const subcmd = args[1];
+
+    // agx cloud login [url]
+    if (subcmd === 'login') {
+      const cloudUrl = args[2] || 'http://localhost:3333';
+      console.log(`${c.cyan}→${c.reset} Connecting to AGX Cloud...`);
+      console.log(`${c.dim}Cloud URL: ${cloudUrl}${c.reset}\n`);
+
+      // For now, manual token entry (full OAuth would need a local server)
+      const token = await prompt('Paste your API token (from cloud dashboard): ');
+      if (!token) {
+        console.log(`${c.red}Cancelled${c.reset}`);
+        process.exit(1);
+      }
+
+      // Verify token
+      try {
+        const config = { apiUrl: cloudUrl.replace(/\/$/, ''), token };
+        saveCloudConfig(config);
+
+        const auth = await cloudRequest('GET', '/api/auth/status');
+        if (auth.authenticated && auth.user) {
+          config.userId = auth.user.id;
+          config.userName = auth.user.name || auth.user.email;
+          saveCloudConfig(config);
+          console.log(`${c.green}✓${c.reset} Logged in as ${c.bold}${config.userName}${c.reset}`);
+        } else {
+          console.log(`${c.green}✓${c.reset} Connected to ${cloudUrl}`);
+        }
+
+        // ========== SECURITY: Generate daemon secret ==========
+        console.log(`\n${c.cyan}→${c.reset} Setting up daemon security...`);
+        
+        const { setupDaemonSecret, loadSecurityConfig } = require('./lib/security');
+        const existingConfig = loadSecurityConfig();
+        
+        // Check if we already have a secret
+        if (existingConfig?.daemonSecret) {
+          const rotateAnswer = await prompt('Daemon secret already exists. Rotate it? (y/N): ');
+          if (rotateAnswer?.toLowerCase() === 'y' || rotateAnswer?.toLowerCase() === 'yes') {
+            const { secret, isNew } = await setupDaemonSecret({
+              force: true,
+              cloudApiUrl: config.apiUrl,
+              cloudToken: config.token,
+            });
+            console.log(`${c.green}✓${c.reset} Daemon secret rotated`);
+            console.log(`${c.dim}  Secret stored in ~/.agx/security.json${c.reset}`);
+          } else {
+            console.log(`${c.dim}  Keeping existing daemon secret${c.reset}`);
+          }
+        } else {
+          // Generate new secret
+          const { secret, isNew } = await setupDaemonSecret({
+            cloudApiUrl: config.apiUrl,
+            cloudToken: config.token,
+          });
+          console.log(`${c.green}✓${c.reset} Daemon secret generated`);
+          console.log(`${c.dim}  Secret stored in ~/.agx/security.json${c.reset}`);
+        }
+
+        console.log(`\n${c.green}Setup complete!${c.reset}`);
+        console.log(`${c.dim}Run: agx daemon --cloud  to start the local worker${c.reset}`);
+      } catch (err) {
+        console.log(`${c.red}✗${c.reset} Failed to connect: ${err.message}`);
+        process.exit(1);
+      }
+      process.exit(0);
+    }
+
+    // agx cloud logout
+    if (subcmd === 'logout') {
+      if (fs.existsSync(CLOUD_CONFIG_FILE)) {
+        fs.unlinkSync(CLOUD_CONFIG_FILE);
+      }
+      console.log(`${c.green}✓${c.reset} Logged out from cloud`);
+      process.exit(0);
+    }
+
+    // agx cloud status
+    if (subcmd === 'status') {
+      const config = loadCloudConfig();
+      if (!config) {
+        console.log(`${c.yellow}Not connected to cloud${c.reset}`);
+        console.log(`${c.dim}Run: agx cloud login [url]${c.reset}`);
+        process.exit(0);
+      }
+      console.log(`${c.bold}Cloud Status${c.reset}\n`);
+      console.log(`  URL:  ${config.apiUrl}`);
+      console.log(`  User: ${config.userName || '(anonymous)'}`);
+
+      // Fetch queue status
+      try {
+        const { tasks } = await cloudRequest('GET', '/api/tasks');
+        const queued = tasks.filter(t => t.status === 'queued').length;
+        const inProgress = tasks.filter(t => t.status === 'in_progress').length;
+        console.log(`\n  Tasks: ${tasks.length} total (${queued} queued, ${inProgress} in progress)`);
+      } catch (err) {
+        console.log(`\n  ${c.yellow}Could not fetch tasks:${c.reset} ${err.message}`);
+      }
+      process.exit(0);
+    }
+
+    // agx cloud push "<task description>" [--project <name>] [--priority <n>]
+    if (subcmd === 'push') {
+      const config = loadCloudConfig();
+      if (!config) {
+        console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
+        process.exit(1);
+      }
+
+      // Parse flags
+      let project = null, priority = null, engine = null;
+      const taskParts = [];
+      for (let i = 2; i < args.length; i++) {
+        if (args[i] === '--project' || args[i] === '-p') {
+          project = args[++i];
+        } else if (args[i] === '--priority' || args[i] === '-P') {
+          priority = parseInt(args[++i]);
+        } else if (args[i] === '--engine' || args[i] === '-e') {
+          engine = args[++i];
+        } else {
+          taskParts.push(args[i]);
+        }
+      }
+
+      const taskDesc = taskParts.join(' ');
+      if (!taskDesc) {
+        console.log(`${c.yellow}Usage:${c.reset} agx cloud push "<task>" [--project name] [--priority n]`);
+        process.exit(1);
+      }
+
+      // Build markdown content
+      const frontmatter = ['status: queued', 'stage: ideation'];
+      if (project) frontmatter.push(`project: ${project}`);
+      if (priority) frontmatter.push(`priority: ${priority}`);
+      if (engine) frontmatter.push(`engine: ${engine}`);
+
+      const content = `---\n${frontmatter.join('\n')}\n---\n\n# ${taskDesc}\n`;
+
+      try {
+        const { task } = await cloudRequest('POST', '/api/tasks', { content });
+        console.log(`${c.green}✓${c.reset} Task pushed to cloud`);
+        console.log(`  ID: ${task.id}`);
+        console.log(`  Stage: ${task.stage || 'ideation'}`);
+        if (project) console.log(`  Project: ${project}`);
+      } catch (err) {
+        console.log(`${c.red}✗${c.reset} Failed to push: ${err.message}`);
+        process.exit(1);
+      }
+      process.exit(0);
+    }
+
+    // agx cloud pull [--engine <name>]
+    if (subcmd === 'pull') {
+      const config = loadCloudConfig();
+      if (!config) {
+        console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
+        process.exit(1);
+      }
+
+      let engine = null;
+      for (let i = 2; i < args.length; i++) {
+        if (args[i] === '--engine' || args[i] === '-e') {
+          engine = args[++i];
+        }
+      }
+
+      try {
+        const endpoint = engine ? `/api/queue?engine=${engine}` : '/api/queue';
+        const { task } = await cloudRequest('GET', endpoint);
+
+        if (!task) {
+          console.log(`${c.dim}No tasks in queue${c.reset}`);
+          process.exit(0);
+        }
+
+        console.log(`${c.green}✓${c.reset} Pulled task: ${c.bold}${task.title || 'Untitled'}${c.reset}`);
+        console.log(`  ID: ${task.id}`);
+        console.log(`  Stage: ${task.stage}`);
+        console.log(`  Engine: ${task.engine || 'auto'}`);
+        if (task.project) console.log(`  Project: ${task.project}`);
+
+        // Create local task via mem
+        const centralMem = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
+        if (fs.existsSync(centralMem)) {
+          try {
+            // Extract title from content
+            const title = task.title || 'cloud-task';
+            const provider = task.engine || 'claude';
+            execSync(`mem new "${title}" --provider ${provider} --dir "${process.cwd()}"`, {
+              cwd: process.cwd(),
+              stdio: 'pipe'
+            });
+            // Store cloud task ID for sync
+            spawnSync('mem', ['set', 'cloud_task_id', task.id], { cwd: process.cwd(), stdio: 'pipe' });
+            console.log(`\n${c.dim}Local task created. Run: agx ${provider}${c.reset}`);
+          } catch (memErr) {
+            console.log(`${c.dim}Note: Could not create local task: ${memErr.message}${c.reset}`);
+          }
+        }
+      } catch (err) {
+        console.log(`${c.red}✗${c.reset} Failed to pull: ${err.message}`);
+        process.exit(1);
+      }
+      process.exit(0);
+    }
+
+    // agx cloud sync
+    if (subcmd === 'sync') {
+      const config = loadCloudConfig();
+      if (!config) {
+        console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
+        process.exit(1);
+      }
+
+      console.log(`${c.cyan}→${c.reset} Syncing with cloud...`);
+
+      // Get cloud task ID from local task
+      let cloudTaskId = null;
+      try {
+        const result = spawnSync('mem', ['get', 'cloud_task_id'], {
+          cwd: process.cwd(),
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+        if (result.status === 0 && result.stdout && !result.stdout.includes('Not set')) {
+          cloudTaskId = result.stdout.trim();
+        }
+      } catch {}
+
+      if (!cloudTaskId) {
+        console.log(`${c.yellow}No cloud task linked to this directory.${c.reset}`);
+        console.log(`${c.dim}Pull a task first: agx cloud pull${c.reset}`);
+        process.exit(1);
+      }
+
+      // Get local progress
+      let localProgress = '0%';
+      try {
+        const result = spawnSync('mem', ['get', 'progress'], {
+          cwd: process.cwd(),
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+        if (result.status === 0 && result.stdout && !result.stdout.includes('Not set')) {
+          localProgress = result.stdout.trim();
+        }
+      } catch {}
+
+      // Sync to cloud (add log entry)
+      try {
+        await cloudRequest('POST', `/api/tasks/${cloudTaskId}/logs`, {
+          content: `[agx sync] Progress: ${localProgress} @ ${new Date().toISOString()}`
+        });
+        console.log(`${c.green}✓${c.reset} Synced progress to cloud: ${localProgress}`);
+      } catch (err) {
+        console.log(`${c.red}✗${c.reset} Sync failed: ${err.message}`);
+        process.exit(1);
+      }
+      process.exit(0);
+    }
+
+    // agx cloud list
+    if (subcmd === 'list' || subcmd === 'ls') {
+      const config = loadCloudConfig();
+      if (!config) {
+        console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
+        process.exit(1);
+      }
+
+      try {
+        const { tasks } = await cloudRequest('GET', '/api/tasks');
+        if (tasks.length === 0) {
+          console.log(`${c.dim}No tasks in cloud queue${c.reset}`);
+          process.exit(0);
+        }
+
+        console.log(`${c.bold}Cloud Tasks${c.reset} (${tasks.length})\n`);
+        for (const task of tasks) {
+          const statusIcon = {
+            queued: c.yellow + '○' + c.reset,
+            in_progress: c.blue + '●' + c.reset,
+            completed: c.green + '✓' + c.reset,
+            failed: c.red + '✗' + c.reset,
+          }[task.status] || '?';
+
+          console.log(`  ${statusIcon} ${task.title || 'Untitled'}`);
+          console.log(`    ${c.dim}${task.stage || 'ideation'} · ${task.engine || 'auto'} · ${task.id.slice(0, 8)}${c.reset}`);
+        }
+      } catch (err) {
+        console.log(`${c.red}✗${c.reset} Failed to list: ${err.message}`);
+        process.exit(1);
+      }
+      process.exit(0);
+    }
+
+    // agx cloud complete [--log "message"]
+    if (subcmd === 'complete' || subcmd === 'done') {
+      const config = loadCloudConfig();
+      if (!config) {
+        console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
+        process.exit(1);
+      }
+
+      // Get cloud task ID
+      let cloudTaskId = null;
+      try {
+        const result = spawnSync('mem', ['get', 'cloud_task_id'], {
+          cwd: process.cwd(),
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'pipe']
+        });
+        if (result.status === 0 && result.stdout && !result.stdout.includes('Not set')) {
+          cloudTaskId = result.stdout.trim();
+        }
+      } catch {}
+
+      if (!cloudTaskId) {
+        console.log(`${c.yellow}No cloud task linked.${c.reset}`);
+        process.exit(1);
+      }
+
+      let log = null;
+      for (let i = 2; i < args.length; i++) {
+        if (args[i] === '--log' || args[i] === '-l') {
+          log = args[++i];
+        }
+      }
+
+      try {
+        const { task, newStage } = await cloudRequest('POST', '/api/queue/complete', {
+          taskId: cloudTaskId,
+          log: log || 'Stage completed via agx CLI',
+        });
+        console.log(`${c.green}✓${c.reset} Stage completed`);
+        console.log(`  New stage: ${newStage}`);
+        if (newStage === 'done') {
+          console.log(`  ${c.green}Task is now complete!${c.reset}`);
+        }
+      } catch (err) {
+        console.log(`${c.red}✗${c.reset} Failed: ${err.message}`);
+        process.exit(1);
+      }
+      process.exit(0);
+    }
+
+    // agx cloud watch - Real-time SSE stream
+    if (subcmd === 'watch') {
+      const config = loadCloudConfig();
+      if (!config) {
+        console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
+        process.exit(1);
+      }
+
+      console.log(`${c.cyan}→${c.reset} Watching for task updates... (Ctrl+C to stop)\n`);
+
+      // Use EventSource for SSE
+      const EventSource = require('eventsource');
+      const es = new EventSource(`${config.apiUrl}/api/tasks/stream`, {
+        headers: {
+          'Authorization': `Bearer ${config.token}`,
+        },
+      });
+
+      es.onopen = () => {
+        console.log(`${c.green}✓${c.reset} Connected to stream`);
+      };
+
+      es.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          const timestamp = new Date().toLocaleTimeString();
+          
+          if (data.type === 'connected' || data.type === 'subscribed') {
+            console.log(`${c.dim}[${timestamp}] ${data.type}${c.reset}`);
+          } else if (data.type === 'heartbeat') {
+            // Silent heartbeat
+          } else if (data.type === 'log') {
+            console.log(`${c.blue}[${timestamp}] LOG${c.reset} ${data.log?.content || '(empty)'}`);
+          } else if (data.type === 'INSERT') {
+            console.log(`${c.green}[${timestamp}] NEW${c.reset} ${data.task?.title || 'Untitled'} → ${data.task?.stage || 'ideation'}`);
+          } else if (data.type === 'UPDATE') {
+            console.log(`${c.yellow}[${timestamp}] UPD${c.reset} ${data.task?.title || 'Untitled'} → ${data.task?.stage || '?'} (${data.task?.status || '?'})`);
+          } else if (data.type === 'DELETE') {
+            console.log(`${c.red}[${timestamp}] DEL${c.reset} Task removed`);
+          }
+        } catch (err) {
+          console.log(`${c.dim}[raw] ${event.data}${c.reset}`);
+        }
+      };
+
+      es.onerror = (err) => {
+        console.log(`${c.red}✗${c.reset} Stream error: ${err.message || 'Connection lost'}`);
+        console.log(`${c.dim}Reconnecting...${c.reset}`);
+      };
+
+      // Handle Ctrl+C
+      process.on('SIGINT', () => {
+        console.log(`\n${c.dim}Closing stream...${c.reset}`);
+        es.close();
+        process.exit(0);
+      });
+
+      // Keep process alive
+      return true;
+    }
+
+    // agx cloud logs [taskId] [--follow]
+    if (subcmd === 'logs') {
+      const config = loadCloudConfig();
+      if (!config) {
+        console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
+        process.exit(1);
+      }
+
+      const follow = args.includes('--follow') || args.includes('-f');
+      let taskId = args.slice(2).find(a => !a.startsWith('-'));
+
+      // Try to get task ID from local mapping
+      if (!taskId) {
+        try {
+          const result = spawnSync('mem', ['get', 'cloud_task_id'], {
+            cwd: process.cwd(),
+            encoding: 'utf8',
+            stdio: ['pipe', 'pipe', 'pipe']
+          });
+          if (result.status === 0 && result.stdout && !result.stdout.includes('Not set')) {
+            taskId = result.stdout.trim();
+          }
+        } catch {}
+      }
+
+      if (!taskId) {
+        console.log(`${c.yellow}Usage:${c.reset} agx cloud logs [taskId] [--follow]`);
+        console.log(`${c.dim}Or run from a directory with a linked cloud task${c.reset}`);
+        process.exit(1);
+      }
+
+      // Fetch logs
+      try {
+        const { logs } = await cloudRequest('GET', `/api/tasks/${taskId}/logs`);
+        
+        if (logs.length === 0) {
+          console.log(`${c.dim}No logs yet${c.reset}`);
+        } else {
+          console.log(`${c.bold}Task Logs${c.reset} (${logs.length})\n`);
+          for (const log of logs) {
+            const time = new Date(log.created_at).toLocaleString();
+            console.log(`${c.dim}[${time}]${c.reset} ${log.content}`);
+          }
+        }
+
+        // If --follow, switch to SSE mode
+        if (follow) {
+          console.log(`\n${c.cyan}→${c.reset} Tailing logs... (Ctrl+C to stop)\n`);
+          
+          const EventSource = require('eventsource');
+          const es = new EventSource(`${config.apiUrl}/api/tasks/stream`, {
+            headers: { 'Authorization': `Bearer ${config.token}` },
+          });
+
+          es.onmessage = (event) => {
+            try {
+              const data = JSON.parse(event.data);
+              if (data.type === 'log' && data.log?.task_id === taskId) {
+                const time = new Date().toLocaleTimeString();
+                console.log(`${c.dim}[${time}]${c.reset} ${data.log.content}`);
+              }
+            } catch {}
+          };
+
+          es.onerror = () => {
+            console.log(`${c.dim}Reconnecting...${c.reset}`);
+          };
+
+          process.on('SIGINT', () => {
+            es.close();
+            process.exit(0);
+          });
+
+          return true;
+        }
+      } catch (err) {
+        console.log(`${c.red}✗${c.reset} Failed to fetch logs: ${err.message}`);
+        process.exit(1);
+      }
+      process.exit(0);
+    }
+
+    // agx cloud setup-realtime - Configure Supabase credentials for realtime mode
+    if (subcmd === 'setup-realtime') {
+      const config = loadCloudConfig();
+      if (!config) {
+        console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
+        process.exit(1);
+      }
+
+      console.log(`${c.bold}Setup Supabase Realtime${c.reset}\n`);
+      console.log(`${c.dim}Get these from your Supabase project settings → API${c.reset}\n`);
+
+      const supabaseUrl = await prompt('Supabase URL: ');
+      const supabaseKey = await prompt('Supabase anon key: ');
+
+      if (!supabaseUrl || !supabaseKey) {
+        console.log(`${c.red}Cancelled${c.reset}`);
+        process.exit(1);
+      }
+
+      config.supabaseUrl = supabaseUrl.trim();
+      config.supabaseKey = supabaseKey.trim();
+      saveCloudConfig(config);
+
+      console.log(`\n${c.green}✓${c.reset} Realtime configured!`);
+      console.log(`${c.dim}Now run: agx daemon --realtime${c.reset}`);
+      process.exit(0);
+    }
+
+    // agx cloud audit - View local audit log
+    if (subcmd === 'audit') {
+      const { readAuditLog, AUDIT_LOG_FILE } = require('./lib/security');
+      
+      // Parse flags
+      let limit = 20;
+      let taskId = null;
+      for (let i = 2; i < args.length; i++) {
+        if (args[i] === '--limit' || args[i] === '-n') {
+          limit = parseInt(args[++i]) || 20;
+        } else if (args[i] === '--task' || args[i] === '-t') {
+          taskId = args[++i];
+        }
+      }
+      
+      const entries = readAuditLog({ limit, taskId });
+      
+      if (entries.length === 0) {
+        console.log(`${c.dim}No audit log entries${c.reset}`);
+        console.log(`${c.dim}Log file: ${AUDIT_LOG_FILE}${c.reset}`);
+        process.exit(0);
+      }
+      
+      console.log(`${c.bold}Local Audit Log${c.reset} (${entries.length} entries)\n`);
+      
+      for (const entry of entries) {
+        const time = new Date(entry.timestamp).toLocaleString();
+        const actionColor = {
+          execute: c.cyan,
+          complete: c.green,
+          reject: c.red,
+          skip: c.yellow,
+        }[entry.action] || c.dim;
+        
+        const resultIcon = {
+          success: '✓',
+          failed: '✗',
+          rejected: '🚫',
+          skipped: '⏭',
+          pending: '...',
+        }[entry.result] || '?';
+        
+        console.log(`${c.dim}${time}${c.reset} ${actionColor}${entry.action}${c.reset} ${resultIcon}`);
+        console.log(`  Task: ${entry.title || entry.taskId?.slice(0, 8) || 'Unknown'}`);
+        if (entry.stage) console.log(`  Stage: ${entry.stage}`);
+        if (entry.signatureValid !== null) {
+          console.log(`  Signature: ${entry.signatureValid ? '✓ valid' : '✗ invalid'}`);
+        }
+        if (entry.dangerousOps?.detected) {
+          console.log(`  ${c.yellow}Dangerous: ${entry.dangerousOps.severity} - ${entry.dangerousOps.patterns.join(', ')}${c.reset}`);
+        }
+        if (entry.error) {
+          console.log(`  ${c.red}Error: ${entry.error}${c.reset}`);
+        }
+        console.log('');
+      }
+      process.exit(0);
+    }
+
+    // agx cloud security - Manage daemon security settings
+    if (subcmd === 'security') {
+      const securityCmd = args[2];
+      const { loadSecurityConfig, setupDaemonSecret, getDaemonSecret, SECURITY_CONFIG_FILE } = require('./lib/security');
+      
+      if (securityCmd === 'status') {
+        const config = loadSecurityConfig();
+        console.log(`${c.bold}Daemon Security Status${c.reset}\n`);
+        
+        if (config?.daemonSecret) {
+          console.log(`  ${c.green}✓${c.reset} Daemon secret: Configured`);
+          console.log(`    Created: ${config.secretCreatedAt || 'Unknown'}`);
+          if (config.secretRotatedAt) {
+            console.log(`    Rotated: ${config.secretRotatedAt}`);
+          }
+        } else {
+          console.log(`  ${c.yellow}⚠${c.reset} Daemon secret: Not configured`);
+          console.log(`    ${c.dim}Run: agx cloud login to generate${c.reset}`);
+        }
+        
+        console.log(`\n  Config: ${SECURITY_CONFIG_FILE}`);
+        process.exit(0);
+      }
+      
+      if (securityCmd === 'rotate') {
+        const config = loadCloudConfig();
+        if (!config) {
+          console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
+          process.exit(1);
+        }
+        
+        const confirm = await prompt(`${c.yellow}Rotate daemon secret?${c.reset} This will invalidate all pending signed tasks. (y/N): `);
+        if (confirm?.toLowerCase() !== 'y' && confirm?.toLowerCase() !== 'yes') {
+          console.log(`${c.dim}Cancelled${c.reset}`);
+          process.exit(0);
+        }
+        
+        const { secret, isNew } = await setupDaemonSecret({
+          force: true,
+          cloudApiUrl: config.apiUrl,
+          cloudToken: config.token,
+        });
+        
+        console.log(`${c.green}✓${c.reset} Daemon secret rotated`);
+        process.exit(0);
+      }
+      
+      // Default: show security help
+      console.log(`${c.bold}agx cloud security${c.reset} - Manage daemon security\n`);
+      console.log(`  agx cloud security status    Show security configuration`);
+      console.log(`  agx cloud security rotate    Rotate daemon secret`);
+      process.exit(0);
+    }
+
+    // Default: show help
+    console.log(`${c.bold}agx cloud${c.reset} - Sync with AGX Cloud\n`);
+    console.log(`${c.bold}Auth:${c.reset}`);
+    console.log(`  agx cloud login [url]      Login to cloud (default: localhost:3333)`);
+    console.log(`  agx cloud logout           Logout from cloud`);
+    console.log(`  agx cloud status           Show connection status`);
+    console.log(`  agx cloud setup-realtime   Configure Supabase for realtime mode`);
+    console.log(`\n${c.bold}Tasks:${c.reset}`);
+    console.log(`  agx cloud list             List cloud tasks`);
+    console.log(`  agx cloud push "<task>"    Push task to cloud queue`);
+    console.log(`  agx cloud pull             Pull next task from queue`);
+    console.log(`  agx cloud sync             Sync local progress to cloud`);
+    console.log(`  agx cloud complete         Mark current stage complete`);
+    console.log(`\n${c.bold}Monitoring:${c.reset}`);
+    console.log(`  agx cloud watch            Watch task updates in real-time`);
+    console.log(`  agx cloud logs [id] [-f]   View/tail task logs`);
+    console.log(`\n${c.bold}Security:${c.reset}`);
+    console.log(`  agx cloud security status  Show security configuration`);
+    console.log(`  agx cloud security rotate  Rotate daemon secret`);
+    console.log(`  agx cloud audit            View local audit log`);
+    process.exit(0);
   }
 
   // Login command
@@ -3274,8 +4134,20 @@ if (provider === 'gemini') {
       translatedArgs.push(finalPrompt);
     }
   }
+} else if (provider === 'ollama') {
+  // Ollama uses its own CLI - APIs are incompatible with Claude
+  command = 'ollama';
+  translatedArgs.length = 0; // Clear any accumulated args
+  
+  // Get model from options or config
+  const ollamaModel = options.model || config?.ollama?.model || 'llama3.2:3b';
+  translatedArgs.push('run', ollamaModel);
+  
+  // Ollama handles prompt via stdin for non-interactive mode
+  // For interactive, we still run but let user type
+  options.ollamaPrompt = finalPrompt; // Store for later piping
 } else {
-  // Claude or Ollama
+  // Claude
   command = 'claude';
 
   // Claude-specific translations
@@ -3285,17 +4157,6 @@ if (provider === 'gemini') {
     translatedArgs.push('--print');
   }
   if (options.mcp) translatedArgs.push('--mcp-config', options.mcp);
-
-  // Ollama-specific environment setup
-  if (provider === 'ollama') {
-    env.ANTHROPIC_AUTH_TOKEN = 'ollama';
-    env.ANTHROPIC_BASE_URL = 'http://localhost:11434';
-    env.ANTHROPIC_API_KEY = 'none';
-    // Default model for Ollama if not specified
-    if (!options.model) {
-      translatedArgs.push('--model', 'glm-4.7:cloud');
-    }
-  }
 
   // Claude prompt (positional at end)
   if (finalPrompt) {
@@ -3481,11 +4342,19 @@ The default is to keep working. The daemon will continue automatically.`;
 // Run with mem output capture or normal mode
 if (options.mem && options.memDir) {
   // Capture output for marker parsing
+  // Ollama needs stdin for prompt; others inherit
+  const stdinMode = (provider === 'ollama' && options.ollamaPrompt) ? 'pipe' : 'inherit';
   const child = spawn(command, translatedArgs, {
     env,
-    stdio: ['inherit', 'pipe', 'inherit'],
+    stdio: [stdinMode, 'pipe', 'inherit'],
     shell: false
   });
+  
+  // Send prompt to Ollama via stdin
+  if (provider === 'ollama' && options.ollamaPrompt && child.stdin) {
+    child.stdin.write(options.ollamaPrompt);
+    child.stdin.end();
+  }
   
   let output = '';
   
@@ -3555,12 +4424,22 @@ if (options.mem && options.memDir) {
     process.exit(1);
   });
 } else {
-  // Normal mode - stdio inherit
+  // Normal mode
+  // Ollama with prompt: pipe stdin for prompt, inherit stdout/stderr
+  // Ollama without prompt (interactive): inherit all
+  // Others: inherit all
+  const useOllamaPipe = provider === 'ollama' && options.ollamaPrompt;
   const child = spawn(command, translatedArgs, {
     env,
-    stdio: 'inherit',
+    stdio: useOllamaPipe ? ['pipe', 'inherit', 'inherit'] : 'inherit',
     shell: false
   });
+
+  // Send prompt to Ollama via stdin
+  if (useOllamaPipe && child.stdin) {
+    child.stdin.write(options.ollamaPrompt);
+    child.stdin.end();
+  }
 
   child.on('exit', (code) => {
     process.exit(code || 0);
@@ -3573,7 +4452,10 @@ if (options.mem && options.memDir) {
       if (command === 'claude') {
         console.error(`  npm install -g @anthropic-ai/claude-code`);
       } else if (command === 'gemini') {
-        console.error(`  npm install -g @anthropic-ai/gemini-cli`);
+        console.error(`  npm install -g @google/gemini-cli`);
+      } else if (command === 'ollama') {
+        console.error(`  brew install ollama  # macOS`);
+        console.error(`  curl -fsSL https://ollama.ai/install.sh | sh  # Linux`);
       }
     } else {
       console.error(`${c.red}Failed to start ${command}:${c.reset}`, err.message);
