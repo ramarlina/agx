@@ -59,12 +59,14 @@ describe('AgxWorker', () => {
         token: 'my-token',
         apiUrl: 'https://api.example.com',
         pollIntervalMs: 5000,
+        daemonMaxConcurrent: 3,
         supabaseUrl: 'https://test.supabase.co',
         supabaseKey: 'test-anon-key',
       });
       
       expect(worker.cloudUrl).toBe('https://api.example.com');
       expect(worker.pollIntervalMs).toBe(5000);
+      expect(worker.maxConcurrent).toBe(3);
     });
 
     test('initializes security settings', () => {
@@ -186,6 +188,45 @@ describe('AgxWorker', () => {
       await worker.pollOnce();
       
       expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    test('pulls tasks up to worker capacity', async () => {
+      global.fetch
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ task: { id: 'task-1' } }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ task: { id: 'task-2' } }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ task: null }) });
+
+      worker = new AgxWorker({
+        token: 'test-token',
+        daemonMaxConcurrent: 2,
+        supabaseUrl: 'https://test.supabase.co',
+        supabaseKey: 'test-anon-key'
+      });
+      worker.isRunning = true;
+      const claimSpy = jest.spyOn(worker, 'tryClaimAndExecute').mockResolvedValue(true);
+
+      await worker.pollOnce();
+
+      expect(claimSpy).toHaveBeenCalledTimes(2);
+      expect(global.fetch).toHaveBeenCalledTimes(3);
+    });
+  });
+
+  describe('dispatcher queueing', () => {
+    test('queues tasks locally when worker pool is full', async () => {
+      worker = new AgxWorker({
+        token: 'test-token',
+        daemonMaxConcurrent: 1,
+        supabaseUrl: 'https://test.supabase.co',
+        supabaseKey: 'test-anon-key'
+      });
+      worker.currentTask = { id: 'busy-task' };
+
+      const accepted = await worker.tryClaimAndExecute({ id: 'queued-task' });
+
+      expect(accepted).toBe(true);
+      expect(worker.pendingTaskQueue).toHaveLength(1);
+      expect(worker.pendingTaskQueue[0].id).toBe('queued-task');
     });
   });
 

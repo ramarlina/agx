@@ -1094,7 +1094,7 @@ function isDaemonRunning() {
   }
 }
 
-function startDaemon() {
+function startDaemon(options = {}) {
   const existingPid = isDaemonRunning();
   if (existingPid) {
     console.log(`${c.dim}Daemon already running (pid ${existingPid})${c.reset}`);
@@ -1109,13 +1109,22 @@ function startDaemon() {
 
   // Spawn daemon process
   const agxPath = process.argv[1]; // Current script path
-  const daemon = spawn(process.execPath, [agxPath, 'daemon', 'run'], {
+  const daemonArgs = [agxPath, 'daemon', 'run'];
+  if (options.maxWorkers && Number.isFinite(options.maxWorkers) && options.maxWorkers > 0) {
+    daemonArgs.push('--max-workers', String(options.maxWorkers));
+  }
+
+  const daemon = spawn(process.execPath, daemonArgs, {
     detached: true,
     stdio: ['ignore',
       fs.openSync(DAEMON_LOG_FILE, 'a'),
       fs.openSync(DAEMON_LOG_FILE, 'a')
     ],
-    env: { ...process.env, AGX_DAEMON: '1' }
+    env: {
+      ...process.env,
+      AGX_DAEMON: '1',
+      ...(options.maxWorkers ? { AGX_DAEMON_MAX_CONCURRENT: String(options.maxWorkers) } : {}),
+    }
   });
 
   daemon.unref();
@@ -2547,6 +2556,18 @@ async function checkOnboarding() {
   if (cmd === 'daemon') {
     const subcmd = args[1];
     const isRealtimeMode = args.includes('--realtime');
+    const maxWorkersFlagIdx = args.indexOf('--max-workers');
+    let maxWorkers;
+    if (maxWorkersFlagIdx !== -1) {
+      const raw = args[maxWorkersFlagIdx + 1];
+      const parsed = Number.parseInt(raw, 10);
+      if (!Number.isFinite(parsed) || parsed < 1) {
+        console.log(`${c.red}Invalid --max-workers value:${c.reset} ${raw || '(missing)'}`);
+        console.log(`${c.dim}Use a positive integer, e.g. --max-workers 3${c.reset}`);
+        process.exit(1);
+      }
+      maxWorkers = parsed;
+    }
 
     // agx daemon --realtime : Real-time daemon using Supabase Realtime (~100ms latency)
     if (isRealtimeMode || subcmd === 'realtime') {
@@ -2573,6 +2594,9 @@ async function checkOnboarding() {
 
       // Start realtime-capable worker (requires Supabase config)
       const { AgxWorker } = require('./lib/worker');
+      if (maxWorkers) {
+        cloudConfig.daemonMaxConcurrent = maxWorkers;
+      }
       const worker = new AgxWorker(cloudConfig);
 
       // Graceful shutdown
@@ -2617,6 +2641,9 @@ async function checkOnboarding() {
       }
 
       cloudConfig.pollIntervalMs = cloudConfig.pollIntervalMs || 10000;
+      if (maxWorkers) {
+        cloudConfig.daemonMaxConcurrent = maxWorkers;
+      }
 
       const { AgxWorker } = require('./lib/worker');
       const worker = new AgxWorker(cloudConfig);
@@ -2638,7 +2665,7 @@ async function checkOnboarding() {
     }
 
     if (subcmd === 'start') {
-      startDaemon();
+      startDaemon({ maxWorkers });
       process.exit(0);
     } else if (subcmd === 'stop') {
       stopDaemon();
@@ -2684,6 +2711,7 @@ async function checkOnboarding() {
       console.log(`\n${c.bold}Cloud mode:${c.reset}`);
       console.log(`  agx daemon            Default to realtime, fallback to polling`);
       console.log(`  agx daemon --realtime Force Supabase Realtime (~100ms)`);
+      console.log(`  agx daemon --max-workers <n>  Dispatcher worker pool size (default: 1)`);
       console.log(`\n${c.dim}Realtime config is fetched during agx login${c.reset}`);
       process.exit(0);
     }
