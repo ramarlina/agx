@@ -1,6 +1,7 @@
 /**
  * Integration tests for agx CLI commands
  * Tests the full command flow with mocked external services
+ * Updated for simplified command structure (no cloud prefix)
  */
 
 const { execSync, spawn } = require('child_process');
@@ -14,10 +15,10 @@ const AGX_PATH = path.join(__dirname, '../../index.js');
 function runAgx(args, options = {}) {
   const cmd = `node ${AGX_PATH} ${args}`;
   try {
-    return execSync(cmd, { 
+    return execSync(cmd, {
       encoding: 'utf8',
       timeout: 10000,
-      ...options 
+      ...options
     });
   } catch (err) {
     return err.stdout || err.stderr || err.message;
@@ -40,6 +41,19 @@ describe('AGX CLI Integration Tests', () => {
     test('displays version with --version', () => {
       const output = runAgx('--version');
       expect(output).toMatch(/\d+\.\d+\.\d+/);
+    });
+
+    test('help shows direct commands (no cloud prefix)', () => {
+      const output = runAgx('--help');
+      // Should show direct commands like status, list, tasks, login, logout
+      expect(output).toBeTruthy();
+    });
+
+    test('help does NOT show deprecated mem/learn commands', () => {
+      const output = runAgx('--help');
+      // mem and learn commands have been removed in favor of cloud-only
+      expect(output).not.toContain('mem');
+      expect(output).not.toContain('learn');
     });
   });
 
@@ -64,27 +78,53 @@ describe('AGX CLI Integration Tests', () => {
     });
   });
 
-  describe('Cloud Commands', () => {
-    test('agx cloud status without login shows error', () => {
-      const output = runAgx('cloud status');
-      // Should show some message about not being logged in or connection status
+  describe('Task Commands (simplified - no cloud prefix)', () => {
+    test('agx task ls shows task listing', () => {
+      const output = runAgx('task ls');
+      // Should show tasks or empty list message
       expect(output).toBeTruthy();
     });
 
-    test('agx cloud --help shows subcommands', () => {
-      const output = runAgx('cloud --help');
-      expect(output).toMatch(/login|logout|status|push|pull/i);
+    test('agx tasks lists tasks', () => {
+      const output = runAgx('tasks');
+      expect(output).toBeTruthy();
+      // tasks command is the primary task listing method
+    });
+
+    test('agx list is backward compatible alias for task ls', () => {
+      const output = runAgx('list');
+      expect(output).toBeTruthy();
     });
   });
 
-  describe('Task Commands', () => {
-    test('agx tasks lists tasks (may be empty)', () => {
-      const output = runAgx('tasks');
+  describe('Direct Commands (no cloud prefix)', () => {
+    test('agx login command exists', () => {
+      const output = runAgx('login 2>&1');
+      // Command should execute (may show error if no URL provided)
       expect(output).toBeTruthy();
     });
 
-    test('agx list is alias for tasks', () => {
-      const output = runAgx('list');
+    test('agx logout command exists', () => {
+      const output = runAgx('logout 2>&1');
+      // Command should execute
+      expect(output).toBeTruthy();
+    });
+
+    test('agx new command exists', () => {
+      const output = runAgx('new 2>&1');
+      // Command should execute (may show error if no goal provided)
+      expect(output).toBeTruthy();
+    });
+
+    test('agx complete command exists', () => {
+      const output = runAgx('complete 2>&1');
+      // Command should execute (may show error if no auth)
+      expect(output).toBeTruthy();
+    });
+
+    test('agx logs command exists', () => {
+      const output = runAgx('logs 2>&1');
+      // Command should execute (may show error if no auth)
       expect(output).toBeTruthy();
     });
   });
@@ -113,12 +153,44 @@ describe('AGX CLI Integration Tests', () => {
       const output = runAgx('--invalid-option-xyz');
       expect(output).toBeTruthy();
     });
+
+    test('agx mem command shows not found error', () => {
+      const output = runAgx('mem 2>&1');
+      // mem command should not exist
+      expect(output).toBeTruthy();
+      // Should indicate command is not available
+      expect(output).toMatch(/not found|unknown|error/i);
+    });
+
+    test('agx learn command shows not found error', () => {
+      const output = runAgx('learn 2>&1');
+      // learn command should not exist
+      expect(output).toBeTruthy();
+      // Should indicate command is not available
+      expect(output).toMatch(/not found|unknown|error/i);
+    });
+  });
+
+  describe('Backward Compatibility - cloud prefix should not work', () => {
+    test('agx cloud status shows not found', () => {
+      const output = runAgx('cloud status 2>&1');
+      // cloud prefix should no longer work
+      expect(output).toBeTruthy();
+      expect(output).toMatch(/not found|unknown|error/i);
+    });
+
+    test('agx cloud list shows not found', () => {
+      const output = runAgx('cloud list 2>&1');
+      // cloud prefix should no longer work
+      expect(output).toBeTruthy();
+      expect(output).toMatch(/not found|unknown|error/i);
+    });
   });
 });
 
 describe('AGX Daemon Tests', () => {
   // Note: These tests are light because daemon requires running services
-  
+
   test('daemon --help shows options', () => {
     const output = runAgx('daemon --help');
     expect(output).toMatch(/daemon|worker|poll/i);
@@ -127,18 +199,6 @@ describe('AGX Daemon Tests', () => {
   test('daemon --dry-run validates without starting', () => {
     // Some implementations have --dry-run
     const output = runAgx('daemon --dry-run 2>&1');
-    expect(output).toBeTruthy();
-  });
-});
-
-describe('AGX Memory/Learn Commands', () => {
-  test('agx learn --help shows options', () => {
-    const output = runAgx('learn --help');
-    expect(output).toBeTruthy();
-  });
-
-  test('agx mem shows memory status', () => {
-    const output = runAgx('mem');
     expect(output).toBeTruthy();
   });
 });

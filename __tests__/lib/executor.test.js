@@ -24,7 +24,7 @@ describe('AGX Executor Module', () => {
   describe('STAGE_CONFIG', () => {
     const expectedStages = [
       'ideation', 'planning', 'coding', 'qa', 'acceptance',
-      'deployment', 'smoke_test', 'release', 'done'
+      'pr', 'pr_review', 'merge', 'done'
     ];
 
     test('includes all 9 SDLC stages', () => {

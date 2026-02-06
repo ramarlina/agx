@@ -22,8 +22,7 @@
     "claude",
     "ollama",
     "llm",
-    "memory",
-    "persistent"
+    "cloud"
   ],
   "author": "Mendrika Ramarlina",
   "license": "MIT",
@@ -32,9 +31,10 @@
     "url": "https://github.com/ramarlina/agx"
   },
   "dependencies": {
-    "@mndrk/memx": "^0.3.0",
-    "@supabase/supabase-js": "^2.47.0",
-    "eventsource": "^4.1.0"
+    "@supabase/supabase-js": "^2.95.1",
+    "eventsource": "^4.1.0",
+    "p-map": "^7.0.4",
+    "p-retry": "^7.1.1"
   },
   "devDependencies": {
     "jest": "^30.2.0"

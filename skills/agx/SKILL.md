@@ -1,13 +1,13 @@
 # agx - Task Orchestrator for Autonomous AI Agents
 
-Run AI agents that work autonomously across sessions. Uses `mem` for persistent memory.
+Run AI agents that work autonomously across sessions. Uses cloud API for persistent memory and task management.
 
 ## Core Concept: Wake-Work-Sleep Cycle
 
-Agents have NO memory between sessions. All continuity comes from `mem`:
+Agents have NO memory between sessions. All continuity comes from the API:
 
 ```
-WAKE → Load state from mem → WORK → Save state to mem → SLEEP → repeat
+WAKE -> Load state from API -> WORK -> Save state to API -> SLEEP -> repeat
 ```
 
 ## Quick Start
@@ -29,8 +29,27 @@ agx run [task]          # Run task (loads context, wakes agent)
 agx tasks               # List all tasks
 agx status              # Current task status
 agx context [task]      # View task context
-agx pause [task]        # Pause task
-agx remove [task]       # Remove task
+```
+
+## Task Commands (Docker-style namespaces)
+
+```bash
+agx task ls           # List all tasks
+agx task logs <id>    # View task logs
+agx task logs -f <id> # Follow task logs
+agx task stop <id>    # Stop a task
+agx task rm <id>      # Remove a task
+agx info <task>       # Get detailed task info
+agx complete <taskId> # Mark task stage as complete
+agx pull              # Pull next task from queue
+```
+
+## Container Commands (Docker-style namespaces)
+
+```bash
+agx container ls       # List running containers (daemons)
+agx container logs     # View daemon logs
+agx container stop     # Stop running containers
 ```
 
 ## Steering: Nudge a Task
@@ -42,67 +61,58 @@ agx nudge <task> "focus on auth first"    # Add nudge
 agx nudge <task>                          # View pending nudges
 ```
 
-Nudges are shown to the agent on wake and then cleared.
-
-## Memory Commands (via mem)
-
-Agents use these to persist state:
-
-### Define Objective
-```bash
-mem goal "<objective>"        # Set/update goal
-mem criteria add "<text>"     # Add success criterion
-mem constraint add "<rule>"   # Add boundary/constraint
-```
-
-### Track Progress
-```bash
-mem next "<step>"             # Set what you're working on
-mem checkpoint "<msg>"        # Save progress point
-mem criteria <n>              # Mark criterion #n complete
-mem progress                  # Check progress %
-```
-
-### Learn & Adapt
-```bash
-mem learn "<insight>"         # Task-specific learning
-mem learn -g "<insight>"      # Global learning (all tasks)
-mem stuck "<reason>"          # Mark blocker
-mem stuck clear               # Clear blocker
-```
-
-### Build Playbook
-```bash
-mem learnings -g              # List global learnings
-mem promote <n>               # Promote learning to playbook
-mem playbook                  # View global playbook
-```
-
-### Complete
-```bash
-mem done                      # Mark task complete
-```
+Nudges are stored and shown to the agent on wake, then cleared.
 
 ## Agent Workflow
 
 When an agent wakes, it should:
 
 1. **Orient** - Read state (goal, criteria, progress, next step)
-2. **Plan** - Define criteria if missing, set intent with `mem next`
+2. **Plan** - Define criteria if missing, set intent via API
 3. **Execute** - Work toward criteria, save learnings
-4. **Checkpoint** - Save progress with `mem checkpoint`
+4. **Checkpoint** - Save progress
 5. **Adapt** - Handle blockers or ask user for nudge
+
+## State Operations
+
+Agents interact with the API directly for state persistence:
+
+### Define Objective
+```bash
+# Set goal and criteria via agx (sends to API)
+agx new "Build a REST API" --criteria "Auth works" --criteria "CRUD endpoints"
+```
+
+### Track Progress
+```bash
+# Agent uses API to update state
+# (typically through agx commands, not direct API calls)
+```
+
+### Complete Stage
+```bash
+agx complete <taskId>  # Mark task stage complete
+agx pull <task>        # Pull next stage from queue
+```
+
+### Query
+```bash
+agx info <task>        # Get task info
+agx task ls            # List all tasks
+```
 
 ## Daemon Mode
 
 Run tasks on a schedule:
 
 ```bash
-agx daemon start              # Start daemon
+agx daemon start              # Start daemon (polls for tasks)
 agx daemon stop               # Stop daemon
 agx daemon status             # Check status
 agx daemon logs               # View logs
 ```
+
+The daemon continuously polls the API for active tasks.
 
 ## Providers
 
@@ -123,8 +133,8 @@ agx ollama [args]             # Ollama (alias: o)
 
 ## Key Principles
 
-- **Memory is everything** - Agents forget between sessions. Save state.
+- **Persistent storage is everything** - Agents forget between sessions. Save state.
 - **Criteria drive completion** - No criteria = no way to know when done.
-- **Checkpoint often** - Sessions can die anytime.
+- **Checkpoint often** - Sessions can die anytime. Sync to API.
 - **Ask when stuck** - Get a nudge from the user vs. spinning.
-- **Learn & promote** - Build the playbook for future tasks.
+- **Learn & adapt** - Build knowledge for future tasks via API.

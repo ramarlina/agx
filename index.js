@@ -4,19 +4,16 @@
 // agx - AI Agent Task Orchestrator
 //
 // Architecture:
-// - agx ORCHESTRATES tasks and AI agents (claude, gemini, ollama)
-// - mem STORES data in ~/.mem git repo (pure KV primitives)
-// - agx NEVER accesses ~/.mem directly - only via mem commands
+// - agx ORCHESTRATES tasks and AI agents (claude, gemini, ollama, codex)
+// - agx Cloud API STORES task data
 // - This separation keeps agx focused on orchestration
 //
 // Data flow:
 //   agx new "goal" -P claude
-//     → mem new "goal" --provider claude --dir /project
-//       → creates task/goal branch, writes files, commits
+//     → cloud API creates task
 //
 //   agx context --json
-//     → reads via git show (parallel-safe, no checkout needed)
-//     → returns {task, provider, goal, criteria, checkpoints...}
+//     → returns {task, provider, goal, criteria, checkpoints...} via cloud
 //
 //   daemon runs tasks
 //     → reads provider per task
@@ -24,6 +21,10 @@
 // ============================================================
 
 const { spawn, spawnSync, execSync } = require('child_process');
+const pMap = require('p-map');
+const pRetry = require("p-retry");
+const pRetryFn = pRetry.default || pRetry;
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
@@ -31,16 +32,17 @@ const readline = require('readline');
 // Config paths
 const CONFIG_DIR = path.join(process.env.HOME || process.env.USERPROFILE, '.agx');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
+const CLOUD_CONFIG_FILE = path.join(CONFIG_DIR, 'cloud.json');
 
 // agx skill - instructions for LLMs on how to use agx
 const AGX_SKILL = `---
 name: agx
-description: Task orchestrator for AI agents. Uses mem primitives for persistence.
+description: Task orchestrator for AI agents. Uses cloud API for persistence.
 ---
 
 # agx - AI Agent Task Orchestrator
 
-agx manages tasks and coordinates AI agents. Uses \`mem\` for persistence.
+agx manages tasks and coordinates AI agents. Uses cloud API for persistence.
 
 ## Quick Start
 
@@ -52,90 +54,50 @@ agx -p "explain this code"     # One-shot question
 ## Task Lifecycle
 
 \`\`\`bash
-agx new "<goal>"               # Create task
-agx new "<goal>" -P c          # Create with claude provider
-agx new "<goal>" -P g --run    # Create with gemini and run immediately
-agx context [task]             # Get task context (parallel-safe)
-agx checkpoint "<msg>"         # Save progress
-agx next "<step>"              # Set next step
-agx criteria add "<text>"      # Add success criterion
-agx criteria <n>               # Mark criterion #n complete
-agx learn "<insight>"          # Record learning
-agx done                       # Complete task
-agx stuck "<reason>"           # Mark blocked
+agx new "goal"          # Create task
+agx run [task]          # Run a task
+agx complete <taskId>   # Mark task stage complete
+agx status              # Show current status
 \`\`\`
 
 ## Checking Tasks
 
 \`\`\`bash
-agx status              # Current task
-agx tasks               # All tasks (interactive browser)
-agx tail [task]         # Live tail task log
-agx daemon logs         # Recent daemon activity
+agx task ls             # List tasks
+agx task logs <id> [-f] # View/tail task logs
+agx watch               # Watch task updates in real-time (SSE)
 \`\`\`
 
-## Task Control
+## Authentication
 
 \`\`\`bash
-agx run [task]          # Run task now
-agx pause [task]        # Pause task (daemon won't run it)
-agx resume [task]       # Resume task
-agx stop [task]         # Mark done
-agx delete [task]       # Delete task (alias: remove, rm)
-agx nudge <task> "msg"  # Send steering message
-\`\`\`
-
-## Daemon
-
-\`\`\`bash
-agx daemon start        # Start local background runner
-agx daemon stop         # Stop local daemon
-agx daemon status       # Check if running
-agx daemon logs         # Recent logs
-agx daemon --cloud      # Pull from cloud, execute locally
-\`\`\`
-
-## Cloud Sync
-
-\`\`\`bash
-agx cloud login [url]   # Login to AGX Cloud
-agx cloud status        # Show connection status
-agx cloud list          # List cloud tasks
-agx cloud push "<task>" # Push task to cloud queue
-agx cloud pull          # Pull next task from queue
-agx cloud sync          # Sync local progress to cloud
-agx cloud complete      # Mark current stage complete
-agx cloud watch         # Watch task updates in real-time (SSE)
-agx cloud logs [id] -f  # View/tail task logs
-agx cloud logout        # Logout from cloud
-agx status --cloud      # Quick cloud queue status
-\`\`\`
-
-## Output Markers
-
-When running agents, agx parses these markers:
-\`\`\`
-[checkpoint: message]   # Save progress
-[learn: insight]        # Record learning
-[next: step]            # Set next step
-[criteria: N]           # Mark criterion #N complete
-[done]                  # Task complete
-[blocked: reason]       # Need human help
+agx login [url]   # Login to AGX Cloud
+agx logout        # Logout from cloud
+agx status        # Show connection status
+agx task ls           # List cloud tasks
+agx task logs <id> [-f]  # View/tail task logs
+agx task stop <id>      # Stop a task
+agx task rm <id>        # Remove a task
+agx container ls        # List running containers
+agx container logs      # View daemon logs
+agx container stop      # Stop containers
+agx new "task"    # Create task
+agx complete <taskId>   # Mark task stage complete
+agx done [task]   # Mark task done
+agx watch         # Watch task updates in real-time (SSE)
+agx daemon start  # Start local daemon
 \`\`\`
 
 ## Providers
 
-claude (c), gemini (g), ollama (o)
+claude (c), gemini (g), ollama (o), codex (x)
 
 ## Key Flags
 
--a  Autonomous mode (task + daemon + work until done)
+-a  Autonomous mode (daemon + work until done)
 -p  Prompt/goal
 -y  Skip confirmations (implied by -a)
--P, --provider <c|g|o>  Provider for new task (claude/gemini/ollama)
--r, --run  Run task immediately after creating
---continue <task>  Continue existing task (used by daemon)
---json  Output JSON (for scripting)
+-P, --provider <c|g|o|x>  Provider for new task (claude/gemini/ollama/codex)
 `;
 
 // ANSI colors
@@ -151,6 +113,26 @@ const c = {
   magenta: '\x1b[35m'
 };
 
+const SWARM_PROVIDERS = ['claude', 'gemini', 'ollama', 'codex'];
+const SWARM_TIMEOUT_MS = Number(process.env.AGX_SWARM_TIMEOUT_MS || 10 * 60 * 1000);
+const SWARM_RETRIES = Number(process.env.AGX_SWARM_RETRIES || 1);
+const SWARM_MAX_ITERS = Number(process.env.AGX_SWARM_MAX_ITERS || 0);
+const SWARM_LOG_FLUSH_MS = Number(process.env.AGX_SWARM_LOG_FLUSH_MS || 500);
+const SWARM_LOG_MAX_BYTES = Number(process.env.AGX_SWARM_LOG_MAX_BYTES || 8000);
+const RETRY_FLOW_PREFIX = '[retry-flow]';
+let retryFlowActive = false;
+
+function logRetryFlow(step, phase, detail = '') {
+  if (!retryFlowActive) return;
+  const info = detail ? ` | ${detail}` : '';
+  console.log(`${RETRY_FLOW_PREFIX} ${step} | ${phase}${info}`);
+}
+
+function isClaimConflictMessage(message) {
+  const normalized = String(message || '').toLowerCase();
+  return normalized.includes('task already claimed') || normalized.includes('already claimed');
+}
+
 // Check if a command exists
 function commandExists(cmd) {
   try {
@@ -161,382 +143,928 @@ function commandExists(cmd) {
   }
 }
 
-// ==================== MEM INTEGRATION ====================
+function spawnCloudTaskProcess(childArgs, options = {}) {
+  const useScriptTty = commandExists('script');
+  const spawnCmd = useScriptTty ? 'script' : process.execPath;
+  const spawnArgs = useScriptTty
+    ? ['-q', '/dev/null', process.execPath, ...childArgs]
+    : childArgs;
+  return spawn(spawnCmd, spawnArgs, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    ...options
+  });
+}
 
-// Find .mem directory (walk up from cwd, or check ~/.mem)
-// If exactOnly=true, only return exact directory matches (for new task creation)
-function findMemDir(startDir = process.cwd(), exactOnly = false) {
-  const HOME = process.env.HOME || process.env.USERPROFILE;
-  const centralMem = path.join(HOME, '.mem');
+function sanitizeCliArg(value) {
+  return String(value ?? '').replace(/\u0000/g, '');
+}
 
-  // First check local .mem in exact directory only
-  const localMem = path.join(startDir, '.mem');
-  if (localMem !== centralMem && fs.existsSync(localMem) && fs.existsSync(path.join(localMem, '.git'))) {
-    return { memDir: localMem, taskBranch: null, projectDir: startDir, isLocal: true };
-  }
+function sanitizeCliArgs(values) {
+  return values.map(sanitizeCliArg);
+}
 
-  // Walk up for local .mem (unless exactOnly)
-  if (!exactOnly) {
-    let dir = path.dirname(startDir);
-    while (dir !== path.dirname(dir)) {
-      const memDir = path.join(dir, '.mem');
-      if (memDir !== centralMem && fs.existsSync(memDir) && fs.existsSync(path.join(memDir, '.git'))) {
-        return { memDir, taskBranch: null, projectDir: dir, isLocal: true };
-      }
-      dir = path.dirname(dir);
+function loadCloudConfigFile() {
+  try {
+    if (fs.existsSync(CLOUD_CONFIG_FILE)) {
+      return JSON.parse(fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8'));
     }
-  }
-
-  // Then check ~/.mem with index
-  const globalMem = centralMem;
-  if (fs.existsSync(globalMem)) {
-    const indexFile = path.join(globalMem, 'index.json');
-    if (fs.existsSync(indexFile)) {
-      try {
-        const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
-        // Exact match
-        if (index[startDir]) {
-          return { memDir: globalMem, taskBranch: index[startDir], projectDir: startDir, isLocal: false };
-        }
-        // Check parent directories only if not exactOnly
-        if (!exactOnly) {
-          let checkDir = startDir;
-          while (checkDir !== path.dirname(checkDir)) {
-            checkDir = path.dirname(checkDir);
-            if (index[checkDir]) {
-              return { memDir: globalMem, taskBranch: index[checkDir], projectDir: checkDir, isLocal: false };
-            }
-          }
-        }
-      } catch {}
-    }
-  }
-
+  } catch { }
   return null;
 }
 
-// Read file from a branch without checkout (parallel-safe)
-function gitShow(memDir, branch, filename) {
+async function postTaskLog(taskId, content, logType) {
+  const cloudConfig = loadCloudConfigFile();
+  if (!cloudConfig?.apiUrl || !cloudConfig?.token) return;
+
   try {
-    return execSync(`git show ${branch}:${filename}`, {
-      cwd: memDir,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe']
-    }).trim();
+    await fetch(`${cloudConfig.apiUrl}/api/tasks/${taskId}/logs`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${cloudConfig.token}`,
+        'x-user-id': cloudConfig.userId || '',
+      },
+      body: JSON.stringify({ content, log_type: logType })
+    });
+  } catch { }
+}
+
+function buildExecutionResultComment({ command, mode, exitCode, payload }) {
+  const decision = typeof payload?.decision === 'string' && payload.decision.trim()
+    ? payload.decision.trim()
+    : ((Number(exitCode) || 0) === 0 ? 'done' : 'failed');
+  const explanation = typeof payload?.explanation === 'string' ? payload.explanation.trim() : '';
+  const finalResult = typeof payload?.final_result === 'string' ? payload.final_result.trim() : '';
+  const timestamp = new Date().toISOString();
+  const modeLabel = mode === 'swarm' ? '--swarm' : 'single-agent';
+  const lines = [
+    `Execution result from agx ${command} (${modeLabel})`,
+    `timestamp: ${timestamp}`,
+    `decision: ${decision}`,
+    `exit_code: ${Number(exitCode) || 0}`
+  ];
+
+  if (explanation) {
+    lines.push('', 'explanation:', explanation);
+  }
+
+  if (finalResult) {
+    lines.push('', 'final_result:', finalResult);
+  }
+
+  const text = lines.join('\n');
+  const MAX_COMMENT_LENGTH = 15000;
+  if (text.length <= MAX_COMMENT_LENGTH) return text;
+  return `${text.slice(0, MAX_COMMENT_LENGTH)}\n\n[truncated]`;
+}
+
+async function postExecutionResultComment(taskId, { command, mode, exitCode, payload }) {
+  const cloudConfig = loadCloudConfigFile();
+  if (!cloudConfig?.apiUrl || !cloudConfig?.token) return;
+  if (!taskId) return;
+
+  const content = buildExecutionResultComment({ command, mode, exitCode, payload });
+  if (!content) return;
+
+  logRetryFlow('postExecutionResultComment', 'input', `taskId=${taskId}, command=${command}, mode=${mode}, code=${exitCode}`);
+  logRetryFlow('postExecutionResultComment', 'processing', `POST /api/tasks/${taskId}/comments`);
+
+  try {
+    await fetch(`${cloudConfig.apiUrl}/api/tasks/${taskId}/comments`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${cloudConfig.token}`,
+        'x-user-id': cloudConfig.userId || '',
+      },
+      body: JSON.stringify({ content })
+    });
+    logRetryFlow('postExecutionResultComment', 'output', 'success');
+  } catch (err) {
+    logRetryFlow('postExecutionResultComment', 'output', `failed ${err?.message || err}`);
+  }
+}
+
+async function postLearning(taskId, content) {
+  const cloudConfig = loadCloudConfigFile();
+  if (!cloudConfig?.apiUrl || !cloudConfig?.token) return;
+  if (!content) return;
+
+  logRetryFlow('postLearning', 'input', `taskId=${taskId}, content=${content}`);
+  logRetryFlow('postLearning', 'processing', 'POST /api/learnings');
+
+  try {
+    await fetch(`${cloudConfig.apiUrl}/api/learnings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${cloudConfig.token}`,
+        'x-user-id': cloudConfig.userId || '',
+      },
+      body: JSON.stringify({
+        scope: 'task',
+        scopeId: taskId,
+        content
+      })
+    });
+    logRetryFlow('postLearning', 'output', 'success');
+  } catch (err) {
+    logRetryFlow('postLearning', 'output', `failed ${err?.message || err}`);
+  }
+}
+
+async function patchTaskState(taskId, state) {
+  const cloudConfig = loadCloudConfigFile();
+  if (!cloudConfig?.apiUrl || !cloudConfig?.token) return;
+
+  logRetryFlow('patchTaskState', 'input', `taskId=${taskId}, state=${JSON.stringify(state)}`);
+  logRetryFlow('patchTaskState', 'processing', `PATCH /api/tasks/${taskId}`);
+
+  try {
+    await fetch(`${cloudConfig.apiUrl}/api/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${cloudConfig.token}`,
+        'x-user-id': cloudConfig.userId || '',
+      },
+      body: JSON.stringify(state)
+    });
+    logRetryFlow('patchTaskState', 'output', 'success');
+  } catch (err) {
+    logRetryFlow('patchTaskState', 'output', `failed ${err?.message || err}`);
+  }
+}
+
+async function releaseTaskClaim(taskId) {
+  await patchTaskState(taskId, {
+    claimed_by: null,
+    claimed_at: null,
+  });
+}
+
+async function claimTaskWithQueuedRecovery(taskId) {
+  const cloudConfig = loadCloudConfigFile();
+  if (!cloudConfig?.apiUrl || !cloudConfig?.token) {
+    throw new Error('Not logged in to cloud. Run: agx login');
+  }
+
+  const request = async (method, endpoint, body = null) => {
+    const response = await fetch(`${cloudConfig.apiUrl}${endpoint}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${cloudConfig.token}`,
+        'x-user-id': cloudConfig.userId || '',
+      },
+      ...(body ? { body: JSON.stringify(body) } : {})
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    return data;
+  };
+
+  logRetryFlow('claimTaskWithQueuedRecovery', 'input', `taskId=${taskId}`);
+  try {
+    const { task } = await request('POST', `/api/tasks/${taskId}/claim`, {});
+    logRetryFlow('claimTaskWithQueuedRecovery', 'output', 'claimed on first attempt');
+    return task;
+  } catch (err) {
+    const message = err?.message || String(err);
+    if (!/already claimed/i.test(message)) {
+      logRetryFlow('claimTaskWithQueuedRecovery', 'output', `claim failed ${message}`);
+      throw err;
+    }
+
+    logRetryFlow('claimTaskWithQueuedRecovery', 'processing', 'claim conflict; checking for stale queued claim');
+    let latestTask = null;
+    try {
+      const { task } = await request('GET', `/api/tasks/${taskId}`);
+      latestTask = task;
+    } catch (fetchErr) {
+      logRetryFlow('claimTaskWithQueuedRecovery', 'output', `could not fetch task ${fetchErr?.message || fetchErr}`);
+      throw err;
+    }
+
+    if (latestTask?.status !== 'queued') {
+      logRetryFlow(
+        'claimTaskWithQueuedRecovery',
+        'output',
+        `not stale (status=${latestTask?.status || 'unknown'})`
+      );
+      throw err;
+    }
+
+    logRetryFlow('claimTaskWithQueuedRecovery', 'processing', 'clearing stale queued claim and retrying');
+    await request('PATCH', `/api/tasks/${taskId}`, {
+      claimed_by: null,
+      claimed_at: null,
+    });
+
+    const { task } = await request('POST', `/api/tasks/${taskId}/claim`, {});
+    logRetryFlow('claimTaskWithQueuedRecovery', 'output', 'claimed after stale-claim recovery');
+    return task;
+  }
+}
+
+function createTaskLogger(taskId) {
+  const buffers = {
+    output: '',
+    error: '',
+    system: '',
+    checkpoint: ''
+  };
+  const tails = {
+    output: '',
+    error: ''
+  };
+  const timers = {
+    output: null,
+    error: null,
+    system: null,
+    checkpoint: null
+  };
+  let updateChain = Promise.resolve();
+
+  const scheduleFlush = (type) => {
+    if (timers[type]) return;
+    timers[type] = setTimeout(() => flush(type), SWARM_LOG_FLUSH_MS);
+  };
+
+  const flush = async (type) => {
+    if (timers[type]) {
+      clearTimeout(timers[type]);
+      timers[type] = null;
+    }
+    const content = buffers[type];
+    if (!content) return;
+    buffers[type] = '';
+    await postTaskLog(taskId, content, type);
+  };
+
+  const updateTaskSection = async (heading, content, mode = 'replace') => {
+    const cloudConfig = loadCloudConfigFile();
+    if (!cloudConfig?.apiUrl || !cloudConfig?.token) return;
+
+    logRetryFlow('updateTaskSection', 'input', `taskId=${taskId}, heading=${heading}, mode=${mode}`);
+    logRetryFlow('updateTaskSection', 'processing', `GET /api/tasks/${taskId}`);
+    try {
+      const res = await fetch(`${cloudConfig.apiUrl}/api/tasks/${taskId}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${cloudConfig.token}`,
+          'x-user-id': cloudConfig.userId || '',
+        }
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const task = data.task;
+      if (!task?.content) return;
+
+      const original = task.content;
+      const sectionRegex = new RegExp(`(^##\\s+${heading}\\s*$)([\\s\\S]*?)(?=^##\\s+|\\Z)`, 'im');
+      let updated = original;
+      if (sectionRegex.test(original)) {
+        updated = original.replace(sectionRegex, (m, h, body) => {
+          if (mode === 'append') {
+            const existing = body.trim();
+            const nextBody = existing ? `${existing}\n${content}` : content;
+            return `${h}\n\n${nextBody}\n`;
+          }
+          return `${h}\n\n${content}\n`;
+        });
+      } else {
+        updated = `${original.trim()}\n\n## ${heading}\n\n${content}\n`;
+      }
+
+      if (updated !== original) {
+        logRetryFlow('updateTaskSection', 'processing', 'PUT content update');
+        await fetch(`${cloudConfig.apiUrl}/api/tasks/${taskId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${cloudConfig.token}`,
+            'x-user-id': cloudConfig.userId || '',
+          },
+          body: JSON.stringify({ content: updated })
+        });
+        logRetryFlow('updateTaskSection', 'output', 'updated');
+      } else {
+        logRetryFlow('updateTaskSection', 'output', 'no change');
+      }
+    } catch (err) {
+      logRetryFlow('updateTaskSection', 'output', `failed ${err?.message || err}`);
+    }
+  };
+
+  const enqueueUpdate = (fn) => {
+    updateChain = updateChain.then(fn).catch(() => {});
+    return updateChain;
+  };
+
+  const parseLearnings = (type, text) => {
+    if (type !== 'output') return;
+    const combined = (tails[type] || '') + text;
+    const regex = /(?:^|\n)\[learn:\s*([^\]\n]+)\]/gi;
+    let match;
+    while ((match = regex.exec(combined)) !== null) {
+      const insight = (match[1] || '').trim();
+      if (insight) {
+        postLearning(taskId, insight);
+        const entry = `- ${new Date().toISOString()} ${insight}`;
+        enqueueUpdate(() => updateTaskSection('Learnings', entry, 'append'));
+      }
+    }
+    tails[type] = combined.slice(-200);
+  };
+
+  const parseMarkers = (type, text) => {
+    if (type !== 'output') return;
+    const combined = (tails[type] || '') + text;
+    const regex = /(?:^|\n)\[(plan|todo|checkpoint):\s*([^\]\n]+)\]/gi;
+    let match;
+    while ((match = regex.exec(combined)) !== null) {
+      const kind = (match[1] || '').toLowerCase();
+      const value = (match[2] || '').trim();
+      if (!value) continue;
+      if (kind === 'plan') {
+        enqueueUpdate(() => updateTaskSection('Plan', value, 'replace'));
+      } else if (kind === 'todo') {
+        enqueueUpdate(() => updateTaskSection('Todo', value, 'replace'));
+      } else if (kind === 'checkpoint') {
+        const entry = `- ${new Date().toISOString()} ${value}`;
+        enqueueUpdate(() => updateTaskSection('Checkpoints', entry, 'append'));
+      }
+    }
+    tails[type] = combined.slice(-200);
+  };
+
+  const log = (type, chunk) => {
+    if (!chunk) return;
+    const text = chunk.toString();
+    parseLearnings(type, text);
+    parseMarkers(type, text);
+    buffers[type] += text;
+    if (buffers[type].length >= SWARM_LOG_MAX_BYTES) {
+      flush(type);
+      return;
+    }
+    scheduleFlush(type);
+  };
+
+  const flushAll = async () => {
+    await Promise.all(Object.keys(buffers).map((t) => flush(t)));
+  };
+
+  return { log, flushAll };
+}
+
+function extractJson(text) {
+  if (!text) return null;
+  const cleaned = String(text)
+    // Remove common markdown wrappers the model might add
+    .replace(/```json\s*/gi, '')
+    .replace(/```\s*/g, '')
+    // Remove ANSI escape codes that can leak into provider output
+    .replace(/\u001b\[[0-9;]*m/g, '');
+
+  const first = cleaned.indexOf('{');
+  const last = cleaned.lastIndexOf('}');
+  if (first === -1 || last === -1 || last <= first) return null;
+
+  const candidate = cleaned.slice(first, last + 1);
+  try {
+    return JSON.parse(candidate);
   } catch {
+    // Fallback: walk brace-balanced candidates and parse the first valid object.
+    for (let i = 0; i < cleaned.length; i += 1) {
+      if (cleaned[i] !== '{') continue;
+      let depth = 0;
+      for (let j = i; j < cleaned.length; j += 1) {
+        const ch = cleaned[j];
+        if (ch === '{') depth += 1;
+        if (ch === '}') {
+          depth -= 1;
+          if (depth === 0) {
+            const maybe = cleaned.slice(i, j + 1);
+            try {
+              return JSON.parse(maybe);
+            } catch {
+              break;
+            }
+          }
+        }
+      }
+    }
     return null;
   }
 }
 
-// Parse frontmatter from markdown content
-function parseFrontmatter(content) {
-  if (!content) return { frontmatter: {}, body: '' };
+function ensureNextPrompt(decision) {
+  if (!decision || typeof decision !== 'object') return decision;
+  if (decision.done) return decision;
+  if (typeof decision.next_prompt === 'string' && decision.next_prompt.trim()) return decision;
 
-  const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  if (match) {
-    const frontmatter = {};
-    match[1].split('\n').forEach(line => {
-      const [key, ...rest] = line.split(':');
-      if (key && rest.length) {
-        frontmatter[key.trim()] = rest.join(':').trim();
-      }
-    });
-    return { frontmatter, body: match[2].trim() };
-  }
-  return { frontmatter: {}, body: content };
-}
+  const source = [decision.explanation, decision.summary, decision.final_result]
+    .find((v) => typeof v === 'string' && v.trim());
 
-// Build context data from a task branch WITHOUT checkout (parallel-safe)
-// This is the critical fix for the parallel git checkout bug
-// Returns structured data object
-function getTaskContextData(memDir, branch) {
-  const goalRaw = gitShow(memDir, branch, 'goal.md');
-  const stateRaw = gitShow(memDir, branch, 'state.md');
-  const memoryRaw = gitShow(memDir, branch, 'memory.md');
-  const playbookRaw = gitShow(memDir, 'main', 'playbook.md');
-
-  const taskName = branch.replace('task/', '');
-
-  // Parse structured data
-  let goalText = null;
-  let criteria = [];
-  let progress = 0;
-  let nextStep = null;
-  let status = 'active';
-  let provider = 'claude';
-  let checkpoints = [];
-  let learnings = [];
-  let playbookLearnings = [];
-
-  if (goalRaw) {
-    const { body } = parseFrontmatter(goalRaw);
-    const goalMatch = body.match(/^#\s*Goal\s*\n+([^\n#]+)/m);
-    goalText = goalMatch ? goalMatch[1].trim() : null;
-
-    const criteriaSection = body.match(/## (?:Definition of Done|Criteria)\s*\n([\s\S]*?)(?=\n## |$)/);
-    if (criteriaSection) {
-      const lines = criteriaSection[1].trim().split('\n');
-      lines.forEach((line, idx) => {
-        if (line.match(/- \[[ x]\]/i)) {
-          const done = /- \[x\]/i.test(line);
-          const text = line.replace(/- \[[ x]\]\s*/i, '').trim();
-          criteria.push({ index: idx + 1, done, text });
-        }
-      });
-      const total = criteria.length;
-      const checked = criteria.filter(c => c.done).length;
-      progress = total > 0 ? Math.round((checked / total) * 100) : 0;
-    }
-  }
-
-  if (stateRaw) {
-    const { frontmatter, body } = parseFrontmatter(stateRaw);
-    if (frontmatter.status) status = frontmatter.status;
-    if (frontmatter.provider) provider = frontmatter.provider;
-
-    const nextMatch = body.match(/## Next Step\s*\n+([^\n#]+)/);
-    if (nextMatch) nextStep = nextMatch[1].trim();
-
-    const checkpointsMatch = body.match(/## Checkpoints\s*\n([\s\S]*?)(?=\n## |$)/);
-    if (checkpointsMatch) {
-      checkpointsMatch[1].trim().split('\n').forEach(line => {
-        if (line.startsWith('- [x]')) {
-          checkpoints.push(line.replace(/- \[x\]\s*/, '').trim());
-        }
-      });
-    }
-  }
-
-  if (memoryRaw) {
-    memoryRaw.split('\n').forEach(line => {
-      if (line.startsWith('- ')) {
-        learnings.push(line.slice(2).trim());
-      }
-    });
-  }
-
-  if (playbookRaw) {
-    playbookRaw.split('\n').forEach(line => {
-      if (line.startsWith('- ')) {
-        playbookLearnings.push(line.slice(2).trim());
-      }
-    });
-  }
+  const fallback = source
+    ? `Continue the task with this guidance: ${source.trim()}`
+    : 'Continue the task by identifying the next concrete step, implementing it, and verifying the result.';
 
   return {
-    task: taskName,
-    branch,
-    status,
-    provider,
-    goal: goalText,
-    progress,
-    criteria,
-    nextStep,
-    checkpoints: checkpoints.slice(-5),
-    learnings: learnings.slice(-10),
-    playbook: playbookLearnings.slice(-5)
+    ...decision,
+    next_prompt: fallback
   };
 }
 
-// Format task context data as human-readable text
-function formatTaskContext(data) {
-  let output = '';
-  output += `─────────────────────────────────\n`;
-  output += `${data.task}\n`;
-  output += `─────────────────────────────────\n\n`;
-
-  if (data.goal) {
-    output += `Goal: ${data.goal}\n\n`;
-  }
-
-  if (data.criteria.length > 0) {
-    const barWidth = 20;
-    const filled = Math.round((data.progress / 100) * barWidth);
-    const bar = '█'.repeat(filled) + '░'.repeat(barWidth - filled);
-    output += `Progress: ${bar} ${data.progress}% (${data.criteria.filter(c => c.done).length}/${data.criteria.length})\n\n`;
-    output += `Criteria:\n`;
-    data.criteria.forEach(c => {
-      output += `  ${c.done ? '✓' : '○'} ${c.text}\n`;
-    });
-    output += '\n';
-  }
-
-  if (data.nextStep) {
-    output += `Next: ${data.nextStep}\n\n`;
-  }
-
-  if (data.checkpoints.length > 0) {
-    output += `Recent:\n`;
-    data.checkpoints.slice(-3).forEach(cp => {
-      output += `  • ${cp}\n`;
-    });
-    output += '\n';
-  }
-
-  if (data.learnings.length > 0) {
-    output += `Learnings:\n`;
-    data.learnings.slice(-5).forEach(l => {
-      output += `  • ${l}\n`;
-    });
-    output += '\n';
-  }
-
-  if (data.playbook.length > 0) {
-    output += `Playbook: ${data.playbook.length} global learnings\n`;
-  }
-
-  return output;
+function extractSection(markdown, heading) {
+  if (!markdown) return '';
+  const pattern = new RegExp(`^##\\s+${heading}\\s*$`, 'im');
+  const match = pattern.exec(markdown);
+  if (!match) return '';
+  const start = match.index + match[0].length;
+  const rest = markdown.slice(start);
+  const next = rest.search(/^##\s+/im);
+  const section = next === -1 ? rest : rest.slice(0, next);
+  return section.trim();
 }
 
-// Build context from a task branch WITHOUT checkout (parallel-safe)
-// Returns formatted text string (for backwards compatibility)
-function buildTaskContext(memDir, branch) {
-  const data = getTaskContextData(memDir, branch);
-  return formatTaskContext(data);
-}
-
-// Load mem context for a specific task (parallel-safe version)
-function loadMemContext(memInfo) {
-  try {
-    if (memInfo.taskBranch && !memInfo.isLocal) {
-      // Use git show instead of checkout - parallel safe!
-      return buildTaskContext(memInfo.memDir, memInfo.taskBranch);
+function parseFrontmatterFromContent(content) {
+  if (!content) return {};
+  const match = content.match(/^---\n([\s\S]*?)\n---\n/);
+  if (!match) return {};
+  const frontmatter = {};
+  const lines = match[1].split('\n');
+  for (const line of lines) {
+    const colonIndex = line.indexOf(':');
+    if (colonIndex > 0) {
+      const key = line.slice(0, colonIndex).trim();
+      const value = line.slice(colonIndex + 1).trim();
+      if (key) frontmatter[key] = value;
     }
-
-    // For local .mem, fall back to mem CLI (single task anyway)
-    const result = execSync('mem context', {
-      cwd: memInfo.projectDir,
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'pipe']
-    });
-    return result.trim();
-  } catch {
-    return null;
   }
+  return frontmatter;
 }
 
-// Parse output markers
-function parseMemMarkers(output) {
-  const markers = [];
-  const patterns = [
-    { type: 'checkpoint', regex: /\[checkpoint:\s*([^\]]+)\]/gi },
-    { type: 'learn', regex: /\[learn:\s*([^\]]+)\]/gi },
-    { type: 'next', regex: /\[next:\s*([^\]]+)\]/gi },
-    { type: 'stuck', regex: /\[stuck:\s*([^\]]+)\]/gi },
-    { type: 'blocked', regex: /\[blocked:\s*([^\]]+)\]/gi },
-    { type: 'done', regex: /\[done\]/gi },
-    { type: 'pause', regex: /\[pause(?::\s*([^\]]*))?\]/gi },
-    { type: 'continue', regex: /\[continue\]/gi },
-    { type: 'approve', regex: /\[approve:\s*([^\]]+)\]/gi },
-    { type: 'criteria', regex: /\[criteria:\s*(\d+)\]/gi },
-    { type: 'split', regex: /\[split:\s*([^\s\]]+)(?:\s+"([^"]+)")?\]/gi },
-  ];
-  
-  for (const { type, regex } of patterns) {
-    let match;
-    while ((match = regex.exec(output)) !== null) {
-      if (type === 'split') {
-        markers.push({ type, name: match[1], goal: match[2] || match[1] });
+function parseList(value) {
+  if (!value || typeof value !== 'string') return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.map(v => String(v).trim()).filter(Boolean);
+      }
+    } catch { }
+  }
+  return trimmed
+    .split(',')
+    .map(v => v.trim())
+    .filter(Boolean);
+}
+
+function runAgxCommand(args, timeoutMs, label, handlers = {}) {
+  return new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    let settled = false;
+
+    const childArgs = sanitizeCliArgs([process.argv[1], ...args]);
+    logRetryFlow('runAgxCommand', 'input', `label=${label}, args=${childArgs.join(' ')}, timeout=${timeoutMs}`);
+    logRetryFlow('runAgxCommand', 'processing', 'spawning child process');
+    const child = spawnCloudTaskProcess(childArgs);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    controller.signal.addEventListener('abort', () => {
+      if (settled) return;
+      settled = true;
+      child.kill('SIGKILL');
+      const err = new Error(`${label || 'command'} timed out`);
+      err.code = 'ETIMEDOUT';
+      clearTimeout(timeout);
+      reject(err);
+    });
+
+    child.stdout.on('data', (data) => {
+      stdout += data.toString();
+      if (handlers.onStdout) handlers.onStdout(data);
+    });
+    child.stderr.on('data', (data) => {
+      stderr += data.toString();
+      if (handlers.onStderr) handlers.onStderr(data);
+    });
+
+    child.on('error', (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      logRetryFlow('runAgxCommand', 'output', `error ${err?.message || err}`);
+      reject(err);
+    });
+
+    child.on('close', (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      logRetryFlow('runAgxCommand', 'output', `exit code=${code}`);
+      if (code === 0) {
+        resolve({ stdout, stderr, code });
       } else {
-        markers.push({ type, value: match[1] || true });
+        const err = new Error(`${label || 'command'} exited with code ${code}`);
+        err.code = code;
+        err.stdout = stdout;
+        err.stderr = stderr;
+        reject(err);
       }
-    }
-  }
-  
-  return markers;
+    });
+  });
 }
 
-// Apply mem markers - returns control signals
-function applyMemMarkers(markers, memInfo) {
-  // Use project directory for commands (not parent of ~/.mem)
-  const workDir = memInfo.projectDir || path.dirname(memInfo.memDir || memInfo);
-  const result = {
-    approvals: [],
-    shouldContinue: false,
-    shouldPause: false,
-    isDone: false,
-    isBlocked: false,
-    splits: []
+async function runSwarmIteration({ taskId, task, prompt, logger }) {
+  logRetryFlow('runSwarmIteration', 'input', `taskId=${taskId}, prompt=${Boolean(prompt)}`);
+  const swarmModels = Array.isArray(task?.swarm_models)
+    ? task.swarm_models
+        .filter((entry) => entry && entry.provider && entry.model)
+        .map((entry) => ({
+          provider: String(entry.provider).toLowerCase(),
+          model: String(entry.model)
+        }))
+    : [];
+
+  const providers = (swarmModels.length ? swarmModels.map((m) => m.provider) : SWARM_PROVIDERS)
+    .map((p) => p.toLowerCase());
+
+  const missing = providers.filter((p) => !commandExists(p));
+  if (missing.length) {
+    throw new Error(`Missing providers for swarm run: ${missing.join(', ')}`);
+  }
+
+  logRetryFlow('runSwarmIteration', 'processing', `providers=${providers.join(',')}`);
+  logger?.log('system', `[swarm] iteration start\n`);
+
+  const results = await pMap(providers, (provider, index) => {
+    const args = [provider, '--cloud-task', taskId];
+    const modelForProvider = swarmModels.length
+      ? swarmModels[index]?.model || null
+      : null;
+    if (modelForProvider) {
+      args.push('--model', modelForProvider);
+    }
+    if (prompt) {
+      args.push('--prompt', prompt);
+    }
+
+    return pRetryFn(
+      () => runAgxCommand(args, SWARM_TIMEOUT_MS, `agx ${provider}`, {
+        onStdout: (data) => logger?.log('output', data),
+        onStderr: (data) => logger?.log('error', data)
+      }),
+      {
+        retries: SWARM_RETRIES,
+      }
+    ).then((res) => ({
+      provider,
+      output: res.stdout || res.stderr || ''
+    }));
+  }, { concurrency: providers.length });
+
+  for (const result of results) {
+    logger?.log('output', `\n[${result.provider}] ${result.output}\n`);
+  }
+
+  logRetryFlow('runSwarmIteration', 'output', `providers finished count=${results.length}`);
+  return results;
+}
+
+async function runSingleAgentIteration({ taskId, provider, model, prompt, logger, onStdout, onStderr }) {
+  logRetryFlow('runSingleAgentIteration', 'input', `taskId=${taskId}, provider=${provider}, model=${model}, prompt=${Boolean(prompt) ? 'present' : 'none'}`);
+  logRetryFlow('runSingleAgentIteration', 'processing', 'preparing runAgxCommand');
+  const args = [provider, '--cloud-task', taskId];
+  if (model) {
+    args.push('--model', model);
+  }
+  if (prompt) {
+    args.push('--prompt', prompt);
+  }
+
+  const res = await pRetryFn(
+    () => runAgxCommand(args, SWARM_TIMEOUT_MS, `agx ${provider}`, {
+      onStdout: (data) => {
+        if (onStdout) onStdout(data);
+        logger?.log('output', data);
+      },
+      onStderr: (data) => {
+        if (onStderr) onStderr(data);
+        logger?.log('error', data);
+      }
+    }),
+    { retries: SWARM_RETRIES }
+  );
+
+  const outputSource = res.stdout || res.stderr || '';
+  logRetryFlow('runSingleAgentIteration', 'output', `response length=${outputSource.length}`);
+  return res.stdout || res.stderr || '';
+}
+
+function resolveAggregatorModel(task) {
+  const explicitAggregatorModel = typeof task?.engine_model === 'string' && task.engine_model.trim()
+    ? task.engine_model.trim()
+    : (typeof task?.aggregator_model === 'string' && task.aggregator_model.trim() ? task.aggregator_model.trim() : null);
+  if (explicitAggregatorModel) return explicitAggregatorModel;
+
+  if (typeof task?.model === 'string' && task.model.trim()) {
+    return task.model.trim();
+  }
+  return null;
+}
+
+async function runSingleAgentAggregate({ task, taskId, prompt, output, iteration, logger, provider, model }) {
+  logRetryFlow('runSingleAgentAggregate', 'input', `taskId=${taskId}, iteration=${iteration}`);
+  logRetryFlow('runSingleAgentAggregate', 'processing', 'running aggregator');
+  const { STAGE_CONFIG } = require('./lib/executor');
+  const stageKey = task?.stage || 'unknown';
+  const stagePrompt = STAGE_CONFIG[stageKey]?.prompt || 'No stage objective defined.';
+  const aggregatorProvider = String(provider || task?.provider || task?.engine || 'claude').toLowerCase();
+  const aggregatorModel = typeof model === 'string' && model.trim() ? model.trim() : null;
+
+  const aggregatePrompt = `You are the decision aggregator for a single-agent run.
+
+Task ID: ${taskId}
+Title: ${task?.title || taskId}
+Stage: ${task?.stage || 'unknown'}
+Stage Objective: ${stagePrompt}
+User Request: ${task?.title || taskId}
+Iteration: ${iteration}
+
+${prompt ? `Latest instruction:\n${prompt}\n` : ''}
+
+Output:
+${output || '(no output)'}
+
+Decide if the task is done. If not, provide the next instruction for another iteration.
+Output contract (strict):
+- Return exactly one raw JSON object and nothing else.
+- Do not use markdown/code fences/backticks.
+- Do not add commentary before/after JSON.
+- Use double-quoted keys and strings.
+- Keep newlines escaped inside strings.
+- If "done" is false, "next_prompt" must be a non-empty actionable instruction.
+Return ONLY JSON with this exact shape:
+{"done": true|false, "decision": "done|blocked|not_done|failed", "explanation": "string", "final_result": "string", "next_prompt": "string", "summary": "string"}
+If uncertain, still return valid JSON with decision "failed" and explain why in "explanation".
+`;
+
+  const aggregateArgs = [aggregatorProvider, '--prompt', aggregatePrompt, '--print'];
+  if (aggregatorModel) {
+    aggregateArgs.push('--model', aggregatorModel);
+  }
+
+  const res = await pRetryFn(
+    () => runAgxCommand(aggregateArgs, SWARM_TIMEOUT_MS, `agx ${aggregatorProvider} aggregate`, {
+      onStdout: (data) => logger?.log('checkpoint', data),
+      onStderr: (data) => logger?.log('error', data)
+    }),
+    { retries: SWARM_RETRIES }
+  );
+
+  const decision = extractJson(res.stdout) || extractJson(res.stderr);
+  logRetryFlow('runSingleAgentAggregate', 'output', `decision=${JSON.stringify(decision || {})}`);
+  if (!decision) {
+    logger?.log('error', '[single] Aggregator returned invalid JSON\n');
+    return { done: true, decision: 'failed', explanation: 'Aggregator response was not valid JSON.', final_result: 'Aggregator response was not valid JSON.', next_prompt: '', summary: 'Aggregator response was not valid JSON.' };
+  }
+
+  logger?.log('checkpoint', `[single] decision ${JSON.stringify(decision)}\n`);
+
+  return {
+    done: Boolean(decision.done),
+    decision: typeof decision.decision === 'string' ? decision.decision : '',
+    explanation: typeof decision.explanation === 'string' ? decision.explanation : '',
+    final_result: typeof decision.final_result === 'string' ? decision.final_result : '',
+    next_prompt: typeof decision.next_prompt === 'string' ? decision.next_prompt : '',
+    summary: typeof decision.summary === 'string' ? decision.summary : ''
   };
-  
-  for (const marker of markers) {
-    try {
-      switch (marker.type) {
-        case 'checkpoint':
-          execSync(`mem checkpoint "${marker.value.replace(/"/g, '\\"')}"`, { 
-            cwd: workDir, stdio: 'ignore' 
-          });
-          console.log(`${c.green}✓${c.reset} ${c.dim}Checkpoint:${c.reset} ${marker.value}`);
-          break;
-        case 'learn':
-          execSync(`mem learn "${marker.value.replace(/"/g, '\\"')}"`, { 
-            cwd: workDir, stdio: 'ignore' 
-          });
-          console.log(`${c.green}✓${c.reset} ${c.dim}Learned:${c.reset} ${marker.value}`);
-          break;
-        case 'next':
-          execSync(`mem next "${marker.value.replace(/"/g, '\\"')}"`, { 
-            cwd: workDir, stdio: 'ignore' 
-          });
-          console.log(`${c.green}✓${c.reset} ${c.dim}Next:${c.reset} ${marker.value}`);
-          break;
-        case 'stuck':
-        case 'blocked':
-          execSync(`mem stuck "${marker.value.replace(/"/g, '\\"')}"`, { 
-            cwd: workDir, stdio: 'ignore' 
-          });
-          console.log(`${c.yellow}⚠${c.reset} ${c.dim}Blocked:${c.reset} ${marker.value}`);
-          result.isBlocked = true;
-          break;
-        case 'done':
-          console.log(`${c.green}✓${c.reset} ${c.dim}Task marked done${c.reset}`);
-          result.isDone = true;
-          break;
-        case 'pause':
-          console.log(`${c.cyan}⏸${c.reset} ${c.dim}Pausing${marker.value ? ': ' + marker.value : ''}${c.reset}`);
-          result.shouldPause = true;
-          break;
-        case 'continue':
-          console.log(`${c.cyan}▶${c.reset} ${c.dim}Continuing...${c.reset}`);
-          result.shouldContinue = true;
-          break;
-        case 'approve':
-          result.approvals.push(marker.value);
-          break;
-        case 'criteria':
-          execSync(`mem criteria ${marker.value}`, { 
-            cwd: workDir, stdio: 'ignore' 
-          });
-          console.log(`${c.green}✓${c.reset} ${c.dim}Criteria #${marker.value} complete${c.reset}`);
-          break;
-        case 'split':
-          result.splits.push({ name: marker.name, goal: marker.goal });
-          console.log(`${c.cyan}⑂${c.reset} ${c.dim}Split:${c.reset} ${marker.name} - ${marker.goal}`);
-          break;
-      }
-    } catch (err) {
-      console.error(`${c.red}mem error:${c.reset} ${err.message}`);
-    }
-  }
-  
-  return result;
 }
 
-// Create subtasks from split markers
-function createSubtasks(splits, memInfo) {
-  const workDir = memInfo.projectDir || path.dirname(memInfo.memDir || memInfo);
-  
-  for (const split of splits) {
-    try {
-      // Create subtask as new branch
-      execSync(`mem init ${split.name} "${split.goal.replace(/"/g, '\\"')}"`, {
-        cwd: workDir,
-        stdio: 'ignore'
-      });
-      console.log(`${c.green}✓${c.reset} Created subtask: ${c.bold}${split.name}${c.reset}`);
-    } catch (err) {
-      console.error(`${c.red}Failed to create subtask ${split.name}:${c.reset} ${err.message}`);
+async function runSingleAgentLoop({ taskId, task, provider, model, logger, onStdout, onStderr }) {
+  logRetryFlow('runSingleAgentLoop', 'input', `taskId=${taskId}, provider=${provider}, model=${model}`);
+  let iteration = 1;
+  let prompt = '';
+  let lastDecision = null;
+
+  while (SWARM_MAX_ITERS === 0 || iteration <= SWARM_MAX_ITERS) {
+    logRetryFlow('runSingleAgentLoop', 'processing', `iteration ${iteration} start`);
+    logger?.log('system', `[single] iteration ${iteration} start\n`);
+    if (iteration === 1) {
+      console.log(`${c.dim}[single] Starting single-agent run...${c.reset}`);
     }
+    let output = '';
+    try {
+      output = await runSingleAgentIteration({ taskId, provider, model, prompt, logger, onStdout, onStderr });
+    } catch (err) {
+      const message = err?.stdout || err?.stderr || err?.message || 'Single-agent run failed.';
+      console.log(`${c.red}[single] Failed: ${err?.message || 'Single-agent run failed.'}${c.reset}`);
+      logRetryFlow('runSingleAgentLoop', 'output', `iteration ${iteration} failed ${err?.message || 'run failed'}`);
+      lastDecision = {
+        decision: 'failed',
+        explanation: err?.message || 'Single-agent run failed.',
+        final_result: message,
+        summary: err?.message || 'Single-agent run failed.',
+        done: false
+      };
+      return { code: 1, decision: lastDecision };
+    }
+
+    const decision = ensureNextPrompt(
+      await runSingleAgentAggregate({ task, taskId, prompt, output, iteration, logger, provider, model })
+    );
+    lastDecision = decision;
+
+    if (decision.summary) {
+      console.log(`${c.dim}[single] ${decision.summary}${c.reset}`);
+    }
+    logRetryFlow('runSingleAgentLoop', 'output', `decision ${iteration} ${decision.decision}`);
+
+    if (decision.done) {
+      logRetryFlow('runSingleAgentLoop', 'output', `done at iteration ${iteration}`);
+      return { code: 0, decision: lastDecision };
+    }
+
+    prompt = decision.next_prompt || '';
+    iteration += 1;
+  }
+
+  if (!lastDecision) {
+    lastDecision = {
+      decision: 'not_done',
+      explanation: 'Single-agent run reached max iterations.',
+      final_result: 'Single-agent run reached max iterations.',
+      summary: 'Single-agent run reached max iterations.',
+      done: false
+    };
+  }
+
+  return { code: 1, decision: lastDecision };
+}
+
+async function runSwarmAggregate({ task, taskId, prompt, results, iteration, logger }) {
+  const providerList = results.map((r) => r.provider).join(',');
+  logRetryFlow('runSwarmAggregate', 'input', `taskId=${taskId}, iteration=${iteration}, providers=${providerList}`);
+  const { STAGE_CONFIG } = require('./lib/executor');
+  const stageKey = task?.stage || 'unknown';
+  const stagePrompt = STAGE_CONFIG[stageKey]?.prompt || 'No stage objective defined.';
+  const aggregatorProvider = String(task?.engine || task?.provider || 'claude').toLowerCase();
+  const aggregatorModel = resolveAggregatorModel(task);
+
+  const outputs = results
+    .map((r) => `### ${r.provider.toUpperCase()}\n${r.output || '(no output)'}`)
+    .join('\n\n');
+
+  const aggregatePrompt = `You are the swarm aggregator.
+
+Task ID: ${taskId}
+Title: ${task?.title || taskId}
+Stage: ${task?.stage || 'unknown'}
+Stage Objective: ${stagePrompt}
+User Request: ${task?.title || taskId}
+Iteration: ${iteration}
+
+${prompt ? `Latest instruction:\n${prompt}\n` : ''}
+
+Outputs:
+${outputs}
+
+Decide if the task is done. If not, provide the next instruction for another iteration.
+Output contract (strict):
+- Return exactly one raw JSON object and nothing else.
+- Do not use markdown/code fences/backticks.
+- Do not add commentary before/after JSON.
+- Use double-quoted keys and strings.
+- Keep newlines escaped inside strings.
+- If "done" is false, "next_prompt" must be a non-empty actionable instruction.
+Return ONLY JSON with this exact shape:
+{"done": true|false, "decision": "done|blocked|not_done|failed", "explanation": "string", "final_result": "string", "next_prompt": "string", "summary": "string"}
+If uncertain, still return valid JSON with decision "failed" and explain why in "explanation".
+`;
+
+  const aggregateArgs = [aggregatorProvider, '--prompt', aggregatePrompt, '--print'];
+  if (aggregatorModel) {
+    aggregateArgs.push('--model', aggregatorModel);
+  }
+
+  logRetryFlow('runSwarmAggregate', 'processing', 'running aggregator');
+  const res = await pRetryFn(
+    () => runAgxCommand(aggregateArgs, SWARM_TIMEOUT_MS, `agx ${aggregatorProvider} aggregate`, {
+      onStdout: (data) => logger?.log('checkpoint', data),
+      onStderr: (data) => logger?.log('error', data)
+    }),
+    { retries: SWARM_RETRIES }
+  );
+
+  const decision = extractJson(res.stdout) || extractJson(res.stderr);
+  logRetryFlow('runSwarmAggregate', 'output', `decision=${JSON.stringify(decision || {})}`);
+  if (!decision) {
+    logger?.log('error', '[swarm] Aggregator returned invalid JSON\n');
+    return {
+      done: true,
+      decision: 'failed',
+      explanation: 'Aggregator response was not valid JSON.',
+      final_result: 'Aggregator response was not valid JSON.',
+      next_prompt: '',
+      summary: 'Aggregator response was not valid JSON.'
+    };
+  }
+
+  logger?.log('checkpoint', `[swarm] decision ${JSON.stringify(decision)}\n`);
+
+  return {
+    done: Boolean(decision.done),
+    decision: typeof decision.decision === 'string' ? decision.decision : '',
+    explanation: typeof decision.explanation === 'string' ? decision.explanation : '',
+    final_result: typeof decision.final_result === 'string' ? decision.final_result : '',
+    next_prompt: typeof decision.next_prompt === 'string' ? decision.next_prompt : '',
+    summary: typeof decision.summary === 'string' ? decision.summary : ''
+  };
+}
+
+async function runSwarmLoop({ taskId, task }) {
+  logRetryFlow('runSwarmLoop', 'input', `taskId=${taskId}`);
+  let iteration = 1;
+  let prompt = '';
+  const logger = createTaskLogger(taskId);
+  let lastDecision = null;
+
+  await patchTaskState(taskId, { status: 'in_progress', started_at: new Date().toISOString() });
+  logger.log('system', `[swarm] start ${new Date().toISOString()}\n`);
+
+  try {
+    while (SWARM_MAX_ITERS === 0 || iteration <= SWARM_MAX_ITERS) {
+      logRetryFlow('runSwarmLoop', 'processing', `starting iteration ${iteration}`);
+      const results = await runSwarmIteration({ taskId, task, prompt, logger });
+      const decision = ensureNextPrompt(
+        await runSwarmAggregate({ task, taskId, prompt, results, iteration, logger })
+      );
+      lastDecision = decision;
+
+      if (decision.summary) {
+        console.log(`${c.dim}[swarm] ${decision.summary}${c.reset}`);
+      }
+      logRetryFlow('runSwarmLoop', 'output', `iteration ${iteration} decision=${decision.decision}`);
+
+      if (decision.done) {
+        logRetryFlow('runSwarmLoop', 'output', `done at iteration ${iteration}`);
+        logger.log('system', `[swarm] done ${new Date().toISOString()}\n`);
+        await logger.flushAll();
+        await patchTaskState(taskId, { status: 'completed', completed_at: new Date().toISOString() });
+        return { code: 0, decision: lastDecision };
+      }
+
+      prompt = decision.next_prompt || '';
+      iteration += 1;
+    }
+
+    if (SWARM_MAX_ITERS > 0) {
+      console.log(`${c.yellow}[swarm] Max iterations reached (${SWARM_MAX_ITERS}).${c.reset}`);
+      logRetryFlow('runSwarmLoop', 'output', `max iterations reached ${SWARM_MAX_ITERS}`);
+      logger.log('system', `[swarm] max iterations reached\n`);
+      await logger.flushAll();
+      await patchTaskState(taskId, { completed_at: new Date().toISOString() });
+      if (!lastDecision) {
+        lastDecision = {
+          decision: 'not_done',
+          explanation: 'Swarm reached max iterations.',
+          final_result: 'Swarm reached max iterations.',
+          summary: 'Swarm reached max iterations.',
+          done: false
+        };
+      }
+      return { code: 1, decision: lastDecision };
+    }
+    await logger.flushAll();
+    await patchTaskState(taskId, { completed_at: new Date().toISOString() });
+    return { code: 0, decision: lastDecision };
+  } catch (err) {
+    logger.log('error', `[swarm] failed: ${err.message}\n`);
+    logRetryFlow('runSwarmLoop', 'output', `failed ${err?.message || 'unknown'}`);
+    await logger.flushAll();
+    await patchTaskState(taskId, { status: 'failed', completed_at: new Date().toISOString() });
+    if (!lastDecision) {
+      lastDecision = {
+        decision: 'failed',
+        explanation: err?.message || 'Swarm failed.',
+        final_result: err?.message || 'Swarm failed.',
+        summary: err?.message || 'Swarm failed.',
+        done: false
+      };
+    }
+    return { code: 1, decision: lastDecision };
   }
 }
 
@@ -581,10 +1109,10 @@ function startDaemon() {
 
   // Spawn daemon process
   const agxPath = process.argv[1]; // Current script path
-  const daemon = spawn(process.execPath, [agxPath, 'daemon', '--run'], {
+  const daemon = spawn(process.execPath, [agxPath, 'daemon', 'run'], {
     detached: true,
-    stdio: ['ignore', 
-      fs.openSync(DAEMON_LOG_FILE, 'a'), 
+    stdio: ['ignore',
+      fs.openSync(DAEMON_LOG_FILE, 'a'),
       fs.openSync(DAEMON_LOG_FILE, 'a')
     ],
     env: { ...process.env, AGX_DAEMON: '1' }
@@ -592,10 +1120,10 @@ function startDaemon() {
 
   daemon.unref();
   fs.writeFileSync(DAEMON_PID_FILE, String(daemon.pid));
-  
+
   console.log(`${c.green}✓${c.reset} Daemon started (pid ${daemon.pid})`);
   console.log(`${c.dim}  Logs: ${DAEMON_LOG_FILE}${c.reset}`);
-  
+
   return daemon.pid;
 }
 
@@ -605,7 +1133,7 @@ function stopDaemon() {
     console.log(`${c.yellow}Daemon not running${c.reset}`);
     return false;
   }
-  
+
   try {
     process.kill(pid, 'SIGTERM');
     fs.unlinkSync(DAEMON_PID_FILE);
@@ -618,19 +1146,18 @@ function stopDaemon() {
 }
 
 async function runDaemon() {
-  console.log(`[${new Date().toISOString()}] Daemon starting (parallel mode)...`);
+  console.log(`[${new Date().toISOString()}] Daemon starting...`);
 
-  const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
   const POLL_INTERVAL = 1000;
   const MAX_PARALLEL = 5; // Max concurrent tasks
-  const runningTasks = new Set(); // Track running task branches
+  const runningTasks = new Set(); // Track running task IDs
 
   function loadState() {
     try {
       if (fs.existsSync(DAEMON_STATE_FILE)) {
         return JSON.parse(fs.readFileSync(DAEMON_STATE_FILE, 'utf8'));
       }
-    } catch {}
+    } catch { }
     return { lastRun: {}, running: [] };
   }
 
@@ -641,40 +1168,45 @@ async function runDaemon() {
     fs.writeFileSync(DAEMON_STATE_FILE, JSON.stringify(state, null, 2));
   }
 
-  // Get provider from task state (parallel-safe, no checkout)
-  function getTaskProvider(taskBranch) {
+  // Get active tasks from cloud
+  async function getActiveTasks() {
     try {
-      const stateRaw = execSync(`git show ${taskBranch}:state.md`, {
-        cwd: memDir,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
-      const match = stateRaw.match(/^provider:\s*(\w+)/m);
-      return match ? match[1] : 'claude';
-    } catch {
-      return 'claude'; // Default fallback
-    }
-  }
+      // Get cloud config
+      const CLOUD_CONFIG_FILE = path.join(CONFIG_DIR, 'cloud.json');
+      if (!fs.existsSync(CLOUD_CONFIG_FILE)) {
+        return [];
+      }
 
-  // Get active tasks (not done/blocked, not currently running)
-  function getActiveTasks() {
-    try {
-      const out = execSync('mem tasks --json', { cwd: memDir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-      const data = JSON.parse(out);
-      const tasks = data.tasks || [];
+      const cloudConfig = JSON.parse(fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8'));
+      if (!cloudConfig.apiUrl || !cloudConfig.token) {
+        return [];
+      }
+
+      // Fetch queued/in-progress tasks
+      const response = await fetch(`${cloudConfig.apiUrl}/api/tasks`, {
+        headers: {
+          'Authorization': `Bearer ${cloudConfig.token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      const { tasks } = await response.json();
 
       return tasks
         .filter(t => {
-          if (!fs.existsSync(t.projectDir)) return false;
-          if (runningTasks.has(t.branch)) return false; // Already running
-          if (t.status === 'done' || t.status === 'blocked') return false;
+          if (runningTasks.has(t.id)) return false; // Already running
+          if (t.status === 'completed' || t.status === 'failed') return false;
           return true;
         })
         .map(t => ({
-          taskName: t.taskName,
-          taskBranch: t.branch,
-          projectDir: t.projectDir,
-          provider: getTaskProvider(t.branch)
+          taskId: t.id,
+          taskName: t.title || t.id,
+          engine: t.engine || 'claude',
+          provider: t.provider,
+          model: t.model,
+          swarm: t.swarm === true,
+          status: t.status,
+          content: t.content,
+          title: t.title
         }));
     } catch {
       return [];
@@ -683,56 +1215,90 @@ async function runDaemon() {
 
   // Run a single task iteration (returns promise)
   function runTask(task) {
-    const { taskName, taskBranch, projectDir, provider } = task;
-    const logPath = getTaskLogPath(taskName);
+    const { taskId, taskName, engine } = task;
+    const logPath = getTaskLogPath(taskName || taskId);
 
-    console.log(`[${new Date().toISOString()}] Starting: ${taskName} (${provider})`);
+    console.log(`[${new Date().toISOString()}] Starting: ${taskName || taskId} (${engine})`);
 
     // Mark as running
-    runningTasks.add(taskBranch);
+    runningTasks.add(taskId);
     const state = loadState();
-    state.lastRun[taskBranch] = Date.now();
+    state.lastRun[taskId] = Date.now();
     saveState(state);
 
     const logStream = fs.createWriteStream(logPath, { flags: 'a' });
-    logStream.write(`\n=== ${new Date().toISOString()} [${provider}] ===\n`);
+    logStream.write(`\n=== ${new Date().toISOString()} [${engine}] ===\n`);
+    const logger = createTaskLogger(taskId);
+    logger.log('system', `[daemon] start ${new Date().toISOString()}\n`);
+    patchTaskState(taskId, { status: 'in_progress', started_at: new Date().toISOString() });
 
     return new Promise((resolve) => {
-      // Use --continue to load task context, with task's provider
-      const child = spawn('agx', [provider, '--continue', taskName], {
-        cwd: projectDir,
-        stdio: ['ignore', 'pipe', 'pipe']
-      });
+      if (task.swarm) {
+        runSwarmLoop({ taskId, task })
+          .then((result) => {
+            const code = typeof result === 'object' && result ? result.code : result;
+            logger.log('system', `[daemon] end code=${code}\n`);
+            logger.flushAll();
+            if (code !== 0) patchTaskState(taskId, { status: 'failed' });
+            patchTaskState(taskId, { completed_at: new Date().toISOString() });
+            logStream.end();
+            runningTasks.delete(taskId);
+            saveState(loadState());
+            console.log(`[${new Date().toISOString()}] Finished: ${taskName || taskId} (code ${code})`);
+            resolve(code);
+          })
+          .catch((err) => {
+            logStream.write(`\nERROR: ${err.message}\n`);
+            logger.log('error', `[daemon] ${err.message}\n`);
+            logger.flushAll();
+            patchTaskState(taskId, { status: 'failed', completed_at: new Date().toISOString() });
+            logStream.end();
+            runningTasks.delete(taskId);
+            saveState(loadState());
+            console.log(`[${new Date().toISOString()}] Error: ${taskName || taskId} - ${err.message}`);
+            resolve(1);
+          });
+        return;
+      }
 
-      child.stdout.on('data', (data) => {
-        logStream.write(data);
-      });
-      child.stderr.on('data', (data) => {
-        logStream.write(data);
-      });
-
-      const timeout = setTimeout(() => {
-        child.kill();
-        logStream.write(`\nTIMEOUT: Killed after 30 minutes\n`);
-      }, 30 * 60 * 1000);
-
-      child.on('close', (code) => {
-        clearTimeout(timeout);
-        logStream.end();
-        runningTasks.delete(taskBranch);
-        saveState(loadState());
-        console.log(`[${new Date().toISOString()}] Finished: ${taskName} (code ${code})`);
-        resolve(code);
-      });
-
-      child.on('error', (err) => {
-        logStream.write(`\nERROR: ${err.message}\n`);
-        logStream.end();
-        runningTasks.delete(taskBranch);
-        saveState(loadState());
-        console.log(`[${new Date().toISOString()}] Error: ${taskName} - ${err.message}`);
-        resolve(1);
-      });
+      // Use --continue to load task context, with task's engine
+      const provider = task.provider || task.engine || engine || 'claude';
+      runSingleAgentLoop({
+        taskId,
+        task,
+        provider,
+        model: task.model,
+        logger,
+        onStdout: (data) => {
+          logStream.write(data);
+        },
+        onStderr: (data) => {
+          logStream.write(data);
+        }
+      })
+        .then((result) => {
+          const code = typeof result === 'object' && result ? result.code : result;
+          logger.log('system', `[daemon] end code=${code}\n`);
+          logger.flushAll();
+          if (code !== 0) patchTaskState(taskId, { status: 'failed' });
+          patchTaskState(taskId, { completed_at: new Date().toISOString() });
+          logStream.end();
+          runningTasks.delete(taskId);
+          saveState(loadState());
+          console.log(`[${new Date().toISOString()}] Finished: ${taskName || taskId} (code ${code})`);
+          resolve(code);
+        })
+        .catch((err) => {
+          logStream.write(`\nERROR: ${err.message}\n`);
+          logger.log('error', `[daemon] ${err.message}\n`);
+          logger.flushAll();
+          patchTaskState(taskId, { status: 'failed', completed_at: new Date().toISOString() });
+          logStream.end();
+          runningTasks.delete(taskId);
+          saveState(loadState());
+          console.log(`[${new Date().toISOString()}] Error: ${taskName || taskId} - ${err.message}`);
+          resolve(1);
+        });
     });
   }
 
@@ -740,7 +1306,7 @@ async function runDaemon() {
   console.log(`[${new Date().toISOString()}] Daemon running, max ${MAX_PARALLEL} parallel tasks`);
 
   while (true) {
-    const activeTasks = getActiveTasks();
+    const activeTasks = await getActiveTasks();
     const availableSlots = MAX_PARALLEL - runningTasks.size;
 
     if (activeTasks.length > 0 && availableSlots > 0) {
@@ -755,39 +1321,13 @@ async function runDaemon() {
   }
 }
 
-// Handle approval prompts
-async function handleApprovals(approvals) {
-  if (approvals.length === 0) return true;
-  
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-  
-  for (const approval of approvals) {
-    const answer = await new Promise(resolve => {
-      rl.question(`\n${c.yellow}⚠ APPROVAL REQUIRED:${c.reset} ${approval}\n${c.dim}Continue? [y/N]:${c.reset} `, resolve);
-    });
-    
-    if (answer.toLowerCase() !== 'y' && answer.toLowerCase() !== 'yes') {
-      console.log(`${c.red}✗${c.reset} Rejected. Workflow halted.`);
-      rl.close();
-      return false;
-    }
-    console.log(`${c.green}✓${c.reset} Approved.`);
-  }
-  
-  rl.close();
-  return true;
-}
-
 // Load config
 function loadConfig() {
   try {
     if (fs.existsSync(CONFIG_FILE)) {
       return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
     }
-  } catch {}
+  } catch { }
   return null;
 }
 
@@ -818,7 +1358,8 @@ function detectProviders() {
   return {
     claude: commandExists('claude'),
     gemini: commandExists('gemini'),
-    ollama: commandExists('ollama')
+    ollama: commandExists('ollama'),
+    codex: commandExists('codex')
   };
 }
 
@@ -833,6 +1374,7 @@ function printProviderStatus(providers) {
   console.log(`  ${c.cyan}claude${c.reset}  │ Anthropic Claude Code  │ ${status(providers.claude)}`);
   console.log(`  ${c.cyan}gemini${c.reset}  │ Google Gemini CLI      │ ${status(providers.gemini)}`);
   console.log(`  ${c.cyan}ollama${c.reset}  │ Local Ollama           │ ${status(providers.ollama)}`);
+  console.log(`  ${c.cyan}codex${c.reset}   │ OpenAI Codex CLI       │ ${status(providers.codex)}`);
 }
 
 // Run a command with inherited stdio (interactive)
@@ -1011,6 +1553,11 @@ const PROVIDERS = {
       ? 'brew install ollama'
       : 'curl -fsSL https://ollama.ai/install.sh | sh',
     description: 'Local AI models'
+  },
+  codex: {
+    name: 'Codex CLI',
+    installCmd: 'npm install -g @openai/codex',
+    description: 'OpenAI Codex CLI'
   }
 };
 
@@ -1080,19 +1627,19 @@ async function loginProvider(provider) {
     if (models.length === 0) {
       console.log(`\n${c.yellow}No models installed.${c.reset}`);
       console.log(`\n${c.bold}Popular models:${c.reset}`);
-      console.log(`  ${c.cyan}1${c.reset}) qwen3:8b      ${c.dim}(4.9 GB) - Great all-rounder${c.reset}`);
-      console.log(`  ${c.cyan}2${c.reset}) llama3.2:3b   ${c.dim}(2.0 GB) - Fast & lightweight${c.reset}`);
+      console.log(`  ${c.cyan}1${c.reset}) glm-4.7:cloud ${c.dim}(?) - Recommended default${c.reset}`);
+      console.log(`  ${c.cyan}2${c.reset}) qwen3:8b      ${c.dim}(4.9 GB) - Great all-rounder${c.reset}`);
       console.log(`  ${c.cyan}3${c.reset}) codellama:7b  ${c.dim}(3.8 GB) - Code specialist${c.reset}`);
       console.log(`  ${c.cyan}4${c.reset}) mistral:7b    ${c.dim}(4.1 GB) - Good general model${c.reset}`);
       console.log(`  ${c.cyan}5${c.reset}) Skip for now`);
 
       const choice = await prompt(`\nWhich model to pull? [1]: `);
       const modelMap = {
-        '1': 'qwen3:8b',
-        '2': 'llama3.2:3b',
+        '1': 'glm-4.7:cloud',
+        '2': 'qwen3:8b',
         '3': 'codellama:7b',
         '4': 'mistral:7b',
-        '': 'qwen3:8b'
+        '': 'glm-4.7:cloud'
       };
       const model = modelMap[choice];
       if (model) {
@@ -1103,6 +1650,12 @@ async function loginProvider(provider) {
     } else {
       console.log(`${c.green}✓${c.reset} Found ${models.length} model(s): ${c.dim}${models.slice(0, 3).join(', ')}${models.length > 3 ? '...' : ''}${c.reset}`);
     }
+    return true;
+  }
+
+  if (provider === 'codex') {
+    console.log(`${c.cyan}Launching Codex CLI for authentication...${c.reset}`);
+    await runInteractive('codex');
     return true;
   }
 
@@ -1203,8 +1756,8 @@ ${c.bold}Quick Start:${c.reset}
   ${c.dim}# Interactive mode${c.reset}
   ${c.cyan}agx ${defaultProvider} -i --prompt "let's chat"${c.reset}
 
-  ${c.dim}# Show help${c.reset}
-  ${c.cyan}agx --help${c.reset}
+  ${c.dim}# Cloud mode (recommended for autonomous tasks)${c.reset}
+  ${c.cyan}agx login${c.reset}
 
 ${c.dim}Run ${c.reset}agx init${c.dim} anytime to reconfigure.${c.reset}
 `);
@@ -1250,7 +1803,7 @@ async function runConfigMenu() {
   switch (choice) {
     case '1': {
       // Install a provider
-      const missing = ['claude', 'gemini', 'ollama'].filter(p => !providers[p]);
+      const missing = ['claude', 'gemini', 'ollama', 'codex'].filter(p => !providers[p]);
       if (missing.length === 0) {
         console.log(`\n${c.green}✓${c.reset} All providers are already installed!`);
         break;
@@ -1334,7 +1887,7 @@ async function runInteractiveMenu() {
   const showCursor = () => process.stdout.write('\x1b[?25h');
 
   // Menu state
-  let menuState = 'main'; // 'main', 'action', 'tasks', 'daemon'
+  let menuState = 'main'; // 'main', 'action', 'daemon'
   let selectedIdx = 0;
   let selectedProvider = null;
 
@@ -1346,6 +1899,9 @@ async function runInteractiveMenu() {
     if (providers.claude) {
       items.push({ id: 'claude', label: 'claude', desc: 'Anthropic Claude Code', type: 'provider' });
     }
+    if (providers.codex) {
+      items.push({ id: 'codex', label: 'codex', desc: 'OpenAI Codex', type: 'provider' });
+    }
     if (providers.gemini) {
       items.push({ id: 'gemini', label: 'gemini', desc: 'Google Gemini', type: 'provider' });
     }
@@ -1356,19 +1912,6 @@ async function runInteractiveMenu() {
     // Separator and other options
     items.push({ id: 'sep1', type: 'separator' });
 
-    // Load tasks to show count
-    let taskCount = 0;
-    try {
-      const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
-      if (fs.existsSync(memDir)) {
-        const out = execSync('mem tasks --json', { cwd: memDir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-        const data = JSON.parse(out);
-        taskCount = (data.tasks || []).filter(t => t.status !== 'done').length;
-      }
-    } catch {}
-
-    const taskLabel = taskCount > 0 ? `Manage Tasks (${taskCount} active)` : 'Manage Tasks';
-    items.push({ id: 'tasks', label: taskLabel, desc: 'View and continue tasks', type: 'action' });
     items.push({ id: 'daemon', label: 'Daemon', desc: 'Background task runner', type: 'action' });
 
     return items;
@@ -1377,7 +1920,6 @@ async function runInteractiveMenu() {
   // Build action menu (after selecting provider)
   const buildActionMenu = () => [
     { id: 'chat', label: 'Chat', desc: 'Start interactive conversation', type: 'action' },
-    { id: 'newtask', label: 'New Task', desc: 'Create autonomous task', type: 'action' },
     { id: 'sep', type: 'separator' },
     { id: 'back', label: '← Back', desc: '', type: 'back' },
   ];
@@ -1484,12 +2026,6 @@ async function runInteractiveMenu() {
         menuState = 'action';
         selectedIdx = 0;
         render();
-      } else if (item.id === 'tasks') {
-        // Launch tasks browser
-        releaseTTY();
-        const child = spawn(process.argv[0], [process.argv[1], 'tasks'], { stdio: 'inherit' });
-        child.on('close', () => process.exit(0));
-        return;
       } else if (item.id === 'daemon') {
         menuState = 'daemon';
         selectedIdx = 0;
@@ -1502,11 +2038,19 @@ async function runInteractiveMenu() {
         // Launch provider in interactive mode
         let cmd, args;
         if (selectedProvider === 'ollama') {
-          // Ollama uses its own CLI directly (interactive mode)
-          cmd = 'ollama';
+          // Ollama now routes through Claude CLI
+          cmd = 'claude';
           const ollamaModel = config?.ollama?.model || 'llama3.2:3b';
-          args = ['run', ollamaModel];
-          const child = spawn(cmd, args, { stdio: 'inherit' });
+          args = ['--dangerously-skip-permissions', '--model', ollamaModel];
+          const child = spawn(cmd, args, { 
+            stdio: 'inherit',
+            env: {
+              ...process.env,
+              ANTHROPIC_AUTH_TOKEN: 'ollama',
+              ANTHROPIC_BASE_URL: 'http://localhost:11434',
+              ANTHROPIC_API_KEY: ''
+            }
+          });
           child.on('close', (code) => process.exit(code || 0));
         } else {
           cmd = selectedProvider;
@@ -1514,19 +2058,6 @@ async function runInteractiveMenu() {
           const child = spawn(cmd, args, { stdio: 'inherit' });
           child.on('close', (code) => process.exit(code || 0));
         }
-        return;
-      } else if (item.id === 'newtask') {
-        // Prompt for goal
-        console.log(`${c.bold}New Task${c.reset} ${c.dim}(${selectedProvider})${c.reset}\n`);
-        const goal = await prompt(`${c.cyan}Goal:${c.reset} `);
-        if (!goal.trim()) {
-          console.log(`${c.yellow}Cancelled${c.reset}`);
-          process.exit(0);
-        }
-        console.log('');
-        // Run agx <provider> -a -p "<goal>"
-        const child = spawn(process.argv[0], [process.argv[1], selectedProvider, '-a', '-p', goal], { stdio: 'inherit' });
-        child.on('close', (code) => process.exit(code || 0));
         return;
       }
     } else if (menuState === 'daemon') {
@@ -1617,7 +2148,6 @@ async function runInteractiveMenu() {
       if (item.type === 'provider') {
         console.log(`\n${c.bold}${item.label}${c.reset}\n`);
         console.log(`  ${c.cyan}1${c.reset}) Chat`);
-        console.log(`  ${c.cyan}2${c.reset}) New Task`);
         console.log(`  ${c.cyan}0${c.reset}) Back\n`);
         const actionChoice = await prompt('Choice: ');
         if (actionChoice === '0') {
@@ -1627,20 +2157,21 @@ async function runInteractiveMenu() {
         } else if (actionChoice === '1') {
           let cmd = item.id;
           if (item.id === 'ollama') {
-            // Ollama uses its own CLI directly (interactive mode)
+            // Ollama now routes through Claude CLI
             const ollamaModel = config?.ollama?.model || 'llama3.2:3b';
-            spawn('ollama', ['run', ollamaModel], { stdio: 'inherit' }).on('close', (code) => process.exit(code || 0));
+            spawn('claude', ['--dangerously-skip-permissions', '--model', ollamaModel], { 
+              stdio: 'inherit',
+              env: {
+                ...process.env,
+                ANTHROPIC_AUTH_TOKEN: 'ollama',
+                ANTHROPIC_BASE_URL: 'http://localhost:11434',
+                ANTHROPIC_API_KEY: ''
+              }
+            }).on('close', (code) => process.exit(code || 0));
           } else {
             spawn(cmd, [], { stdio: 'inherit' }).on('close', (code) => process.exit(code || 0));
           }
-        } else if (actionChoice === '2') {
-          const goal = await prompt('Goal: ');
-          if (goal.trim()) {
-            spawn(process.argv[0], [process.argv[1], item.id, '-a', '-p', goal], { stdio: 'inherit' }).on('close', (code) => process.exit(code || 0));
-          }
         }
-      } else if (item.id === 'tasks') {
-        spawn(process.argv[0], [process.argv[1], 'tasks'], { stdio: 'inherit' }).on('close', () => process.exit(0));
       } else if (item.id === 'daemon') {
         console.log(`\n${c.bold}Daemon${c.reset}\n`);
         const pid = isDaemonRunning();
@@ -1719,6 +2250,137 @@ async function checkOnboarding() {
   const args = process.argv.slice(2);
   const cmd = args[0];
 
+  // ============================================================
+  // CLOUD STATE HELPERS
+  // ============================================================
+
+  const CLOUD_CONFIG_FILE = path.join(CONFIG_DIR, 'cloud.json');
+
+  function loadCloudConfig() {
+    logRetryFlow('loadCloudConfig', 'input', `path=${CLOUD_CONFIG_FILE}`);
+    try {
+      if (fs.existsSync(CLOUD_CONFIG_FILE)) {
+        logRetryFlow('loadCloudConfig', 'processing', 'file exists');
+        const raw = fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8');
+        const config = JSON.parse(raw);
+        logRetryFlow('loadCloudConfig', 'output', 'config loaded');
+        return config;
+      }
+      logRetryFlow('loadCloudConfig', 'output', 'file missing');
+    } catch (err) {
+      logRetryFlow('loadCloudConfig', 'output', `error ${err?.message || err}`);
+    }
+    return null;
+  }
+
+  const TASK_CACHE_FILE = path.join(CONFIG_DIR, 'task-cache.json');
+
+  function saveTaskCache(tasks) {
+    try {
+    if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+      const payload = {
+        savedAt: new Date().toISOString(),
+        tasks: tasks.map(t => ({
+          id: t.id,
+          slug: t.slug,
+          title: t.title,
+          stage: t.stage,
+          status: t.status,
+          engine: t.engine,
+          provider: t.provider,
+          model: t.model,
+          swarm: t.swarm,
+        })),
+      };
+      fs.writeFileSync(TASK_CACHE_FILE, JSON.stringify(payload, null, 2));
+    } catch { }
+  }
+
+  function loadTaskCache() {
+    try {
+      if (fs.existsSync(TASK_CACHE_FILE)) {
+        return JSON.parse(fs.readFileSync(TASK_CACHE_FILE, 'utf8'));
+      }
+    } catch { }
+    return null;
+  }
+
+  function saveCloudConfig(config) {
+    if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    fs.writeFileSync(CLOUD_CONFIG_FILE, JSON.stringify(config, null, 2));
+  }
+
+  async function cloudRequest(method, endpoint, body = null) {
+    logRetryFlow('cloudRequest', 'input', `method=${method}, endpoint=${endpoint}, body=${body ? JSON.stringify(body) : 'none'}`);
+    const config = loadCloudConfig();
+    if (!config?.apiUrl || !config?.token) {
+      const errMsg = 'Not logged in to cloud. Run: agx login';
+      logRetryFlow('cloudRequest', 'output', errMsg);
+      throw new Error(errMsg);
+    }
+
+    const url = `${config.apiUrl}${endpoint}`;
+    const options = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.token}`,
+        'x-user-id': config.userId || '',
+      },
+    };
+    if (body) options.body = JSON.stringify(body);
+
+    logRetryFlow('cloudRequest', 'processing', `url=${url}`);
+    try {
+      const response = await fetch(url, options);
+      const data = await response.json();
+      if (!response.ok) {
+        logRetryFlow('cloudRequest', 'output', `error HTTP ${response.status}`);
+        throw new Error(data.error || `HTTP ${response.status}`);
+      }
+      logRetryFlow('cloudRequest', 'output', `status=${response.status}`);
+      return data;
+    } catch (err) {
+      logRetryFlow('cloudRequest', 'output', `exception ${err?.message || err}`);
+      throw err;
+    }
+  }
+
+  async function resolveTaskId(taskId) {
+    logRetryFlow('resolveTaskId', 'input', `taskId=${taskId}`);
+    let resolvedTaskId = taskId;
+    const isNumber = /^\d+$/.test(taskId);
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(taskId);
+
+    if (isNumber) {
+      logRetryFlow('resolveTaskId', 'processing', 'numeric shorthand');
+      const cache = loadTaskCache();
+      const index = parseInt(taskId, 10) - 1;
+      const cached = cache?.tasks?.[index];
+      if (!cached?.id) {
+        const errMsg = `No cached task for #${taskId}. Run: agx task ls`;
+        logRetryFlow('resolveTaskId', 'output', errMsg);
+        throw new Error(errMsg);
+      }
+      resolvedTaskId = cached.id;
+      logRetryFlow('resolveTaskId', 'output', `resolved from cache ${resolvedTaskId}`);
+      return resolvedTaskId;
+    }
+
+    if (!isUuid) {
+      logRetryFlow('resolveTaskId', 'processing', 'slug lookup');
+      const { task } = await cloudRequest('GET', `/api/tasks?slug=${encodeURIComponent(taskId)}`);
+      resolvedTaskId = task.id;
+      logRetryFlow('resolveTaskId', 'output', `resolved slug ${resolvedTaskId}`);
+      return resolvedTaskId;
+    }
+
+    logRetryFlow('resolveTaskId', 'processing', 'uuid shortcut');
+    logRetryFlow('resolveTaskId', 'output', `using uuid ${resolvedTaskId}`);
+    return resolvedTaskId;
+  }
+
+
   // Bare invocation: no args → interactive menu
   if (args.length === 0) {
     const config = loadConfig();
@@ -1742,67 +2404,12 @@ async function checkOnboarding() {
     return true;
   }
 
-  // Status command - show task status if in project, else config
+  // Status command
   if (cmd === 'status') {
-    // --cloud flag: show cloud queue status
     if (args.includes('--cloud')) {
-      const cloudConfig = (() => {
-        try {
-          const cfgPath = path.join(CONFIG_DIR, 'cloud.json');
-          if (fs.existsSync(cfgPath)) {
-            return JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
-          }
-        } catch {}
-        return null;
-      })();
-
-      if (!cloudConfig?.apiUrl) {
-        console.log(`${c.yellow}Not connected to cloud${c.reset}`);
-        console.log(`${c.dim}Run: agx cloud login [url]${c.reset}`);
-        process.exit(0);
-      }
-
-      try {
-        const response = await fetch(`${cloudConfig.apiUrl}/api/tasks`, {
-          headers: {
-            'Authorization': `Bearer ${cloudConfig.token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-        const { tasks } = await response.json();
-
-        console.log(`${c.bold}Cloud Queue${c.reset} (${cloudConfig.apiUrl})\n`);
-
-        if (!tasks || tasks.length === 0) {
-          console.log(`${c.dim}  No tasks${c.reset}`);
-        } else {
-          // Group by stage
-          const stages = ['ideation', 'coding', 'qa', 'acceptance', 'deployment', 'smoke_test', 'release', 'done'];
-          for (const stage of stages) {
-            const stageTasks = tasks.filter(t => t.stage === stage);
-            if (stageTasks.length > 0) {
-              console.log(`  ${c.dim}${stage}${c.reset}`);
-              for (const t of stageTasks) {
-                const icon = t.status === 'in_progress' ? c.blue + '●' : t.status === 'completed' ? c.green + '✓' : c.yellow + '○';
-                console.log(`    ${icon}${c.reset} ${t.title || 'Untitled'} ${c.dim}(${t.id.slice(0,8)})${c.reset}`);
-              }
-            }
-          }
-        }
-      } catch (err) {
-        console.log(`${c.red}✗${c.reset} Failed to fetch: ${err.message}`);
-      }
-      process.exit(0);
+      console.log(`${c.yellow}Note:${c.reset} ${c.cyan}--cloud${c.reset} is no longer needed. Cloud is the default.`);
     }
 
-    // Check if we're in a task project
-    const memInfo = findMemDir();
-    if (memInfo && memInfo.taskBranch) {
-      try {
-        execSync('mem status', { stdio: 'inherit' });
-        process.exit(0);
-      } catch {}
-    }
     // Fall back to config status
     await showConfigStatus();
     process.exit(0);
@@ -1821,21 +2428,20 @@ async function checkOnboarding() {
   //
   // Architecture:
   // - agx is the task ORCHESTRATOR - it coordinates AI agents
-  // - mem is the STORAGE layer - git-backed KV store
-  // - agx NEVER accesses ~/.mem directly - only via mem commands
-  // - This separation allows mem to change storage backend later
+  // - Cloud API is the STORAGE layer
   // ============================================================
 
   // Provider aliases for convenience
   const PROVIDER_ALIASES = {
     'c': 'claude', 'cl': 'claude', 'claude': 'claude',
+    'x': 'codex', 'codex': 'codex',
     'g': 'gemini', 'gem': 'gemini', 'gemini': 'gemini',
     'o': 'ollama', 'ol': 'ollama', 'ollama': 'ollama'
   };
 
   // ============================================================
-  // agx new "<goal>" [--provider c|g|o] [--run] [--json]
-  // Creates a new task via mem, optionally runs it immediately
+  // agx new "<goal>" [--provider c|g|o|x] [--run] [--json]
+  // Creates a new task via cloud API
   // ============================================================
   if (cmd === 'new') {
     const jsonMode = args.includes('--json');
@@ -1852,10 +2458,17 @@ async function checkOnboarding() {
           console.log(JSON.stringify({ error: 'invalid_provider', provider: alias }));
         } else {
           console.log(`${c.red}Invalid provider:${c.reset} ${alias}`);
-          console.log(`${c.dim}Valid: c/claude, g/gemini, o/ollama${c.reset}`);
+          console.log(`${c.dim}Valid: c/claude, g/gemini, o/ollama, x/codex${c.reset}`);
         }
         process.exit(1);
       }
+    }
+
+    // Parse --model / -m
+    let model = null;
+    const modelIdx = args.findIndex(a => a === '--model' || a === '-m');
+    if (modelIdx !== -1 && args[modelIdx + 1]) {
+      model = args[modelIdx + 1];
     }
 
     // Default provider from config
@@ -1865,11 +2478,12 @@ async function checkOnboarding() {
     }
 
     // Extract goal text (filter out flags)
-    const flagsToRemove = ['--json', '--run', '-r', '--provider', '-P'];
+    const flagsToRemove = ['--json', '--run', '-r', '--provider', '-P', '--model', '-m'];
     const goalParts = [];
     for (let i = 1; i < args.length; i++) {
       if (flagsToRemove.includes(args[i])) {
         if (args[i] === '--provider' || args[i] === '-P') i++;
+        if (args[i] === '--model' || args[i] === '-m') i++;
         continue;
       }
       goalParts.push(args[i]);
@@ -1880,66 +2494,29 @@ async function checkOnboarding() {
       if (jsonMode) {
         console.log(JSON.stringify({ error: 'missing_goal', usage: 'agx new "<goal>" [--provider c] [--run]' }));
       } else {
-        console.log(`${c.red}Usage:${c.reset} agx new "<goal>" [--provider c|g|o] [--run]`);
+        console.log(`${c.red}Usage:${c.reset} agx new "<goal>" [--provider c|g|o|x] [--run]`);
       }
       process.exit(1);
     }
 
-    const projectDir = process.cwd();
-
     try {
-      // Use mem to create the task - agx never touches ~/.mem directly
-      // mem new handles: branch creation, file setup, index mapping, commit
-      const memArgs = [
-        'new',
-        goalText,
-        '--provider', provider,
-        '--dir', projectDir
-      ];
-      if (jsonMode) memArgs.push('--json');
+      // Create task via cloud API
+      const frontmatter = ['status: queued', 'stage: ideation'];
+      frontmatter.push(`engine: ${provider}`);
+      frontmatter.push(`provider: ${provider}`);
+      if (model) frontmatter.push(`model: ${model}`);
 
-      const result = execSync(`mem ${memArgs.map(a => `"${a}"`).join(' ')}`, {
-        cwd: projectDir,
-        encoding: 'utf8'
-      });
+      const content = `---\n${frontmatter.join('\n')}\n---\n\n# ${goalText}\n`;
 
-      // Save user's raw input as user_request for agent to analyze
-      try {
-        spawnSync('mem', ['set', 'user_request', goalText], {
-          cwd: projectDir,
-          stdio: ['pipe', 'pipe', 'pipe']
-        });
-      } catch {}
-
-      // Pass through mem's output (includes JSON if --json)
-      if (!runAfter || !jsonMode) {
-        process.stdout.write(result);
+      const { task } = await cloudRequest('POST', '/api/tasks', { content });
+      console.log(`${c.green}✓${c.reset} Task created in cloud`);
+      if (task?.id) {
+        console.log(`${c.dim}Task ID: ${task.id}${c.reset}`);
       }
 
-      // Run if requested
-      if (runAfter) {
-        // Parse task name from mem's JSON output
-        let taskName;
-        if (jsonMode) {
-          const parsed = JSON.parse(result.trim());
-          taskName = parsed.taskName;
-        } else {
-          // Extract from "Created task: taskname" line
-          const match = result.match(/Created task:\s*\x1b\[1m(\S+)/);
-          taskName = match ? match[1] : goalText.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).slice(0, 3).join('-');
-        }
-
-        if (!jsonMode) {
-          console.log(`${c.cyan}▶${c.reset} Running task...`);
-        }
-
-        // Spawn agx with the provider
-        const child = spawn(process.argv[0], [process.argv[1], provider, '--continue', taskName, '-y'], {
-          cwd: projectDir,
-          stdio: jsonMode ? 'pipe' : 'inherit'
-        });
-        child.on('close', (code) => process.exit(code || 0));
-        return true;
+      if (!runAfter) {
+        console.log(`\n${c.dim}Task: ${goalText}${c.reset}`);
+        console.log(`${c.dim}Provider: ${provider}${c.reset}`);
       }
     } catch (err) {
       if (jsonMode) {
@@ -1952,158 +2529,13 @@ async function checkOnboarding() {
     process.exit(0);
   }
 
-  // agx context [task] [--json] - Get task context (parallel-safe, no checkout)
-  if (cmd === 'context') {
-    const jsonMode = args.includes('--json');
-    const taskArg = args.slice(1).find(a => a !== '--json');
-    const centralMem = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
-
-    if (!fs.existsSync(centralMem)) {
-      if (jsonMode) {
-        console.log(JSON.stringify({ error: 'no_mem_repo' }));
-      } else {
-        console.log(`${c.yellow}No .mem repo found.${c.reset} Run ${c.cyan}agx new "<goal>"${c.reset} first.`);
-      }
-      process.exit(1);
-    }
-
-    let branch = null;
-
-    if (taskArg) {
-      // Specific task requested
-      branch = taskArg.startsWith('task/') ? taskArg : `task/${taskArg}`;
-      try {
-        execSync(`git show-ref --verify refs/heads/${branch}`, { cwd: centralMem, stdio: 'ignore' });
-      } catch {
-        if (jsonMode) {
-          console.log(JSON.stringify({ error: 'task_not_found', task: taskArg }));
-        } else {
-          console.log(`${c.red}Task not found:${c.reset} ${taskArg}`);
-        }
-        process.exit(1);
-      }
-    } else {
-      // Try to find task for current directory
-      if (fs.existsSync(indexFile)) {
-        try {
-          const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
-          branch = index[process.cwd()];
-        } catch {}
-      }
-      if (!branch) {
-        if (jsonMode) {
-          console.log(JSON.stringify({ error: 'no_task_mapped', cwd: process.cwd() }));
-        } else {
-          console.log(`${c.yellow}No task mapped for this directory.${c.reset}`);
-          console.log(`${c.dim}Run ${c.reset}agx new "<goal>"${c.dim} to create one.${c.reset}`);
-        }
-        process.exit(1);
-      }
-    }
-
-    // Use parallel-safe context building (no checkout!)
-    const data = getTaskContextData(centralMem, branch);
-
-    if (jsonMode) {
-      console.log(JSON.stringify(data));
-    } else {
-      console.log(formatTaskContext(data));
-    }
-    process.exit(0);
-  }
-
-  // ==================== MEM PASSTHROUGH COMMANDS ====================
-  // These wrap mem CLI so users only need agx (will be migrated over time)
-
-  const memPassthroughCommands = {
-    'init': true,      // agx init <name> "<goal>" → mem init
-    'done': true,      // agx done → mem done
-    'stuck': true,     // agx stuck [reason|clear] → mem stuck
-    'switch': true,    // agx switch <name> → mem switch
-    'checkpoint': true,// agx checkpoint "<msg>" → mem checkpoint
-    'learn': true,     // agx learn "<insight>" → mem learn
-    'next': true,      // agx next "<step>" → mem next
-    'progress': true,  // agx progress → mem progress
-    'criteria': true,  // agx criteria [add|N] → mem criteria
-    'goal': true,      // agx goal [value] → mem goal
-    'learnings': true, // agx learnings → mem learnings
-    'playbook': true,  // agx playbook → mem playbook
-  };
-
-  if (memPassthroughCommands[cmd]) {
-    // Pass through to mem with all remaining args
-    const memArgs = args.slice(1).map(a => a.includes(' ') ? `"${a}"` : a).join(' ');
-    const memCmd = `mem ${cmd} ${memArgs}`.trim();
-
-    try {
-      execSync(memCmd, { stdio: 'inherit' });
-    } catch (err) {
-      // mem already printed error
-      process.exit(err.status || 1);
-    }
-    process.exit(0);
-  }
-  
-  // ==================== TASK MANAGEMENT ====================
-
-  // Helper: load all tasks with their info using mem CLI
-  function loadTasks() {
-    let state = {};
-    try {
-      if (fs.existsSync(DAEMON_STATE_FILE)) {
-        state = JSON.parse(fs.readFileSync(DAEMON_STATE_FILE, 'utf8'));
-      }
-    } catch {}
-
-    // Get tasks from mem CLI (uses central .mem)
-    let memTasks = [];
-    try {
-      const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
-      const out = execSync('mem tasks --json', { cwd: memDir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-      const data = JSON.parse(out);
-      memTasks = data.tasks || [];
-    } catch {
-      return [];
-    }
-
-    const tasks = memTasks.map(mt => {
-      const taskBranch = mt.branch;
-      const taskName = mt.taskName;
-      const projectDir = mt.projectDir;
-      let status = mt.status || 'active';
-      let progress = mt.progress || '—';
-      let criteria = mt.criteria || [];
-      let lastRun = '—';
-
-      // Override status if running
-      if (state.running === taskBranch) {
-        status = 'running';
-      }
-
-      // Calculate lastRun from daemon state
-      if (state.lastRun && state.lastRun[taskBranch]) {
-        const lastMs = state.lastRun[taskBranch];
-        const ago = Date.now() - lastMs;
-        lastRun = `${Math.round(ago / 60000)}m ago`;
-      }
-
-      return { taskName, taskBranch, projectDir, status, lastRun, progress, criteria };
-    });
-
-    return tasks;
-  }
-
-  // Helper: find task by name (partial match)
-  function findTask(tasks, name) {
-    if (!name) return null;
-    return tasks.find(t => t.taskName === name) ||
-           tasks.find(t => t.taskName.includes(name)) ||
-           tasks.find(t => t.taskBranch.includes(name));
-  }
+  // ============================================================
+  // TASK MANAGEMENT
+  // ============================================================
 
   // Helper: get task logs from per-task log file
-  function getTaskLogs(task, limit = 20) {
-    const logPath = getTaskLogPath(task.taskName);
+  function getTaskLogs(taskName, limit = 20) {
+    const logPath = getTaskLogPath(taskName);
     if (!fs.existsSync(logPath)) return [];
     try {
       const logs = fs.readFileSync(logPath, 'utf8');
@@ -2111,845 +2543,9 @@ async function checkOnboarding() {
     } catch { return []; }
   }
 
-  // ==================== NUDGE ====================
-  // Nudge: send a steering message to an agent for its next run
-  // Uses mem KV primitives: stores in state.md frontmatter as 'nudges' key
-  // Format: JSON array of messages, popped on context load by agx
-
-  if (cmd === 'nudge' || cmd === 'steer') {
-    const taskArg = args[1];
-    const message = args.slice(2).join(' ');
-
-    if (!taskArg) {
-      console.log(`${c.red}Usage:${c.reset} agx nudge <task> "message"`);
-      console.log(`${c.dim}Example: agx nudge mesh-cli "focus on API first"${c.reset}`);
-      process.exit(1);
-    }
-
-    const tasks = loadTasks();
-    const task = findTask(tasks, taskArg);
-
-    if (!task) {
-      console.log(`${c.yellow}Task not found: ${taskArg}${c.reset}`);
-      console.log(`${c.dim}Available: ${tasks.map(t => t.taskName).join(', ')}${c.reset}`);
-      process.exit(1);
-    }
-
-    // No message = show current nudges
-    if (!message) {
-      try {
-        const out = execSync(`mem get nudges`, { cwd: task.projectDir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-        if (out.includes('Not set') || !out.trim()) {
-          console.log(`${c.dim}No pending nudges for ${task.taskName}${c.reset}`);
-        } else {
-          const nudges = JSON.parse(out.trim());
-          console.log(`${c.bold}Pending nudges for ${task.taskName}:${c.reset}\n`);
-          nudges.forEach(n => console.log(`  ${c.yellow}→${c.reset} ${n}`));
-        }
-      } catch {
-        console.log(`${c.dim}No pending nudges for ${task.taskName}${c.reset}`);
-      }
-      process.exit(0);
-    }
-
-    // Add nudge to the list
-    let nudges = [];
-    try {
-      const out = execSync(`mem get nudges`, { cwd: task.projectDir, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-      if (!out.includes('Not set') && out.trim()) {
-        nudges = JSON.parse(out.trim());
-      }
-    } catch {}
-
-    const timestamp = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-    nudges.push(`[${timestamp}] ${message}`);
-
-    try {
-      // Use spawnSync to avoid shell quoting issues with quotes in messages
-      const result = spawnSync('mem', ['set', 'nudges', JSON.stringify(nudges)], {
-        cwd: task.projectDir,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
-      if (result.status !== 0) {
-        throw new Error(result.stderr || 'Failed to save nudge');
-      }
-      console.log(`${c.green}✓${c.reset} Nudge added to ${c.bold}${task.taskName}${c.reset}`);
-      console.log(`${c.dim}Will be shown on next agent run${c.reset}`);
-    } catch (err) {
-      console.error(`${c.red}Error:${c.reset} ${err.message}`);
-    }
-    process.exit(0);
-  }
-
-  // Tail task log
-  if (cmd === 'tail') {
-    const tasks = loadTasks();
-    const taskArg = args[1];
-    let task = taskArg ? findTask(tasks, taskArg) : null;
-
-    // If no arg, try current directory
-    if (!task && !taskArg) {
-      const cwd = process.cwd();
-      task = tasks.find(t => t.projectDir === cwd);
-    }
-
-    if (!task) {
-      if (tasks.length === 0) {
-        console.log(`${c.yellow}No tasks found${c.reset}`);
-      } else {
-        console.log(`${c.yellow}Task not found${c.reset}${taskArg ? `: ${taskArg}` : ''}`);
-        console.log(`${c.dim}Available: ${tasks.map(t => t.taskName).join(', ')}${c.reset}`);
-      }
-      process.exit(1);
-    }
-
-    const logPath = getTaskLogPath(task.taskName);
-    if (!fs.existsSync(logPath)) {
-      console.log(`${c.dim}No logs yet for ${task.taskName}${c.reset}`);
-      console.log(`${c.dim}Log file: ${logPath}${c.reset}`);
-      process.exit(0);
-    }
-
-    console.log(`${c.dim}Tailing ${task.taskName} → ${logPath}${c.reset}\n`);
-
-    // Use spawn to tail -f the log file
-    const tail = spawn('tail', ['-f', logPath], {
-      stdio: ['ignore', 'inherit', 'inherit']
-    });
-
-    tail.on('error', (err) => {
-      console.error(`${c.red}Error:${c.reset} ${err.message}`);
-      process.exit(1);
-    });
-
-    // Handle ctrl-c gracefully
-    process.on('SIGINT', () => {
-      tail.kill();
-      process.exit(0);
-    });
-
-    return true;
-  }
-
-  // Run task immediately
-  if (cmd === 'run') {
-    const tasks = loadTasks();
-    if (tasks.length === 0) {
-      console.log(`${c.yellow}No tasks found${c.reset}`);
-      process.exit(1);
-    }
-
-    const taskArg = args[1];
-    let task = taskArg ? findTask(tasks, taskArg) : null;
-
-    // If no arg, try current directory
-    if (!task && !taskArg) {
-      const cwd = process.cwd();
-      task = tasks.find(t => t.projectDir === cwd);
-    }
-
-    if (!task) {
-      console.log(`${c.yellow}Task not found${c.reset}${taskArg ? `: ${taskArg}` : ''}`);
-      console.log(`${c.dim}Available: ${tasks.map(t => t.taskName).join(', ')}${c.reset}`);
-      process.exit(1);
-    }
-
-    console.log(`${c.cyan}▶${c.reset} Running ${c.bold}${task.taskName}${c.reset}...\n`);
-
-    // Mark as running
-    let state = {};
-    try {
-      if (fs.existsSync(DAEMON_STATE_FILE)) {
-        state = JSON.parse(fs.readFileSync(DAEMON_STATE_FILE, 'utf8'));
-      }
-    } catch {}
-    state.running = task.taskBranch;
-    const agxDir = path.dirname(DAEMON_STATE_FILE);
-    if (!fs.existsSync(agxDir)) fs.mkdirSync(agxDir, { recursive: true });
-    fs.writeFileSync(DAEMON_STATE_FILE, JSON.stringify(state, null, 2));
-
-    // Setup log file
-    const logPath = getTaskLogPath(task.taskName);
-    const logStream = fs.createWriteStream(logPath, { flags: 'a' });
-    logStream.write(`\n--- ${new Date().toISOString()} ---\n`);
-
-    // Build task context prompt
-    const centralMem = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
-    const contextData = getTaskContextData(centralMem, task.taskBranch);
-
-    // Fetch user's raw request from KV (if set)
-    let userRequest = null;
-    try {
-      const result = spawnSync('mem', ['get', 'user_request'], {
-        cwd: task.projectDir,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
-      if (result.status === 0 && result.stdout && !result.stdout.includes('Not set')) {
-        userRequest = result.stdout.trim();
-      }
-    } catch {}
-
-    // Pop nudges from mem (read and clear)
-    let nudges = [];
-    try {
-      const nudgesOut = execSync(`mem pop nudges --json`, {
-        cwd: task.projectDir,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
-      const { value } = JSON.parse(nudgesOut);
-      if (value) {
-        nudges = JSON.parse(value);
-        if (nudges.length > 0) {
-          console.log(`${c.yellow}📬 Nudges from user:${c.reset}`);
-          nudges.forEach(n => console.log(`  ${c.yellow}→${c.reset} ${n}`));
-          console.log('');
-        }
-      }
-    } catch {}
-
-    const hasCriteria = contextData.criteria && contextData.criteria.length > 0;
-    const hasGoal = contextData.goalText && contextData.goalText.trim();
-    const needsPlanning = !hasGoal || !hasCriteria;
-
-    let prompt = `═══════════════════════════════════════════════════════════════════
-                    AUTONOMOUS AGENT SESSION
-═══════════════════════════════════════════════════════════════════
-
-You are waking up to continue a task. You have NO MEMORY of previous sessions.
-Your only continuity is what's stored in mem. Read it carefully.
-
-TASK: ${task.taskName}
-`;
-
-    // Show user's raw request if available
-    if (userRequest) {
-      prompt += `
-┌─────────────────────────────────────────────────────────────────┐
-│ USER REQUEST (raw input from user)                              │
-└─────────────────────────────────────────────────────────────────┘
-${userRequest}
-
-`;
-    }
-
-    // Show distilled goal if set
-    if (hasGoal) {
-      prompt += `GOAL: ${contextData.goalText}\n`;
-    }
-
-    if (needsPlanning) {
-      prompt += `
-═══════════════════════════════════════════════════════════════════
-                    ⚠️  PLANNING PHASE REQUIRED ⚠️
-═══════════════════════════════════════════════════════════════════
-
-Before doing ANY implementation work, you MUST complete the planning phase:
-`;
-      if (!hasGoal) {
-        prompt += `
-1. ANALYZE the user request above
-2. IDENTIFY the user's intent and desired outcome
-3. DISTILL into a clear, concise goal:
-   mem goal "<one-sentence goal statement>"
-`;
-      }
-      if (!hasCriteria) {
-        prompt += `
-${hasGoal ? '1' : '4'}. DEFINE measurable success criteria:
-   mem criteria add "<specific, testable criterion>"
-   mem criteria add "<another criterion>"
-   ...
-
-${hasGoal ? '2' : '5'}. SET your first step:
-   mem next "<what you'll do first>"
-`;
-      }
-      prompt += `
-ONLY after completing the above should you begin implementation.
-No goal = no direction. No criteria = no way to measure done.
-
-═══════════════════════════════════════════════════════════════════
-`;
-    } else {
-      prompt += `\nPROGRESS: ${contextData.progress}% (${contextData.criteria.filter(c => c.done).length}/${contextData.criteria.length} criteria)\n`;
-      prompt += `CRITERIA:\n`;
-      contextData.criteria.forEach(c => {
-        prompt += `  ${c.done ? '✓' : '○'} ${c.text}\n`;
-      });
-    }
-
-    if (contextData.nextStep) {
-      prompt += `\nNEXT STEP (from last session): ${contextData.nextStep}\n`;
-    }
-
-    if (contextData.checkpoints && contextData.checkpoints.length > 0) {
-      prompt += `\nRECENT PROGRESS:\n`;
-      contextData.checkpoints.slice(-5).forEach(cp => {
-        prompt += `  • ${cp}\n`;
-      });
-    }
-
-    if (contextData.learnings && contextData.learnings.length > 0) {
-      prompt += `\nLEARNINGS:\n`;
-      contextData.learnings.slice(-3).forEach(l => {
-        prompt += `  • ${l}\n`;
-      });
-    }
-
-    prompt += `
-═══════════════════════════════════════════════════════════════════
-                         WAKE-WORK-SLEEP CYCLE
-═══════════════════════════════════════════════════════════════════
-
-Your workflow for autonomous operation:
-
-┌─────────────────────────────────────────────────────────────────┐
-│ 1. ORIENT (you are here)                                        │
-│    • Read your state above - this is all you know               │
-│    • Run: mem context   (for full context if needed)            │
-│    • Run: mem history   (to see progression)                    │
-│    • Run: mem playbook  (for global strategies)                 │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ 2. PLAN                                                         │
-│    If no criteria defined:                                      │
-│      mem criteria add "<criterion>"  (define success)           │
-│      mem constraint add "<rule>"     (define boundaries)        │
-│    Set your intent:                                             │
-│      mem next "<what you'll do>"                                │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ 3. EXECUTE                                                      │
-│    Do the work. Make progress toward criteria.                  │
-│    Save discoveries:                                            │
-│      mem learn "<insight>"       (task-specific)                │
-│      mem learn -g "<insight>"    (global - all tasks)           │
-│      mem promote <n>             (promote to playbook)          │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ 4. CHECKPOINT (before session ends or after milestones)         │
-│    mem checkpoint "<what you accomplished>"                     │
-│    mem criteria <n>              (mark criterion done)          │
-│    mem next "<what comes next>"  (for next wake cycle)          │
-│    mem progress                  (verify progress %)            │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ 5. ADAPT                                                        │
-│    If blocked:  mem stuck "<reason>"                            │
-│    If unblocked: mem stuck clear                                │
-│    If done:     mem done                                        │
-│    If lost:     ASK THE USER                                    │
-└─────────────────────────────────────────────────────────────────┘
-
-═══════════════════════════════════════════════════════════════════
-                           KEY PRINCIPLES
-═══════════════════════════════════════════════════════════════════
-
-• MEMORY IS EVERYTHING - You forget between sessions. Save state.
-• CRITERIA DRIVE COMPLETION - No criteria = no way to know when done
-• CHECKPOINT OFTEN - Don't lose progress to session death
-• ASK WHEN STUCK - Don't spin. Get a nudge from the user.
-• LEARN & PROMOTE - Build the playbook for future tasks
-
-═══════════════════════════════════════════════════════════════════
-`;
-
-    // Add nudges section if any
-    if (nudges.length > 0) {
-      prompt += `
-═══════════════════════════════════════════════════════════════════
-                        📬 NUDGES FROM USER
-═══════════════════════════════════════════════════════════════════
-
-The user left these steering messages for you:
-
-${nudges.map(n => `  → ${n}`).join('\n')}
-
-**IMPORTANT:** Address these nudges in your work. They are guidance
-from the user about what to focus on or how to proceed.
-
-═══════════════════════════════════════════════════════════════════
-`;
-    }
-
-    if (needsPlanning) {
-      prompt += `\nBEGIN: You are in PLANNING PHASE. Analyze the user request, define goal and criteria before any implementation.`;
-    } else {
-      prompt += `\nBEGIN: Review your criteria and progress, then continue working toward completion.`;
-    }
-
-    const child = spawn('agx', ['claude', '-y', '-p', prompt], {
-      cwd: task.projectDir,
-      stdio: ['inherit', 'pipe', 'pipe']
-    });
-
-    child.stdout.on('data', (data) => {
-      logStream.write(data);
-      process.stdout.write(data);
-    });
-    child.stderr.on('data', (data) => {
-      logStream.write(data);
-      process.stderr.write(data);
-    });
-
-    child.on('close', (code) => {
-      logStream.end();
-      // Clear running state
-      try {
-        state = JSON.parse(fs.readFileSync(DAEMON_STATE_FILE, 'utf8'));
-        delete state.running;
-        fs.writeFileSync(DAEMON_STATE_FILE, JSON.stringify(state, null, 2));
-      } catch {}
-      process.exit(code || 0);
-    });
-
-    child.on('error', (err) => {
-      console.error(`${c.red}Error:${c.reset} ${err.message}`);
-      logStream.end();
-      process.exit(1);
-    });
-
-    return true; // Don't continue execution
-  }
-
-  // Pause task
-  if (cmd === 'pause') {
-    const tasks = loadTasks();
-    const taskArg = args[1];
-    let task = taskArg ? findTask(tasks, taskArg) : tasks.find(t => t.projectDir === process.cwd());
-
-    if (!task) {
-      console.log(`${c.yellow}Task not found${c.reset}`);
-      process.exit(1);
-    }
-
-    try {
-      // Set status to paused - daemon won't run paused tasks
-      execSync('mem set status paused', { cwd: task.projectDir, stdio: 'ignore' });
-      console.log(`${c.yellow}⏸${c.reset} Paused ${c.bold}${task.taskName}${c.reset}`);
-      console.log(`${c.dim}Resume with: agx resume ${task.taskName}${c.reset}`);
-    } catch (err) {
-      console.error(`${c.red}Error:${c.reset} ${err.message}`);
-    }
-    process.exit(0);
-  }
-
-  // Resume task (set status back to active)
-  if (cmd === 'resume') {
-    const tasks = loadTasks();
-    const taskArg = args[1];
-    let task = taskArg ? findTask(tasks, taskArg) : tasks.find(t => t.projectDir === process.cwd());
-
-    if (!task) {
-      console.log(`${c.yellow}Task not found${c.reset}`);
-      process.exit(1);
-    }
-
-    try {
-      // Set status to active - daemon will run it immediately
-      execSync('mem set status active', { cwd: task.projectDir, stdio: 'ignore' });
-      console.log(`${c.green}▶${c.reset} Resumed ${c.bold}${task.taskName}${c.reset}`);
-    } catch (err) {
-      console.error(`${c.red}Error:${c.reset} ${err.message}`);
-    }
-    process.exit(0);
-  }
-
-  // Stop task (mark done)
-  if (cmd === 'stop') {
-    const tasks = loadTasks();
-    const taskArg = args[1];
-    let task = taskArg ? findTask(tasks, taskArg) : tasks.find(t => t.projectDir === process.cwd());
-
-    if (!task) {
-      console.log(`${c.yellow}Task not found${c.reset}`);
-      process.exit(1);
-    }
-
-    try {
-      // Set status to done - daemon won't run done tasks
-      execSync('mem set status done', { cwd: task.projectDir, stdio: 'ignore' });
-      console.log(`${c.green}✓${c.reset} Stopped ${c.bold}${task.taskName}${c.reset} (marked done)`);
-    } catch (err) {
-      console.error(`${c.red}Error:${c.reset} ${err.message}`);
-    }
-    process.exit(0);
-  }
-
-  // Remove/delete task
-  if (cmd === 'remove' || cmd === 'rm' || cmd === 'delete') {
-    const tasks = loadTasks();
-    const taskArg = args[1];
-    let task = taskArg ? findTask(tasks, taskArg) : null;
-
-    if (!task) {
-      console.log(`${c.yellow}Task not found: ${taskArg || '(none)'}${c.reset}`);
-      console.log(`${c.dim}Available: ${tasks.map(t => t.taskName).join(', ')}${c.reset}`);
-      process.exit(1);
-    }
-
-    try {
-      const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
-      const branchName = task.taskBranch || `task/${task.taskName}`;
-
-      // Delete the git branch
-      execSync(`git branch -D "${branchName}"`, { cwd: memDir, stdio: 'ignore' });
-
-      // Remove from index.json if present
-      const indexFile = path.join(memDir, 'index.json');
-      if (fs.existsSync(indexFile)) {
-        try {
-          const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
-          let changed = false;
-          for (const [dir, branch] of Object.entries(index)) {
-            if (branch === branchName) {
-              delete index[dir];
-              changed = true;
-            }
-          }
-          if (changed) {
-            fs.writeFileSync(indexFile, JSON.stringify(index, null, 2));
-          }
-        } catch {}
-      }
-
-      console.log(`${c.red}✗${c.reset} Deleted ${c.bold}${task.taskName}${c.reset}`);
-    } catch (err) {
-      console.error(`${c.red}Error:${c.reset} ${err.message}`);
-    }
-    process.exit(0);
-  }
-
-  // Interactive tasks browser
-  if (cmd === 'tasks') {
-    const tasks = loadTasks();
-
-    if (tasks.length === 0) {
-      console.log(`${c.yellow}No tasks found${c.reset}`);
-      process.exit(0);
-    }
-
-    let selectedIdx = 0;
-    let inDetailView = false;
-
-    const clearScreen = () => process.stdout.write('\x1b[2J\x1b[H');
-    const hideCursor = () => process.stdout.write('\x1b[?25l');
-    const showCursor = () => process.stdout.write('\x1b[?25h');
-    const home = '\x1b[H';
-    const clearLine = '\x1b[K';
-    const clearBelow = '\x1b[J';
-
-    const renderList = () => {
-      const lines = [];
-      const pid = isDaemonRunning();
-      const daemonStatus = pid
-        ? `${c.green}●${c.reset} Daemon running`
-        : `${c.yellow}○${c.reset} Daemon stopped`;
-
-      lines.push(`${c.bold}Tasks${c.reset}  ${c.dim}│${c.reset}  ${daemonStatus}`);
-      lines.push('');
-
-      tasks.forEach((task, idx) => {
-        const selected = idx === selectedIdx;
-        const prefix = selected ? `${c.cyan}❯${c.reset}` : ' ';
-        const statusIcon = task.status === 'running' ? `${c.cyan}▶${c.reset}`
-                         : task.status === 'active' ? `${c.green}●${c.reset}`
-                         : task.status === 'done' ? `${c.dim}✓${c.reset}`
-                         : `${c.yellow}○${c.reset}`;
-        const name = selected ? `${c.bold}${task.taskName}${c.reset}` : task.taskName;
-        const statusText = task.status === 'running' ? `${c.cyan}running${c.reset}` : task.status;
-        const progressText = task.progress !== '—' ? ` ${c.green}${task.progress}${c.reset}` : '';
-        const info = `${c.dim}${statusText}${c.reset}${progressText} ${c.dim}· ${task.lastRun === '—' ? 'never run' : task.lastRun}${c.reset}`;
-
-        lines.push(`${prefix} ${statusIcon} ${name}  ${info}`);
-      });
-
-      lines.push('');
-      lines.push(`${c.dim}↑/↓ select · enter view · r run · p pause · d done · x remove · q quit${c.reset}`);
-
-      process.stdout.write(home + lines.map(l => l + clearLine).join('\n') + clearBelow);
-    };
-
-    let tailInterval = null;
-
-    const renderDetail = () => {
-      const lines = [];
-      const task = tasks[selectedIdx];
-
-      // Refresh task status for running check
-      let currentState = {};
-      try {
-        if (fs.existsSync(DAEMON_STATE_FILE)) {
-          currentState = JSON.parse(fs.readFileSync(DAEMON_STATE_FILE, 'utf8'));
-        }
-      } catch {}
-      const isRunning = currentState.running === task.taskBranch;
-
-      const statusColor = isRunning ? c.cyan
-                        : task.status === 'active' ? c.green
-                        : task.status === 'done' ? c.dim : c.yellow;
-      const statusText = isRunning ? 'running' : task.status;
-
-      lines.push(`${c.bold}${c.cyan}${task.taskName}${c.reset}`);
-      lines.push('');
-      lines.push(`  ${c.dim}Path:${c.reset}     ${task.projectDir}`);
-      lines.push(`  ${c.dim}Status:${c.reset}   ${statusColor}${statusText}${c.reset}`);
-      lines.push(`  ${c.dim}Progress:${c.reset} ${task.progress !== '—' ? c.green + task.progress + c.reset : c.dim + '—' + c.reset}`);
-      lines.push(`  ${c.dim}Last run:${c.reset} ${task.lastRun}`);
-
-      // Show criteria checklist
-      if (task.criteria && task.criteria.length > 0) {
-        lines.push('');
-        lines.push(`${c.bold}Checklist${c.reset}`);
-        lines.push('');
-        task.criteria.forEach(item => {
-          const check = item.done ? `${c.green}✓${c.reset}` : `${c.dim}○${c.reset}`;
-          const text = item.done ? `${c.dim}${item.text}${c.reset}` : item.text;
-          lines.push(`  ${check} ${text}`);
-        });
-      }
-
-      // Get terminal height for log display
-      const termHeight = process.stdout.rows || 24;
-      const criteriaLines = task.criteria ? task.criteria.length + 2 : 0;
-      const logLineCount = Math.max(3, termHeight - 14 - criteriaLines);
-
-      const logs = getTaskLogs(task, logLineCount);
-      const logTitle = isRunning ? `${c.bold}Live Log${c.reset} ${c.cyan}(tailing)${c.reset}` : `${c.bold}Recent Log${c.reset}`;
-      lines.push('');
-      lines.push(logTitle);
-      lines.push('');
-
-      if (logs.length > 0) {
-        const maxWidth = (process.stdout.columns || 80) - 4;
-        logs.forEach(line => {
-          const display = line.length > maxWidth ? line.slice(0, maxWidth - 1) + '…' : line;
-          lines.push(`  ${c.dim}${display}${c.reset}`);
-        });
-      } else {
-        lines.push(`  ${c.dim}No logs yet${c.reset}`);
-      }
-
-      lines.push('');
-      lines.push(`${c.dim}esc back · r run now · p pause · d done · x remove · q quit${c.reset}`);
-
-      process.stdout.write(home + lines.map(l => l + clearLine).join('\n') + clearBelow);
-    };
-
-    const startTailing = () => {
-      if (tailInterval) return;
-      tailInterval = setInterval(() => {
-        if (inDetailView) renderDetail();
-      }, 1000);
-    };
-
-    const stopTailing = () => {
-      if (tailInterval) {
-        clearInterval(tailInterval);
-        tailInterval = null;
-      }
-    };
-
-    const render = () => {
-      if (inDetailView) {
-        renderDetail();
-        // Start tailing if task is running
-        const task = tasks[selectedIdx];
-        let currentState = {};
-        try {
-          if (fs.existsSync(DAEMON_STATE_FILE)) {
-            currentState = JSON.parse(fs.readFileSync(DAEMON_STATE_FILE, 'utf8'));
-          }
-        } catch {}
-        if (currentState.running === task.taskBranch) {
-          startTailing();
-        } else {
-          stopTailing();
-        }
-      } else {
-        stopTailing();
-        renderList();
-      }
-    };
-
-    // Reload tasks list
-    const reloadTasks = () => {
-      const newTasks = loadTasks();
-      tasks.length = 0;
-      tasks.push(...newTasks);
-      // Adjust selectedIdx if needed
-      if (selectedIdx >= tasks.length) {
-        selectedIdx = Math.max(0, tasks.length - 1);
-      }
-    };
-
-    // Handle action
-    const doAction = async (action) => {
-      const task = tasks[selectedIdx];
-
-      if (action === 'run') {
-        // Run exits to hand over TTY
-        showCursor();
-        clearScreen();
-        if (process.stdin.isTTY) process.stdin.setRawMode(false);
-        process.stdin.pause();
-        console.log(`${c.cyan}▶${c.reset} Running ${c.bold}${task.taskName}${c.reset}...\n`);
-        try {
-          execSync(`agx claude -y -p "continue"`, { cwd: task.projectDir, stdio: 'inherit' });
-        } catch {}
-        process.exit(0);
-      } else if (action === 'pause') {
-        // Set status to paused
-        clearScreen();
-        console.log(`${c.yellow}⏸${c.reset} Pausing ${c.bold}${task.taskName}${c.reset}...`);
-        try {
-          execSync('mem set status paused', { cwd: task.projectDir, stdio: 'pipe' });
-          console.log(`${c.green}✓${c.reset} Paused`);
-        } catch (err) {
-          console.log(`${c.yellow}Note:${c.reset} ${err.message || 'Could not pause'}`);
-        }
-        await new Promise(r => setTimeout(r, 500));
-        inDetailView = false;
-        reloadTasks();
-        render();
-      } else if (action === 'done') {
-        // Set status to done
-        clearScreen();
-        console.log(`${c.green}✓${c.reset} Marking ${c.bold}${task.taskName}${c.reset} done...`);
-        try {
-          execSync('mem set status done', { cwd: task.projectDir, stdio: 'pipe' });
-          console.log(`${c.green}✓${c.reset} Done`);
-        } catch (err) {
-          console.log(`${c.yellow}Note:${c.reset} ${err.message || 'Error marking done'}`);
-        }
-        await new Promise(r => setTimeout(r, 500));
-        inDetailView = false;
-        reloadTasks();
-        render();
-      } else if (action === 'remove') {
-        clearScreen();
-        console.log(`${c.red}✗${c.reset} Removing ${c.bold}${task.taskName}${c.reset}...`);
-        const taskNameToRemove = task.taskName;
-        const branchName = task.taskBranch || `task/${taskNameToRemove}`;
-        try {
-          const memDir = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
-
-          // Delete the git branch
-          execSync(`git branch -D "${branchName}"`, { cwd: memDir, stdio: 'pipe' });
-
-          // Remove from index.json if present
-          const indexFile = path.join(memDir, 'index.json');
-          if (fs.existsSync(indexFile)) {
-            try {
-              const index = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
-              let changed = false;
-              for (const [dir, branch] of Object.entries(index)) {
-                if (branch === branchName) {
-                  delete index[dir];
-                  changed = true;
-                }
-              }
-              if (changed) {
-                fs.writeFileSync(indexFile, JSON.stringify(index, null, 2));
-              }
-            } catch {}
-          }
-
-          console.log(`${c.green}✓${c.reset} Deleted`);
-        } catch (err) {
-          console.log(`${c.yellow}Note:${c.reset} ${err.message || 'Error removing task'}`);
-        }
-        // Wait for git to settle, then manually remove from local array if still present
-        await new Promise(r => setTimeout(r, 300));
-        inDetailView = false;
-        reloadTasks();
-        // Double-check: filter out the removed task if it's still there
-        const stillPresent = tasks.findIndex(t => t.taskName === taskNameToRemove);
-        if (stillPresent !== -1) {
-          tasks.splice(stillPresent, 1);
-          if (selectedIdx >= tasks.length) {
-            selectedIdx = Math.max(0, tasks.length - 1);
-          }
-        }
-        if (tasks.length === 0) {
-          showCursor();
-          clearScreen();
-          console.log(`${c.dim}No tasks remaining${c.reset}`);
-          process.exit(0);
-        }
-        render();
-      }
-    };
-
-    // Setup raw input
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(true);
-      process.stdin.resume();
-      hideCursor();
-      render();
-
-      process.stdin.on('data', async (key) => {
-        const k = key.toString();
-
-        if (k === 'q' || k === '\x03') { // q or ctrl-c
-          stopTailing();
-          showCursor();
-          clearScreen();
-          if (process.stdin.isTTY) process.stdin.setRawMode(false);
-          process.exit(0);
-        } else if (k === '\x1b[A' || k === 'k') { // up or k
-          if (!inDetailView) {
-            selectedIdx = Math.max(0, selectedIdx - 1);
-            render();
-          }
-        } else if (k === '\x1b[B' || k === 'j') { // down or j
-          if (!inDetailView) {
-            selectedIdx = Math.min(tasks.length - 1, selectedIdx + 1);
-            render();
-          }
-        } else if (k === '\r' || k === '\n' || k === 'l' || k === '\x1b[C') { // enter, l, or right
-          inDetailView = true;
-          render();
-        } else if (k === '\x1b[D' || k === 'h' || (k === '\x1b' && k.length === 1)) { // left, h, or bare esc
-          inDetailView = false;
-          render();
-        } else if (k === 'r') {
-          await doAction('run');
-        } else if (k === 'p') {
-          await doAction('pause');
-        } else if (k === 'd') {
-          await doAction('done');
-        } else if (k === 'x') {
-          await doAction('remove');
-        }
-      });
-    } else {
-      // Non-interactive: just list
-      console.log(`${c.bold}Tasks${c.reset}\n`);
-      tasks.forEach((task, idx) => {
-        const statusIcon = task.status === 'running' ? `${c.cyan}▶${c.reset}`
-                         : task.status === 'active' ? `${c.green}●${c.reset}`
-                         : task.status === 'done' ? `${c.dim}✓${c.reset}`
-                         : `${c.yellow}○${c.reset}`;
-        const progressText = task.progress !== '—' ? ` ${c.green}${task.progress}${c.reset}` : '';
-        console.log(`${idx + 1}. ${statusIcon} ${task.taskName}${progressText}  ${c.dim}${task.status} · ${task.lastRun}${c.reset}`);
-      });
-      process.exit(0);
-    }
-    return true;
-  }
-
   // Daemon commands
   if (cmd === 'daemon') {
     const subcmd = args[1];
-    const isCloudMode = args.includes('--cloud');
     const isRealtimeMode = args.includes('--realtime');
 
     // agx daemon --realtime : Real-time daemon using Supabase Realtime (~100ms latency)
@@ -2959,29 +2555,25 @@ from the user about what to focus on or how to proceed.
       try {
         cloudConfig = JSON.parse(fs.readFileSync(cloudConfigPath, 'utf8'));
       } catch {
-        console.log(`${c.red}Not connected to cloud.${c.reset} Run: agx cloud login`);
+        console.log(`${c.red}Not connected to cloud.${c.reset} Run: agx login`);
         process.exit(1);
       }
 
       if (!cloudConfig.apiUrl || !cloudConfig.token) {
         console.log(`${c.yellow}Cloud not configured.${c.reset}`);
-        console.log(`${c.dim}Run: agx cloud login${c.reset}`);
+        console.log(`${c.dim}Run: agx login${c.reset}`);
         process.exit(1);
       }
 
       if (!cloudConfig.supabaseUrl || !cloudConfig.supabaseKey) {
         console.log(`${c.yellow}Realtime not configured.${c.reset}`);
-        console.log(`${c.dim}Run: agx cloud setup-realtime${c.reset}`);
+        console.log(`${c.dim}Run: agx login${c.reset}`);
         process.exit(1);
       }
 
-      // Load local config for engine preference
-      const localConfig = loadConfig() || {};
-      cloudConfig.engine = localConfig.defaultProvider || 'claude';
-
-      // Start realtime worker
-      const { RealtimeWorker } = require('./lib/realtime');
-      const worker = new RealtimeWorker(cloudConfig);
+      // Start realtime-capable worker (requires Supabase config)
+      const { AgxWorker } = require('./lib/worker');
+      const worker = new AgxWorker(cloudConfig);
 
       // Graceful shutdown
       process.on('SIGINT', async () => {
@@ -2999,29 +2591,33 @@ from the user about what to focus on or how to proceed.
       return true; // Never exits
     }
 
-    // agx daemon --cloud : Local execution daemon that pulls from cloud (polling mode)
-    if (isCloudMode || subcmd === 'cloud') {
+    // agx daemon : Local execution daemon (realtime if configured, polling fallback)
+    if (!subcmd || subcmd === 'run' || subcmd === 'start' || subcmd === 'stop' || subcmd === 'status' || subcmd === 'logs' || subcmd === 'tail' || subcmd === '--run') {
+      // fall through to subcommands handled below
+    }
+
+    if (subcmd === 'cloud') {
+      console.log(`${c.yellow}Note:${c.reset} ${c.cyan}agx daemon --cloud${c.reset} is no longer needed. Running in cloud mode.`);
+    }
+
+    if (!subcmd || subcmd === 'cloud' || subcmd === 'run') {
       const cloudConfigPath = path.join(CONFIG_DIR, 'cloud.json');
       let cloudConfig;
       try {
         cloudConfig = JSON.parse(fs.readFileSync(cloudConfigPath, 'utf8'));
       } catch {
-        console.log(`${c.red}Not connected to cloud.${c.reset} Run: agx cloud login`);
+        console.log(`${c.red}Not connected to cloud.${c.reset} Run: agx login`);
         process.exit(1);
       }
 
       if (!cloudConfig.apiUrl || !cloudConfig.token) {
         console.log(`${c.yellow}Cloud not configured.${c.reset}`);
-        console.log(`${c.dim}Run: agx cloud login${c.reset}`);
+        console.log(`${c.dim}Run: agx login${c.reset}`);
         process.exit(1);
       }
 
-      // Load local config for engine preference
-      const localConfig = loadConfig() || {};
-      cloudConfig.engine = localConfig.defaultProvider || 'claude';
       cloudConfig.pollIntervalMs = cloudConfig.pollIntervalMs || 10000;
 
-      // Start local worker (pulls from cloud, executes locally)
       const { AgxWorker } = require('./lib/worker');
       const worker = new AgxWorker(cloudConfig);
 
@@ -3086,9 +2682,9 @@ from the user about what to focus on or how to proceed.
       console.log(`  agx daemon logs       Show recent logs`);
       console.log(`  agx daemon tail       Live tail daemon logs`);
       console.log(`\n${c.bold}Cloud mode:${c.reset}`);
-      console.log(`  agx daemon --cloud    Pull from cloud via HTTP polling (~10s)`);
-      console.log(`  agx daemon --realtime Pull from cloud via Supabase Realtime (~100ms)`);
-      console.log(`\n${c.dim}Use --realtime for instant task dispatch. Requires: agx cloud setup-realtime${c.reset}`);
+      console.log(`  agx daemon            Default to realtime, fallback to polling`);
+      console.log(`  agx daemon --realtime Force Supabase Realtime (~100ms)`);
+      console.log(`\n${c.dim}Realtime config is fetched during agx login${c.reset}`);
       process.exit(0);
     }
     return true;
@@ -3098,710 +2694,1321 @@ from the user about what to focus on or how to proceed.
   // CLOUD COMMANDS - Sync with agx-cloud
   // ============================================================
 
-  const CLOUD_CONFIG_FILE = path.join(CONFIG_DIR, 'cloud.json');
+  // ============================================================
+  // DIRECT COMMANDS - No 'cloud' prefix needed
+  // ============================================================
 
-  function loadCloudConfig() {
+  // agx login [url]
+  if (cmd === 'login') {
+    const cloudUrl = args[1] || 'http://localhost:3000';
+    console.log(`${c.cyan}→${c.reset} Connecting to AGX Cloud...`);
+    console.log(`${c.dim}Cloud URL: ${cloudUrl}${c.reset}\n`);
+
     try {
-      if (fs.existsSync(CLOUD_CONFIG_FILE)) {
-        return JSON.parse(fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8'));
+      // 1. Request Device Code
+      const deviceRes = await fetch(`${cloudUrl}/api/auth/device/code`, { method: 'POST' });
+      if (!deviceRes.ok) {
+        let detail = deviceRes.statusText || '';
+        try {
+          const payload = await deviceRes.json();
+          detail = payload?.error || payload?.message || detail;
+        } catch {
+          try {
+            const text = await deviceRes.text();
+            if (text) detail = text;
+          } catch { }
+        }
+        throw new Error(`Failed to init device flow: ${detail || `HTTP ${deviceRes.status}`}`);
       }
-    } catch {}
-    return null;
-  }
+      const deviceData = await deviceRes.json();
 
-  function saveCloudConfig(config) {
-    if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-    fs.writeFileSync(CLOUD_CONFIG_FILE, JSON.stringify(config, null, 2));
-  }
+      console.log(`${c.bold}First, configure your device:${c.reset}`);
+      console.log(`\n  ${c.cyan}${c.bold}${deviceData.user_code}${c.reset}\n`);
+      console.log(`Open this URL in your browser:\n  ${c.blue}${deviceData.verification_uri}${c.reset}\n`);
 
-  async function cloudRequest(method, endpoint, body = null) {
-    const config = loadCloudConfig();
-    if (!config?.apiUrl || !config?.token) {
-      throw new Error('Not logged in to cloud. Run: agx cloud login');
-    }
+      // Try to open browser automatically
+      try {
+        if (process.platform === 'darwin') execSync(`open "${deviceData.verification_uri_complete || deviceData.verification_uri}"`);
+        else if (process.platform === 'linux') execSync(`xdg-open "${deviceData.verification_uri_complete || deviceData.verification_uri}"`);
+        else if (process.platform === 'win32') execSync(`start "${deviceData.verification_uri_complete || deviceData.verification_uri}"`);
+      } catch { /* ignore */ }
 
-    const url = `${config.apiUrl}${endpoint}`;
-    const options = {
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.token}`,
-        'x-user-id': config.userId || '',
-      },
-    };
-    if (body) options.body = JSON.stringify(body);
+      // 2. Poll for token
+      process.stdout.write('Waiting for approval...');
 
-    const response = await fetch(url, options);
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.error || `HTTP ${response.status}`);
-    }
-    return data;
-  }
+      const interval = (deviceData.interval || 5) * 1000;
+      let tokenData = null;
 
-  if (cmd === 'cloud') {
-    const subcmd = args[1];
+      while (!tokenData) {
+        await new Promise(r => setTimeout(r, interval));
 
-    // agx cloud login [url]
-    if (subcmd === 'login') {
-      const cloudUrl = args[2] || 'http://localhost:3333';
-      console.log(`${c.cyan}→${c.reset} Connecting to AGX Cloud...`);
-      console.log(`${c.dim}Cloud URL: ${cloudUrl}${c.reset}\n`);
+        const pollRes = await fetch(`${cloudUrl}/api/auth/device/token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ device_code: deviceData.device_code })
+        });
 
-      // For now, manual token entry (full OAuth would need a local server)
-      const token = await prompt('Paste your API token (from cloud dashboard): ');
-      if (!token) {
-        console.log(`${c.red}Cancelled${c.reset}`);
+        const data = await pollRes.json();
+
+        if (pollRes.ok && data.access_token) {
+          tokenData = data;
+          process.stdout.write(`\n${c.green}✓${c.reset} Approved!\n`);
+          break;
+        }
+
+        if (data.error === 'authorization_pending') {
+          process.stdout.write('.');
+          continue;
+        }
+
+        if (data.error === 'slow_down') {
+          await new Promise(r => setTimeout(r, 5000));
+          continue;
+        }
+
+        if (data.error === 'expired_token') {
+          console.log(`\n${c.red}✗${c.reset} Code expired. Please try again.`);
+          process.exit(1);
+        }
+
+        if (data.error === 'access_denied') {
+          console.log(`\n${c.red}✗${c.reset} Access denied.`);
+          process.exit(1);
+        }
+
+        console.log(`\n${c.red}✗${c.reset} Error: ${data.error}`);
+        console.log(`\n${c.red}✗${c.reset} Failed to connect: ${err.message}`);
         process.exit(1);
       }
 
-      // Verify token
-      try {
-        const config = { apiUrl: cloudUrl.replace(/\/$/, ''), token };
-        saveCloudConfig(config);
+      // 3. Save Config
+      const config = {
+        apiUrl: cloudUrl.replace(/\/$/, ''),
+        token: tokenData.access_token,
+        refreshToken: tokenData.refresh_token
+      };
 
-        const auth = await cloudRequest('GET', '/api/auth/status');
-        if (auth.authenticated && auth.user) {
+      saveCloudConfig(config);
+
+      // Get user details
+      const authRes = await fetch(`${config.apiUrl}/api/auth/status`, {
+        headers: { 'Authorization': `Bearer ${config.token}` }
+      });
+
+      if (authRes.ok) {
+        const auth = await authRes.json();
+        if (auth.user) {
           config.userId = auth.user.id;
           config.userName = auth.user.name || auth.user.email;
           saveCloudConfig(config);
           console.log(`${c.green}✓${c.reset} Logged in as ${c.bold}${config.userName}${c.reset}`);
-        } else {
-          console.log(`${c.green}✓${c.reset} Connected to ${cloudUrl}`);
         }
+      }
 
-        // ========== SECURITY: Generate daemon secret ==========
-        console.log(`\n${c.cyan}→${c.reset} Setting up daemon security...`);
-        
-        const { setupDaemonSecret, loadSecurityConfig } = require('./lib/security');
-        const existingConfig = loadSecurityConfig();
-        
-        // Check if we already have a secret
-        if (existingConfig?.daemonSecret) {
-          const rotateAnswer = await prompt('Daemon secret already exists. Rotate it? (y/N): ');
-          if (rotateAnswer?.toLowerCase() === 'y' || rotateAnswer?.toLowerCase() === 'yes') {
-            const { secret, isNew } = await setupDaemonSecret({
-              force: true,
-              cloudApiUrl: config.apiUrl,
-              cloudToken: config.token,
-            });
-            console.log(`${c.green}✓${c.reset} Daemon secret rotated`);
-            console.log(`${c.dim}  Secret stored in ~/.agx/security.json${c.reset}`);
-          } else {
-            console.log(`${c.dim}  Keeping existing daemon secret${c.reset}`);
+      // Fetch Supabase realtime config (best-effort)
+      try {
+        const realtimeRes = await fetch(`${config.apiUrl}/api/realtime/config`, {
+          headers: { 'Authorization': `Bearer ${config.token}` }
+        });
+        if (realtimeRes.ok) {
+          const realtimeConfig = await realtimeRes.json();
+          const supabaseUrl = realtimeConfig.supabaseUrl || realtimeConfig.url;
+          const supabaseKey = realtimeConfig.supabaseKey || realtimeConfig.anonKey;
+          if (supabaseUrl && supabaseKey) {
+            config.supabaseUrl = supabaseUrl;
+            config.supabaseKey = supabaseKey;
+            saveCloudConfig(config);
+            console.log(`${c.green}✓${c.reset} Realtime configured`);
           }
         } else {
-          // Generate new secret
-          const { secret, isNew } = await setupDaemonSecret({
-            cloudApiUrl: config.apiUrl,
-            cloudToken: config.token,
-          });
-          console.log(`${c.green}✓${c.reset} Daemon secret generated`);
-          console.log(`${c.dim}  Secret stored in ~/.agx/security.json${c.reset}`);
+          console.log(`${c.dim}Realtime config not available (polling fallback will be used).${c.reset}`);
         }
-
-        console.log(`\n${c.green}Setup complete!${c.reset}`);
-        console.log(`${c.dim}Run: agx daemon --cloud  to start the local worker${c.reset}`);
-      } catch (err) {
-        console.log(`${c.red}✗${c.reset} Failed to connect: ${err.message}`);
-        process.exit(1);
-      }
-      process.exit(0);
-    }
-
-    // agx cloud logout
-    if (subcmd === 'logout') {
-      if (fs.existsSync(CLOUD_CONFIG_FILE)) {
-        fs.unlinkSync(CLOUD_CONFIG_FILE);
-      }
-      console.log(`${c.green}✓${c.reset} Logged out from cloud`);
-      process.exit(0);
-    }
-
-    // agx cloud status
-    if (subcmd === 'status') {
-      const config = loadCloudConfig();
-      if (!config) {
-        console.log(`${c.yellow}Not connected to cloud${c.reset}`);
-        console.log(`${c.dim}Run: agx cloud login [url]${c.reset}`);
-        process.exit(0);
-      }
-      console.log(`${c.bold}Cloud Status${c.reset}\n`);
-      console.log(`  URL:  ${config.apiUrl}`);
-      console.log(`  User: ${config.userName || '(anonymous)'}`);
-
-      // Fetch queue status
-      try {
-        const { tasks } = await cloudRequest('GET', '/api/tasks');
-        const queued = tasks.filter(t => t.status === 'queued').length;
-        const inProgress = tasks.filter(t => t.status === 'in_progress').length;
-        console.log(`\n  Tasks: ${tasks.length} total (${queued} queued, ${inProgress} in progress)`);
-      } catch (err) {
-        console.log(`\n  ${c.yellow}Could not fetch tasks:${c.reset} ${err.message}`);
-      }
-      process.exit(0);
-    }
-
-    // agx cloud push "<task description>" [--project <name>] [--priority <n>]
-    if (subcmd === 'push') {
-      const config = loadCloudConfig();
-      if (!config) {
-        console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
-        process.exit(1);
+      } catch {
+        console.log(`${c.dim}Realtime config fetch failed (polling fallback will be used).${c.reset}`);
       }
 
-      // Parse flags
-      let project = null, priority = null, engine = null;
-      const taskParts = [];
-      for (let i = 2; i < args.length; i++) {
-        if (args[i] === '--project' || args[i] === '-p') {
-          project = args[++i];
-        } else if (args[i] === '--priority' || args[i] === '-P') {
-          priority = parseInt(args[++i]);
-        } else if (args[i] === '--engine' || args[i] === '-e') {
-          engine = args[++i];
-        } else {
-          taskParts.push(args[i]);
-        }
-      }
+      // Generate daemon secret
+      console.log(`\n${c.cyan}→${c.reset} Setting up daemon security...`);
 
-      const taskDesc = taskParts.join(' ');
-      if (!taskDesc) {
-        console.log(`${c.yellow}Usage:${c.reset} agx cloud push "<task>" [--project name] [--priority n]`);
-        process.exit(1);
-      }
+      const { setupDaemonSecret, loadSecurityConfig } = require('./lib/security');
+      const existingConfig = loadSecurityConfig();
 
-      // Build markdown content
-      const frontmatter = ['status: queued', 'stage: ideation'];
-      if (project) frontmatter.push(`project: ${project}`);
-      if (priority) frontmatter.push(`priority: ${priority}`);
-      if (engine) frontmatter.push(`engine: ${engine}`);
-
-      const content = `---\n${frontmatter.join('\n')}\n---\n\n# ${taskDesc}\n`;
-
-      try {
-        const { task } = await cloudRequest('POST', '/api/tasks', { content });
-        console.log(`${c.green}✓${c.reset} Task pushed to cloud`);
-        console.log(`  ID: ${task.id}`);
-        console.log(`  Stage: ${task.stage || 'ideation'}`);
-        if (project) console.log(`  Project: ${project}`);
-      } catch (err) {
-        console.log(`${c.red}✗${c.reset} Failed to push: ${err.message}`);
-        process.exit(1);
-      }
-      process.exit(0);
-    }
-
-    // agx cloud pull [--engine <name>]
-    if (subcmd === 'pull') {
-      const config = loadCloudConfig();
-      if (!config) {
-        console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
-        process.exit(1);
-      }
-
-      let engine = null;
-      for (let i = 2; i < args.length; i++) {
-        if (args[i] === '--engine' || args[i] === '-e') {
-          engine = args[++i];
-        }
-      }
-
-      try {
-        const endpoint = engine ? `/api/queue?engine=${engine}` : '/api/queue';
-        const { task } = await cloudRequest('GET', endpoint);
-
-        if (!task) {
-          console.log(`${c.dim}No tasks in queue${c.reset}`);
-          process.exit(0);
-        }
-
-        console.log(`${c.green}✓${c.reset} Pulled task: ${c.bold}${task.title || 'Untitled'}${c.reset}`);
-        console.log(`  ID: ${task.id}`);
-        console.log(`  Stage: ${task.stage}`);
-        console.log(`  Engine: ${task.engine || 'auto'}`);
-        if (task.project) console.log(`  Project: ${task.project}`);
-
-        // Create local task via mem
-        const centralMem = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
-        if (fs.existsSync(centralMem)) {
-          try {
-            // Extract title from content
-            const title = task.title || 'cloud-task';
-            const provider = task.engine || 'claude';
-            execSync(`mem new "${title}" --provider ${provider} --dir "${process.cwd()}"`, {
-              cwd: process.cwd(),
-              stdio: 'pipe'
-            });
-            // Store cloud task ID for sync
-            spawnSync('mem', ['set', 'cloud_task_id', task.id], { cwd: process.cwd(), stdio: 'pipe' });
-            console.log(`\n${c.dim}Local task created. Run: agx ${provider}${c.reset}`);
-          } catch (memErr) {
-            console.log(`${c.dim}Note: Could not create local task: ${memErr.message}${c.reset}`);
-          }
-        }
-      } catch (err) {
-        console.log(`${c.red}✗${c.reset} Failed to pull: ${err.message}`);
-        process.exit(1);
-      }
-      process.exit(0);
-    }
-
-    // agx cloud sync
-    if (subcmd === 'sync') {
-      const config = loadCloudConfig();
-      if (!config) {
-        console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
-        process.exit(1);
-      }
-
-      console.log(`${c.cyan}→${c.reset} Syncing with cloud...`);
-
-      // Get cloud task ID from local task
-      let cloudTaskId = null;
-      try {
-        const result = spawnSync('mem', ['get', 'cloud_task_id'], {
-          cwd: process.cwd(),
-          encoding: 'utf8',
-          stdio: ['pipe', 'pipe', 'pipe']
-        });
-        if (result.status === 0 && result.stdout && !result.stdout.includes('Not set')) {
-          cloudTaskId = result.stdout.trim();
-        }
-      } catch {}
-
-      if (!cloudTaskId) {
-        console.log(`${c.yellow}No cloud task linked to this directory.${c.reset}`);
-        console.log(`${c.dim}Pull a task first: agx cloud pull${c.reset}`);
-        process.exit(1);
-      }
-
-      // Get local progress
-      let localProgress = '0%';
-      try {
-        const result = spawnSync('mem', ['get', 'progress'], {
-          cwd: process.cwd(),
-          encoding: 'utf8',
-          stdio: ['pipe', 'pipe', 'pipe']
-        });
-        if (result.status === 0 && result.stdout && !result.stdout.includes('Not set')) {
-          localProgress = result.stdout.trim();
-        }
-      } catch {}
-
-      // Sync to cloud (add log entry)
-      try {
-        await cloudRequest('POST', `/api/tasks/${cloudTaskId}/logs`, {
-          content: `[agx sync] Progress: ${localProgress} @ ${new Date().toISOString()}`
-        });
-        console.log(`${c.green}✓${c.reset} Synced progress to cloud: ${localProgress}`);
-      } catch (err) {
-        console.log(`${c.red}✗${c.reset} Sync failed: ${err.message}`);
-        process.exit(1);
-      }
-      process.exit(0);
-    }
-
-    // agx cloud list
-    if (subcmd === 'list' || subcmd === 'ls') {
-      const config = loadCloudConfig();
-      if (!config) {
-        console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
-        process.exit(1);
-      }
-
-      try {
-        const { tasks } = await cloudRequest('GET', '/api/tasks');
-        if (tasks.length === 0) {
-          console.log(`${c.dim}No tasks in cloud queue${c.reset}`);
-          process.exit(0);
-        }
-
-        console.log(`${c.bold}Cloud Tasks${c.reset} (${tasks.length})\n`);
-        for (const task of tasks) {
-          const statusIcon = {
-            queued: c.yellow + '○' + c.reset,
-            in_progress: c.blue + '●' + c.reset,
-            completed: c.green + '✓' + c.reset,
-            failed: c.red + '✗' + c.reset,
-          }[task.status] || '?';
-
-          console.log(`  ${statusIcon} ${task.title || 'Untitled'}`);
-          console.log(`    ${c.dim}${task.stage || 'ideation'} · ${task.engine || 'auto'} · ${task.id.slice(0, 8)}${c.reset}`);
-        }
-      } catch (err) {
-        console.log(`${c.red}✗${c.reset} Failed to list: ${err.message}`);
-        process.exit(1);
-      }
-      process.exit(0);
-    }
-
-    // agx cloud complete [--log "message"]
-    if (subcmd === 'complete' || subcmd === 'done') {
-      const config = loadCloudConfig();
-      if (!config) {
-        console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
-        process.exit(1);
-      }
-
-      // Get cloud task ID
-      let cloudTaskId = null;
-      try {
-        const result = spawnSync('mem', ['get', 'cloud_task_id'], {
-          cwd: process.cwd(),
-          encoding: 'utf8',
-          stdio: ['pipe', 'pipe', 'pipe']
-        });
-        if (result.status === 0 && result.stdout && !result.stdout.includes('Not set')) {
-          cloudTaskId = result.stdout.trim();
-        }
-      } catch {}
-
-      if (!cloudTaskId) {
-        console.log(`${c.yellow}No cloud task linked.${c.reset}`);
-        process.exit(1);
-      }
-
-      let log = null;
-      for (let i = 2; i < args.length; i++) {
-        if (args[i] === '--log' || args[i] === '-l') {
-          log = args[++i];
-        }
-      }
-
-      try {
-        const { task, newStage } = await cloudRequest('POST', '/api/queue/complete', {
-          taskId: cloudTaskId,
-          log: log || 'Stage completed via agx CLI',
-        });
-        console.log(`${c.green}✓${c.reset} Stage completed`);
-        console.log(`  New stage: ${newStage}`);
-        if (newStage === 'done') {
-          console.log(`  ${c.green}Task is now complete!${c.reset}`);
-        }
-      } catch (err) {
-        console.log(`${c.red}✗${c.reset} Failed: ${err.message}`);
-        process.exit(1);
-      }
-      process.exit(0);
-    }
-
-    // agx cloud watch - Real-time SSE stream
-    if (subcmd === 'watch') {
-      const config = loadCloudConfig();
-      if (!config) {
-        console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
-        process.exit(1);
-      }
-
-      console.log(`${c.cyan}→${c.reset} Watching for task updates... (Ctrl+C to stop)\n`);
-
-      // Use EventSource for SSE
-      const EventSource = require('eventsource');
-      const es = new EventSource(`${config.apiUrl}/api/tasks/stream`, {
-        headers: {
-          'Authorization': `Bearer ${config.token}`,
-        },
-      });
-
-      es.onopen = () => {
-        console.log(`${c.green}✓${c.reset} Connected to stream`);
-      };
-
-      es.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          const timestamp = new Date().toLocaleTimeString();
-          
-          if (data.type === 'connected' || data.type === 'subscribed') {
-            console.log(`${c.dim}[${timestamp}] ${data.type}${c.reset}`);
-          } else if (data.type === 'heartbeat') {
-            // Silent heartbeat
-          } else if (data.type === 'log') {
-            console.log(`${c.blue}[${timestamp}] LOG${c.reset} ${data.log?.content || '(empty)'}`);
-          } else if (data.type === 'INSERT') {
-            console.log(`${c.green}[${timestamp}] NEW${c.reset} ${data.task?.title || 'Untitled'} → ${data.task?.stage || 'ideation'}`);
-          } else if (data.type === 'UPDATE') {
-            console.log(`${c.yellow}[${timestamp}] UPD${c.reset} ${data.task?.title || 'Untitled'} → ${data.task?.stage || '?'} (${data.task?.status || '?'})`);
-          } else if (data.type === 'DELETE') {
-            console.log(`${c.red}[${timestamp}] DEL${c.reset} Task removed`);
-          }
-        } catch (err) {
-          console.log(`${c.dim}[raw] ${event.data}${c.reset}`);
-        }
-      };
-
-      es.onerror = (err) => {
-        console.log(`${c.red}✗${c.reset} Stream error: ${err.message || 'Connection lost'}`);
-        console.log(`${c.dim}Reconnecting...${c.reset}`);
-      };
-
-      // Handle Ctrl+C
-      process.on('SIGINT', () => {
-        console.log(`\n${c.dim}Closing stream...${c.reset}`);
-        es.close();
-        process.exit(0);
-      });
-
-      // Keep process alive
-      return true;
-    }
-
-    // agx cloud logs [taskId] [--follow]
-    if (subcmd === 'logs') {
-      const config = loadCloudConfig();
-      if (!config) {
-        console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
-        process.exit(1);
-      }
-
-      const follow = args.includes('--follow') || args.includes('-f');
-      let taskId = args.slice(2).find(a => !a.startsWith('-'));
-
-      // Try to get task ID from local mapping
-      if (!taskId) {
-        try {
-          const result = spawnSync('mem', ['get', 'cloud_task_id'], {
-            cwd: process.cwd(),
-            encoding: 'utf8',
-            stdio: ['pipe', 'pipe', 'pipe']
-          });
-          if (result.status === 0 && result.stdout && !result.stdout.includes('Not set')) {
-            taskId = result.stdout.trim();
-          }
-        } catch {}
-      }
-
-      if (!taskId) {
-        console.log(`${c.yellow}Usage:${c.reset} agx cloud logs [taskId] [--follow]`);
-        console.log(`${c.dim}Or run from a directory with a linked cloud task${c.reset}`);
-        process.exit(1);
-      }
-
-      // Fetch logs
-      try {
-        const { logs } = await cloudRequest('GET', `/api/tasks/${taskId}/logs`);
-        
-        if (logs.length === 0) {
-          console.log(`${c.dim}No logs yet${c.reset}`);
-        } else {
-          console.log(`${c.bold}Task Logs${c.reset} (${logs.length})\n`);
-          for (const log of logs) {
-            const time = new Date(log.created_at).toLocaleString();
-            console.log(`${c.dim}[${time}]${c.reset} ${log.content}`);
-          }
-        }
-
-        // If --follow, switch to SSE mode
-        if (follow) {
-          console.log(`\n${c.cyan}→${c.reset} Tailing logs... (Ctrl+C to stop)\n`);
-          
-          const EventSource = require('eventsource');
-          const es = new EventSource(`${config.apiUrl}/api/tasks/stream`, {
-            headers: { 'Authorization': `Bearer ${config.token}` },
-          });
-
-          es.onmessage = (event) => {
-            try {
-              const data = JSON.parse(event.data);
-              if (data.type === 'log' && data.log?.task_id === taskId) {
-                const time = new Date().toLocaleTimeString();
-                console.log(`${c.dim}[${time}]${c.reset} ${data.log.content}`);
-              }
-            } catch {}
-          };
-
-          es.onerror = () => {
-            console.log(`${c.dim}Reconnecting...${c.reset}`);
-          };
-
-          process.on('SIGINT', () => {
-            es.close();
-            process.exit(0);
-          });
-
-          return true;
-        }
-      } catch (err) {
-        console.log(`${c.red}✗${c.reset} Failed to fetch logs: ${err.message}`);
-        process.exit(1);
-      }
-      process.exit(0);
-    }
-
-    // agx cloud setup-realtime - Configure Supabase credentials for realtime mode
-    if (subcmd === 'setup-realtime') {
-      const config = loadCloudConfig();
-      if (!config) {
-        console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
-        process.exit(1);
-      }
-
-      console.log(`${c.bold}Setup Supabase Realtime${c.reset}\n`);
-      console.log(`${c.dim}Get these from your Supabase project settings → API${c.reset}\n`);
-
-      const supabaseUrl = await prompt('Supabase URL: ');
-      const supabaseKey = await prompt('Supabase anon key: ');
-
-      if (!supabaseUrl || !supabaseKey) {
-        console.log(`${c.red}Cancelled${c.reset}`);
-        process.exit(1);
-      }
-
-      config.supabaseUrl = supabaseUrl.trim();
-      config.supabaseKey = supabaseKey.trim();
-      saveCloudConfig(config);
-
-      console.log(`\n${c.green}✓${c.reset} Realtime configured!`);
-      console.log(`${c.dim}Now run: agx daemon --realtime${c.reset}`);
-      process.exit(0);
-    }
-
-    // agx cloud audit - View local audit log
-    if (subcmd === 'audit') {
-      const { readAuditLog, AUDIT_LOG_FILE } = require('./lib/security');
-      
-      // Parse flags
-      let limit = 20;
-      let taskId = null;
-      for (let i = 2; i < args.length; i++) {
-        if (args[i] === '--limit' || args[i] === '-n') {
-          limit = parseInt(args[++i]) || 20;
-        } else if (args[i] === '--task' || args[i] === '-t') {
-          taskId = args[++i];
-        }
-      }
-      
-      const entries = readAuditLog({ limit, taskId });
-      
-      if (entries.length === 0) {
-        console.log(`${c.dim}No audit log entries${c.reset}`);
-        console.log(`${c.dim}Log file: ${AUDIT_LOG_FILE}${c.reset}`);
-        process.exit(0);
-      }
-      
-      console.log(`${c.bold}Local Audit Log${c.reset} (${entries.length} entries)\n`);
-      
-      for (const entry of entries) {
-        const time = new Date(entry.timestamp).toLocaleString();
-        const actionColor = {
-          execute: c.cyan,
-          complete: c.green,
-          reject: c.red,
-          skip: c.yellow,
-        }[entry.action] || c.dim;
-        
-        const resultIcon = {
-          success: '✓',
-          failed: '✗',
-          rejected: '🚫',
-          skipped: '⏭',
-          pending: '...',
-        }[entry.result] || '?';
-        
-        console.log(`${c.dim}${time}${c.reset} ${actionColor}${entry.action}${c.reset} ${resultIcon}`);
-        console.log(`  Task: ${entry.title || entry.taskId?.slice(0, 8) || 'Unknown'}`);
-        if (entry.stage) console.log(`  Stage: ${entry.stage}`);
-        if (entry.signatureValid !== null) {
-          console.log(`  Signature: ${entry.signatureValid ? '✓ valid' : '✗ invalid'}`);
-        }
-        if (entry.dangerousOps?.detected) {
-          console.log(`  ${c.yellow}Dangerous: ${entry.dangerousOps.severity} - ${entry.dangerousOps.patterns.join(', ')}${c.reset}`);
-        }
-        if (entry.error) {
-          console.log(`  ${c.red}Error: ${entry.error}${c.reset}`);
-        }
-        console.log('');
-      }
-      process.exit(0);
-    }
-
-    // agx cloud security - Manage daemon security settings
-    if (subcmd === 'security') {
-      const securityCmd = args[2];
-      const { loadSecurityConfig, setupDaemonSecret, getDaemonSecret, SECURITY_CONFIG_FILE } = require('./lib/security');
-      
-      if (securityCmd === 'status') {
-        const config = loadSecurityConfig();
-        console.log(`${c.bold}Daemon Security Status${c.reset}\n`);
-        
-        if (config?.daemonSecret) {
-          console.log(`  ${c.green}✓${c.reset} Daemon secret: Configured`);
-          console.log(`    Created: ${config.secretCreatedAt || 'Unknown'}`);
-          if (config.secretRotatedAt) {
-            console.log(`    Rotated: ${config.secretRotatedAt}`);
-          }
-        } else {
-          console.log(`  ${c.yellow}⚠${c.reset} Daemon secret: Not configured`);
-          console.log(`    ${c.dim}Run: agx cloud login to generate${c.reset}`);
-        }
-        
-        console.log(`\n  Config: ${SECURITY_CONFIG_FILE}`);
-        process.exit(0);
-      }
-      
-      if (securityCmd === 'rotate') {
-        const config = loadCloudConfig();
-        if (!config) {
-          console.log(`${c.red}Not logged in.${c.reset} Run: agx cloud login`);
-          process.exit(1);
-        }
-        
-        const confirm = await prompt(`${c.yellow}Rotate daemon secret?${c.reset} This will invalidate all pending signed tasks. (y/N): `);
-        if (confirm?.toLowerCase() !== 'y' && confirm?.toLowerCase() !== 'yes') {
-          console.log(`${c.dim}Cancelled${c.reset}`);
-          process.exit(0);
-        }
-        
+      if (existingConfig?.daemonSecret) {
+        console.log(`${c.green}✓${c.reset} Using existing daemon secret`);
+        console.log(`${c.dim}  Run 'agx security rotate' only when you intentionally want to invalidate pending signed tasks${c.reset}`);
+      } else {
         const { secret, isNew } = await setupDaemonSecret({
-          force: true,
           cloudApiUrl: config.apiUrl,
           cloudToken: config.token,
         });
-        
-        console.log(`${c.green}✓${c.reset} Daemon secret rotated`);
+        console.log(`${c.green}✓${c.reset} Daemon secret generated`);
+        console.log(`${c.dim}  Secret stored in ~/.agx/security.json${c.reset}`);
+      }
+
+      console.log(`\n${c.green}Setup complete!${c.reset}`);
+      console.log(`${c.dim}Run: agx daemon  to start the local worker${c.reset}`);
+    } catch (err) {
+      console.log(`\n${c.red}✗${c.reset} Failed to connect: ${err.message}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  // agx logout
+  if (cmd === 'logout') {
+    if (fs.existsSync(CLOUD_CONFIG_FILE)) {
+      fs.unlinkSync(CLOUD_CONFIG_FILE);
+    }
+    console.log(`${c.green}✓${c.reset} Logged out from cloud`);
+    process.exit(0);
+  }
+
+  // agx status
+  if (cmd === 'status') {
+    const config = loadCloudConfig();
+    if (!config) {
+      console.log(`${c.yellow}Not connected to cloud${c.reset}`);
+      console.log(`${c.dim}Run: agx login [url]${c.reset}`);
+      process.exit(0);
+    }
+    console.log(`${c.bold}Cloud Status${c.reset}\n`);
+    console.log(`  URL:  ${config.apiUrl}`);
+    console.log(`  User: ${config.userName || '(anonymous)'}`);
+
+    // Fetch queue status
+    try {
+      const { tasks } = await cloudRequest('GET', '/api/tasks');
+      const queued = tasks.filter(t => t.status === 'queued').length;
+      const inProgress = tasks.filter(t => t.status === 'in_progress').length;
+      console.log(`\n  Tasks: ${tasks.length} total (${queued} queued, ${inProgress} in progress)`);
+    } catch (err) {
+      console.log(`\n  ${c.yellow}Could not fetch tasks:${c.reset} ${err.message}`);
+    }
+    process.exit(0);
+  }
+
+  // agx new "<task description>" [--project <name>] [--priority <n>] [--engine <name>]
+  if (cmd === 'new' || cmd === 'push') {
+    const config = loadCloudConfig();
+    if (!config) {
+      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      process.exit(1);
+    }
+
+    // Parse flags
+    let project = null, priority = null, engine = null, provider = null, model = null;
+    const taskParts = [];
+    for (let i = 1; i < args.length; i++) {
+      if (args[i] === '--project' || args[i] === '-p') {
+        project = args[++i];
+      } else if (args[i] === '--priority' || args[i] === '-P') {
+        priority = parseInt(args[++i]);
+      } else if (args[i] === '--engine' || args[i] === '-e') {
+        engine = args[++i];
+      } else if (args[i] === '--provider') {
+        provider = args[++i];
+      } else if (args[i] === '--model' || args[i] === '-m') {
+        model = args[++i];
+      } else {
+        taskParts.push(args[i]);
+      }
+    }
+
+    const taskDesc = taskParts.join(' ');
+    if (!taskDesc) {
+      console.log(`${c.yellow}Usage:${c.reset} agx new "<task>" [--project name] [--priority n] [--engine claude|gemini|ollama|codex]`);
+      process.exit(1);
+    }
+
+    // Build markdown content
+    const frontmatter = ['status: queued', 'stage: ideation'];
+    if (project) frontmatter.push(`project: ${project}`);
+    if (priority) frontmatter.push(`priority: ${priority}`);
+    if (engine) frontmatter.push(`engine: ${engine}`);
+    if (provider) frontmatter.push(`provider: ${provider}`);
+    if (model) frontmatter.push(`model: ${model}`);
+    if (!engine && provider) frontmatter.push(`engine: ${provider}`);
+
+    const content = `---\n${frontmatter.join('\n')}\n---\n\n# ${taskDesc}\n`;
+
+    try {
+      const { task } = await cloudRequest('POST', '/api/tasks', { content });
+      console.log(`${c.green}✓${c.reset} Task created`);
+      console.log(`  ID: ${task.id}`);
+      console.log(`  Stage: ${task.stage || 'ideation'}`);
+      if (project) console.log(`  Project: ${project}`);
+      console.log(`${c.dim}Use: agx ${task.engine || engine || 'claude'} --cloud-task ${task.id}${c.reset}`);
+    } catch (err) {
+      const message = err?.message || String(err);
+      console.log(`${c.red}✗${c.reset} Failed: ${message}`);
+      if (isClaimConflictMessage(message)) {
+        console.log(`${c.yellow}⏭${c.reset} Skipped: task already claimed by another worker`);
+        process.exit(1);
+      }
+      try {
+        if (logger) {
+          logger.log('error', `[run] failed: ${message}\n`);
+          await logger.flushAll();
+        }
+      } catch { }
+      try {
+        await patchTaskState(resolvedTaskId, { status: 'failed', completed_at: new Date().toISOString() });
+      } catch { }
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  // agx run <taskId>  (claim task and execute without changing stage)
+  // agx task run <taskId>  (Docker-style namespace alias)
+  if (cmd === 'run' || (cmd === 'task' && args[1] === 'run')) {
+    const config = loadCloudConfig();
+    if (!config) {
+      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      process.exit(1);
+    }
+
+    const runArgs = cmd === 'task' ? args.slice(1) : args;
+    let taskId = null;
+    let forceSwarm = false;
+    for (let i = 1; i < runArgs.length; i++) {
+      if (runArgs[i] === '--task' || runArgs[i] === '-t') {
+        taskId = runArgs[++i];
+      } else if (runArgs[i] === '--swarm') {
+        forceSwarm = true;
+      }
+    }
+    if (!taskId) {
+      taskId = runArgs.slice(1).find(a => !a.startsWith('-'));
+    }
+    if (!taskId) {
+      console.log(`${c.yellow}Usage:${c.reset} agx run <taskId> [--task <id>] [--swarm]`);
+      console.log(`${c.dim}   or:${c.reset} agx task run <taskId> [--task <id>] [--swarm]`);
+      process.exit(1);
+    }
+
+    let resolvedTaskId = null;
+    try {
+      resolvedTaskId = await resolveTaskId(taskId);
+    } catch (err) {
+      console.log(`${c.red}✗${c.reset} Failed to resolve task: ${err.message}`);
+      process.exit(1);
+    }
+
+    let logger = null;
+    try {
+      const task = await claimTaskWithQueuedRecovery(resolvedTaskId);
+      logger = createTaskLogger(resolvedTaskId);
+      logger.log('system', `[run] start ${new Date().toISOString()}\n`);
+      patchTaskState(resolvedTaskId, { status: 'in_progress', started_at: new Date().toISOString() });
+      const shouldSwarm = forceSwarm || task.swarm === true;
+      logRetryFlow('retry command', 'input', `forceSwarm=${forceSwarm}, task.swarm=${task?.swarm}`);
+      logRetryFlow('retry command', 'processing', `branching shouldSwarm=${shouldSwarm}`);
+      const MAX_FINAL_RESULT_CHARS = 8000;
+      const MARKER_TAIL_CHARS = 200;
+      let outputTail = '';
+      let outputTruncated = false;
+      let markerTail = '';
+      const completionMarkers = {
+        done: false,
+        blockedReason: null,
+        completeMessage: null
+      };
+
+      const appendOutputTail = (chunk) => {
+        if (!chunk) return;
+        const text = chunk.toString();
+        const combined = outputTail + text;
+        if (combined.length > MAX_FINAL_RESULT_CHARS) {
+          outputTail = combined.slice(-MAX_FINAL_RESULT_CHARS);
+          outputTruncated = true;
+        } else {
+          outputTail = combined;
+        }
+      };
+
+      const updateCompletionMarkers = (chunk) => {
+        if (!chunk) return;
+        const text = markerTail + chunk.toString();
+        let match;
+        const blockedRegex = /\[blocked:\s*([^\]\n]+)\]/gi;
+        while ((match = blockedRegex.exec(text)) !== null) {
+          const reason = (match[1] || '').trim();
+          if (reason) completionMarkers.blockedReason = reason;
+        }
+        const completeRegex = /\[complete:\s*([^\]\n]+)\]/gi;
+        while ((match = completeRegex.exec(text)) !== null) {
+          const message = (match[1] || '').trim();
+          if (message) completionMarkers.completeMessage = message;
+        }
+        if (/\[done\]/i.test(text)) {
+          completionMarkers.done = true;
+        }
+        markerTail = text.slice(-MARKER_TAIL_CHARS);
+      };
+
+      const buildCompletionPayload = (exitCode, overrides = {}) => {
+        const code = typeof exitCode === 'number' ? exitCode : 0;
+        const blockedReason = overrides.blockedReason || completionMarkers.blockedReason;
+        const completeMessage = overrides.completeMessage || completionMarkers.completeMessage;
+        const doneMarker = overrides.done ?? completionMarkers.done;
+
+        const overrideDecision = typeof overrides.decision === 'string' ? overrides.decision : '';
+        let decision = blockedReason ? 'blocked' : (code === 0 ? 'done' : 'failed');
+        if (['done', 'blocked', 'not_done', 'failed'].includes(overrideDecision)) {
+          decision = overrideDecision;
+        }
+        if (decision === 'done' && doneMarker === false && completeMessage) {
+          decision = 'done';
+        }
+
+        let explanation = overrides.explanation || blockedReason || '';
+        if (!explanation) {
+          explanation = decision === 'failed'
+            ? `Run failed with exit code ${code}.`
+            : 'Manual run completed via agx.';
+        }
+
+        let finalResult = overrides.finalResult || completeMessage || blockedReason || '';
+        if (!finalResult) {
+          const tail = outputTail.trim();
+          finalResult = tail || explanation;
+        }
+        if (outputTruncated && finalResult === outputTail.trim()) {
+          finalResult = `Output (truncated):\n${finalResult}`;
+        }
+
+        return {
+          decision,
+          final_result: finalResult,
+          explanation
+        };
+      };
+
+      const finalizeCloudCompletion = async (exitCode, overrides = {}) => {
+        logRetryFlow('finalizeCloudCompletion', 'input', `code=${exitCode}`);
+        const payload = buildCompletionPayload(exitCode, overrides);
+        try {
+          logRetryFlow('finalizeCloudCompletion', 'processing', `payload decision=${payload.decision}`);
+          await cloudRequest('POST', '/api/queue/complete', {
+            taskId: resolvedTaskId,
+            ...payload
+          });
+          logRetryFlow('finalizeCloudCompletion', 'output', 'completed');
+        } catch (err) {
+          logger.log('error', `[cloud] Failed to complete task: ${err.message || err}\n`);
+          logRetryFlow('finalizeCloudCompletion', 'output', `failed ${err?.message || err}`);
+        }
+        await postExecutionResultComment(resolvedTaskId, {
+          command: 'run',
+          mode: shouldSwarm ? 'swarm' : 'single',
+          exitCode,
+          payload
+        });
+      };
+      if (shouldSwarm) {
+        const swarmResult = await runSwarmLoop({ taskId: resolvedTaskId, task });
+        const code = typeof swarmResult === 'object' && swarmResult ? swarmResult.code : swarmResult;
+        const swarmDecision = typeof swarmResult === 'object' && swarmResult ? swarmResult.decision : null;
+        logger.log('system', `[run] end code=${code}\n`);
+        logRetryFlow('retry command', 'processing', 'swarm logger flush');
+        await logger.flushAll();
+        if (code !== 0) {
+          logRetryFlow('retry command', 'processing', 'swarm marking failed');
+          await patchTaskState(resolvedTaskId, { status: 'failed' });
+        }
+        logRetryFlow('retry command', 'processing', 'swarm marking completed');
+        await patchTaskState(resolvedTaskId, { completed_at: new Date().toISOString() });
+        await releaseTaskClaim(resolvedTaskId);
+        await finalizeCloudCompletion(code, {
+          decision: swarmDecision?.decision,
+          finalResult: swarmDecision?.final_result || swarmDecision?.summary || (code === 0 ? 'Swarm run completed.' : 'Swarm run failed.'),
+          explanation: swarmDecision?.explanation || swarmDecision?.summary || (code === 0 ? 'Swarm run completed via agx.' : 'Swarm run failed.')
+        });
+        process.exit(code || 0);
+      }
+
+      const resolvedProvider = task.provider || task.engine || config.defaultProvider || 'claude';
+      const singleResult = await runSingleAgentLoop({
+        taskId: resolvedTaskId,
+        task,
+        provider: resolvedProvider,
+        model: task.model,
+        logger,
+        onStdout: (data) => {
+          process.stdout.write(data);
+          appendOutputTail(data);
+          updateCompletionMarkers(data);
+        },
+        onStderr: (data) => {
+          process.stderr.write(data);
+          appendOutputTail(data);
+          updateCompletionMarkers(data);
+        }
+      });
+
+      const code = typeof singleResult === 'object' && singleResult ? singleResult.code : singleResult;
+      const singleDecision = typeof singleResult === 'object' && singleResult ? singleResult.decision : null;
+      logger.log('system', `[run] end code=${code}\n`);
+      logRetryFlow('retry command', 'processing', 'single logger flush');
+      await logger.flushAll();
+      if ((code || 0) !== 0 && !completionMarkers.blockedReason && singleDecision?.decision !== 'blocked') {
+        logRetryFlow('retry command', 'processing', 'single marking failed');
+        await patchTaskState(resolvedTaskId, { status: 'failed' });
+      }
+      logRetryFlow('retry command', 'processing', 'single marking completed');
+      await patchTaskState(resolvedTaskId, { completed_at: new Date().toISOString() });
+      await releaseTaskClaim(resolvedTaskId);
+      await finalizeCloudCompletion(code || 0, {
+        decision: singleDecision?.decision,
+        finalResult: singleDecision?.final_result || singleDecision?.summary,
+        explanation: singleDecision?.explanation || singleDecision?.summary
+      });
+      process.exit(code || 0);
+    } catch (err) {
+      const message = err?.message || String(err);
+      console.log(`${c.red}✗${c.reset} Failed: ${message}`);
+      try {
+        if (logger) {
+          logger.log('error', `[run] failed: ${message}\n`);
+          await logger.flushAll();
+        }
+      } catch { }
+      try {
+        await patchTaskState(resolvedTaskId, { status: 'failed', completed_at: new Date().toISOString() });
+        await releaseTaskClaim(resolvedTaskId);
+      } catch { }
+      process.exit(1);
+    }
+  }
+
+  // agx task reset <taskId>
+  if (cmd === 'reset' || (cmd === 'task' && args[1] === 'reset')) {
+    const config = loadCloudConfig();
+    if (!config) {
+      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      process.exit(1);
+    }
+
+    const runArgs = cmd === 'task' ? args.slice(1) : args;
+    let taskId = null;
+    for (let i = 1; i < runArgs.length; i++) {
+      if (runArgs[i] === '--task' || runArgs[i] === '-t') {
+        taskId = runArgs[++i];
+      }
+    }
+    if (!taskId) {
+      taskId = runArgs.slice(1).find(a => !a.startsWith('-'));
+    }
+    if (!taskId) {
+      console.log(`${c.yellow}Usage:${c.reset} agx task reset <taskId> [--task <id>]`);
+      process.exit(1);
+    }
+
+    let resolvedTaskId = null;
+    try {
+      resolvedTaskId = await resolveTaskId(taskId);
+    } catch (err) {
+      console.log(`${c.red}✗${c.reset} Failed to resolve task: ${err.message}`);
+      process.exit(1);
+    }
+
+    try {
+      await cloudRequest('PATCH', `/api/tasks/${resolvedTaskId}`, {
+        status: 'queued',
+        claimed_by: null,
+        claimed_at: null,
+        started_at: null,
+        completed_at: null,
+      });
+      const { task: refreshedTask } = await cloudRequest('GET', `/api/tasks/${resolvedTaskId}`);
+      const isQueued = refreshedTask?.status === 'queued';
+      const claimCleared = !refreshedTask?.claimed_by && !refreshedTask?.claimed_at;
+      const timestampsCleared = !refreshedTask?.started_at && !refreshedTask?.completed_at;
+
+      if (!isQueued || !claimCleared || !timestampsCleared) {
+        throw new Error(
+          `Reset verification failed (status=${refreshedTask?.status || 'unknown'}, ` +
+          `claimed_by=${refreshedTask?.claimed_by || 'null'}, ` +
+          `claimed_at=${refreshedTask?.claimed_at || 'null'}, ` +
+          `started_at=${refreshedTask?.started_at || 'null'}, ` +
+          `completed_at=${refreshedTask?.completed_at || 'null'})`
+        );
+      }
+
+      console.log(`${c.green}✓${c.reset} Task reset to queued`);
+      console.log(`${c.dim}  ID: ${resolvedTaskId}${c.reset}`);
+    } catch (err) {
+      console.log(`${c.red}✗${c.reset} Failed: ${err.message}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  // agx retry <taskId> [--task <id>] [--swarm]
+  if (cmd === 'retry' || (cmd === 'task' && args[1] === 'retry')) {
+    const config = loadCloudConfig();
+    if (!config) {
+      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      process.exit(1);
+    }
+
+    const runArgs = cmd === 'task' ? args.slice(1) : args;
+    retryFlowActive = true;
+    logRetryFlow('retry command', 'input', `cmd=${cmd}, args=${runArgs.slice(1).join(' ')}`);
+    let taskId = null;
+    let forceSwarm = false;
+    for (let i = 1; i < runArgs.length; i++) {
+      if (runArgs[i] === '--task' || runArgs[i] === '-t') {
+        taskId = runArgs[++i];
+      } else if (runArgs[i] === '--swarm') {
+        forceSwarm = true;
+      }
+    }
+    if (!taskId) {
+      taskId = runArgs.slice(1).find(a => !a.startsWith('-'));
+    }
+    if (!taskId) {
+      logRetryFlow('retry command', 'output', 'missing task id');
+      console.log(`${c.yellow}Usage:${c.reset} agx retry <taskId> [--task <id>] [--swarm]`);
+      console.log(`${c.dim}   or:${c.reset} agx task retry <taskId> [--task <id>] [--swarm]`);
+      process.exit(1);
+    }
+
+    let resolvedTaskId = null;
+    try {
+      resolvedTaskId = await resolveTaskId(taskId);
+    } catch (err) {
+      logRetryFlow('retry command', 'output', `resolveTaskId failed ${err.message}`);
+      console.log(`${c.red}✗${c.reset} Failed to resolve task: ${err.message}`);
+      process.exit(1);
+    }
+
+    try {
+      await cloudRequest('PATCH', `/api/tasks/${resolvedTaskId}`, {
+        status: 'queued',
+        claimed_by: null,
+        claimed_at: null,
+        started_at: null,
+        completed_at: null,
+      });
+    } catch (err) {
+      logRetryFlow('retry command', 'output', `reset failed ${err.message}`);
+      console.log(`${c.red}✗${c.reset} Failed to reset: ${err.message}`);
+      process.exit(1);
+    }
+
+    let logger = null;
+    try {
+      const task = await claimTaskWithQueuedRecovery(resolvedTaskId);
+      logger = createTaskLogger(resolvedTaskId);
+      logger.log('system', `[run] start ${new Date().toISOString()}\n`);
+      patchTaskState(resolvedTaskId, { status: 'in_progress', started_at: new Date().toISOString() });
+      const shouldSwarm = forceSwarm || task.swarm === true;
+      logRetryFlow('retry command', 'input', `forceSwarm=${forceSwarm}, task.swarm=${task?.swarm}`);
+      logRetryFlow('retry command', 'processing', `branching shouldSwarm=${shouldSwarm}`);
+      const MAX_FINAL_RESULT_CHARS = 8000;
+      const MARKER_TAIL_CHARS = 200;
+      let outputTail = '';
+      let outputTruncated = false;
+      let markerTail = '';
+      const completionMarkers = {
+        done: false,
+        blockedReason: null,
+        completeMessage: null
+      };
+
+      const appendOutputTail = (chunk) => {
+        if (!chunk) return;
+        const text = chunk.toString();
+        const combined = outputTail + text;
+        if (combined.length > MAX_FINAL_RESULT_CHARS) {
+          outputTail = combined.slice(-MAX_FINAL_RESULT_CHARS);
+          outputTruncated = true;
+        } else {
+          outputTail = combined;
+        }
+      };
+
+      const updateCompletionMarkers = (chunk) => {
+        if (!chunk) return;
+        const text = markerTail + chunk.toString();
+        let match;
+        const blockedRegex = /\[blocked:\s*([^\]\n]+)\]/gi;
+        while ((match = blockedRegex.exec(text)) !== null) {
+          const reason = (match[1] || '').trim();
+          if (reason) completionMarkers.blockedReason = reason;
+        }
+        const completeRegex = /\[complete:\s*([^\]\n]+)\]/gi;
+        while ((match = completeRegex.exec(text)) !== null) {
+          const message = (match[1] || '').trim();
+          if (message) completionMarkers.completeMessage = message;
+        }
+        if (/\[done\]/i.test(text)) {
+          completionMarkers.done = true;
+        }
+        markerTail = text.slice(-MARKER_TAIL_CHARS);
+      };
+
+      const buildCompletionPayload = (exitCode, overrides = {}) => {
+        const code = typeof exitCode === 'number' ? exitCode : 0;
+        const blockedReason = overrides.blockedReason || completionMarkers.blockedReason;
+        const completeMessage = overrides.completeMessage || completionMarkers.completeMessage;
+        const doneMarker = overrides.done ?? completionMarkers.done;
+
+        const overrideDecision = typeof overrides.decision === 'string' ? overrides.decision : '';
+        let decision = blockedReason ? 'blocked' : (code === 0 ? 'done' : 'failed');
+        if (['done', 'blocked', 'not_done', 'failed'].includes(overrideDecision)) {
+          decision = overrideDecision;
+        }
+        if (decision === 'done' && doneMarker === false && completeMessage) {
+          decision = 'done';
+        }
+
+        let explanation = overrides.explanation || blockedReason || '';
+        if (!explanation) {
+          explanation = decision === 'failed'
+            ? `Retry failed with exit code ${code}.`
+            : 'Manual retry completed via agx.';
+        }
+
+        let finalResult = overrides.finalResult || completeMessage || blockedReason || '';
+        if (!finalResult) {
+          const tail = outputTail.trim();
+          finalResult = tail || explanation;
+        }
+        if (outputTruncated && finalResult === outputTail.trim()) {
+          finalResult = `Output (truncated):\n${finalResult}`;
+        }
+
+        return {
+          decision,
+          final_result: finalResult,
+          explanation
+        };
+      };
+
+      const finalizeCloudCompletion = async (exitCode, overrides = {}) => {
+        logRetryFlow('finalizeCloudCompletion', 'input', `code=${exitCode}`);
+        const payload = buildCompletionPayload(exitCode, overrides);
+        try {
+          logRetryFlow('finalizeCloudCompletion', 'processing', `payload decision=${payload.decision}`);
+          await cloudRequest('POST', '/api/queue/complete', {
+            taskId: resolvedTaskId,
+            ...payload
+          });
+          logRetryFlow('finalizeCloudCompletion', 'output', 'completed');
+        } catch (err) {
+          logger.log('error', `[cloud] Failed to complete task: ${err.message || err}\n`);
+          logRetryFlow('finalizeCloudCompletion', 'output', `failed ${err?.message || err}`);
+        }
+        await postExecutionResultComment(resolvedTaskId, {
+          command: 'retry',
+          mode: shouldSwarm ? 'swarm' : 'single',
+          exitCode,
+          payload
+        });
+      };
+
+      if (shouldSwarm) {
+        const swarmResult = await runSwarmLoop({ taskId: resolvedTaskId, task });
+        const code = typeof swarmResult === 'object' && swarmResult ? swarmResult.code : swarmResult;
+        const swarmDecision = typeof swarmResult === 'object' && swarmResult ? swarmResult.decision : null;
+        logger.log('system', `[run] end code=${code}\n`);
+        logRetryFlow('retry command', 'processing', 'swarm logger flush');
+        await logger.flushAll();
+        if (code !== 0) {
+          logRetryFlow('retry command', 'processing', 'swarm marking failed');
+          await patchTaskState(resolvedTaskId, { status: 'failed' });
+        }
+        logRetryFlow('retry command', 'processing', 'swarm marking completed');
+        await patchTaskState(resolvedTaskId, { completed_at: new Date().toISOString() });
+        await releaseTaskClaim(resolvedTaskId);
+        await finalizeCloudCompletion(code, {
+          decision: swarmDecision?.decision,
+          finalResult: swarmDecision?.final_result || swarmDecision?.summary || (code === 0 ? 'Swarm retry completed.' : 'Swarm retry failed.'),
+          explanation: swarmDecision?.explanation || swarmDecision?.summary || (code === 0 ? 'Swarm retry completed via agx.' : 'Swarm retry failed.')
+        });
+        logRetryFlow('retry command', 'output', `exiting swarm code=${code || 0}`);
+        process.exit(code || 0);
+      }
+
+      const resolvedProvider = task.provider || task.engine || config.defaultProvider || 'claude';
+      const singleResult = await runSingleAgentLoop({
+        taskId: resolvedTaskId,
+        task,
+        provider: resolvedProvider,
+        model: task.model,
+        logger,
+        onStdout: (data) => {
+          process.stdout.write(data);
+          appendOutputTail(data);
+          updateCompletionMarkers(data);
+        },
+        onStderr: (data) => {
+          process.stderr.write(data);
+          appendOutputTail(data);
+          updateCompletionMarkers(data);
+        }
+      });
+
+      const code = typeof singleResult === 'object' && singleResult ? singleResult.code : singleResult;
+      const singleDecision = typeof singleResult === 'object' && singleResult ? singleResult.decision : null;
+      logger.log('system', `[run] end code=${code}\n`);
+      logRetryFlow('retry command', 'processing', 'single logger flush');
+      await logger.flushAll();
+      if ((code || 0) !== 0 && !completionMarkers.blockedReason && singleDecision?.decision !== 'blocked') {
+        logRetryFlow('retry command', 'processing', 'single marking failed');
+        await patchTaskState(resolvedTaskId, { status: 'failed' });
+      }
+      logRetryFlow('retry command', 'processing', 'single marking completed');
+      await patchTaskState(resolvedTaskId, { completed_at: new Date().toISOString() });
+      await releaseTaskClaim(resolvedTaskId);
+      await finalizeCloudCompletion(code || 0, {
+        decision: singleDecision?.decision,
+        finalResult: singleDecision?.final_result || singleDecision?.summary,
+        explanation: singleDecision?.explanation || singleDecision?.summary
+      });
+      logRetryFlow('retry command', 'output', `exiting single code=${code || 0}`);
+      process.exit(code || 0);
+    } catch (err) {
+      const message = err?.message || String(err);
+      logRetryFlow('retry command', 'output', `failed ${message}`);
+      console.log(`${c.red}✗${c.reset} Failed: ${message}`);
+      if (isClaimConflictMessage(message)) {
+        console.log(`${c.yellow}⏭${c.reset} Skipped: task already claimed by another worker`);
+        process.exit(1);
+      }
+      try {
+        await patchTaskState(resolvedTaskId, { status: 'failed', completed_at: new Date().toISOString() });
+        await releaseTaskClaim(resolvedTaskId);
+      } catch { }
+      process.exit(1);
+    }
+  }
+
+  // agx task ls [-a]  (Docker-style namespace)
+  if ((cmd === 'task' && args[1] === 'ls') || cmd === 'list' || cmd === 'ls' || cmd === 'tasks') {
+    const showAll = args.includes('-a') || args.includes('--all');
+    const config = loadCloudConfig();
+    if (!config) {
+      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      process.exit(1);
+    }
+
+    try {
+      const { tasks } = await cloudRequest('GET', '/api/tasks');
+      if (tasks.length === 0) {
+        console.log(`${c.dim}No tasks in queue${c.reset}`);
         process.exit(0);
       }
-      
-      // Default: show security help
-      console.log(`${c.bold}agx cloud security${c.reset} - Manage daemon security\n`);
-      console.log(`  agx cloud security status    Show security configuration`);
-      console.log(`  agx cloud security rotate    Rotate daemon secret`);
+
+      saveTaskCache(tasks);
+
+      console.log(`${c.bold}Tasks${c.reset} (${tasks.length})\n`);
+      let idx = 1;
+      for (const task of tasks) {
+        const statusIcon = {
+          queued: c.yellow + '○' + c.reset,
+          in_progress: c.blue + '●' + c.reset,
+          completed: c.green + '✓' + c.reset,
+          failed: c.red + '✗' + c.reset,
+        }[task.status] || '?';
+
+        console.log(`  ${c.dim}${idx}.${c.reset} ${statusIcon} ${task.slug || 'task'}`);
+        const displayProvider = task.swarm
+          ? (task.engine || task.provider || 'auto')
+          : (task.provider || task.engine || 'auto');
+        const displayModel = task.swarm
+          ? (task.model || '')
+          : (task.model || '');
+        const modelSuffix = displayModel ? `/${displayModel}` : '';
+        const swarmSuffix = task.swarm ? ' (swarm)' : '';
+        console.log(`    ${c.dim}${task.stage || 'ideation'} · ${displayProvider}${modelSuffix}${swarmSuffix} · ${task.id.slice(0, 8)}${c.reset}`);
+        idx++;
+      }
+    } catch (err) {
+      console.log(`${c.red}✗${c.reset} Failed: ${err.message}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  // agx complete <taskId> [--log "message"]
+  if (cmd === 'complete' || cmd === 'done') {
+    const config = loadCloudConfig();
+    if (!config) {
+      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      process.exit(1);
+    }
+
+    let taskId = null;
+    for (let i = 1; i < args.length; i++) {
+      if (args[i] === '--task' || args[i] === '-t') {
+        taskId = args[++i];
+      }
+    }
+    if (!taskId) {
+      taskId = args.slice(1).find(a => !a.startsWith('-'));
+    }
+    if (!taskId) {
+      console.log(`${c.yellow}Usage:${c.reset} agx complete <taskId> [--log "message"] [--task <id>]`);
+      process.exit(1);
+    }
+
+    let log = null;
+    for (let i = 1; i < args.length; i++) {
+      if (args[i] === '--log' || args[i] === '-l') {
+        log = args[++i];
+      }
+    }
+
+    try {
+      const { task, newStage } = await cloudRequest('POST', '/api/queue/complete', {
+        taskId,
+        log: log || 'Stage completed via agx CLI',
+      });
+      await cloudRequest('PATCH', `/api/tasks/${task?.id || taskId}`, {
+        claimed_by: null,
+        claimed_at: null,
+      });
+      console.log(`${c.green}✓${c.reset} Stage completed`);
+      console.log(`  New stage: ${newStage}`);
+      if (newStage === 'done') {
+        console.log(`  ${c.green}Task is now complete!${c.reset}`);
+      }
+    } catch (err) {
+      console.log(`${c.red}✗${c.reset} Failed: ${err.message}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  // agx watch - Real-time SSE stream
+  if (cmd === 'watch') {
+    const config = loadCloudConfig();
+    if (!config) {
+      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      process.exit(1);
+    }
+
+    console.log(`${c.cyan}→${c.reset} Watching for task updates... (Ctrl+C to stop)\n`);
+
+    // Use EventSource for SSE
+    const EventSource = require('eventsource');
+    const es = new EventSource(`${config.apiUrl}/api/tasks/stream`, {
+      headers: {
+        'Authorization': `Bearer ${config.token}`,
+      },
+    });
+
+    es.onopen = () => {
+      console.log(`${c.green}✓${c.reset} Connected to stream`);
+    };
+
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        const timestamp = new Date().toLocaleTimeString();
+
+        if (data.type === 'connected' || data.type === 'subscribed') {
+          console.log(`${c.dim}[${timestamp}] ${data.type}${c.reset}`);
+        } else if (data.type === 'heartbeat') {
+          // Silent heartbeat
+        } else if (data.type === 'log') {
+          console.log(`${c.blue}[${timestamp}] LOG${c.reset} ${data.log?.content || '(empty)'}`);
+        } else if (data.type === 'INSERT') {
+          console.log(`${c.green}[${timestamp}] NEW${c.reset} ${data.task?.title || 'Untitled'} → ${data.task?.stage || 'ideation'}`);
+        } else if (data.type === 'UPDATE') {
+          console.log(`${c.yellow}[${timestamp}] UPD${c.reset} ${data.task?.title || 'Untitled'} → ${data.task?.stage || '?'} (${data.task?.status || '?'})`);
+        } else if (data.type === 'DELETE') {
+          console.log(`${c.red}[${timestamp}] DEL${c.reset} Task removed`);
+        }
+      } catch (err) {
+        console.log(`${c.dim}[raw] ${event.data}${c.reset}`);
+      }
+    };
+
+    es.onerror = (err) => {
+      console.log(`${c.red}✗${c.reset} Stream error: ${err.message || 'Connection lost'}`);
+      console.log(`${c.dim}Reconnecting...${c.reset}`);
+    };
+
+    // Handle Ctrl+C
+    process.on('SIGINT', () => {
+      console.log(`\n${c.dim}Closing stream...${c.reset}`);
+      es.close();
+      process.exit(0);
+    });
+
+    // Keep process alive
+    return true;
+  }
+
+  // agx task logs <taskId> [--follow] (Docker-style namespace)
+  if ((cmd === 'task' && args[1] === 'logs') || cmd === 'logs') {
+    const config = loadCloudConfig();
+    if (!config) {
+      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      process.exit(1);
+    }
+
+    // Adjust args for task namespace
+    const logArgs = cmd === 'task' ? args.slice(2) : args.slice(1);
+    const follow = logArgs.includes('--follow') || logArgs.includes('-f');
+    let taskId = null;
+    for (let i = 0; i < logArgs.length; i++) {
+      if (logArgs[i] === '--task' || logArgs[i] === '-t') {
+        taskId = logArgs[++i];
+      }
+    }
+    if (!taskId) {
+      taskId = logArgs.find(a => !a.startsWith('-'));
+    }
+
+    if (!taskId) {
+      console.log(`${c.yellow}Usage:${c.reset} agx task logs <taskId> [--follow] [--task <id>]`);
+      process.exit(1);
+    }
+
+    // Fetch logs
+    try {
+      const { logs } = await cloudRequest('GET', `/api/tasks/${taskId}/logs`);
+
+      if (logs.length === 0) {
+        console.log(`${c.dim}No logs yet${c.reset}`);
+      } else {
+        console.log(`${c.bold}Task Logs${c.reset} (${logs.length})\n`);
+        for (const log of logs) {
+          const time = new Date(log.created_at).toLocaleString();
+          console.log(`${c.dim}[${time}]${c.reset} ${log.content}`);
+        }
+      }
+
+      // If --follow, switch to SSE mode
+      if (follow) {
+        console.log(`\n${c.cyan}→${c.reset} Tailing logs... (Ctrl+C to stop)\n`);
+
+        const EventSource = require('eventsource');
+        const es = new EventSource(`${config.apiUrl}/api/tasks/stream`, {
+          headers: { 'Authorization': `Bearer ${config.token}` },
+        });
+
+        es.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'log' && data.log?.task_id === taskId) {
+              const time = new Date().toLocaleTimeString();
+              console.log(`${c.dim}[${time}]${c.reset} ${data.log.content}`);
+            }
+          } catch { }
+        };
+
+        es.onerror = () => {
+          console.log(`${c.dim}Reconnecting...${c.reset}`);
+        };
+
+        process.on('SIGINT', () => {
+          es.close();
+          process.exit(0);
+        });
+
+        return true;
+      }
+    } catch (err) {
+      console.log(`${c.red}✗${c.reset} Failed to fetch logs: ${err.message}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  // agx task stop <taskId> (Docker-style namespace)
+  if (cmd === 'task' && args[1] === 'stop') {
+    const config = loadCloudConfig();
+    if (!config) {
+      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      process.exit(1);
+    }
+
+    const taskId = args[2];
+    if (!taskId) {
+      console.log(`${c.yellow}Usage:${c.reset} agx task stop <taskId>`);
+      process.exit(1);
+    }
+
+    try {
+      await cloudRequest('POST', '/api/tasks/stop', { taskId });
+      console.log(`${c.green}✓${c.reset} Task stopped`);
+    } catch (err) {
+      console.log(`${c.red}✗${c.reset} Failed: ${err.message}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  // agx task rm <taskId> (Docker-style namespace)
+  if (cmd === 'task' && args[1] === 'rm') {
+    const config = loadCloudConfig();
+    if (!config) {
+      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      process.exit(1);
+    }
+
+    const taskId = args[2];
+    if (!taskId) {
+      console.log(`${c.yellow}Usage:${c.reset} agx task rm <taskId>`);
+      process.exit(1);
+    }
+
+    try {
+      await cloudRequest('DELETE', `/api/tasks/${taskId}`);
+      console.log(`${c.green}✓${c.reset} Task removed`);
+    } catch (err) {
+      console.log(`${c.red}✗${c.reset} Failed: ${err.message}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  // agx container ls (Docker-style namespace - list running daemons)
+  if (cmd === 'container' && args[1] === 'ls') {
+    const { execSync } = require('child_process');
+    try {
+      const result = execSync('pgrep -fl "agx.*daemon" 2>/dev/null || echo ""', { encoding: 'utf8' });
+      if (result.trim()) {
+        console.log(`${c.bold}Running Containers${c.reset}\n`);
+        console.log(result.trim());
+      } else {
+        console.log(`${c.dim}No running containers${c.reset}`);
+      }
+    } catch {
+      console.log(`${c.dim}No running containers${c.reset}`);
+    }
+    process.exit(0);
+  }
+
+  // agx container logs [name] (Docker-style namespace - daemon logs)
+  if (cmd === 'container' && args[1] === 'logs') {
+    const containerName = args[2];
+    const LOG_DIR = path.join(CONFIG_DIR, 'logs');
+
+    try {
+      if (containerName) {
+        const logFile = path.join(LOG_DIR, `${containerName}.log`);
+        if (fs.existsSync(logFile)) {
+          const logs = fs.readFileSync(logFile, 'utf8');
+          console.log(logs);
+        } else {
+          console.log(`${c.dim}No logs found for container: ${containerName}${c.reset}`);
+        }
+      } else {
+        // Show all logs if no container specified
+        if (!fs.existsSync(LOG_DIR)) {
+          console.log(`${c.dim}No logs directory${c.reset}`);
+          process.exit(0);
+        }
+        const logFiles = fs.readdirSync(LOG_DIR).filter(f => f.endsWith('.log'));
+        if (logFiles.length === 0) {
+          console.log(`${c.dim}No logs found${c.reset}`);
+          process.exit(0);
+        }
+        for (const file of logFiles) {
+          console.log(`${c.bold}${file}${c.reset}`);
+          const content = fs.readFileSync(path.join(LOG_DIR, file), 'utf8');
+          console.log(content);
+          console.log('');
+        }
+      }
+    } catch (err) {
+      console.log(`${c.red}✗${c.reset} Failed: ${err.message}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  // agx container stop (Docker-style namespace - stop daemon)
+  if (cmd === 'container' && args[1] === 'stop') {
+    const { execSync } = require('child_process');
+    try {
+      const result = execSync('pgrep -fl "agx.*daemon" 2>/dev/null || echo ""', { encoding: 'utf8' });
+      if (result.trim()) {
+        const pids = result.trim().split('\n').map(line => line.split(' ')[0]);
+        for (const pid of pids) {
+          execSync(`kill ${pid}`, { encoding: 'utf8' });
+        }
+        console.log(`${c.green}✓${c.reset} Container(s) stopped`);
+      } else {
+        console.log(`${c.dim}No running containers${c.reset}`);
+      }
+    } catch (err) {
+      console.log(`${c.red}✗${c.reset} Failed: ${err.message}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  // agx setup-realtime - Refresh Supabase credentials for realtime mode
+  if (cmd === 'setup-realtime') {
+    const config = loadCloudConfig();
+    if (!config) {
+      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      process.exit(1);
+    }
+
+    console.log(`${c.bold}Setup Supabase Realtime${c.reset}\n`);
+    console.log(`${c.dim}Fetching realtime config from cloud...${c.reset}\n`);
+
+    try {
+      const realtimeRes = await fetch(`${config.apiUrl}/api/realtime/config`, {
+        headers: { 'Authorization': `Bearer ${config.token}` }
+      });
+      if (!realtimeRes.ok) {
+        throw new Error(`HTTP ${realtimeRes.status}`);
+      }
+      const realtimeConfig = await realtimeRes.json();
+      const supabaseUrl = realtimeConfig.supabaseUrl || realtimeConfig.url;
+      const supabaseKey = realtimeConfig.supabaseKey || realtimeConfig.anonKey;
+      if (!supabaseUrl || !supabaseKey) {
+        throw new Error('Missing supabase config in response');
+      }
+
+      config.supabaseUrl = supabaseUrl;
+      config.supabaseKey = supabaseKey;
+      saveCloudConfig(config);
+
+      console.log(`\n${c.green}✓${c.reset} Realtime configured!`);
+      console.log(`${c.dim}Now run: agx daemon${c.reset}`);
+      process.exit(0);
+    } catch (err) {
+      console.log(`${c.red}✗${c.reset} Failed to fetch realtime config: ${err.message}`);
+      console.log(`${c.dim}Realtime will remain unavailable. Polling fallback is still supported.${c.reset}`);
+      process.exit(1);
+    }
+  }
+
+  // agx audit - View local audit log
+  if (cmd === 'audit') {
+    const { readAuditLog, AUDIT_LOG_FILE } = require('./lib/security');
+
+    // Parse flags
+    let limit = 20;
+    let taskId = null;
+    for (let i = 1; i < args.length; i++) {
+      if (args[i] === '--limit' || args[i] === '-n') {
+        limit = parseInt(args[++i]) || 20;
+      } else if (args[i] === '--task' || args[i] === '-t') {
+        taskId = args[++i];
+      }
+    }
+
+    const entries = readAuditLog({ limit, taskId });
+
+    if (entries.length === 0) {
+      console.log(`${c.dim}No audit log entries${c.reset}`);
+      console.log(`${c.dim}Log file: ${AUDIT_LOG_FILE}${c.reset}`);
       process.exit(0);
     }
 
-    // Default: show help
-    console.log(`${c.bold}agx cloud${c.reset} - Sync with AGX Cloud\n`);
-    console.log(`${c.bold}Auth:${c.reset}`);
-    console.log(`  agx cloud login [url]      Login to cloud (default: localhost:3333)`);
-    console.log(`  agx cloud logout           Logout from cloud`);
-    console.log(`  agx cloud status           Show connection status`);
-    console.log(`  agx cloud setup-realtime   Configure Supabase for realtime mode`);
-    console.log(`\n${c.bold}Tasks:${c.reset}`);
-    console.log(`  agx cloud list             List cloud tasks`);
-    console.log(`  agx cloud push "<task>"    Push task to cloud queue`);
-    console.log(`  agx cloud pull             Pull next task from queue`);
-    console.log(`  agx cloud sync             Sync local progress to cloud`);
-    console.log(`  agx cloud complete         Mark current stage complete`);
-    console.log(`\n${c.bold}Monitoring:${c.reset}`);
-    console.log(`  agx cloud watch            Watch task updates in real-time`);
-    console.log(`  agx cloud logs [id] [-f]   View/tail task logs`);
-    console.log(`\n${c.bold}Security:${c.reset}`);
-    console.log(`  agx cloud security status  Show security configuration`);
-    console.log(`  agx cloud security rotate  Rotate daemon secret`);
-    console.log(`  agx cloud audit            View local audit log`);
+    console.log(`${c.bold}Local Audit Log${c.reset} (${entries.length} entries)\n`);
+
+    for (const entry of entries) {
+      const time = new Date(entry.timestamp).toLocaleString();
+      const actionColor = {
+        execute: c.cyan,
+        complete: c.green,
+        reject: c.red,
+        skip: c.yellow,
+      }[entry.action] || c.dim;
+
+      const resultIcon = {
+        success: '✓',
+        failed: '✗',
+        rejected: '🚫',
+        skipped: '⏭',
+        pending: '...',
+      }[entry.result] || '?';
+
+      console.log(`${c.dim}${time}${c.reset} ${actionColor}${entry.action}${c.reset} ${resultIcon}`);
+      console.log(`  Task: ${entry.title || entry.taskId?.slice(0, 8) || 'Unknown'}`);
+      if (entry.stage) console.log(`  Stage: ${entry.stage}`);
+      if (entry.signatureValid !== null) {
+        console.log(`  Signature: ${entry.signatureValid ? '✓ valid' : '✗ invalid'}`);
+      }
+      if (entry.dangerousOps?.detected) {
+        console.log(`  ${c.yellow}Dangerous: ${entry.dangerousOps.severity} - ${entry.dangerousOps.patterns.join(', ')}${c.reset}`);
+      }
+      if (entry.error) {
+        console.log(`  ${c.red}Error: ${entry.error}${c.reset}`);
+      }
+      console.log('');
+    }
     process.exit(0);
   }
+
+  // agx security - Manage daemon security settings
+  if (cmd === 'security') {
+    const securityCmd = args[1];
+    const { loadSecurityConfig, setupDaemonSecret, SECURITY_CONFIG_FILE } = require('./lib/security');
+
+    if (securityCmd === 'status') {
+      const config = loadSecurityConfig();
+      console.log(`${c.bold}Daemon Security Status${c.reset}\n`);
+
+      if (config?.daemonSecret) {
+        console.log(`  ${c.green}✓${c.reset} Daemon secret: Configured`);
+        console.log(`    Created: ${config.secretCreatedAt || 'Unknown'}`);
+        if (config.secretRotatedAt) {
+          console.log(`    Rotated: ${config.secretRotatedAt}`);
+        }
+      } else {
+        console.log(`  ${c.yellow}⚠${c.reset} Daemon secret: Not configured`);
+        console.log(`    ${c.dim}Run: agx login to generate${c.reset}`);
+      }
+
+      console.log(`\n  Config: ${SECURITY_CONFIG_FILE}`);
+      process.exit(0);
+    }
+
+    if (securityCmd === 'rotate') {
+      const config = loadCloudConfig();
+      if (!config) {
+        console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+        process.exit(1);
+      }
+
+      const confirm = await prompt(`${c.yellow}Rotate daemon secret?${c.reset} This will invalidate all pending signed tasks. (y/N): `);
+      if (confirm?.toLowerCase() !== 'y' && confirm?.toLowerCase() !== 'yes') {
+        console.log(`${c.dim}Cancelled${c.reset}`);
+        process.exit(0);
+      }
+
+      const { secret, isNew } = await setupDaemonSecret({
+        force: true,
+        cloudApiUrl: config.apiUrl,
+        cloudToken: config.token,
+      });
+
+      console.log(`${c.green}✓${c.reset} Daemon secret rotated`);
+      process.exit(0);
+    }
+
+    // Default: show security help
+    console.log(`${c.bold}agx security${c.reset} - Manage daemon security\n`);
+    console.log(`  agx security status    Show security configuration`);
+    console.log(`  agx security rotate    Rotate daemon secret`);
+    process.exit(0);
+  }
+
 
   // Login command
   if (cmd === 'login') {
     const provider = args[1];
     if (!provider) {
       console.log(`${c.yellow}Usage:${c.reset} agx login <provider>`);
-      console.log(`${c.dim}Providers: claude, gemini, ollama${c.reset}`);
+      console.log(`${c.dim}Providers: claude, gemini, ollama, codex${c.reset}`);
       process.exit(1);
     }
-    if (!['claude', 'gemini', 'ollama'].includes(provider)) {
+    if (!['claude', 'gemini', 'ollama', 'codex'].includes(provider)) {
       console.log(`${c.red}Unknown provider:${c.reset} ${provider}`);
       process.exit(1);
     }
@@ -3824,10 +4031,10 @@ from the user about what to focus on or how to proceed.
     const provider = args[1];
     if (!provider) {
       console.log(`${c.yellow}Usage:${c.reset} agx add <provider>`);
-      console.log(`${c.dim}Providers: claude, gemini, ollama${c.reset}`);
+      console.log(`${c.dim}Providers: claude, gemini, ollama, codex${c.reset}`);
       process.exit(1);
     }
-    if (!['claude', 'gemini', 'ollama'].includes(provider)) {
+    if (!['claude', 'gemini', 'ollama', 'codex'].includes(provider)) {
       console.log(`${c.red}Unknown provider:${c.reset} ${provider}`);
       process.exit(1);
     }
@@ -3865,36 +4072,39 @@ from the user about what to focus on or how to proceed.
 (async () => {
   if (await checkOnboarding()) return;
 
-const args = process.argv.slice(2);
-let provider = args[0];
-const config = loadConfig();
+  const args = process.argv.slice(2);
+  let provider = args[0];
+  const config = loadConfig();
 
-// Normalize provider aliases
-const PROVIDER_ALIASES = {
-  'g': 'gemini',
-  'gem': 'gemini',
-  'gemini': 'gemini',
-  'c': 'claude',
-  'cl': 'claude',
-  'claude': 'claude',
-  'o': 'ollama',
-  'ol': 'ollama',
-  'ollama': 'ollama'
-};
+  // Normalize provider aliases
+  const PROVIDER_ALIASES = {
+    'g': 'gemini',
+    'gem': 'gemini',
+    'gemini': 'gemini',
+    'c': 'claude',
+    'cl': 'claude',
+    'claude': 'claude',
+    'x': 'codex',
+    'codex': 'codex',
+    'o': 'ollama',
+    'ol': 'ollama',
+    'ollama': 'ollama'
+  };
 
-const VALID_PROVIDERS = ['gemini', 'claude', 'ollama'];
+  const VALID_PROVIDERS = ['gemini', 'claude', 'ollama', 'codex'];
 
-// Handle help
-if (args.includes('--help') || args.includes('-h')) {
-  const defaultNote = config?.defaultProvider
-    ? `  Default: ${config.defaultProvider}`
-    : '';
-  console.log(`agx - Autonomous AI Agent CLI
+  // Handle help
+  if (args.includes('--help') || args.includes('-h')) {
+    const defaultNote = config?.defaultProvider
+      ? `  Default: ${config.defaultProvider}`
+      : '';
+    console.log(`agx - Autonomous AI Agent CLI
 
 USAGE:
   agx -a -p "build something"     Autonomous: works until done
   agx -p "quick question"         One-shot prompt
 ${defaultNote}
+
 AUTONOMOUS MODE (-a):
   One command does everything:
 
@@ -3911,524 +4121,447 @@ OPTIONS:
   -p, --prompt        The prompt/goal
   -y, --yolo          Skip prompts (implied by -a)
   -m, --model         Model name
+  --swarm             Run task via swarm (agx run)
 
 PROVIDERS:
   claude, c    Anthropic Claude Code
+  codex, x     OpenAI Codex
   gemini, g    Google Gemini
   ollama, o    Local Ollama
 
-CHECKING ON TASKS:
-  agx tasks           Browse all tasks
-  agx tail [task]     Live tail task log
-  agx status          Current task status
-  agx daemon logs     Daemon activity
+CLOUD:
+  agx login [url]        Login to cloud
+  agx new "<task>"       Create task in cloud
+  agx run <id|slug|#>    Claim and run a task
+  agx retry <id|slug|#>  Reset + retry a task
+  agx status             Show cloud status
+  agx complete <taskId>  Mark task stage complete
 
-MANUAL CONTROL (optional):
-  agx run [task]      Run task now
-  agx pause [task]    Pause scheduled runs
-  agx stop [task]     Mark done
-  agx stuck <reason>  Mark blocked
+CHECKING ON TASKS:
+  agx task ls           Browse cloud tasks
+  agx task run <id|slug|#>  Claim and run a task
+  agx task reset <id>   Reset a task to queued
+  agx task logs <id> -f View/tail task logs
+  agx task stop <id>    Stop a task
+  agx task rm <id>      Remove a task
+  agx container ls      List running containers
+  agx container logs    Daemon activity
 
 EXAMPLES:
   agx -a -p "Build a todo app"    # Start autonomous task
   agx claude -p "explain this"    # One-shot question
-  agx tasks                       # Check on tasks
-  agx daemon logs                 # See what's happening`);
-  process.exit(0);
-}
-
-// Detect if first arg is a provider or an option
-const isProviderArg = provider && PROVIDER_ALIASES[provider.toLowerCase()];
-
-// If no provider specified, use default from config
-if (!provider || (!isProviderArg && provider.startsWith('-'))) {
-  if (config?.defaultProvider) {
-    // Shift: treat current args as options, use default provider
-    if (provider && provider.startsWith('-')) {
-      // First arg is an option, not a provider
-      provider = config.defaultProvider;
-    } else if (!provider) {
-      provider = config.defaultProvider;
-    }
-  } else {
-    console.log(`${c.yellow}No provider specified and no default configured.${c.reset}`);
-    console.log(`\nRun ${c.cyan}agx init${c.reset} to set up, or specify a provider:\n`);
-    console.log(`  ${c.dim}agx claude --prompt "hello"${c.reset}`);
-    console.log(`  ${c.dim}agx gemini --prompt "hello"${c.reset}`);
-    console.log(`  ${c.dim}agx ollama --prompt "hello"${c.reset}\n`);
-    process.exit(1);
+  agx codex -p "refactor this"    # One-shot question
+  agx task ls               # Check cloud tasks
+  agx container logs         # See what's happening`);
+    process.exit(0);
   }
-}
 
-// Resolve provider
-const resolvedProvider = PROVIDER_ALIASES[provider.toLowerCase()];
-if (!resolvedProvider) {
-  console.error(`${c.red}Error:${c.reset} Unknown provider "${provider}"`);
-  console.error(`Valid providers: ${VALID_PROVIDERS.join(', ')}`);
-  process.exit(1);
-}
-provider = resolvedProvider;
+  // Detect if first arg is a provider or an option
+  const isProviderArg = provider && PROVIDER_ALIASES[provider.toLowerCase()];
 
-// Determine remaining args - if first arg wasn't a provider, include it
-const remainingArgs = isProviderArg ? args.slice(1) : args;
-const translatedArgs = [];
-const rawArgs = [];
-let env = { ...process.env };
-
-// Split raw arguments at --
-const dashIndex = remainingArgs.indexOf('--');
-let processedArgs = remainingArgs;
-if (dashIndex !== -1) {
-  processedArgs = remainingArgs.slice(0, dashIndex);
-  rawArgs.push(...remainingArgs.slice(dashIndex + 1));
-}
-
-// Parsed options (explicit structure for predictability)
-const options = {
-  prompt: null,
-  model: null,
-  yolo: false,
-  print: false,
-  interactive: false,
-  sandbox: false,
-  debug: false,
-  mcp: null,
-  mem: null, // null = auto-detect, true = force on, false = force off
-  memDir: null,
-  autonomous: false,
-  taskName: null,
-  criteria: [],
-  daemon: false,
-  untilDone: false
-};
-
-// Collect positional args (legacy support, but --prompt is preferred)
-const positionalArgs = [];
-
-for (let i = 0; i < processedArgs.length; i++) {
-  const arg = processedArgs[i];
-  const nextArg = processedArgs[i + 1];
-
-  switch (arg) {
-    case '--prompt':
-    case '-p':
-      if (nextArg && !nextArg.startsWith('-')) {
-        options.prompt = nextArg;
-        i++;
+  // If no provider specified, use default from config
+  if (!provider || (!isProviderArg && provider.startsWith('-'))) {
+    if (config?.defaultProvider) {
+      // Shift: treat current args as options, use default provider
+      if (provider && provider.startsWith('-')) {
+        // First arg is an option, not a provider
+        provider = config.defaultProvider;
+      } else if (!provider) {
+        provider = config.defaultProvider;
       }
-      break;
-    case '--model':
-    case '-m':
-      if (nextArg && !nextArg.startsWith('-')) {
-        options.model = nextArg;
-        i++;
-      }
-      break;
-    case '--yolo':
-    case '-y':
-      options.yolo = true;
-      break;
-    case '--print':
-      options.print = true;
-      break;
-    case '--interactive':
-    case '-i':
-      options.interactive = true;
-      break;
-    case '--sandbox':
-    case '-s':
-      options.sandbox = true;
-      break;
-    case '--debug':
-    case '-d':
-      options.debug = true;
-      break;
-    case '--mcp':
-      if (nextArg && !nextArg.startsWith('-')) {
-        options.mcp = nextArg;
-        i++;
-      }
-      break;
-    case '--mem':
-      options.mem = true;
-      break;
-    case '--no-mem':
-      options.mem = false;
-      break;
-    case '--autonomous':
-    case '--auto':
-    case '-a':
-      options.autonomous = true;
-      options.mem = true;
-      options.yolo = true; // Autonomous = unattended, skip prompts
-      break;
-    case '--task':
-      if (nextArg && !nextArg.startsWith('-')) {
-        options.taskName = nextArg;
-        options.mem = true;
-        i++;
-      }
-      break;
-    case '--criteria':
-      if (nextArg && !nextArg.startsWith('-')) {
-        options.criteria.push(nextArg);
-        i++;
-      }
-      break;
-    case '--continue':
-      // Continue existing task (used by daemon)
-      if (nextArg && !nextArg.startsWith('-')) {
-        options.continueTask = nextArg;
-        options.mem = true;
-        options.yolo = true;
-        i++;
-      }
-      break;
-    case '--daemon':
-      options.daemon = true;
-      break;
-    case '--until-done':
-      options.untilDone = true;
-      options.daemon = true;
-      break;
-    default:
-      if (arg.startsWith('-')) {
-        // Unknown flag - pass through
-        translatedArgs.push(arg);
-      } else {
-        // Positional argument (legacy prompt support)
-        positionalArgs.push(arg);
-      }
-  }
-}
-
-// Determine final prompt: explicit --prompt takes precedence
-// When using --continue without a prompt, default to "continue"
-const finalPrompt = options.prompt || positionalArgs.join(' ') || (options.continueTask ? 'continue' : null);
-
-// Build command based on provider
-let command = '';
-
-// Apply common options to translatedArgs
-if (options.model) {
-  translatedArgs.push('--model', options.model);
-}
-if (options.debug) {
-  translatedArgs.push('--debug');
-}
-
-if (provider === 'gemini') {
-  command = 'gemini';
-
-  // Gemini-specific translations
-  if (options.yolo) translatedArgs.push('--yolo');
-  if (options.sandbox) translatedArgs.push('--sandbox');
-
-  // Gemini prompt handling
-  if (finalPrompt) {
-    if (options.print) {
-      translatedArgs.push('--prompt', finalPrompt);
-    } else if (options.interactive) {
-      translatedArgs.push('--prompt-interactive', finalPrompt);
     } else {
-      translatedArgs.push(finalPrompt);
-    }
-  }
-} else if (provider === 'ollama') {
-  // Ollama uses its own CLI - APIs are incompatible with Claude
-  command = 'ollama';
-  translatedArgs.length = 0; // Clear any accumulated args
-  
-  // Get model from options or config
-  const ollamaModel = options.model || config?.ollama?.model || 'llama3.2:3b';
-  translatedArgs.push('run', ollamaModel);
-  
-  // Ollama handles prompt via stdin for non-interactive mode
-  // For interactive, we still run but let user type
-  options.ollamaPrompt = finalPrompt; // Store for later piping
-} else {
-  // Claude
-  command = 'claude';
-
-  // Claude-specific translations
-  if (options.yolo) translatedArgs.push('--dangerously-skip-permissions');
-  // Default to --print when prompt is provided and --interactive not specified
-  if (options.print || (finalPrompt && !options.interactive)) {
-    translatedArgs.push('--print');
-  }
-  if (options.mcp) translatedArgs.push('--mcp-config', options.mcp);
-
-  // Claude prompt (positional at end)
-  if (finalPrompt) {
-    translatedArgs.push(finalPrompt);
-  }
-}
-
-// Append raw args at the end
-translatedArgs.push(...rawArgs);
-
-// ==================== MEM INTEGRATION ====================
-
-// Mem context logic:
-// - agx -p "..." → one-shot, no task
-// - agx -a -p "..." → create new task
-// - agx -a --task <name> → use/create specific task
-// - agx --continue <name> → continue existing task (used by daemon)
-
-let memInfo = null;
-const centralMem = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
-
-// --continue: load existing task context (used by daemon)
-if (options.continueTask && options.mem !== false) {
-  const branch = `task/${options.continueTask}`;
-  if (fs.existsSync(centralMem)) {
-    try {
-      execSync(`git show-ref --verify refs/heads/${branch}`, { cwd: centralMem, stdio: 'ignore' });
-      memInfo = { memDir: centralMem, taskBranch: branch, projectDir: process.cwd(), isLocal: false };
-    } catch {
-      console.error(`${c.red}Task not found:${c.reset} ${options.continueTask}`);
+      console.log(`${c.yellow}No provider specified and no default configured.${c.reset}`);
+      console.log(`\nRun ${c.cyan}agx init${c.reset} to set up, or specify a provider:\n`);
+      console.log(`  ${c.dim}agx claude --prompt "hello"${c.reset}`);
+      console.log(`  ${c.dim}agx codex --prompt "hello"${c.reset}`);
+      console.log(`  ${c.dim}agx gemini --prompt "hello"${c.reset}`);
+      console.log(`  ${c.dim}agx ollama --prompt "hello"${c.reset}\n`);
       process.exit(1);
     }
   }
-}
-// -a with --task: use/create specific task
-else if (options.autonomous && options.taskName && options.mem !== false) {
-  if (fs.existsSync(centralMem)) {
-    const branch = `task/${options.taskName}`;
-    try {
-      execSync(`git show-ref --verify refs/heads/${branch}`, { cwd: centralMem, stdio: 'ignore' });
-      memInfo = { memDir: centralMem, taskBranch: branch, projectDir: process.cwd(), isLocal: false };
-    } catch {} // Task doesn't exist, will be created
-  }
-}
-// -a without --task: create new task (handled below)
 
-if (memInfo) {
-  options.mem = true;
-  options.memInfo = memInfo;
-  options.memDir = memInfo.memDir;
-}
-
-// Auto-create task if --autonomous or --task specified but no mem found
-if ((options.autonomous || options.taskName) && !options.memInfo && finalPrompt) {
-  const taskName = options.taskName || finalPrompt
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '')
-    .split(/\s+/)
-    .slice(0, 3)
-    .join('-');
-  
-  console.log(`${c.dim}[mem] Creating task: ${taskName}${c.reset}`);
-  
-  try {
-    // Build mem new command with criteria if provided
-    const criteriaArg = options.criteria.length
-      ? ` --criteria "${options.criteria.join(', ')}"`
-      : '';
-
-    // Use mem CLI to create task
-    execSync(`mem new "${taskName}" "${finalPrompt}"${criteriaArg}`, {
-      cwd: process.cwd(),
-      stdio: 'inherit'
-    });
-
-    const centralMem = path.join(process.env.HOME || process.env.USERPROFILE, '.mem');
-    const branch = `task/${taskName}`;
-
-    options.memDir = centralMem;
-    options.memInfo = { memDir: centralMem, taskBranch: branch, projectDir: process.cwd(), isLocal: false };
-
-    // Start daemon for autonomous mode
-    if (options.autonomous) {
-      startDaemon();
-      console.log(`${c.green}✓${c.reset} Autonomous mode: daemon running\n`);
-    }
-
-  } catch (err) {
-    console.error(`${c.yellow}Warning: Could not create task:${c.reset} ${err.message}`);
-  }
-}
-
-// Prepend mem context to prompt if mem is enabled
-if (options.mem && options.memInfo && finalPrompt) {
-  const context = loadMemContext(options.memInfo);
-  if (context) {
-    const taskInfo = options.memInfo.taskBranch || 'local';
-    console.log(`${c.dim}[mem] Loaded context: ${taskInfo} (${options.memInfo.projectDir})${c.reset}\n`);
-
-    // Pop nudges from mem (read and clear) - steering messages from user
-    let nudgesSection = '';
-    try {
-      const nudgesOut = execSync(`mem pop nudges --json`, {
-        cwd: options.memInfo.projectDir,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe']
-      });
-      const { value } = JSON.parse(nudgesOut);
-      if (value) {
-        const nudges = JSON.parse(value);
-        if (nudges.length > 0) {
-          console.log(`${c.yellow}📬 Nudges from user:${c.reset}`);
-          nudges.forEach(n => console.log(`  ${c.yellow}→${c.reset} ${n}`));
-          console.log('');
-          nudgesSection = `\n\n## 📬 Nudges from User\n\nThe user left these steering messages for you:\n\n${nudges.map(n => `- ${n}`).join('\n')}\n\n**Important:** Address these nudges in your work.\n`;
-        }
-      }
-    } catch {}
-
-    // Build augmented prompt with skill docs + context + workflow
-    const augmentedPrompt = `## mem - Persistent Agent Memory
-
-You have access to \`mem\` for tracking progress across sessions.
-
-### Commands Available
-\`\`\`bash
-mem context              # Load full state (already done - see below)
-mem checkpoint "msg"     # Save progress point
-mem learn "insight"      # Record a learning
-mem criteria <n>         # Mark criterion #n complete
-mem next "step"          # Set next step for future self
-mem done                 # Task complete (all criteria met)
-mem stuck "reason"       # Blocked, need human help
-\`\`\`
-
-### Agent Workflow
-1. Review context below (goal, criteria, progress, next step)
-2. Work on the current next step
-3. Use \`mem checkpoint\` to save progress periodically
-4. Use \`mem learn\` when you discover something useful
-5. Use \`mem criteria N\` when you complete a criterion
-6. Use \`mem next\` before stopping to guide your future self
-7. Only use \`mem done\` when ALL criteria are complete
-8. Only use \`mem stuck\` if you truly cannot proceed
-
----
-
-## Current Context
-
-${context}${nudgesSection}
-
----
-
-## Your Task
-
-${finalPrompt}
-
----
-
-## Output Markers (Alternative to CLI)
-
-You can also use inline markers that will be parsed automatically:
-
-- [checkpoint: message] - save progress point
-- [learn: insight] - record a learning
-- [next: step] - set what to work on next
-- [criteria: N] - mark criterion #N complete
-
-Stopping markers (only when appropriate):
-- [done] - task complete (all criteria met)
-- [blocked: reason] - need human help
-
-The default is to keep working. The daemon will continue automatically.`;
-
-    // Replace the prompt in translatedArgs
-    const promptIndex = translatedArgs.indexOf(finalPrompt);
-    if (promptIndex !== -1) {
-      translatedArgs[promptIndex] = augmentedPrompt;
-    }
-  }
-}
-
-// Run with mem output capture or normal mode
-if (options.mem && options.memDir) {
-  // Capture output for marker parsing
-  // Ollama needs stdin for prompt; others inherit
-  const stdinMode = (provider === 'ollama' && options.ollamaPrompt) ? 'pipe' : 'inherit';
-  const child = spawn(command, translatedArgs, {
-    env,
-    stdio: [stdinMode, 'pipe', 'inherit'],
-    shell: false
-  });
-  
-  // Send prompt to Ollama via stdin
-  if (provider === 'ollama' && options.ollamaPrompt && child.stdin) {
-    child.stdin.write(options.ollamaPrompt);
-    child.stdin.end();
-  }
-  
-  let output = '';
-  
-  child.stdout.on('data', (data) => {
-    const text = data.toString();
-    output += text;
-    process.stdout.write(text);
-  });
-  
-  child.on('exit', async (code) => {
-    // Parse and apply mem markers
-    const markers = parseMemMarkers(output);
-    
-    if (markers.length > 0) {
-      console.log(`\n${c.dim}[mem] Processing markers...${c.reset}`);
-      const result = applyMemMarkers(markers, options.memInfo || { memDir: options.memDir, projectDir: process.cwd() });
-      
-      // Create subtasks if any
-      if (result.splits.length > 0) {
-        createSubtasks(result.splits, options.memInfo || { memDir: options.memDir, projectDir: process.cwd() });
-      }
-      
-      // Handle approvals
-      if (result.approvals.length > 0) {
-        const approved = await handleApprovals(result.approvals);
-        if (!approved) {
-          console.log(`${c.yellow}Workflow halted. Resume later.${c.reset}`);
-          process.exit(1);
-        }
-      }
-      
-      // Handle loop control
-      if (result.isDone) {
-        console.log(`\n${c.green}✓ Task complete!${c.reset}`);
-        try {
-          execSync('mem set status done', { cwd: process.cwd(), stdio: 'ignore' });
-          console.log(`${c.dim}Task marked done.${c.reset}`);
-        } catch {}
-        process.exit(0);
-      } else if (result.isBlocked) {
-        console.log(`\n${c.yellow}⚠ Task blocked. Human intervention needed.${c.reset}`);
-        console.log(`${c.dim}Task paused. Run 'agx resume' when ready.${c.reset}`);
-        process.exit(1);
-      } else if (options.untilDone) {
-        // Local loop mode: wait and run again
-        console.log(`\n${c.cyan}▶ Continuing in 10s...${c.reset}`);
-        setTimeout(() => {
-          const { spawnSync } = require('child_process');
-          spawnSync(process.argv[0], process.argv.slice(1), { stdio: 'inherit' });
-        }, 10000);
-        return;
-      } else {
-        // Default: daemon will continue automatically
-        console.log(`\n${c.dim}Progress saved. Daemon will continue automatically.${c.reset}`);
-      }
-    }
-    
-    process.exit(code || 0);
-  });
-  
-  child.on('error', (err) => {
-    if (err.code === 'ENOENT') {
-      console.error(`${c.red}Error:${c.reset} "${command}" command not found.`);
-    } else {
-      console.error(`${c.red}Failed to start ${command}:${c.reset}`, err.message);
-    }
+  // Resolve provider
+  const resolvedProvider = PROVIDER_ALIASES[provider.toLowerCase()];
+  if (!resolvedProvider) {
+    console.error(`${c.red}Error:${c.reset} Unknown provider "${provider}"`);
+    console.error(`Valid providers: ${VALID_PROVIDERS.join(', ')}`);
     process.exit(1);
-  });
-} else {
-  // Normal mode
-  // Ollama with prompt: pipe stdin for prompt, inherit stdout/stderr
-  // Ollama without prompt (interactive): inherit all
-  // Others: inherit all
-  const useOllamaPipe = provider === 'ollama' && options.ollamaPrompt;
+  }
+  provider = resolvedProvider;
+
+  // Determine remaining args - if first arg wasn't a provider, include it
+  const remainingArgs = isProviderArg ? args.slice(1) : args;
+  const translatedArgs = [];
+  const rawArgs = [];
+  let env = { ...process.env };
+
+  // Split raw arguments at --
+  const dashIndex = remainingArgs.indexOf('--');
+  let processedArgs = remainingArgs;
+  if (dashIndex !== -1) {
+    processedArgs = remainingArgs.slice(0, dashIndex);
+    rawArgs.push(...remainingArgs.slice(dashIndex + 1));
+  }
+
+  // Parsed options (explicit structure for predictability)
+  const options = {
+    prompt: null,
+    model: null,
+    yolo: false,
+    print: false,
+    interactive: false,
+    sandbox: false,
+    debug: false,
+    mcp: null,
+    cloud: null, // null = auto-detect, true = force on, false = force off
+    cloudTaskId: null,
+    autonomous: false,
+    daemon: false
+  };
+
+  // Collect positional args (legacy support, but --prompt is preferred)
+  const positionalArgs = [];
+
+  for (let i = 0; i < processedArgs.length; i++) {
+    const arg = processedArgs[i];
+    const nextArg = processedArgs[i + 1];
+
+    switch (arg) {
+      case '--prompt':
+      case '-p':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.prompt = nextArg;
+          i++;
+        }
+        break;
+      case '--model':
+      case '-m':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.model = nextArg;
+          i++;
+        }
+        break;
+      case '--yolo':
+      case '-y':
+        options.yolo = true;
+        break;
+      case '--print':
+        options.print = true;
+        break;
+      case '--interactive':
+      case '-i':
+        options.interactive = true;
+        break;
+      case '--sandbox':
+      case '-s':
+        options.sandbox = true;
+        break;
+      case '--debug':
+      case '-d':
+        options.debug = true;
+        break;
+      case '--mcp':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.mcp = nextArg;
+          i++;
+        }
+        break;
+      case '--autonomous':
+      case '--auto':
+      case '-a':
+        options.autonomous = true;
+        options.yolo = true; // Autonomous = unattended, skip prompts
+        break;
+      case '--cloud-task':
+        if (nextArg && !nextArg.startsWith('-')) {
+          options.cloudTaskId = nextArg;
+          i++;
+        }
+        break;
+      case '--daemon':
+        options.daemon = true;
+        break;
+      default:
+        if (arg.startsWith('-')) {
+          // Unknown flag - pass through
+          translatedArgs.push(arg);
+        } else {
+          // Positional argument (legacy prompt support)
+          positionalArgs.push(arg);
+        }
+    }
+  }
+
+  // Determine final prompt: explicit --prompt takes precedence
+  const finalPrompt = options.prompt || positionalArgs.join(' ');
+
+  // Build command based on provider
+  let command = '';
+
+  // Apply common options to translatedArgs
+  if (options.model) {
+    translatedArgs.push('--model', options.model);
+  }
+  if (options.debug) {
+    translatedArgs.push('--debug');
+  }
+
+  if (provider === 'gemini') {
+    command = 'gemini';
+
+    // Gemini-specific translations
+    if (options.yolo) translatedArgs.push('--yolo');
+    if (options.sandbox) translatedArgs.push('--sandbox');
+
+    // Gemini prompt handling
+    if (finalPrompt) {
+      if (options.print) {
+        translatedArgs.push('--prompt', finalPrompt);
+      } else if (options.interactive) {
+        translatedArgs.push('--prompt-interactive', finalPrompt);
+      } else {
+        translatedArgs.push(finalPrompt);
+      }
+    }
+  } else if (provider === 'codex') {
+    command = 'codex';
+
+    // Use non-interactive mode whenever this is a scripted invocation.
+    const shouldUseExec = options.cloudTaskId
+      || options.autonomous
+      || options.daemon
+      || options.print
+      || (finalPrompt && !options.interactive);
+    if (shouldUseExec) {
+      translatedArgs.unshift('exec');
+    }
+
+    if (finalPrompt) {
+      translatedArgs.push(finalPrompt);
+    }
+  } else if (provider === 'ollama') {
+    // Ollama now routes through Claude CLI with Ollama base URL
+    command = 'claude';
+    translatedArgs.length = 0; // Clear any accumulated args
+
+    // Environment variables for Ollama-via-Claude
+    env.ANTHROPIC_AUTH_TOKEN = 'ollama';
+    env.ANTHROPIC_BASE_URL = 'http://localhost:11434';
+    env.ANTHROPIC_API_KEY = '';
+
+    // Claude flags for Ollama compatibility
+    translatedArgs.push('--dangerously-skip-permissions');
+
+    // Get model from options or config
+    const ollamaModel = options.model || config?.ollama?.model || 'llama3.2:3b';
+    translatedArgs.push('--model', ollamaModel);
+
+    if (finalPrompt) {
+      translatedArgs.push('-p', finalPrompt);
+    }
+  } else {
+    // Claude
+    command = 'claude';
+
+    // Claude-specific translations
+    if (options.yolo) translatedArgs.push('--dangerously-skip-permissions');
+    // Default to --print when prompt is provided and --interactive not specified
+    if (options.print || (finalPrompt && !options.interactive)) {
+      translatedArgs.push('--print');
+    }
+    if (options.mcp) translatedArgs.push('--mcp-config', options.mcp);
+
+    // Claude prompt (positional at end)
+    if (finalPrompt) {
+      translatedArgs.push(finalPrompt);
+    }
+  }
+
+  // Append raw args at the end
+  translatedArgs.push(...rawArgs);
+
+  // ==================== CLOUD INTEGRATION ====================
+
+  // Cloud context logic:
+  // - agx -p "..." → one-shot, no task
+  // - agx -a -p "..." → create new task in cloud
+  // - agx --cloud-task <id> → continue cloud task (used by daemon)
+
+  const CLOUD_CONFIG_FILE = path.join(CONFIG_DIR, 'cloud.json');
+
+  function loadCloudConfig() {
+    try {
+      if (fs.existsSync(CLOUD_CONFIG_FILE)) {
+        return JSON.parse(fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8'));
+      }
+    } catch { }
+    return null;
+  }
+
+  async function cloudRequest(method, endpoint, body = null) {
+    const config = loadCloudConfig();
+    if (!config?.apiUrl || !config?.token) {
+      throw new Error('Not logged in to cloud. Run: agx login');
+    }
+
+    const url = `${config.apiUrl}${endpoint}`;
+    const fetchOptions = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.token}`,
+        'x-user-id': config.userId || '',
+      },
+    };
+    if (body) fetchOptions.body = JSON.stringify(body);
+
+    const response = await fetch(url, fetchOptions);
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    return data;
+  }
+
+  // --cloud-task: load existing task from cloud (used by daemon)
+  if (options.cloudTaskId) {
+    try {
+      const { task } = await cloudRequest('GET', `/api/tasks/${options.cloudTaskId}`);
+
+      // Build augmented prompt with task context
+      const plan = extractSection(task.content, 'Plan');
+      const todo = extractSection(task.content, 'Todo') || extractSection(task.content, 'TODO');
+      const checkpoints = extractSection(task.content, 'Checkpoints');
+      const learnings = extractSection(task.content, 'Learnings');
+
+      const { STAGE_CONFIG } = require('./lib/executor');
+      const stageKey = task?.stage || 'unknown';
+      const stagePrompt = STAGE_CONFIG[stageKey]?.prompt || 'No stage objective defined.';
+
+      let augmentedPrompt = task.prompt || `## Cloud Task Context
+
+You are continuing a cloud task. Here is the current state:
+
+Task ID: ${task.id}
+Title: ${task.title || 'Untitled'}
+Stage: ${task.stage || 'ideation'}
+Stage Objective: ${stagePrompt}
+Status: ${task.status || 'unknown'}
+
+${task.content ? `---\n${task.content}\n---` : ''}
+
+## Extracted State
+
+Goal: ${task.title || 'Untitled'}
+Plan: ${plan || '(none)'}
+Todo: ${todo || '(none)'}
+Checkpoints: ${checkpoints || '(none)'}
+Learnings: ${learnings || '(none)'}
+
+`;
+      if (!task.prompt && task.engine) {
+        augmentedPrompt += `Engine: ${task.engine}\n`;
+      }
+
+      augmentedPrompt += `
+## Instructions
+
+Continue working on this task. Use the cloud API to sync progress.
+
+To update the task:
+- [done] - Mark task complete
+- [complete: message] - Complete current stage
+- [log: message] - Add a log entry
+- [checkpoint: message] - Save progress checkpoint
+- [learn: insight] - Record a learning
+- [plan: text] - Update plan
+- [todo: text] - Update todo list
+
+${finalPrompt ? `Your specific task: ${finalPrompt}` : ''}
+`;
+
+      const promptIndex = translatedArgs.indexOf(finalPrompt);
+      if (promptIndex !== -1) {
+        translatedArgs[promptIndex] = augmentedPrompt;
+      } else {
+        translatedArgs.push(augmentedPrompt);
+      }
+
+      console.log(`${c.dim}[cloud] Loaded task: ${task.title || task.id}${c.reset}\n`);
+    } catch (err) {
+      console.error(`${c.red}Failed to load cloud task:${c.reset} ${err.message}`);
+      process.exit(1);
+    }
+  }
+
+  // Auto-create task in cloud if --autonomous specified
+  if (options.autonomous && finalPrompt && !options.cloudTaskId) {
+    console.log(`${c.dim}[cloud] Creating task...${c.reset}`);
+
+    try {
+      const cloudConfig = loadCloudConfig();
+      if (cloudConfig?.apiUrl && cloudConfig?.token) {
+        const frontmatter = ['status: queued', 'stage: ideation'];
+        frontmatter.push(`engine: ${provider}`);
+
+        const content = `---\n${frontmatter.join('\n')}\n---\n\n# ${finalPrompt}\n`;
+
+        const { task } = await cloudRequest('POST', '/api/tasks', { content });
+
+        console.log(`${c.green}✓${c.reset} Task created in cloud: ${task.id}`);
+        options.cloudTaskId = task.id;
+
+        // Update prompt with task context
+        const { STAGE_CONFIG } = require('./lib/executor');
+        const stageKey = task?.stage || 'unknown';
+        const stagePrompt = STAGE_CONFIG[stageKey]?.prompt || 'No stage objective defined.';
+
+        let augmentedPrompt = `## Cloud Task Context
+
+Task ID: ${task.id}
+Title: ${task.title || finalPrompt}
+Stage: ${task.stage}
+Stage Objective: ${stagePrompt}
+Status: ${task.status}
+
+---
+
+## Instructions
+
+You are starting a new autonomous task. Work until completion or blocked.
+
+To update the task:
+- [done] - Mark task complete
+- [complete: message] - Complete current stage
+- [log: message] - Add a log entry
+
+Goal: ${finalPrompt}
+`;
+
+        const promptIndex = translatedArgs.indexOf(finalPrompt);
+        if (promptIndex !== -1) {
+          translatedArgs[promptIndex] = augmentedPrompt;
+        } else {
+          translatedArgs.push(augmentedPrompt);
+        }
+
+        // Start daemon for autonomous mode
+        if (options.autonomous) {
+          startDaemon();
+          console.log(`${c.green}✓${c.reset} Autonomous mode: daemon running\n`);
+        }
+      } else {
+        console.log(`${c.yellow}Not connected to cloud. Run: agx login${c.reset}`);
+        console.log(`${c.dim}Task not created. Running in one-shot mode.${c.reset}`);
+      }
+    } catch (err) {
+      console.error(`${c.yellow}Warning: Could not create cloud task:${c.reset} ${err.message}`);
+      console.log(`${c.dim}Running in one-shot mode.${c.reset}`);
+    }
+  }
+
+  // Normal mode - just pass through to provider
+  const useOllamaPipe = provider === 'ollama' && options.ollamaPrompt && command === 'ollama';
   const child = spawn(command, translatedArgs, {
     env,
     stdio: useOllamaPipe ? ['pipe', 'inherit', 'inherit'] : 'inherit',
@@ -4462,6 +4595,5 @@ if (options.mem && options.memDir) {
     }
     process.exit(1);
   });
-}
 
 })();

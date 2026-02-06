@@ -1,6 +1,6 @@
 # agx
 
-Task orchestrator for autonomous AI agents. Uses `mem` for persistent memory across sessions.
+Task orchestrator for autonomous AI agents. Uses cloud API for persistent storage and task management.
 
 ```bash
 npm install -g @mndrk/agx
@@ -8,10 +8,10 @@ npm install -g @mndrk/agx
 
 ## Core Concept: Wake-Work-Sleep Cycle
 
-Agents have **no memory** between sessions. All continuity comes from `mem`:
+Agents have **no memory** between sessions. All continuity comes from the cloud API:
 
 ```
-WAKE → Load state → WORK → Save state → SLEEP → repeat
+WAKE -> Load state from cloud -> WORK -> Save state to cloud -> SLEEP -> repeat
 ```
 
 This enables truly autonomous operation across multiple sessions.
@@ -34,20 +34,37 @@ agx -a -p "Build a REST API with auth"
 
 ```bash
 agx new "<goal>"       # Create task
-agx run [task]         # Run task (loads context, wakes agent)
+agx run [task]         # Run task (loads context from cloud, wakes agent)
+agx run [task] --swarm # Run task via swarm
 agx tasks              # Interactive TUI - browse all tasks
 agx status             # Current task status
 agx context [task]     # View task context
-agx pause [task]       # Pause task
-agx remove [task]      # Delete task (alias: rm, delete)
-agx tail [task]        # Live tail logs
+```
+
+### Task Commands (Docker-style namespaces)
+
+```bash
+agx task ls           # List all tasks
+agx task logs <id>    # View task logs
+agx task stop <id>    # Stop a task
+agx task rm <id>      # Remove a task
+agx info <task>       # Get detailed task info
+agx complete <taskId> # Mark task stage as complete
+```
+
+### Container Commands (Docker-style namespaces)
+
+```bash
+agx container ls      # List running containers
+agx container logs    # View container logs
+agx container stop    # Stop container
 ```
 
 ### Interactive Tasks Browser
 
 `agx tasks` opens a TUI showing all tasks with status, progress, and last run time.
 
-Keys: `↑/↓` select, `enter` details, `r` run, `p` pause, `d` done, `x` remove
+Keys: `↑/↓` select, `enter` details, `r` run, `d` done
 
 ## Steering: Nudge a Task
 
@@ -58,62 +75,16 @@ agx nudge <task> "focus on auth first"    # Add nudge
 agx nudge <task>                          # View pending nudges
 ```
 
-Nudges are shown to the agent on wake and then cleared.
-
-## Memory Commands (via mem)
-
-Agents persist state using these commands:
-
-### Define Objective
-```bash
-mem goal "<objective>"        # Set/update goal
-mem criteria add "<text>"     # Add success criterion
-mem constraint add "<rule>"   # Add boundary/constraint
-```
-
-### Track Progress
-```bash
-mem next "<step>"             # Set what you're working on
-mem checkpoint "<msg>"        # Save progress point
-mem criteria <n>              # Mark criterion #n complete
-mem progress                  # Check progress %
-```
-
-### Learn & Adapt
-```bash
-mem learn "<insight>"         # Task-specific learning
-mem learn -g "<insight>"      # Global learning (all tasks)
-mem stuck "<reason>"          # Mark blocker
-mem stuck clear               # Clear blocker
-```
-
-### Build Playbook
-```bash
-mem learnings -g              # List global learnings
-mem promote <n>               # Promote learning to playbook
-mem playbook                  # View global playbook
-```
-
-### Query
-```bash
-mem context                   # Full context for agent
-mem history                   # Task progression
-mem query "<search>"          # Search all memory
-```
-
-### Complete
-```bash
-mem done                      # Mark task complete
-```
+Nudges are stored and shown to the agent on wake, then cleared.
 
 ## Agent Workflow
 
 When an agent wakes, it should:
 
 1. **Orient** - Read state (goal, criteria, progress, next step, nudges)
-2. **Plan** - Define criteria if missing, set intent with `mem next`
+2. **Plan** - Define criteria if missing, set intent via API
 3. **Execute** - Work toward criteria, save learnings
-4. **Checkpoint** - Save progress with `mem checkpoint`
+4. **Checkpoint** - Save progress
 5. **Adapt** - Handle blockers or ask user for nudge
 
 ## Daemon Mode
@@ -131,6 +102,7 @@ The daemon:
 - Polls continuously for active tasks
 - Runs up to 5 tasks in parallel
 - Logs to `~/.agx/logs/<taskname>.log`
+- Syncs all state with API
 
 ## One-Shot Mode
 
@@ -160,25 +132,27 @@ agx claude -p "refactor this function"
 
 ## Key Principles
 
-- **Memory is everything** - Agents forget between sessions. Save state.
+- **Persistent storage is everything** - Agents forget between sessions. Save state.
 - **Criteria drive completion** - No criteria = no way to know when done.
-- **Checkpoint often** - Sessions can die anytime.
+- **Checkpoint often** - Sessions can die anytime. Sync to API.
 - **Ask when stuck** - Get a nudge from the user vs. spinning.
-- **Learn & promote** - Build the playbook for future tasks.
+- **Learn & adapt** - Build knowledge for future tasks via API.
 
 ## Architecture
 
 ```
 agx (agent execution)
- ├── Uses mem CLI for all state operations
- ├── Nudges via: mem set/get/pop
- ├── Tasks via: mem tasks --json
- └── Context via: mem context --json
+ ├── Uses API for all state operations
+ ├── Task CRUD via: agx commands
+ ├── Nudges via: API
+ ├── Context via: agx info / context
+ └── Task orchestration: daemon polls API
 
-mem (storage layer)
- ├── Git-backed state in ~/.mem
- ├── Branch per task
- └── KV primitives (set/get/pop)
+API
+ ├── Task storage and retrieval
+ ├── State persistence (goal, criteria, progress)
+ ├── KV primitives (set/get/pop)
+ └── Task queue and scheduling
 ```
 
 ## License
