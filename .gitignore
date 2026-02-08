@@ -20,7 +20,13 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+agx.code-workspace
 
 # Debug logs
 npm-debug.log*
 yarn-debug.log*
+agx.log
+
+# Project specific
+cloud-runtime/
+docs/

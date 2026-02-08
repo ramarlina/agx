@@ -134,6 +134,14 @@ describe('AGX CLI Integration Tests', () => {
     });
   });
 
+  describe('Project Commands', () => {
+    test('agx project --help shows usage', () => {
+      const output = runAgx('project --help');
+      expect(output).toContain('agx project');
+      expect(output).toMatch(/Usage/);
+    });
+  });
+
   describe('Engine Selection', () => {
     test('agx -e claude shows claude option', () => {
       // Just verify the flag is accepted

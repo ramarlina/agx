@@ -1,6 +1,6 @@
-# /agx:daemon - Manage Background Daemon
+# /agx:daemon - Manage Local Cloud Worker
 
-Control the agx daemon that runs autonomous tasks.
+Control the agx daemon that polls AGX Cloud queue and executes tasks locally.
 
 ## Usage
 ```
@@ -22,6 +22,9 @@ agx daemon status
 # Start if needed
 agx daemon start
 
+# Set execution worker count
+agx daemon start -w 6
+
 # View logs
 agx daemon logs
 
@@ -31,6 +34,6 @@ agx daemon stop
 
 The daemon:
 - Runs in background (survives terminal close)
-- Wakes every 15 minutes
-- Continues work on active tasks
-- Stops tasks when they output [done] or [blocked]
+- Executes agent work locally with access to your machine
+- Uses AGX Cloud API for queue pull + stage completion
+- Also launches the embedded Temporal worker (`npm run daemon:temporal`); see `~/.agx/temporal.log` for its output.

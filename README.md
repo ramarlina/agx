@@ -53,6 +53,29 @@ agx info <task>       # Get detailed task info
 agx complete <taskId> # Mark task stage as complete
 ```
 
+## Projects
+
+Structured project metadata is managed entirely in the cloud. The CLI exposes the following helpers:
+
+```bash
+agx project list
+agx project get <project-id|slug>
+agx project create --name "<name>" [--slug <slug>] [--description "<text>"] [--ci "<info>"] \
+                 [--metadata key=value ...] [--repo '{"name":"app","path":"/src","git_url":"https://github.com/...","notes":"local"}']
+agx project update <project-id|slug> [--name "<name>"] [--slug <slug>] [--description "<text>"] \
+                 [--ci "<info>"] [--metadata key=value ...] [--repo ...]
+```
+
+Use `--metadata key=value` to attach arbitrary key/value decisions and `--repo` to describe repo paths or remote URLs. Every `agx project` command talks to the cloud `/api/projects` APIs so you always see your latest structured context.
+
+Link tasks to projects when you create them:
+
+```bash
+agx new "Build auth flow" --project-slug my-app --project-id 123e4567-e89b-12d3-a456-426614174000
+```
+
+`--project-slug` prefers the canonical slug for prompts, while `--project-id` records the structured reference; fall back to the legacy `--project` free-form title if you do not yet have a project slug.
+
 ### Container Commands (Docker-style namespaces)
 
 ```bash
@@ -106,6 +129,7 @@ The daemon:
 - Pulls tasks from AGX Cloud queue and executes locally
 - Reports stage results back to AGX Cloud
 - Logs to `~/.agx/daemon.log`
+- Starts the embedded Temporal worker (`npm run daemon:temporal`) and logs to `~/.agx/temporal.log`
 
 ## One-Shot Mode
 
@@ -129,6 +153,7 @@ agx claude -p "refactor this function"
 ```bash
 -a, --autonomous    # Full auto: create task + daemon + work until done
 -p, --prompt        # The prompt/goal
+--prompt-file       # Read prompt from file path (avoids argv size limits)
 -y, --yolo          # Skip confirmations
 --continue <task>   # Continue specific task
 ```
@@ -157,6 +182,13 @@ API
  ├── KV primitives (set/get/pop)
  └── Task queue and scheduling
 ```
+
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on our workflow.
+
+- **Bugs & Features:** Use [GitHub Issues](https://github.com/mndrk/agx/issues).
+- **Ideas & Questions:** Use [GitHub Discussions](https://github.com/mndrk/agx/discussions).
 
 ## License
 

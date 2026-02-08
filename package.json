@@ -2,11 +2,25 @@
   "name": "@mndrk/agx",
   "version": "1.4.9",
   "description": "Unified AI Agent Wrapper for Gemini, Claude, and Ollama",
-  "main": "index.js",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./cli": "./index.js",
+    "./package.json": "./package.json"
+  },
   "bin": {
     "agx": "./index.js"
   },
+  "files": [
+    "index.js",
+    "lib/**",
+    "commands/**",
+    "templates/**",
+    "cloud-runtime/**"
+  ],
   "scripts": {
+    "prepack": "node ./scripts/package-board-runtime.js",
+    "board:bundle": "node ./scripts/package-board-runtime.js",
     "test": "jest --forceExit",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage --forceExit",
@@ -31,7 +45,6 @@
     "url": "https://github.com/ramarlina/agx"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.95.1",
     "eventsource": "^4.1.0",
     "p-map": "^7.0.4",
     "p-retry": "^7.1.1"
