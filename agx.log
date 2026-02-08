@@ -1,0 +1,12 @@
+[retry-flow] retry command | input | cmd=task, args=for-agx-cloud-i-should-be-able-to-add-comments-t
+[retry-flow] resolveTaskId | input | taskId=for-agx-cloud-i-should-be-able-to-add-comments-t
+[retry-flow] resolveTaskId | processing | slug lookup
+[retry-flow] cloudRequest | input | method=GET, endpoint=/api/tasks?slug=for-agx-cloud-i-should-be-able-to-add-comments-t, body=none
+[retry-flow] loadCloudConfig | input | path=/Users/mendrika/.agx/cloud.json
+[retry-flow] loadCloudConfig | processing | file exists
+[retry-flow] loadCloudConfig | output | config loaded
+[retry-flow] cloudRequest | processing | url=http://localhost:3000/api/tasks?slug=for-agx-cloud-i-should-be-able-to-add-comments-t
+[retry-flow] cloudRequest | output | error HTTP 401
+[retry-flow] cloudRequest | output | exception Unauthorized
+[retry-flow] retry command | output | resolveTaskId failed Unauthorized
+[31m✗[0m Failed to resolve task: Unauthorized

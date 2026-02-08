@@ -46,6 +46,7 @@ agx context [task]     # View task context
 ```bash
 agx task ls           # List all tasks
 agx task logs <id>    # View task logs
+agx task tail <id>    # Tail task logs
 agx task stop <id>    # Stop a task
 agx task rm <id>      # Remove a task
 agx info <task>       # Get detailed task info
@@ -96,13 +97,15 @@ agx daemon start       # Start background daemon
 agx daemon stop        # Stop daemon
 agx daemon status      # Check if running
 agx daemon logs        # View logs
+
+# Execution concurrency:
+agx daemon start -w 4
 ```
 
 The daemon:
-- Polls continuously for active tasks
-- Runs up to 5 tasks in parallel
-- Logs to `~/.agx/logs/<taskname>.log`
-- Syncs all state with API
+- Pulls tasks from AGX Cloud queue and executes locally
+- Reports stage results back to AGX Cloud
+- Logs to `~/.agx/daemon.log`
 
 ## One-Shot Mode
 
@@ -146,7 +149,7 @@ agx (agent execution)
  ├── Task CRUD via: agx commands
  ├── Nudges via: API
  ├── Context via: agx info / context
- └── Task orchestration: daemon polls API
+ └── Task orchestration: Temporal workflows
 
 API
  ├── Task storage and retrieval

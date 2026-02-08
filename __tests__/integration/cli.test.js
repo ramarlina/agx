@@ -95,6 +95,11 @@ describe('AGX CLI Integration Tests', () => {
       const output = runAgx('list');
       expect(output).toBeTruthy();
     });
+
+    test('agx task tail command exists', () => {
+      const output = runAgx('task tail 2>&1');
+      expect(output).toBeTruthy();
+    });
   });
 
   describe('Direct Commands (no cloud prefix)', () => {
@@ -193,7 +198,7 @@ describe('AGX Daemon Tests', () => {
 
   test('daemon --help shows options', () => {
     const output = runAgx('daemon --help');
-    expect(output).toMatch(/daemon|worker|poll/i);
+    expect(output).toMatch(/daemon|worker|temporal/i);
   });
 
   test('daemon --dry-run validates without starting', () => {

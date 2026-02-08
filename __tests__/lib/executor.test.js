@@ -14,55 +14,47 @@ jest.mock('fs', () => ({
   mkdirSync: jest.fn(),
 }));
 
-const { executeTask, STAGE_CONFIG, ENGINES } = require('../../lib/executor');
+const { executeTask, ENGINES, resolveStageConfig } = require('../../lib/executor');
 
 describe('AGX Executor Module', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  describe('STAGE_CONFIG', () => {
-    const expectedStages = [
-      'ideation', 'planning', 'coding', 'qa', 'acceptance',
-      'pr', 'pr_review', 'merge', 'done'
-    ];
-
-    test('includes all 9 SDLC stages', () => {
-      expect(Object.keys(STAGE_CONFIG)).toHaveLength(9);
-      expectedStages.forEach(stage => {
-        expect(STAGE_CONFIG[stage]).toBeDefined();
+  describe('resolveStageConfig', () => {
+    test('resolves stage config from task stage_prompts object', () => {
+      const config = resolveStageConfig({
+        stage: 'planning',
+        task: {
+          stage_prompts: {
+            planning: {
+              prompt: 'Create a concrete plan',
+              outputs: ['plan.md', 'tasks.md']
+            }
+          }
+        }
       });
+
+      expect(config.prompt).toBe('Create a concrete plan');
+      expect(config.outputs).toEqual(['plan.md', 'tasks.md']);
     });
 
-    test('each stage has prompt and outputs', () => {
-      Object.values(STAGE_CONFIG).forEach(config => {
-        expect(config).toHaveProperty('prompt');
-        expect(config).toHaveProperty('outputs');
-        expect(typeof config.prompt).toBe('string');
-        expect(Array.isArray(config.outputs)).toBe(true);
+    test('resolves stage config from stage_prompts array', () => {
+      const config = resolveStageConfig({
+        stage: 'qa',
+        stage_prompts: [
+          { stage: 'qa', prompt: 'Run QA checks', outputs: ['test_results.md'] }
+        ]
       });
+
+      expect(config.prompt).toBe('Run QA checks');
+      expect(config.outputs).toEqual(['test_results.md']);
     });
 
-    test('planning stage has correct config', () => {
-      expect(STAGE_CONFIG.planning.prompt).toContain('plan');
-      expect(STAGE_CONFIG.planning.outputs).toContain('plan.md');
-      expect(STAGE_CONFIG.planning.outputs).toContain('tasks.md');
-    });
-
-    test('ideation stage prompts for research', () => {
-      expect(STAGE_CONFIG.ideation.prompt.toLowerCase()).toContain('research');
-    });
-
-    test('coding stage prompts for implementation', () => {
-      expect(STAGE_CONFIG.coding.prompt.toLowerCase()).toContain('implement');
-    });
-
-    test('qa stage prompts for testing', () => {
-      expect(STAGE_CONFIG.qa.prompt.toLowerCase()).toContain('test');
-    });
-
-    test('done stage has summary prompt', () => {
-      expect(STAGE_CONFIG.done.prompt.toLowerCase()).toContain('complete');
+    test('falls back to generic prompt when stage prompt is missing', () => {
+      const config = resolveStageConfig({ stage: 'unknown_stage' });
+      expect(config.prompt.toLowerCase()).toContain('latest stage prompt');
+      expect(config.outputs).toEqual([]);
     });
   });
 
@@ -301,6 +293,12 @@ describe('AGX Executor Module', () => {
         title: 'Test',
         content: 'Content',
         stage: 'planning',
+        stage_prompts: {
+          planning: {
+            prompt: 'Create detailed plan with tasks, milestones, and dependencies.',
+            outputs: ['plan.md', 'tasks.md']
+          }
+        }
       });
 
       const callArgs = spawn.mock.calls[0][1];
@@ -308,7 +306,7 @@ describe('AGX Executor Module', () => {
       expect(prompt).toContain('plan');
     });
 
-    test('falls back to coding stage config for unknown stage', async () => {
+    test('falls back to generic prompt for unknown stage', async () => {
       mockProcess.on.mockImplementation((event, callback) => {
         if (event === 'close') {
           setTimeout(() => callback(0), 10);
