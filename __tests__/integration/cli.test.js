@@ -136,6 +136,15 @@ describe('AGX CLI Integration Tests', () => {
     });
   });
 
+  describe('Board Commands', () => {
+    test('agx board show prints URL and logs path', () => {
+      const output = runAgx('board show');
+      expect(output).toMatch(/Board/i);
+      expect(output).toMatch(/URL:/i);
+      expect(output).toMatch(/Logs:/i);
+    });
+  });
+
   describe('Engine Selection', () => {
     test('agx -e claude shows claude option', () => {
       // Just verify the flag is accepted

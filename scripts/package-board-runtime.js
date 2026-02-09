@@ -120,6 +120,11 @@ async function main() {
   }
 
   console.log('[agx] Building AGX Board runtime from agx-cloud...');
+  // Next can leave stale route artifacts behind in `.next/` (esp. around app router + API routes).
+  // Packaging should be deterministic, so always build from a clean `.next/`.
+  try {
+    fs.rmSync(path.join(cloudRoot, '.next'), { recursive: true, force: true });
+  } catch { }
   execSync('npm run build', { cwd: cloudRoot, stdio: 'inherit' });
 
   ensureExists(standaloneSrc, 'Next standalone output');

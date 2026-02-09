@@ -2856,6 +2856,45 @@ function getBoardPort() {
   }
 }
 
+function getBoardUrl() {
+  const apiUrl = process.env.AGX_CLOUD_URL || process.env.AGX_BOARD_URL || 'http://localhost:41741';
+  try {
+    const u = new URL(apiUrl);
+    if (!u.port) u.port = String(u.protocol === 'https:' ? 443 : 80);
+    return u.toString().replace(/\/+$/, '');
+  } catch {
+    return `http://localhost:${getBoardPort()}`;
+  }
+}
+
+function shouldAutoOpenBoard() {
+  const noOpen = String(process.env.AGX_NO_OPEN || process.env.AGX_BOARD_NO_OPEN || '').toLowerCase();
+  if (noOpen === '1' || noOpen === 'true' || noOpen === 'yes') return false;
+  if (process.env.CI) return false;
+  return Boolean(process.stdout && process.stdout.isTTY);
+}
+
+function openInBrowser(url) {
+  try {
+    if (!url) return false;
+    if (process.platform === 'darwin') {
+      const p = spawn('open', [url], { stdio: 'ignore', detached: true });
+      p.unref();
+      return true;
+    }
+    if (process.platform === 'win32') {
+      const p = spawn('cmd', ['/c', 'start', '', url], { stdio: 'ignore', detached: true });
+      p.unref();
+      return true;
+    }
+    const p = spawn('xdg-open', [url], { stdio: 'ignore', detached: true });
+    p.unref();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function probeBoardHealth(port, timeoutMs = 1500) {
   try {
     const controller = new AbortController();
@@ -5555,6 +5594,8 @@ async function checkOnboarding() {
   // ==================== BOARD COMMAND ====================
   if (cmd === 'board') {
     const subcmd = args[1];
+    const wantsHelp = args.includes('--help') || args.includes('-h') || subcmd === 'help';
+    const noOpen = args.includes('--no-open') || args.includes('--no-browser');
     if (!subcmd || subcmd === 'start') {
       _boardEnsured = false; // force re-check
       await ensureBoardRunning();
@@ -5562,11 +5603,27 @@ async function checkOnboarding() {
       // `agx board start` is an explicit local-runtime action, so we also start
       // the worker to ensure /api/queue/complete stage transitions are applied.
       void ensureTemporalWorkerRunning();
+      if (!noOpen && shouldAutoOpenBoard()) {
+        const healthy = await probeBoardHealth(getBoardPort());
+        if (healthy) openInBrowser(getBoardUrl());
+      }
       process.exit(0);
     } else if (subcmd === 'stop') {
       await stopBoard();
       // Best-effort: stop the worker when stopping the local board runtime.
       await stopTemporalWorker();
+      process.exit(0);
+    } else if (wantsHelp) {
+      console.log(`${c.bold}agx board${c.reset} - Local board runtime\n`);
+      console.log(`  agx board start        Start local board server (and worker)`);
+      console.log(`  agx board stop         Stop local board server (and worker)`);
+      console.log(`  agx board status       Show status`);
+      console.log(`  agx board show         Print URL/log paths`);
+      console.log(`  agx board open         Open board in browser`);
+      console.log(`  agx board logs         Show recent logs`);
+      console.log(`  agx board tail         Live tail logs`);
+      console.log(`  agx board start --no-open   Do not open browser`);
+      console.log(`  Env: AGX_NO_OPEN=1 (or AGX_BOARD_NO_OPEN=1)`);
       process.exit(0);
     } else if (subcmd === 'status') {
       const pid = isBoardRunning();
@@ -5578,6 +5635,21 @@ async function checkOnboarding() {
       } else {
         console.log(`${c.yellow}Board server not running${c.reset}`);
       }
+      process.exit(0);
+    } else if (subcmd === 'show') {
+      const url = getBoardUrl();
+      const pid = isBoardRunning();
+      console.log(`${c.bold}Board${c.reset}`);
+      console.log(`  URL:  ${url}`);
+      console.log(`  Logs: ${BOARD_LOG_FILE}`);
+      if (pid) console.log(`  PID:  ${pid}`);
+      process.exit(0);
+    } else if (subcmd === 'open') {
+      _boardEnsured = false; // force re-check
+      await ensureBoardRunning();
+      const url = getBoardUrl();
+      console.log(`${c.dim}Opening:${c.reset} ${url}`);
+      if (!noOpen) openInBrowser(url);
       process.exit(0);
     } else if (subcmd === 'logs') {
       if (fs.existsSync(BOARD_LOG_FILE)) {
@@ -5598,7 +5670,7 @@ async function checkOnboarding() {
       return true;
     } else {
       console.log(`${c.red}Unknown board command:${c.reset} ${subcmd}`);
-      console.log(`${c.dim}Usage: agx board [start|stop|status|logs|tail]${c.reset}`);
+      console.log(`${c.dim}Usage: agx board [start|stop|status|show|open|logs|tail]${c.reset}`);
       process.exit(0);
     }
     return true;
