@@ -3,6 +3,7 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const esbuild = require('esbuild');
 
 const agxRoot = path.resolve(__dirname, '..');
 const cloudRoot = path.resolve(agxRoot, '..', 'agx-cloud');
@@ -30,7 +31,87 @@ function copyDir(from, to) {
   fs.cpSync(from, to, { recursive: true });
 }
 
-function main() {
+function findPackagedAppDir(rootDir) {
+  // Next's standalone output preserves part of the absolute path under `standalone/`,
+  // so the app dir isn't stable. Find the directory that contains `server.js` and `package.json`.
+  const maxDepth = 8;
+  const stack = [{ dir: rootDir, depth: 0 }];
+  while (stack.length) {
+    const { dir, depth } = stack.pop();
+    if (depth > maxDepth) continue;
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    const hasServer = entries.some((e) => e.isFile() && e.name === 'server.js');
+    const hasPkg = entries.some((e) => e.isFile() && e.name === 'package.json');
+    if (hasServer && hasPkg) return dir;
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      if (e.name === '.git') continue;
+      stack.push({ dir: path.join(dir, e.name), depth: depth + 1 });
+    }
+  }
+  return null;
+}
+
+async function bundleWorker({ appDir }) {
+  const entry = path.join(cloudRoot, 'worker', 'index.ts');
+  ensureExists(entry, 'Worker entrypoint');
+  const workerOutDir = path.join(appDir, 'worker');
+  fs.mkdirSync(workerOutDir, { recursive: true });
+
+  console.log('[agx] Bundling embedded orchestrator worker...');
+  await esbuild.build({
+    entryPoints: [entry],
+    outfile: path.join(workerOutDir, 'index.js'),
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    target: ['node18'],
+    sourcemap: false,
+    logLevel: 'info',
+    plugins: [
+      {
+        name: 'agx-cloud-alias-at',
+        setup(build) {
+          const tryResolve = (basePath) => {
+            const candidates = [
+              basePath,
+              `${basePath}.ts`,
+              `${basePath}.tsx`,
+              `${basePath}.js`,
+              `${basePath}.mjs`,
+              `${basePath}.cjs`,
+              path.join(basePath, 'index.ts'),
+              path.join(basePath, 'index.tsx'),
+              path.join(basePath, 'index.js'),
+              path.join(basePath, 'index.mjs'),
+              path.join(basePath, 'index.cjs'),
+            ];
+            for (const p of candidates) {
+              try {
+                if (fs.existsSync(p)) return p;
+              } catch { }
+            }
+            return null;
+          };
+          build.onResolve({ filter: /^@\// }, (args) => {
+            const rel = args.path.slice(2); // "@/foo" -> "foo"
+            const base = path.join(cloudRoot, rel);
+            const resolved = tryResolve(base);
+            if (!resolved) return { errors: [{ text: `Unable to resolve alias import: ${args.path}` }] };
+            return { path: resolved };
+          });
+        },
+      },
+    ],
+  });
+}
+
+async function main() {
   ensureExists(cloudRoot, 'agx-cloud repository');
   // Optional: keep local stack template schema in sync with agx-cloud.
   if (fs.existsSync(postgresInitSrc)) {
@@ -64,11 +145,23 @@ function main() {
     copyDir(scriptsSrc, scriptsDest);
   }
 
+  const appDir = findPackagedAppDir(standaloneDest);
+  if (!appDir) {
+    throw new Error(`Unable to locate packaged agx-cloud app dir under ${standaloneDest}`);
+  }
+
+  // Ensure the embedded worker exists even when Next standalone output does not include it.
+  // The CLI will run it via `node worker/index.js` for bundled runtimes.
+  await bundleWorker({ appDir });
+
   console.log(`[agx] Embedded board runtime at ${standaloneDest}`);
 }
 
 try {
-  main();
+  main().catch((error) => {
+    console.error(`[agx] Failed to package board runtime: ${error.message}`);
+    process.exit(1);
+  });
 } catch (error) {
   console.error(`[agx] Failed to package board runtime: ${error.message}`);
   process.exit(1);

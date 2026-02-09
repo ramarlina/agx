@@ -2399,9 +2399,55 @@ const DAEMON_STATE_FILE = path.join(process.env.HOME || process.env.USERPROFILE,
 // Embedded orchestrator worker (pg-boss) runtime (optional). Keep legacy filenames for backward compatibility.
 const WORKER_PID_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'orchestrator-worker.pid');
 const WORKER_LOG_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'orchestrator-worker.log');
-const PACKAGED_AGX_CLOUD_DIR = path.join(__dirname, 'cloud-runtime', 'standalone', 'Projects', 'Agents', 'agx-cloud');
+const PACKAGED_AGX_CLOUD_ROOT = path.join(__dirname, 'cloud-runtime', 'standalone');
+// Legacy default path (only correct if the standalone build was traced under `/Users/<name>`).
+const PACKAGED_AGX_CLOUD_DIR = path.join(PACKAGED_AGX_CLOUD_ROOT, 'Projects', 'Agents', 'agx-cloud');
 const LOCAL_AGX_CLOUD_DIR = path.resolve(__dirname, '..', 'agx-cloud');
 const TASK_LOGS_DIR = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'logs');
+
+let cachedPackagedAgxCloudDir;
+function resolvePackagedAgxCloudDir() {
+  if (cachedPackagedAgxCloudDir !== undefined) return cachedPackagedAgxCloudDir;
+
+  const hasFile = (dir, rel) => {
+    try { return fs.existsSync(path.join(dir, rel)); } catch { return false; }
+  };
+
+  // Fast path: legacy location.
+  if (hasFile(PACKAGED_AGX_CLOUD_DIR, 'server.js') && hasFile(PACKAGED_AGX_CLOUD_DIR, 'package.json')) {
+    cachedPackagedAgxCloudDir = PACKAGED_AGX_CLOUD_DIR;
+    return cachedPackagedAgxCloudDir;
+  }
+
+  // Next standalone output preserves part of the absolute path under `standalone/`,
+  // so locate the app dir by scanning for `server.js`.
+  const maxDepth = 8;
+  const stack = [{ dir: PACKAGED_AGX_CLOUD_ROOT, depth: 0 }];
+  while (stack.length) {
+    const { dir, depth } = stack.pop();
+    if (depth > maxDepth) continue;
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    const hasServer = entries.some((e) => e.isFile() && e.name === 'server.js');
+    const hasPkg = entries.some((e) => e.isFile() && e.name === 'package.json');
+    if (hasServer && hasPkg) {
+      cachedPackagedAgxCloudDir = dir;
+      return cachedPackagedAgxCloudDir;
+    }
+    for (const e of entries) {
+      if (!e.isDirectory()) continue;
+      if (e.name === '.git') continue;
+      stack.push({ dir: path.join(dir, e.name), depth: depth + 1 });
+    }
+  }
+
+  cachedPackagedAgxCloudDir = null;
+  return cachedPackagedAgxCloudDir;
+}
 
 // Get log file path for a task
 function getTaskLogPath(taskName) {
@@ -2505,7 +2551,8 @@ function resolveEmbeddedWorkerProjectDir() {
   // current working directory when present (common monorepo layout).
   const CWD_AGX_CLOUD_DIR = path.resolve(process.cwd(), '..', 'agx-cloud');
 
-  const candidates = [CWD_AGX_CLOUD_DIR, LOCAL_AGX_CLOUD_DIR, PACKAGED_AGX_CLOUD_DIR];
+  const packaged = resolvePackagedAgxCloudDir();
+  const candidates = [CWD_AGX_CLOUD_DIR, LOCAL_AGX_CLOUD_DIR, packaged, PACKAGED_AGX_CLOUD_DIR].filter(Boolean);
   let best = null;
   let bestScore = -Infinity;
   for (const candidate of candidates) {
@@ -2620,9 +2667,10 @@ function resolveBoardDir() {
     }
   }
 
-  // Bundled mode: standalone server.js
-  if (hasFile(PACKAGED_AGX_CLOUD_DIR, 'server.js')) {
-    return { dir: PACKAGED_AGX_CLOUD_DIR, mode: 'bundled' };
+  // Bundled mode: standalone server.js (location depends on output file tracing root).
+  const packaged = resolvePackagedAgxCloudDir();
+  if (packaged && hasFile(packaged, 'server.js')) {
+    return { dir: packaged, mode: 'bundled' };
   }
 
   return null;
@@ -2901,7 +2949,12 @@ function startTemporalWorker() {
 
   const projectDir = resolveEmbeddedWorkerProjectDir();
   if (!projectDir) {
-    console.log(`${c.yellow}Local board runtime not found${c.reset} Build the board runtime (npm run build in agx-cloud) or ensure ${path.join('cloud-runtime', 'standalone', 'Projects', 'Agents', 'agx-cloud')} exists.`);
+    console.log(
+      `${c.yellow}Local board runtime not found.${c.reset} ` +
+      `AGX couldn't locate an agx-cloud checkout/runtime for the embedded worker.\n` +
+      `${c.dim}Looked for:${c.reset} ../agx-cloud (from current directory), ${LOCAL_AGX_CLOUD_DIR}, ${PACKAGED_AGX_CLOUD_DIR}\n` +
+      `${c.dim}Fix:${c.reset} set AGX_CLOUD_WORKER_DIR=/path/to/agx-cloud, then run: (cd \"$AGX_CLOUD_WORKER_DIR\" && npm install && npm run build)`
+    );
     return null;
   }
 
