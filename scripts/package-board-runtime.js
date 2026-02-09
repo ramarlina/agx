@@ -135,24 +135,24 @@ async function main() {
   const standaloneDest = path.join(cloudRuntimeDir, 'standalone');
   copyDir(standaloneSrc, standaloneDest);
 
-  // Next standalone expects static assets inside standalone/.next/static.
-  const staticDest = path.join(standaloneDest, '.next', 'static');
+  const appDir = findPackagedAppDir(standaloneDest);
+  if (!appDir) {
+    throw new Error(`Unable to locate packaged agx-cloud app dir under ${standaloneDest}`);
+  }
+
+  // Next serves assets relative to the app dir (where `server.js` lives), not the standalone root.
+  const staticDest = path.join(appDir, '.next', 'static');
   copyDir(staticSrc, staticDest);
 
   if (fs.existsSync(publicSrc)) {
-    const publicDest = path.join(standaloneDest, 'public');
+    const publicDest = path.join(appDir, 'public');
     copyDir(publicSrc, publicDest);
   }
 
   const scriptsSrc = path.join(cloudRoot, 'scripts');
   if (fs.existsSync(scriptsSrc)) {
-    const scriptsDest = path.join(standaloneDest, 'scripts');
+    const scriptsDest = path.join(appDir, 'scripts');
     copyDir(scriptsSrc, scriptsDest);
-  }
-
-  const appDir = findPackagedAppDir(standaloneDest);
-  if (!appDir) {
-    throw new Error(`Unable to locate packaged agx-cloud app dir under ${standaloneDest}`);
   }
 
   // Ensure the embedded worker exists even when Next standalone output does not include it.
