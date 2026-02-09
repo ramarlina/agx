@@ -2413,8 +2413,18 @@ function resolvePackagedAgxCloudDir() {
     try { return fs.existsSync(path.join(dir, rel)); } catch { return false; }
   };
 
+  const isStandaloneAppDir = (dir) => {
+    // Heuristic for Next standalone output: `server.js` next to `.next/BUILD_ID`.
+    if (!hasFile(dir, 'server.js')) return false;
+    if (!hasFile(dir, 'package.json')) return false;
+    if (hasFile(dir, path.join('.next', 'BUILD_ID'))) return true;
+    // Some builds omit BUILD_ID file from the copied subset; `.next/package.json` is still present.
+    if (hasFile(dir, path.join('.next', 'package.json'))) return true;
+    return false;
+  };
+
   // Fast path: legacy location.
-  if (hasFile(PACKAGED_AGX_CLOUD_DIR, 'server.js') && hasFile(PACKAGED_AGX_CLOUD_DIR, 'package.json')) {
+  if (isStandaloneAppDir(PACKAGED_AGX_CLOUD_DIR)) {
     cachedPackagedAgxCloudDir = PACKAGED_AGX_CLOUD_DIR;
     return cachedPackagedAgxCloudDir;
   }
@@ -2432,9 +2442,7 @@ function resolvePackagedAgxCloudDir() {
     } catch {
       continue;
     }
-    const hasServer = entries.some((e) => e.isFile() && e.name === 'server.js');
-    const hasPkg = entries.some((e) => e.isFile() && e.name === 'package.json');
-    if (hasServer && hasPkg) {
+    if (isStandaloneAppDir(dir)) {
       cachedPackagedAgxCloudDir = dir;
       return cachedPackagedAgxCloudDir;
     }

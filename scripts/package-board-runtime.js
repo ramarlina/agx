@@ -34,6 +34,18 @@ function copyDir(from, to) {
 function findPackagedAppDir(rootDir) {
   // Next's standalone output preserves part of the absolute path under `standalone/`,
   // so the app dir isn't stable. Find the directory that contains `server.js` and `package.json`.
+  const isStandaloneAppDir = (dir) => {
+    try {
+      if (!fs.existsSync(path.join(dir, 'server.js'))) return false;
+      if (!fs.existsSync(path.join(dir, 'package.json'))) return false;
+      if (fs.existsSync(path.join(dir, '.next', 'BUILD_ID'))) return true;
+      if (fs.existsSync(path.join(dir, '.next', 'package.json'))) return true;
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
   const maxDepth = 8;
   const stack = [{ dir: rootDir, depth: 0 }];
   while (stack.length) {
@@ -45,9 +57,7 @@ function findPackagedAppDir(rootDir) {
     } catch {
       continue;
     }
-    const hasServer = entries.some((e) => e.isFile() && e.name === 'server.js');
-    const hasPkg = entries.some((e) => e.isFile() && e.name === 'package.json');
-    if (hasServer && hasPkg) return dir;
+    if (isStandaloneAppDir(dir)) return dir;
     for (const e of entries) {
       if (!e.isDirectory()) continue;
       if (e.name === '.git') continue;
