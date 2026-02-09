@@ -897,6 +897,32 @@ function ensureNextPrompt(decision) {
   };
 }
 
+function buildNextPromptWithDecisionContext(decision) {
+  if (!decision || typeof decision !== 'object') return '';
+  const nextPrompt = typeof decision.next_prompt === 'string' ? decision.next_prompt.trim() : '';
+  if (!nextPrompt) return '';
+
+  const decisionLabel = typeof decision.decision === 'string' ? decision.decision.trim() : '';
+  const summary = typeof decision.summary === 'string' ? decision.summary.trim() : '';
+  const explanation = typeof decision.explanation === 'string' ? decision.explanation.trim() : '';
+  const finalResult = typeof decision.final_result === 'string' ? decision.final_result.trim() : '';
+
+  const ctx = [];
+  if (decisionLabel) ctx.push(`Decision: ${decisionLabel}`);
+  if (summary) ctx.push(`Summary: ${truncateForPrompt(summary, 800)}`);
+  if (explanation && explanation !== summary) ctx.push(`Explanation: ${truncateForPrompt(explanation, 1200)}`);
+  if (finalResult && finalResult !== summary && finalResult !== explanation) ctx.push(`Final Result: ${truncateForPrompt(finalResult, 1200)}`);
+
+  if (!ctx.length) return nextPrompt;
+
+  return [
+    nextPrompt,
+    '',
+    'Context from last decision:',
+    ...ctx.map((line) => `- ${line}`),
+  ].join('\n');
+}
+
 function ensureExplanation(decision) {
   if (!decision || typeof decision !== 'object') return decision;
   if (typeof decision.explanation === 'string' && decision.explanation.trim()) return decision;
