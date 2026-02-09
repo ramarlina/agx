@@ -2936,6 +2936,12 @@ function startTemporalWorker() {
   let worker;
   try {
     const boardEnv = loadBoardEnv();
+    if (!boardEnv.DATABASE_URL) {
+      console.log(`${c.yellow}Orchestrator worker not started${c.reset} (missing DATABASE_URL).`);
+      console.log(`${c.dim}Start the board first so ~/.agx/board.env is populated:${c.reset} agx board start`);
+      fs.closeSync(logFd);
+      return null;
+    }
     worker = spawn('npm', ['run', script], {
       cwd: projectDir,
       detached: true,
@@ -2955,6 +2961,19 @@ function startTemporalWorker() {
   console.log(`${c.green}✓${c.reset} Orchestrator worker started (pid ${worker.pid})`);
   console.log(`${c.dim}  Logs: ${WORKER_LOG_FILE}${c.reset}`);
   return worker.pid;
+}
+
+async function ensureTemporalWorkerRunning() {
+  // Ensure board.env exists (and DATABASE_URL is set) before starting the pg-boss worker.
+  // Otherwise the worker may crash on startup due to missing DB credentials, and stage
+  // transitions from /api/queue/complete will never be applied.
+  try {
+    const boardEnv = loadBoardEnv();
+    if (!boardEnv.DATABASE_URL) {
+      await ensureBoardRunning();
+    }
+  } catch { }
+  return startTemporalWorker();
 }
 
 async function stopTemporalWorker() {
@@ -3023,7 +3042,8 @@ function startDaemon(options = {}) {
   console.log(`${c.dim}  Configure workers: agx daemon start -w 4${c.reset}`);
   console.log(`${c.dim}  Run in foreground: agx daemon${c.reset}`);
 
-  startTemporalWorker();
+  // Run the orchestrator worker (pg-boss) so /api/queue/complete stage transitions are applied.
+  void ensureTemporalWorkerRunning();
 
   return daemon.pid;
 }
@@ -4411,6 +4431,8 @@ async function checkOnboarding() {
 	  }
 
 	async function runCloudDaemonTask(task) {
+	    const { buildCloudTaskTerminalPatch } = require('./lib/cloud/status');
+
 	    const taskId = String(task?.id || '').trim();
 	    if (!taskId) {
 	      throw new Error('Queue returned task without id');
@@ -4609,24 +4631,40 @@ async function checkOnboarding() {
       }
     }
 
-    await cloudRequest('POST', '/api/queue/complete', {
-      taskId,
-      log: decisionPayload.summary || decisionPayload.explanation,
-      decision: decisionPayload.decision,
-      final_result: decisionPayload.final_result,
+	    const completionResult = await cloudRequest('POST', '/api/queue/complete', {
+	      taskId,
+	      log: decisionPayload.summary || decisionPayload.explanation,
+	      decision: decisionPayload.decision,
+	      final_result: decisionPayload.final_result,
       explanation: decisionPayload.explanation,
       ...(localArtifacts && lastRun?.paths?.root ? {
         artifact_path: lastRun.paths.root,
         artifact_host: os.hostname(),
         artifact_key: localArtifactKey(lastRun.paths.root),
       } : {}),
-      ...(runIndexEntry ? { run_entry: runIndexEntry } : {}),
-    });
+	      ...(runIndexEntry ? { run_entry: runIndexEntry } : {}),
+	    });
 
-    // Post a structured outcome comment (separate from queue completion log).
-    await postTaskComment(taskId, [
-      `## ${task?.stage || 'stage'} completed`,
-      '',
+	    // Best-effort: ensure cloud task status is terminal when stage/decision indicates completion.
+	    // Some board runtimes advance `stage` to "done" but leave `status` as "in_progress".
+	    try {
+	      let newStage = completionResult?.newStage || completionResult?.task?.stage || null;
+	      if (!newStage) {
+	        try {
+	          const { task: refreshed } = await cloudRequest('GET', `/api/tasks/${taskId}`);
+	          newStage = refreshed?.stage || null;
+	        } catch { }
+	      }
+	      const patch = buildCloudTaskTerminalPatch({ decision: decisionPayload?.decision, newStage });
+	      if (patch) {
+	        await cloudRequest('PATCH', `/api/tasks/${taskId}`, patch);
+	      }
+	    } catch { }
+
+	    // Post a structured outcome comment (separate from queue completion log).
+	    await postTaskComment(taskId, [
+	      `## ${task?.stage || 'stage'} completed`,
+	      '',
       `Decision: ${decisionPayload.decision}`,
       '',
       decisionPayload.summary || decisionPayload.explanation || '',
@@ -4762,264 +4800,13 @@ async function checkOnboarding() {
 
   const isLocalMode = args.includes('--local') || process.env.AGX_LOCAL === '1';
 
-  // agx local:new "<goal>" [--local]
-  // Creates a new task in local storage
-  if (cmd === 'local:new' || (cmd === 'new' && isLocalMode)) {
-    const localCli = require('./lib/local-cli');
-    const jsonMode = args.includes('--json');
-
-    // Extract goal text
-    const flagsToRemove = ['--json', '--local', '--provider', '-P', '--model', '-m'];
-    const goalParts = [];
-    for (let i = 1; i < args.length; i++) {
-      if (flagsToRemove.includes(args[i])) {
-        if (['--provider', '-P', '--model', '-m'].includes(args[i])) i++;
-        continue;
-      }
-      goalParts.push(args[i]);
-    }
-    const goalText = goalParts.join(' ');
-
-    if (!goalText) {
-      if (jsonMode) {
-        console.log(JSON.stringify({ error: 'missing_goal', usage: 'agx new "<goal>" --local' }));
-      } else {
-        console.log(`${c.red}Usage:${c.reset} agx new "<goal>" --local`);
-      }
-      process.exit(1);
-    }
-
-    try {
-      await localCli.cmdNew({ userRequest: goalText, json: jsonMode });
-    } catch (err) {
-      if (jsonMode) {
-        console.log(JSON.stringify({ error: err.message }));
-      } else {
-        console.log(`${c.red}Error:${c.reset} ${err.message}`);
-      }
-      process.exit(1);
-    }
-    process.exit(0);
+  {
+    const { maybeHandleLocalCommand } = require('./lib/commands/local');
+    const handled = await maybeHandleLocalCommand({ cmd, args, isLocalMode, ctx: { c } });
+    if (handled) return true;
   }
 
-  // agx local:tasks [--all] [--local]
-  // List tasks from local storage
-  if (cmd === 'local:tasks' || cmd === 'local:ls' || ((cmd === 'tasks' || cmd === 'ls') && isLocalMode)) {
-    const localCli = require('./lib/local-cli');
-    const jsonMode = args.includes('--json');
-    const showAll = args.includes('-a') || args.includes('--all');
-
-    try {
-      await localCli.cmdTasks({ all: showAll, json: jsonMode });
-    } catch (err) {
-      if (jsonMode) {
-        console.log(JSON.stringify({ error: err.message }));
-      } else {
-        console.log(`${c.red}Error:${c.reset} ${err.message}`);
-      }
-      process.exit(1);
-    }
-    process.exit(0);
-  }
-
-  // agx local:show <task> [--local]
-  // Show task details from local storage
-  if (cmd === 'local:show' || (cmd === 'show' && isLocalMode)) {
-    const localCli = require('./lib/local-cli');
-    const jsonMode = args.includes('--json');
-    const taskSlug = args.find((a, i) => i > 0 && !a.startsWith('-'));
-
-    if (!taskSlug) {
-      console.log(`${c.red}Usage:${c.reset} agx show <task> --local`);
-      process.exit(1);
-    }
-
-    try {
-      await localCli.cmdShow({ taskSlug, json: jsonMode });
-    } catch (err) {
-      if (jsonMode) {
-        console.log(JSON.stringify({ error: err.message }));
-      } else {
-        console.log(`${c.red}Error:${c.reset} ${err.message}`);
-      }
-      process.exit(1);
-    }
-    process.exit(0);
-  }
-
-  // agx local:runs <task> [--stage <stage>] [--local]
-  // List runs for a task from local storage
-  if (cmd === 'local:runs' || (cmd === 'runs' && isLocalMode)) {
-    const localCli = require('./lib/local-cli');
-    const jsonMode = args.includes('--json');
-    const taskSlug = args.find((a, i) => i > 0 && !a.startsWith('-'));
-
-    let stage = null;
-    const stageIdx = args.findIndex(a => a === '--stage' || a === '-s');
-    if (stageIdx !== -1 && args[stageIdx + 1]) {
-      stage = args[stageIdx + 1];
-    }
-
-    if (!taskSlug) {
-      console.log(`${c.red}Usage:${c.reset} agx runs <task> [--stage <stage>] --local`);
-      process.exit(1);
-    }
-
-    try {
-      await localCli.cmdRuns({ taskSlug, stage, json: jsonMode });
-    } catch (err) {
-      if (jsonMode) {
-        console.log(JSON.stringify({ error: err.message }));
-      } else {
-        console.log(`${c.red}Error:${c.reset} ${err.message}`);
-      }
-      process.exit(1);
-    }
-    process.exit(0);
-  }
-
-  // agx local:complete <task> [--local]
-  // Mark a task complete in local storage
-  if (cmd === 'local:complete' || ((cmd === 'complete' || cmd === 'done') && isLocalMode)) {
-    const localCli = require('./lib/local-cli');
-    const jsonMode = args.includes('--json');
-    const taskSlug = args.find((a, i) => i > 0 && !a.startsWith('-'));
-
-    if (!taskSlug) {
-      console.log(`${c.red}Usage:${c.reset} agx complete <task> --local`);
-      process.exit(1);
-    }
-
-    try {
-      await localCli.cmdComplete({ taskSlug, json: jsonMode });
-    } catch (err) {
-      if (jsonMode) {
-        console.log(JSON.stringify({ error: err.message }));
-      } else {
-        console.log(`${c.red}Error:${c.reset} ${err.message}`);
-      }
-      process.exit(1);
-    }
-    process.exit(0);
-  }
-
-  // agx gc [--task <task>] [--keep <n>]
-  // Run garbage collection on runs
-  if (cmd === 'gc') {
-    const localCli = require('./lib/local-cli');
-    const jsonMode = args.includes('--json');
-
-    let taskSlug = null;
-    const taskIdx = args.findIndex(a => a === '--task' || a === '-t');
-    if (taskIdx !== -1 && args[taskIdx + 1]) {
-      taskSlug = args[taskIdx + 1];
-    }
-
-    let keep = 25;
-    const keepIdx = args.findIndex(a => a === '--keep' || a === '-k');
-    if (keepIdx !== -1 && args[keepIdx + 1]) {
-      keep = parseInt(args[keepIdx + 1], 10) || 25;
-    }
-
-    try {
-      await localCli.cmdGc({ taskSlug, keep, json: jsonMode });
-    } catch (err) {
-      if (jsonMode) {
-        console.log(JSON.stringify({ error: err.message }));
-      } else {
-        console.log(`${c.red}Error:${c.reset} ${err.message}`);
-      }
-      process.exit(1);
-    }
-    process.exit(0);
-  }
-
-  // agx local:run <task> [--stage <stage>] [--local]
-  // Prepare a run in local storage
-  if (cmd === 'local:run' || (cmd === 'run' && isLocalMode)) {
-    const localCli = require('./lib/local-cli');
-    const jsonMode = args.includes('--json');
-    const taskSlug = args.find((a, i) => i > 0 && !a.startsWith('-'));
-
-    let stage = 'execute';
-    const stageIdx = args.findIndex(a => a === '--stage' || a === '-s');
-    if (stageIdx !== -1 && args[stageIdx + 1]) {
-      stage = args[stageIdx + 1];
-    }
-
-    let engine = 'claude';
-    const engineIdx = args.findIndex(a => a === '--engine' || a === '-e');
-    if (engineIdx !== -1 && args[engineIdx + 1]) {
-      engine = args[engineIdx + 1];
-    }
-
-    if (!taskSlug) {
-      console.log(`${c.red}Usage:${c.reset} agx run <task> [--stage <stage>] --local`);
-      process.exit(1);
-    }
-
-    try {
-      await localCli.cmdRun({ taskSlug, stage, engine, json: jsonMode });
-    } catch (err) {
-      if (jsonMode) {
-        console.log(JSON.stringify({ error: err.message }));
-      } else {
-        console.log(`${c.red}Error:${c.reset} ${err.message}`);
-      }
-      process.exit(1);
-    }
-    process.exit(0);
-  }
-
-  // agx unlock <task> [--local]
-  // Force unlock a task
-  if (cmd === 'unlock' || cmd === 'local:unlock') {
-    const localCli = require('./lib/local-cli');
-    const jsonMode = args.includes('--json');
-    const taskSlug = args.find((a, i) => i > 0 && !a.startsWith('-'));
-
-    if (!taskSlug) {
-      console.log(`${c.red}Usage:${c.reset} agx unlock <task>`);
-      process.exit(1);
-    }
-
-    try {
-      await localCli.cmdUnlock({ taskSlug, json: jsonMode });
-    } catch (err) {
-      if (jsonMode) {
-        console.log(JSON.stringify({ error: err.message }));
-      } else {
-        console.log(`${c.red}Error:${c.reset} ${err.message}`);
-      }
-      process.exit(1);
-    }
-    process.exit(0);
-  }
-
-  // agx tail <task> [--local]
-  // Stream events for a task's latest run
-  if (cmd === 'tail' || cmd === 'local:tail') {
-    const localCli = require('./lib/local-cli');
-    const jsonMode = args.includes('--json');
-    const taskSlug = args.find((a, i) => i > 0 && !a.startsWith('-'));
-
-    if (!taskSlug) {
-      console.log(`${c.red}Usage:${c.reset} agx tail <task>`);
-      process.exit(1);
-    }
-
-    try {
-      await localCli.cmdTail({ taskSlug, json: jsonMode });
-    } catch (err) {
-      if (jsonMode) {
-        console.log(JSON.stringify({ error: err.message }));
-      } else {
-        console.log(`${c.red}Error:${c.reset} ${err.message}`);
-      }
-      process.exit(1);
-    }
-    process.exit(0);
-  }
+  // Local-first command handlers live in lib/commands/local.js.
 
   // ============================================================
   // agx new "<goal>" [--provider c|g|o|x] [--run] [--json]
@@ -5135,150 +4922,33 @@ async function checkOnboarding() {
       return logs.split('\n').slice(-limit);
     } catch { return []; }
   }
-
-  // Daemon commands
-  if (cmd === 'daemon') {
-    const daemonArgs = args.slice(1);
-    const subcmd = daemonArgs[0] && !daemonArgs[0].startsWith('-') ? daemonArgs[0] : undefined;
-    const wantsHelp = args.includes('--help') || args.includes('-h') || subcmd === 'help';
-    const workersFlagIdx = args.findIndex((arg) => arg === '-w' || arg === '--workers' || arg === '--max-workers');
-    let maxWorkers;
-    if (workersFlagIdx !== -1) {
-      const raw = args[workersFlagIdx + 1];
-      const parsed = Number.parseInt(raw, 10);
-      if (!Number.isFinite(parsed) || parsed < 1) {
-        console.log(`${c.red}Invalid worker count:${c.reset} ${raw || '(missing)'}`);
-        console.log(`${c.dim}Use a positive integer, e.g. -w 4${c.reset}`);
-        process.exit(1);
+  {
+    const { maybeHandleDaemonBoardCommand } = require('./lib/commands/daemonBoard');
+    const handled = await maybeHandleDaemonBoardCommand({
+      cmd,
+      args,
+      ctx: {
+        c,
+        loadCloudConfig,
+        runCloudDaemonLoop,
+        startDaemon,
+        stopDaemon,
+        isDaemonRunning,
+        ensureTemporalWorkerRunning,
+        stopTemporalWorker,
+        isTemporalWorkerRunning,
+        WORKER_LOG_FILE,
+        DAEMON_LOG_FILE,
+        isBoardRunning,
+        BOARD_LOG_FILE,
+        ensureBoardRunning,
+        stopBoard,
+        probeBoardHealth,
+        getBoardPort,
+        setBoardEnsuredFalse: () => { _boardEnsured = false; },
       }
-      maxWorkers = parsed;
-    }
-
-    const daemonOptions = {
-      maxWorkers,
-    };
-
-    if (wantsHelp) {
-      console.log(`${c.bold}agx daemon${c.reset} - Local cloud worker\n`);
-      console.log(`  agx daemon            Run local daemon loop in foreground`);
-      console.log(`  agx daemon start      Start local daemon loop in background`);
-      console.log(`  agx daemon stop       Stop background worker`);
-      console.log(`  agx daemon status     Check if running`);
-      console.log(`  agx daemon logs       Show recent logs`);
-      console.log(`  agx daemon tail       Live tail daemon logs`);
-      console.log(`  agx daemon -w, --workers <n>  Execution worker count (default: 1)`);
-      process.exit(0);
-    }
-
-    if (!subcmd || subcmd === 'run' || subcmd === '--run') {
-      const cloudConfig = loadCloudConfig();
-      if (!cloudConfig?.apiUrl) {
-        console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
-        process.exit(1);
-      }
-
-      await runCloudDaemonLoop(daemonOptions);
-      return true;
-    }
-
-    if (subcmd === 'start') {
-      startDaemon(daemonOptions);
-      process.exit(0);
-    } else if (subcmd === 'stop') {
-      await stopDaemon();
-      process.exit(0);
-    } else if (subcmd === 'status') {
-      const pid = isDaemonRunning();
-      if (pid) {
-        console.log(`${c.green}Daemon running${c.reset} (pid ${pid})`);
-        console.log(`${c.dim}Logs: ${DAEMON_LOG_FILE}${c.reset}`);
-      } else {
-        console.log(`${c.yellow}Daemon not running${c.reset}`);
-      }
-      const temporalPid = isTemporalWorkerRunning();
-      if (temporalPid) {
-        console.log(`${c.green}Orchestrator worker running${c.reset} (pid ${temporalPid})`);
-        console.log(`${c.dim}Logs: ${WORKER_LOG_FILE}${c.reset}`);
-      } else {
-        console.log(`${c.yellow}Orchestrator worker not running${c.reset}`);
-      }
-      const boardPid = isBoardRunning();
-      if (boardPid) {
-        console.log(`${c.green}Board server running${c.reset} (pid ${boardPid})`);
-        console.log(`${c.dim}Logs: ${BOARD_LOG_FILE}${c.reset}`);
-      } else {
-        console.log(`${c.yellow}Board server not running${c.reset}`);
-      }
-      process.exit(0);
-    } else if (subcmd === 'logs') {
-      if (fs.existsSync(DAEMON_LOG_FILE)) {
-        const logs = fs.readFileSync(DAEMON_LOG_FILE, 'utf8');
-        console.log(logs.split('\n').slice(-50).join('\n'));
-      } else {
-        console.log(`${c.dim}No logs yet${c.reset}`);
-      }
-      process.exit(0);
-    } else if (subcmd === 'tail') {
-      if (!fs.existsSync(DAEMON_LOG_FILE)) {
-        console.log(`${c.dim}No logs yet. Start daemon with: agx daemon start${c.reset}`);
-        process.exit(0);
-      }
-      console.log(`${c.dim}Tailing ${DAEMON_LOG_FILE}... (Ctrl+C to stop)${c.reset}\n`);
-      const tail = spawn('tail', ['-f', DAEMON_LOG_FILE], { stdio: 'inherit' });
-      tail.on('close', () => process.exit(0));
-      return true;
-    } else {
-      console.log(`${c.red}Unknown daemon command:${c.reset} ${subcmd}`);
-      console.log(`${c.dim}Run: agx daemon --help${c.reset}`);
-      process.exit(0);
-    }
-    return true;
-  }
-
-  // ==================== BOARD COMMAND ====================
-  if (cmd === 'board') {
-    const subcmd = args[1];
-    if (!subcmd || subcmd === 'start') {
-      _boardEnsured = false; // force re-check
-      await ensureBoardRunning();
-      process.exit(0);
-    } else if (subcmd === 'stop') {
-      await stopBoard();
-      process.exit(0);
-    } else if (subcmd === 'status') {
-      const pid = isBoardRunning();
-      if (pid) {
-        const port = getBoardPort();
-        const healthy = await probeBoardHealth(port);
-        console.log(`${c.green}Board server running${c.reset} (pid ${pid}, port ${port}${healthy ? ', healthy' : ', not responding'})`);
-        console.log(`${c.dim}Logs: ${BOARD_LOG_FILE}${c.reset}`);
-      } else {
-        console.log(`${c.yellow}Board server not running${c.reset}`);
-      }
-      process.exit(0);
-    } else if (subcmd === 'logs') {
-      if (fs.existsSync(BOARD_LOG_FILE)) {
-        const logs = fs.readFileSync(BOARD_LOG_FILE, 'utf8');
-        console.log(logs.split('\n').slice(-50).join('\n'));
-      } else {
-        console.log(`${c.dim}No board logs yet${c.reset}`);
-      }
-      process.exit(0);
-    } else if (subcmd === 'tail') {
-      if (!fs.existsSync(BOARD_LOG_FILE)) {
-        console.log(`${c.dim}No board logs yet. Start with: agx board start${c.reset}`);
-        process.exit(0);
-      }
-      console.log(`${c.dim}Tailing ${BOARD_LOG_FILE}... (Ctrl+C to stop)${c.reset}\n`);
-      const tail = spawn('tail', ['-f', BOARD_LOG_FILE], { stdio: 'inherit' });
-      tail.on('close', () => process.exit(0));
-      return true;
-    } else {
-      console.log(`${c.red}Unknown board command:${c.reset} ${subcmd}`);
-      console.log(`${c.dim}Usage: agx board [start|stop|status|logs|tail]${c.reset}`);
-      process.exit(0);
-    }
-    return true;
+    });
+    if (handled) return true;
   }
 
   // ============================================================
@@ -5754,13 +5424,14 @@ async function checkOnboarding() {
 
       console.log(`${c.bold}Tasks${c.reset} (${tasks.length})\n`);
       let idx = 1;
-      for (const task of tasks) {
-        const statusIcon = {
-          queued: c.yellow + '○' + c.reset,
-          in_progress: c.blue + '●' + c.reset,
-          completed: c.green + '✓' + c.reset,
-          failed: c.red + '✗' + c.reset,
-        }[task.status] || '?';
+	      for (const task of tasks) {
+	        const statusIcon = {
+	          queued: c.yellow + '○' + c.reset,
+	          in_progress: c.blue + '●' + c.reset,
+	          blocked: c.yellow + '!' + c.reset,
+	          completed: c.green + '✓' + c.reset,
+	          failed: c.red + '✗' + c.reset,
+	        }[task.status] || '?';
 
         console.log(`  ${c.dim}${idx}.${c.reset} ${statusIcon} ${task.slug || 'task'}`);
         const displayProvider = task.swarm
@@ -5811,15 +5482,52 @@ async function checkOnboarding() {
     }
 
     try {
-      const { task, newStage } = await cloudRequest('POST', '/api/queue/complete', {
-        taskId,
-        log: log || 'Stage completed via agx CLI',
-      });
-      console.log(`${c.green}✓${c.reset} Stage completed`);
-      console.log(`  New stage: ${newStage}`);
-      if (newStage === 'done') {
-        console.log(`  ${c.green}Task is now complete!${c.reset}`);
+      const { buildCloudTaskTerminalPatch } = require('./lib/cloud/status');
+
+      const resolvedTaskId = await resolveTaskId(taskId);
+      const { task: existingTask } = await cloudRequest('GET', `/api/tasks/${resolvedTaskId}`);
+      const existingStage = String(existingTask?.stage || '').toLowerCase();
+
+      // If the task is already in the terminal stage, don't call /queue/complete again.
+      // Just align status to terminal (this fixes stage=status drift safely).
+      if (existingStage === 'done') {
+        const patch = buildCloudTaskTerminalPatch({ newStage: 'done' });
+        if (patch) {
+          await cloudRequest('PATCH', `/api/tasks/${resolvedTaskId}`, patch);
+        }
+        console.log(`${c.green}✓${c.reset} Task already in done stage; status aligned`);
+        process.exit(0);
       }
+
+	      const message = log || 'Stage completed via agx CLI';
+	      const { task, newStage } = await cloudRequest('POST', '/api/queue/complete', {
+	        taskId: resolvedTaskId,
+	        log: message,
+	        decision: 'done',
+	        explanation: message,
+	        final_result: message,
+	      });
+	      let stageAfter = newStage || task?.stage || null;
+	      if (!stageAfter) {
+	        try {
+	          const { task: refreshed } = await cloudRequest('GET', `/api/tasks/${resolvedTaskId}`);
+	          stageAfter = refreshed?.stage || null;
+	        } catch { }
+	      }
+
+	      // If this completion transitioned the task into a terminal stage, align `status` too.
+	      try {
+	        const patch = buildCloudTaskTerminalPatch({ newStage: stageAfter });
+	        if (patch) {
+	          await cloudRequest('PATCH', `/api/tasks/${resolvedTaskId}`, patch);
+	        }
+	      } catch { }
+
+	      console.log(`${c.green}✓${c.reset} Stage completed`);
+	      console.log(`  New stage: ${stageAfter || 'unknown'}`);
+	      if (String(stageAfter || '').toLowerCase() === 'done') {
+	        console.log(`  ${c.green}Task is now complete!${c.reset}`);
+	      }
     } catch (err) {
       console.log(`${c.red}✗${c.reset} Failed: ${err.message}`);
       process.exit(1);

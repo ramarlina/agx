@@ -3102,15 +3102,64 @@ function startTemporalWorker() {
   }
 
   const script = pickEmbeddedWorkerNpmScript(projectDir);
+  const serverJsPath = path.join(projectDir, 'server.js');
+  const isBundledRuntime = (() => {
+    try { return fs.existsSync(serverJsPath); } catch { return false; }
+  })();
+
+  const pickNodeWorkerEntrypoint = () => {
+    const candidates = [
+      path.join(projectDir, 'worker', 'index.js'),
+      path.join(projectDir, 'worker', 'index.mjs'),
+      path.join(projectDir, 'worker', 'index.ts'),
+    ];
+    for (const p of candidates) {
+      try {
+        if (fs.existsSync(p)) return p;
+      } catch { }
+    }
+    return null;
+  };
+
+  const pkgJsonPath = path.join(projectDir, 'package.json');
+  const hasPackageJson = (() => {
+    try { return fs.existsSync(pkgJsonPath); } catch { return false; }
+  })();
+
+  // In bundled board runtimes, we may not ship a full Node project with npm scripts.
+  // Prefer running the worker entrypoint directly via `node`.
+  const shouldRunWorkerViaNode = isBundledRuntime || !hasPackageJson;
   let worker;
   try {
     const boardEnv = loadBoardEnv();
-    worker = spawn('npm', ['run', script], {
-      cwd: projectDir,
-      detached: true,
-      stdio: ['ignore', logFd, logFd],
-      env: { ...process.env, ...boardEnv },
-    });
+    if (!boardEnv.DATABASE_URL) {
+      console.log(`${c.yellow}Orchestrator worker not started${c.reset} (missing DATABASE_URL).`);
+      console.log(`${c.dim}Start the board first so ~/.agx/board.env is populated:${c.reset} agx board start`);
+      fs.closeSync(logFd);
+      return null;
+    }
+
+    if (shouldRunWorkerViaNode) {
+      const entry = pickNodeWorkerEntrypoint();
+      if (!entry) {
+        console.error(`${c.red}Unable to resolve worker entrypoint under:${c.reset} ${projectDir}`);
+        fs.closeSync(logFd);
+        return null;
+      }
+      worker = spawn('node', [entry], {
+        cwd: projectDir,
+        detached: true,
+        stdio: ['ignore', logFd, logFd],
+        env: { ...process.env, ...boardEnv },
+      });
+    } else {
+      worker = spawn('npm', ['run', script], {
+        cwd: projectDir,
+        detached: true,
+        stdio: ['ignore', logFd, logFd],
+        env: { ...process.env, ...boardEnv },
+      });
+    }
   } catch (err) {
     fs.closeSync(logFd);
     console.error(`${c.red}Failed to start orchestrator worker:${c.reset} ${err.message}`);
@@ -3124,6 +3173,19 @@ function startTemporalWorker() {
   console.log(`${c.green}✓${c.reset} Orchestrator worker started (pid ${worker.pid})`);
   console.log(`${c.dim}  Logs: ${WORKER_LOG_FILE}${c.reset}`);
   return worker.pid;
+}
+
+async function ensureTemporalWorkerRunning() {
+  // Ensure board.env exists (and DATABASE_URL is set) before starting the pg-boss worker.
+  // Otherwise the worker may crash on startup due to missing DB credentials, and stage
+  // transitions from /api/queue/complete will never be applied.
+  try {
+    const boardEnv = loadBoardEnv();
+    if (!boardEnv.DATABASE_URL) {
+      await ensureBoardRunning();
+    }
+  } catch { }
+  return startTemporalWorker();
 }
 
 async function stopTemporalWorker() {
@@ -3192,7 +3254,8 @@ function startDaemon(options = {}) {
   console.log(`${c.dim}  Configure workers: agx daemon start -w 4${c.reset}`);
   console.log(`${c.dim}  Run in foreground: agx daemon${c.reset}`);
 
-  startTemporalWorker();
+  // Run the orchestrator worker (pg-boss) so /api/queue/complete stage transitions are applied.
+  void ensureTemporalWorkerRunning();
 
   return daemon.pid;
 }
@@ -4580,6 +4643,8 @@ async function checkOnboarding() {
 	  }
 
 	async function runCloudDaemonTask(task) {
+	    const { buildCloudTaskTerminalPatch } = require('./lib/cloud/status');
+
 	    const taskId = String(task?.id || '').trim();
 	    if (!taskId) {
 	      throw new Error('Queue returned task without id');
@@ -4778,24 +4843,40 @@ async function checkOnboarding() {
       }
     }
 
-    await cloudRequest('POST', '/api/queue/complete', {
-      taskId,
-      log: decisionPayload.summary || decisionPayload.explanation,
-      decision: decisionPayload.decision,
-      final_result: decisionPayload.final_result,
+	    const completionResult = await cloudRequest('POST', '/api/queue/complete', {
+	      taskId,
+	      log: decisionPayload.summary || decisionPayload.explanation,
+	      decision: decisionPayload.decision,
+	      final_result: decisionPayload.final_result,
       explanation: decisionPayload.explanation,
       ...(localArtifacts && lastRun?.paths?.root ? {
         artifact_path: lastRun.paths.root,
         artifact_host: os.hostname(),
         artifact_key: localArtifactKey(lastRun.paths.root),
       } : {}),
-      ...(runIndexEntry ? { run_entry: runIndexEntry } : {}),
-    });
+	      ...(runIndexEntry ? { run_entry: runIndexEntry } : {}),
+	    });
 
-    // Post a structured outcome comment (separate from queue completion log).
-    await postTaskComment(taskId, [
-      `## ${task?.stage || 'stage'} completed`,
-      '',
+	    // Best-effort: ensure cloud task status is terminal when stage/decision indicates completion.
+	    // Some board runtimes advance `stage` to "done" but leave `status` as "in_progress".
+	    try {
+	      let newStage = completionResult?.newStage || completionResult?.task?.stage || null;
+	      if (!newStage) {
+	        try {
+	          const { task: refreshed } = await cloudRequest('GET', `/api/tasks/${taskId}`);
+	          newStage = refreshed?.stage || null;
+	        } catch { }
+	      }
+	      const patch = buildCloudTaskTerminalPatch({ decision: decisionPayload?.decision, newStage });
+	      if (patch) {
+	        await cloudRequest('PATCH', `/api/tasks/${taskId}`, patch);
+	      }
+	    } catch { }
+
+	    // Post a structured outcome comment (separate from queue completion log).
+	    await postTaskComment(taskId, [
+	      `## ${task?.stage || 'stage'} completed`,
+	      '',
       `Decision: ${decisionPayload.decision}`,
       '',
       decisionPayload.summary || decisionPayload.explanation || '',
@@ -5349,12 +5430,16 @@ async function checkOnboarding() {
       process.exit(0);
     }
 
-    if (!subcmd || subcmd === 'run' || subcmd === '--run') {
+  if (!subcmd || subcmd === 'run' || subcmd === '--run') {
       const cloudConfig = loadCloudConfig();
       if (!cloudConfig?.apiUrl) {
         console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
         process.exit(1);
       }
+
+      // Ensure the pg-boss orchestrator worker is running; otherwise stage completion signals
+      // won't be processed and tasks can get stuck in in_progress.
+      await ensureTemporalWorkerRunning();
 
       await runCloudDaemonLoop(daemonOptions);
       return true;
@@ -5420,9 +5505,15 @@ async function checkOnboarding() {
     if (!subcmd || subcmd === 'start') {
       _boardEnsured = false; // force re-check
       await ensureBoardRunning();
+      // `agx run` intentionally does not autostart the orchestrator worker, but
+      // `agx board start` is an explicit local-runtime action, so we also start
+      // the worker to ensure /api/queue/complete stage transitions are applied.
+      void ensureTemporalWorkerRunning();
       process.exit(0);
     } else if (subcmd === 'stop') {
       await stopBoard();
+      // Best-effort: stop the worker when stopping the local board runtime.
+      await stopTemporalWorker();
       process.exit(0);
     } else if (subcmd === 'status') {
       const pid = isBoardRunning();
@@ -5933,13 +6024,14 @@ async function checkOnboarding() {
 
       console.log(`${c.bold}Tasks${c.reset} (${tasks.length})\n`);
       let idx = 1;
-      for (const task of tasks) {
-        const statusIcon = {
-          queued: c.yellow + '○' + c.reset,
-          in_progress: c.blue + '●' + c.reset,
-          completed: c.green + '✓' + c.reset,
-          failed: c.red + '✗' + c.reset,
-        }[task.status] || '?';
+	      for (const task of tasks) {
+	        const statusIcon = {
+	          queued: c.yellow + '○' + c.reset,
+	          in_progress: c.blue + '●' + c.reset,
+	          blocked: c.yellow + '!' + c.reset,
+	          completed: c.green + '✓' + c.reset,
+	          failed: c.red + '✗' + c.reset,
+	        }[task.status] || '?';
 
         console.log(`  ${c.dim}${idx}.${c.reset} ${statusIcon} ${task.slug || 'task'}`);
         const displayProvider = task.swarm
@@ -5960,13 +6052,13 @@ async function checkOnboarding() {
     process.exit(0);
   }
 
-  // agx complete <taskId> [--log "message"]
-  if (cmd === 'complete' || cmd === 'done') {
-    const config = loadCloudConfig();
-    if (!config) {
-      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
-      process.exit(1);
-    }
+	  // agx complete <taskId> [--log "message"]
+	  if (cmd === 'complete' || cmd === 'done') {
+	    const config = loadCloudConfig();
+	    if (!config) {
+	      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
+	      process.exit(1);
+	    }
 
     let taskId = null;
     for (let i = 1; i < args.length; i++) {
@@ -5989,16 +6081,53 @@ async function checkOnboarding() {
       }
     }
 
-    try {
-      const { task, newStage } = await cloudRequest('POST', '/api/queue/complete', {
-        taskId,
-        log: log || 'Stage completed via agx CLI',
-      });
-      console.log(`${c.green}✓${c.reset} Stage completed`);
-      console.log(`  New stage: ${newStage}`);
-      if (newStage === 'done') {
-        console.log(`  ${c.green}Task is now complete!${c.reset}`);
-      }
+		    try {
+		      const { buildCloudTaskTerminalPatch } = require('./lib/cloud/status');
+
+		      const resolvedTaskId = await resolveTaskId(taskId);
+		      const { task: existingTask } = await cloudRequest('GET', `/api/tasks/${resolvedTaskId}`);
+		      const existingStage = String(existingTask?.stage || '').toLowerCase();
+
+		      // If the task is already in the terminal stage, don't call /queue/complete again.
+		      // Just align status to terminal (this fixes stage=status drift safely).
+		      if (existingStage === 'done') {
+		        const patch = buildCloudTaskTerminalPatch({ newStage: 'done' });
+		        if (patch) {
+		          await cloudRequest('PATCH', `/api/tasks/${resolvedTaskId}`, patch);
+		        }
+		        console.log(`${c.green}✓${c.reset} Task already in done stage; status aligned`);
+		        process.exit(0);
+		      }
+
+			      const message = log || 'Stage completed via agx CLI';
+			      const { task, newStage } = await cloudRequest('POST', '/api/queue/complete', {
+			        taskId: resolvedTaskId,
+			        log: message,
+			        decision: 'done',
+			        explanation: message,
+			        final_result: message,
+			      });
+			      let stageAfter = newStage || task?.stage || null;
+			      if (!stageAfter) {
+			        try {
+			          const { task: refreshed } = await cloudRequest('GET', `/api/tasks/${resolvedTaskId}`);
+			          stageAfter = refreshed?.stage || null;
+			        } catch { }
+			      }
+
+			      // If this completion transitioned the task into a terminal stage, align `status` too.
+			      try {
+			        const patch = buildCloudTaskTerminalPatch({ newStage: stageAfter });
+			        if (patch) {
+			          await cloudRequest('PATCH', `/api/tasks/${resolvedTaskId}`, patch);
+			        }
+			      } catch { }
+
+			      console.log(`${c.green}✓${c.reset} Stage completed`);
+			      console.log(`  New stage: ${stageAfter || 'unknown'}`);
+			      if (String(stageAfter || '').toLowerCase() === 'done') {
+			        console.log(`  ${c.green}Task is now complete!${c.reset}`);
+			      }
     } catch (err) {
       console.log(`${c.red}✗${c.reset} Failed: ${err.message}`);
       process.exit(1);
