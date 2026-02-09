@@ -29,6 +29,15 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const readline = require('readline');
+const { c } = require('./lib/ui/colors');
+const { AGX_SKILL } = require('./lib/cli/skillText');
+const { sanitizeCliArg, sanitizeCliArgs } = require('./lib/cli/sanitize');
+const { loadCloudConfigFile } = require('./lib/config/cloudConfig');
+const { truncateForComment, cleanAgentOutputForComment, extractFileRefsFromText } = require('./lib/ui/text');
+const { commandExists } = require('./lib/proc/commandExists');
+const { spawnCloudTaskProcess } = require('./lib/proc/spawnCloudTaskProcess');
+const { createCloudClient } = require('./lib/cloud/client');
+const { buildContinueCloudTaskPrompt, buildNewAutonomousCloudTaskPrompt } = require('./lib/prompts/cloudTask');
 const {
   resolveStageObjective,
   buildStageRequirementPrompt,
@@ -54,75 +63,7 @@ const CONFIG_DIR = path.join(process.env.HOME || process.env.USERPROFILE, '.agx'
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 const CLOUD_CONFIG_FILE = path.join(CONFIG_DIR, 'cloud.json');
 
-// agx skill - instructions for LLMs on how to use agx
-const AGX_SKILL = `---
-name: agx
-description: Task orchestrator for AI agents. Uses cloud API for persistence.
----
-
-# agx - AI Agent Task Orchestrator
-
-agx manages tasks and coordinates AI agents. Uses cloud API for persistence.
-
-## Quick Start
-
-\`\`\`bash
-agx -a -p "Build a REST API"  # Autonomous: works until done
-agx -p "explain this code"     # One-shot question
-\`\`\`
-
-## Task Lifecycle
-
-\`\`\`bash
-agx new "goal"          # Create task
-agx run [task]          # Run a task
-agx complete <taskId>   # Mark task stage complete
-agx status              # Show current status
-\`\`\`
-
-## Checking Tasks
-
-\`\`\`bash
-agx task ls             # List tasks
-agx task logs <id> [-f] # View/tail task logs
-agx task tail <id>      # Tail task logs
-agx comments tail <id>  # Tail task comments
-agx logs tail <id>      # Tail task logs
-agx watch               # Watch task updates in real-time (SSE)
-\`\`\`
-
-## Cloud
-
-\`\`\`bash
-AGX_CLOUD_URL=http://localhost:41741 agx status
-AGX_CLOUD_URL=http://localhost:41741 agx task ls
-agx daemon start  # Start local daemon
-\`\`\`
-
-## Providers
-
-claude (c), gemini (g), ollama (o), codex (x)
-
-## Key Flags
-
--a  Autonomous mode (daemon + work until done)
--p  Prompt/goal
--y  Skip confirmations (implied by -a)
--P, --provider <c|g|o|x>  Provider for new task (claude/gemini/ollama/codex)
-`;
-
-// ANSI colors
-const c = {
-  reset: '\x1b[0m',
-  bold: '\x1b[1m',
-  dim: '\x1b[2m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  blue: '\x1b[34m',
-  cyan: '\x1b[36m',
-  red: '\x1b[31m',
-  magenta: '\x1b[35m'
-};
+// NOTE: AGX_SKILL, colors, CLI sanitizers, text helpers, and process wrappers live in lib/* modules.
 
 const SWARM_PROVIDERS = ['claude', 'gemini', 'ollama', 'codex'];
 const SWARM_TIMEOUT_MS = Number(process.env.AGX_SWARM_TIMEOUT_MS || 10 * 60 * 1000);
@@ -157,117 +98,7 @@ async function abortIfCancelled(watcher) {
   }
 }
 
-// Check if a command exists
-function commandExists(cmd) {
-  try {
-    execSync(`which ${cmd}`, { stdio: 'ignore' });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function spawnCloudTaskProcess(childArgs, options = {}) {
-  const useScriptTty = commandExists('script');
-  const spawnCmd = useScriptTty ? 'script' : process.execPath;
-  const spawnArgs = useScriptTty
-    ? ['-q', '/dev/null', process.execPath, ...childArgs]
-    : childArgs;
-  return spawn(spawnCmd, spawnArgs, {
-    stdio: ['ignore', 'pipe', 'pipe'],
-    ...options
-  });
-}
-
-function sanitizeCliArg(value) {
-  return String(value ?? '').replace(/\u0000/g, '');
-}
-
-function sanitizeCliArgs(values) {
-  return values.map(sanitizeCliArg);
-}
-
-function loadCloudConfigFile() {
-  try {
-    if (fs.existsSync(CLOUD_CONFIG_FILE)) {
-      return JSON.parse(fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8'));
-    }
-  } catch { }
-  return null;
-}
-
-function truncateForComment(text, maxChars = 12000) {
-  const value = String(text || '');
-  if (value.length <= maxChars) return value;
-  return `[truncated]\n\n${value.slice(-maxChars)}`;
-}
-
-function cleanAgentOutputForComment(text) {
-  if (!text) return '';
-  const finalChunk = (String(text).split('[3m[35mtokens used[0m[0m').slice(-1)[0] || '').trim();
-  const lines = finalChunk
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  const noiseMatchers = [
-    /^tool call result/i,
-    /^tool call results/i,
-    /^thinking tokens/i
-  ];
-
-  const filteredLines = lines.filter((line) => {
-    return !noiseMatchers.some((matcher) => matcher.test(line));
-  });
-
-  const cleaned = filteredLines.join('\n').trim();
-  return cleaned || finalChunk;
-}
-
-function extractFileRefsFromText(text, { max = 20 } = {}) {
-  const raw = String(text || '');
-  if (!raw.trim()) return [];
-
-  const exts = '(?:md|js|mjs|cjs|ts|tsx|jsx|json|patch|diff|txt|ndjson|yaml|yml)';
-  const refs = new Set();
-  const addRef = (ref) => {
-    const value = String(ref || '').trim();
-    if (!value) return;
-    if (refs.has(value)) return;
-    refs.add(value);
-  };
-
-  const patterns = [
-    // Absolute POSIX paths, optionally with :line or :line:col suffix.
-    new RegExp(String.raw`(?:^|\s)(\/[^\s'"<>]+?\.(?:${exts})(?::\d+(?::\d+)?)?)(?=$|\s)`, 'g'),
-    // Repo-relative paths, optionally with :line or :line:col suffix.
-    new RegExp(String.raw`(?:^|\s)([A-Za-z0-9_.\/-]+?\.(?:${exts})(?::\d+(?::\d+)?)?)(?=$|\s)`, 'g'),
-  ];
-
-  for (const re of patterns) {
-    let match;
-    while ((match = re.exec(raw)) !== null) {
-      const candidate = String(match[1] || '').replace(/[),.;\]]+$/g, '');
-      if (!candidate) continue;
-
-      const [filePart] = candidate.split(':');
-      if (!filePart) continue;
-
-      // Only keep refs that exist on disk (helps avoid random false positives).
-      const abs = filePart.startsWith('/') ? filePart : path.resolve(process.cwd(), filePart);
-      try {
-        if (fs.existsSync(abs) && fs.statSync(abs).isFile()) {
-          const suffix = candidate.slice(filePart.length); // preserve :line[:col] if present
-          addRef(`${abs}${suffix}`);
-          if (refs.size >= max) break;
-        }
-      } catch { }
-      if (refs.size >= max) break;
-    }
-    if (refs.size >= max) break;
-  }
-
-  return Array.from(refs);
-}
+// NOTE: commandExists/spawnCloudTaskProcess/sanitize/truncate/etc are imported above.
 
 async function postTaskLog(taskId, content, logType) {
   const cloudConfig = loadCloudConfigFile();
@@ -4886,35 +4717,25 @@ async function checkOnboarding() {
     // Fall through to first run detection below
   }
 
-  // Init/setup command
-  if (cmd === 'init' || cmd === 'setup') {
-    await runOnboarding();
-    return true;
-  }
-
-  // Config menu
-  if (cmd === 'config') {
-    await runConfigMenu();
-    return true;
-  }
-
-  // Status command
-  if (cmd === 'status') {
-    if (args.includes('--cloud')) {
-      console.log(`${c.yellow}Note:${c.reset} ${c.cyan}--cloud${c.reset} is no longer needed. Cloud is the default.`);
-    }
-
-    // Fall back to config status
-    await showConfigStatus();
-    process.exit(0);
-    return true;
-  }
-
-  // Skill command
-  if (cmd === 'skill') {
-    await handleSkillCommand(args);
-    process.exit(0);
-    return true;
+  {
+    const { maybeHandleCoreCommand } = require('./lib/commands/core');
+    const handled = await maybeHandleCoreCommand({
+      cmd,
+      args,
+      ctx: {
+        c,
+        runOnboarding,
+        runConfigMenu,
+        showConfigStatus,
+        handleSkillCommand,
+        loadConfig,
+        prompt,
+        installProvider,
+        loginProvider,
+        commandExists,
+      }
+    });
+    if (handled) return true;
   }
 
   // ============================================================
@@ -6681,37 +6502,6 @@ async function checkOnboarding() {
     process.exit(0);
   }
 
-  // Add/install command
-  if (cmd === 'add' || cmd === 'install') {
-    const provider = args[1];
-    if (!provider) {
-      console.log(`${c.yellow}Usage:${c.reset} agx add <provider>`);
-      console.log(`${c.dim}Providers: claude, gemini, ollama, codex${c.reset}`);
-      process.exit(1);
-    }
-    if (!['claude', 'gemini', 'ollama', 'codex'].includes(provider)) {
-      console.log(`${c.red}Unknown provider:${c.reset} ${provider}`);
-      process.exit(1);
-    }
-    if (commandExists(provider)) {
-      console.log(`${c.green}✓${c.reset} ${provider} is already installed!`);
-      const answer = await prompt(`Run login/setup? [Y/n]: `);
-      if (answer.toLowerCase() !== 'n') {
-        await loginProvider(provider);
-      }
-    } else {
-      const success = await installProvider(provider);
-      if (success) {
-        const answer = await prompt(`\nRun login/setup? [Y/n]: `);
-        if (answer.toLowerCase() !== 'n') {
-          await loginProvider(provider);
-        }
-      }
-    }
-    process.exit(0);
-    return true;
-  }
-
   // First run detection — skip for non-interactive/daemon contexts
   const config = loadConfig();
   const isNonInteractive = args.includes('--print') || args.includes('--cloud-task') || args.some(a => a.startsWith('--cloud-task'));
@@ -7070,122 +6860,10 @@ EXAMPLES:
   // - agx -a -p "..." → create new task in cloud
   // - agx --cloud-task <id> → continue cloud task (used by daemon)
 
-  const CLOUD_CONFIG_FILE = path.join(CONFIG_DIR, 'cloud.json');
-
-  function isLocalApiUrl(apiUrl) {
-    if (!apiUrl || typeof apiUrl !== 'string') return false;
-    try {
-      const u = new URL(apiUrl);
-      return u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '0.0.0.0' || u.hostname === '::1';
-    } catch {
-      return false;
-    }
-  }
-
-  function isAuthDisabled(config) {
-    if (process.env.AGX_CLOUD_AUTH_DISABLED === '1') return true;
-    if (process.env.AGX_BOARD_DISABLE_AUTH === '1') return true;
-    if (config?.authDisabled === true) return true;
-    return isLocalApiUrl(config?.apiUrl);
-  }
-
-  function loadCloudConfig() {
-    try {
-      if (fs.existsSync(CLOUD_CONFIG_FILE)) {
-        return JSON.parse(fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8'));
-      }
-    } catch { }
-    // Default to local board runtime when no cloud config exists.
-    // Daemon should work without any auth flow; cloud may be unauthenticated.
-    const apiUrl = (process.env.AGX_CLOUD_URL || process.env.AGX_BOARD_URL || 'http://localhost:41741').replace(/\/$/, '');
-    return {
-      apiUrl,
-      token: null,
-      refreshToken: null,
-      userId: process.env.AGX_USER_ID || '',
-      authDisabled: isLocalApiUrl(apiUrl),
-    };
-  }
-
-  function saveCloudConfig(config) {
-    if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-    fs.writeFileSync(CLOUD_CONFIG_FILE, JSON.stringify(config, null, 2));
-  }
-
-  async function tryRefreshCloudToken(config) {
-    if (!config?.apiUrl || !config?.refreshToken) return null;
-
-    try {
-      const response = await fetch(`${config.apiUrl}/api/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: config.refreshToken }),
-      });
-
-      let data = null;
-      try {
-        data = await response.json();
-      } catch { }
-
-      if (!response.ok || !data?.access_token) {
-        return null;
-      }
-
-      const updated = {
-        ...config,
-        token: data.access_token,
-        refreshToken: data.refresh_token || config.refreshToken,
-      };
-      saveCloudConfig(updated);
-      return updated;
-    } catch {
-      return null;
-    }
-  }
-
-  async function cloudRequest(method, endpoint, body = null) {
-    const config = loadCloudConfig();
-    if (!config?.apiUrl) {
-      throw new Error('Cloud API URL not configured. Set AGX_CLOUD_URL (default http://localhost:41741)');
-    }
-
-    const url = `${config.apiUrl}${endpoint}`;
-    const makeRequest = async (cfg) => {
-      const fetchOptions = {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          'x-user-id': cfg.userId || '',
-        },
-      };
-      if (cfg?.token) {
-        fetchOptions.headers.Authorization = `Bearer ${cfg.token}`;
-      }
-      if (body) fetchOptions.body = JSON.stringify(body);
-      const response = await fetch(url, fetchOptions);
-      let data = null;
-      try {
-        data = await response.json();
-      } catch { }
-      return { response, data };
-    };
-
-    let activeConfig = config;
-    let { response, data } = await makeRequest(activeConfig);
-
-    if (response.status === 401) {
-      const refreshedConfig = await tryRefreshCloudToken(activeConfig);
-      if (refreshedConfig?.token) {
-        activeConfig = refreshedConfig;
-        ({ response, data } = await makeRequest(activeConfig));
-      }
-    }
-
-    if (!response.ok) {
-      throw new Error(data?.error || `HTTP ${response.status}`);
-    }
-    return data;
-  }
+  const cloudClient = createCloudClient({ configDir: CONFIG_DIR, cloudConfigFile: CLOUD_CONFIG_FILE });
+  const loadCloudConfig = cloudClient.loadConfig;
+  const saveCloudConfig = cloudClient.saveConfig;
+  const cloudRequest = cloudClient.request;
 
   // --cloud-task: load existing task from cloud (used by daemon)
   if (options.cloudTaskId) {
@@ -7211,55 +6889,14 @@ EXAMPLES:
       const stagePrompt = resolveStageObjective(task, stageKey, '');
       const stageRequirement = buildStageRequirementPrompt({ stage: stageKey, stagePrompt });
 
-      let augmentedPrompt = task.prompt || `## Cloud Task Context
-
-You are continuing a cloud task. Here is the current state:
-
-Task ID: ${task.id}
-Title: ${task.title || 'Untitled'}
-Stage: ${task.stage || 'ideation'}
-Stage Objective: ${stagePrompt}
-Stage Completion Requirement: ${stageRequirement}
-
-User Request: 
-"""
-${task?.title}
-${task?.content}
----
-Task Thread:
-${taskComments.map(c => `${c.author}: ${c.content}`).join('\n')}
-"""
-
-## Extracted State
-
-Goal: ${task.title || 'Untitled'}
-Plan: ${plan || '(none)'}
-Todo: ${todo || '(none)'}
-Checkpoints: ${checkpoints || '(none)'}
-Learnings: ${learnings || '(none)'}
-
-`;
-      if (!task.prompt && task.engine) {
-        augmentedPrompt += `Engine: ${task.engine}\n`;
-      }
-
-      augmentedPrompt += `
-## Instructions
-
-Continue working on this task. Use the cloud API to sync progress.
-Respect the Stage Completion Requirement before using [complete] or [done].
-
-To update the task:
-- [done] - Mark task complete
-- [complete: message] - Complete current stage
-- [log: message] - Add a log entry
-- [checkpoint: message] - Save progress checkpoint
-- [learn: insight] - Record a learning
-- [plan: text] - Update plan
-- [todo: text] - Update todo list
-
-${finalPrompt ? `Your specific task: ${finalPrompt}` : ''}
-`;
+      const augmentedPrompt = buildContinueCloudTaskPrompt({
+        task,
+        taskComments,
+        finalPrompt,
+        stagePrompt,
+        stageRequirement,
+        extracted: { plan, todo, checkpoints, learnings },
+      });
 
       const promptIndex = translatedArgs.indexOf(finalPrompt);
       if (promptIndex !== -1) {
@@ -7307,37 +6944,13 @@ ${finalPrompt ? `Your specific task: ${finalPrompt}` : ''}
         const stagePrompt = resolveStageObjective(task, stageKey, '');
         const stageRequirement = buildStageRequirementPrompt({ stage: stageKey, stagePrompt });
 
-        let augmentedPrompt = `## Cloud Task Context
-
-Task ID: ${task.id}
-Title: ${task.title || finalPrompt}
-Stage: ${task.stage}
-Stage Objective: ${stagePrompt}
-Stage Completion Requirement: ${stageRequirement}
-
-User Request: 
-"""
-${task?.title}
-${task?.content}
----
-Task Thread:
-${taskComments.map(c => `${c.author}: ${c.content}`).join('\n')}
-"""
-
----
-
-## Instructions
-
-You are starting a new autonomous task. Work until completion or blocked.
-Respect the Stage Completion Requirement before using [complete] or [done].
-
-To update the task:
-- [done] - Mark task complete
-- [complete: message] - Complete current stage
-- [log: message] - Add a log entry
-
-Goal: ${finalPrompt}
-`;
+        const augmentedPrompt = buildNewAutonomousCloudTaskPrompt({
+          task,
+          taskComments,
+          finalPrompt,
+          stagePrompt,
+          stageRequirement,
+        });
 
         const promptIndex = translatedArgs.indexOf(finalPrompt);
         if (promptIndex !== -1) {

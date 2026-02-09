@@ -55,7 +55,7 @@ describe('lib/storage/runs', () => {
                 engine: 'claude',
             });
 
-            expect(run.run_id).toMatch(/^\d{8}-\d{6}-[a-f0-9]{4}$/);
+            expect(run.run_id).toMatch(/^\d{8}-\d{6}-[a-f0-9]{4}(?:[a-f0-9]{4})?$/);
             expect(run.stage).toBe('execute');
             expect(run.finalized).toBe(false);
 

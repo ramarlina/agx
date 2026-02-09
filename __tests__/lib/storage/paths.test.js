@@ -140,9 +140,9 @@ describe('lib/storage/paths', () => {
             const id1 = paths.generateRunId();
             const id2 = paths.generateRunId();
 
-            // IDs should follow YYYYMMDD-HHMMSS-xxxx format (which is sortable by date/time)
-            expect(id1).toMatch(/^\d{8}-\d{6}-[a-f0-9]{4}$/);
-            expect(id2).toMatch(/^\d{8}-\d{6}-[a-f0-9]{4}$/);
+            // IDs should follow YYYYMMDD-HHMMSS-<hex4|hex8> format (which is sortable by date/time)
+            expect(id1).toMatch(/^\d{8}-\d{6}-[a-f0-9]{4}(?:[a-f0-9]{4})?$/);
+            expect(id2).toMatch(/^\d{8}-\d{6}-[a-f0-9]{4}(?:[a-f0-9]{4})?$/);
 
             // The date-time portion should be identical or later
             const dt1 = id1.slice(0, 15); // YYYYMMDD-HHMMSS
@@ -158,9 +158,9 @@ describe('lib/storage/paths', () => {
             expect(ids.size).toBe(100);
         });
 
-        it('follows YYYYMMDD-HHMMSS-xxxx format', () => {
+        it('follows YYYYMMDD-HHMMSS-<hex4|hex8> format', () => {
             const id = paths.generateRunId();
-            expect(id).toMatch(/^\d{8}-\d{6}-[a-f0-9]{4}$/);
+            expect(id).toMatch(/^\d{8}-\d{6}-[a-f0-9]{4}(?:[a-f0-9]{4})?$/);
         });
     });
 
@@ -223,7 +223,7 @@ describe('lib/storage/paths', () => {
         it('runRoot returns correct path', () => {
             const runId = '20260208-141233-a9f3';
             expect(paths.runRoot('my-project', 'my-task', 'execute', runId))
-                .toBe('/test/agx/projects/my-project/my-task/execute/20260208-141233-a9f3');
+                .toBe('/test/agx/projects/my-project/my-task/20260208-141233-a9f3/execute');
         });
 
         it('runRoot throws for invalid stage', () => {
@@ -238,7 +238,7 @@ describe('lib/storage/paths', () => {
             const runId = '20260208-141233-a9f3';
             const p = paths.runPaths('my-project', 'my-task', 'execute', runId);
 
-            expect(p.root).toContain('execute/20260208-141233-a9f3');
+            expect(p.root).toContain('20260208-141233-a9f3/execute');
             expect(p.meta).toContain('meta.json');
             expect(p.prompt).toContain('prompt.md');
             expect(p.output).toContain('output.md');
