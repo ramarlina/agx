@@ -2918,6 +2918,78 @@ async function probeBoardHealth(port, timeoutMs = 1500) {
   }
 }
 
+const DOCKER_POSTGRES_CONTAINER = 'agx-postgres';
+const DOCKER_DEFAULT_DB_URL = 'postgresql://agx:agx@localhost:55432/agx';
+
+function isDockerPostgresRunning() {
+  try {
+    const result = spawnSync('docker', ['inspect', '-f', '{{.State.Running}}', DOCKER_POSTGRES_CONTAINER], { timeout: 3000 });
+    return result.stdout && result.stdout.toString().trim() === 'true';
+  } catch {
+    return false;
+  }
+}
+
+function dockerExecPsql({ sql, timeoutMs = 60000 }) {
+  return spawnSync('docker', [
+    'exec', '-i', DOCKER_POSTGRES_CONTAINER,
+    'psql', '-U', 'agx', '-d', 'agx',
+  ], { input: sql, timeout: timeoutMs });
+}
+
+function dockerHasRelation(qualifiedName) {
+  const safe = String(qualifiedName).replace(/'/g, "''");
+  const res = dockerExecPsql({ sql: `select to_regclass('${safe}') as rel;\n`, timeoutMs: 10000 });
+  if (res.status !== 0) return false;
+  const out = (res.stdout || Buffer.from('')).toString('utf8');
+  // Output is a 2-row table. We just need to know it's non-empty and not null.
+  return out.includes(qualifiedName.split('.').pop()) && !out.includes('null');
+}
+
+function ensureDockerSchemaInitialized() {
+  if (!isDockerPostgresRunning()) return;
+  const needsProjects = !dockerHasRelation('public.projects') || !dockerHasRelation('public.project_repos');
+  if (!needsProjects) return;
+
+  const initSqlPath = path.join(__dirname, 'templates', 'stack', 'postgres', 'init', '001_agx_board_schema.sql');
+  if (!fs.existsSync(initSqlPath)) return;
+
+  console.log(`${c.dim}Initializing database schema...${c.reset}`);
+  const initSql = fs.readFileSync(initSqlPath, 'utf8');
+  const psqlResult = dockerExecPsql({ sql: initSql, timeoutMs: 60000 });
+  if (psqlResult.status !== 0) {
+    const stderr = (psqlResult.stderr || Buffer.from('')).toString('utf8').trim();
+    console.log(`${c.yellow}Schema init returned non-zero${c.reset}${stderr ? `: ${stderr}` : ''}`);
+  }
+}
+
+function ensureSchemaInitialized(dbUrl) {
+  const initSqlPath = path.join(__dirname, 'templates', 'stack', 'postgres', 'init', '001_agx_board_schema.sql');
+  if (!fs.existsSync(initSqlPath)) return;
+
+  const initSql = fs.readFileSync(initSqlPath, 'utf8');
+
+  // For docker default URL, use docker exec psql
+  if (dbUrl === DOCKER_DEFAULT_DB_URL) {
+    if (!isDockerPostgresRunning()) return;
+    console.log(`${c.dim}Initializing database schema...${c.reset}`);
+    const psqlResult = dockerExecPsql({ sql: initSql, timeoutMs: 60000 });
+    if (psqlResult.status !== 0) {
+      const stderr = (psqlResult.stderr || Buffer.from('')).toString('utf8').trim();
+      console.log(`${c.yellow}Schema init returned non-zero${c.reset}${stderr ? `: ${stderr}` : ''}`);
+    }
+    return;
+  }
+
+  // For any other DATABASE_URL, use psql directly
+  console.log(`${c.dim}Initializing database schema...${c.reset}`);
+  const psqlResult = spawnSync('psql', [dbUrl], { input: initSql, timeout: 60000 });
+  if (psqlResult.status !== 0) {
+    const stderr = (psqlResult.stderr || Buffer.from('')).toString('utf8').trim();
+    console.log(`${c.yellow}Schema init returned non-zero${c.reset}${stderr ? `: ${stderr}` : ''}`);
+  }
+}
+
 async function ensurePostgresReady() {
   const boardEnv = loadBoardEnv();
   if (boardEnv.DATABASE_URL) {
@@ -2927,19 +2999,22 @@ async function ensurePostgresReady() {
       const host = dbUrl.hostname;
       const port = dbUrl.port || '5432';
       const result = spawnSync('pg_isready', ['-h', host, '-p', port], { timeout: 3000 });
-      if (result.status === 0) return boardEnv.DATABASE_URL;
+      if (result.status === 0) {
+        // If user is using the bundled docker Postgres, ensure schema exists even if the container
+        // was started previously (or schema init timed out).
+        ensureSchemaInitialized(boardEnv.DATABASE_URL);
+        return boardEnv.DATABASE_URL;
+      }
     } catch { }
   }
 
   // Check if docker postgres is already running
-  try {
-    const result = spawnSync('docker', ['inspect', '-f', '{{.State.Running}}', 'agx-postgres'], { timeout: 3000 });
-    if (result.stdout && result.stdout.toString().trim() === 'true') {
-      const dbUrl = 'postgresql://agx:agx@localhost:55432/agx';
-      saveBoardEnvValue('DATABASE_URL', dbUrl);
-      return dbUrl;
-    }
-  } catch { }
+  if (isDockerPostgresRunning()) {
+    const dbUrl = DOCKER_DEFAULT_DB_URL;
+    saveBoardEnvValue('DATABASE_URL', dbUrl);
+    ensureSchemaInitialized(dbUrl);
+    return dbUrl;
+  }
 
   // Not reachable — prompt user
   console.log(`\n${c.yellow}Postgres is required for the agx board server.${c.reset}`);
@@ -2995,19 +3070,7 @@ async function ensurePostgresReady() {
   const dbUrl = 'postgresql://agx:agx@localhost:55432/agx';
   saveBoardEnvValue('DATABASE_URL', dbUrl);
 
-  // Run init SQL
-  const initSqlPath = path.join(__dirname, 'templates', 'stack', 'postgres', 'init', '001_agx_board_schema.sql');
-  if (fs.existsSync(initSqlPath)) {
-    console.log(`${c.dim}Initializing database schema...${c.reset}`);
-    const initSql = fs.readFileSync(initSqlPath, 'utf8');
-    const psqlResult = spawnSync('docker', [
-      'exec', '-i', 'agx-postgres',
-      'psql', '-U', 'agx', '-d', 'agx',
-    ], { input: initSql, timeout: 10000 });
-    if (psqlResult.status !== 0) {
-      console.log(`${c.yellow}Schema init returned non-zero (may already exist)${c.reset}`);
-    }
-  }
+  ensureSchemaInitialized(dbUrl);
 
   console.log(`${c.green}✓${c.reset} Postgres ready`);
   return dbUrl;
@@ -5630,8 +5693,19 @@ async function checkOnboarding() {
       console.log(`  agx board open         Open board in browser`);
       console.log(`  agx board logs         Show recent logs`);
       console.log(`  agx board tail         Live tail logs`);
+      console.log(`  agx board migrate      Run database schema migrations`);
       console.log(`  agx board start --no-open   Do not open browser`);
       console.log(`  Env: AGX_NO_OPEN=1 (or AGX_BOARD_NO_OPEN=1)`);
+      process.exit(0);
+    } else if (subcmd === 'migrate') {
+      const boardEnv = loadBoardEnv();
+      const dbUrl = boardEnv.DATABASE_URL;
+      if (!dbUrl) {
+        console.error(`${c.red}No DATABASE_URL configured.${c.reset} Run ${c.bold}agx board start${c.reset} first or set DATABASE_URL in board env.`);
+        process.exit(1);
+      }
+      ensureSchemaInitialized(dbUrl);
+      console.log(`${c.green}✓${c.reset} Schema migrations complete`);
       process.exit(0);
     } else if (subcmd === 'status') {
       const pid = isBoardRunning();
@@ -5678,7 +5752,7 @@ async function checkOnboarding() {
       return true;
     } else {
       console.log(`${c.red}Unknown board command:${c.reset} ${subcmd}`);
-      console.log(`${c.dim}Usage: agx board [start|stop|status|show|open|logs|tail]${c.reset}`);
+      console.log(`${c.dim}Usage: agx board [start|stop|status|show|open|logs|tail|migrate]${c.reset}`);
       process.exit(0);
     }
     return true;

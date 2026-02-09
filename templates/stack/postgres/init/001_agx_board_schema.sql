@@ -1,193 +1,452 @@
--- Local AGX Board schema for standalone Postgres (no Db auth dependency)
+-- AGX Board schema — idempotent local version of agx-cloud/db/migrations/001_initial_schema.sql
+-- Source of truth: agx-cloud/db/migrations/001_initial_schema.sql
+-- This file strips RLS policies and auth.uid() references for standalone Postgres.
 
-create extension if not exists "pgcrypto";
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
 
-create table if not exists tasks (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid,
-  content text not null,
-  description text,
-  title text,
-  slug text unique,
-  status text default 'queued' check (status in ('queued', 'in_progress', 'blocked', 'completed', 'failed')),
-  stage text default 'ideation' check (stage in ('ideation', 'planning', 'coding', 'qa', 'acceptance', 'pr', 'pr_review', 'merge', 'done')),
-  project text,
-  project_id uuid,
-  priority int default 0,
-  engine text default 'claude',
-  provider text,
-  model text,
-  swarm boolean default false,
-  swarm_models jsonb,
-  retry_count int default 0,
-  error text,
-  stage_decisions jsonb default '{}'::jsonb,
-  started_at timestamptz,
-  completed_at timestamptz,
-  signature text,
-  claimed_by uuid,
-  claimed_at timestamptz,
-  -- Orchestration engine identifier (legacy value was 'temporal').
-  orchestrator text not null default 'pg-boss',
-  workflow_id text,
-  workflow_run_id text,
-  orchestration_status text,
-  last_orchestration_update timestamptz,
-  -- Structured working set fields (hybrid support)
-  current_plan text,
-  open_blockers jsonb default '[]'::jsonb,
-  next_action text,
-  version integer default 1,
-  -- Recent run metadata index (hybrid artifact pointers; no blob uploads)
-  run_index jsonb default '[]'::jsonb,
-  -- Latest run artifact pointers (daemon-reported)
-  artifact_path text,
-  artifact_host text,
-  artifact_key text,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
+CREATE SCHEMA IF NOT EXISTS public;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
+CREATE SCHEMA IF NOT EXISTS agx;
+
+SELECT pg_catalog.set_config('search_path', 'agx, public', false);
+
+-- Functions
+
+CREATE OR REPLACE FUNCTION agx.check_rate_limit(p_user_id uuid, p_endpoint text, p_max_requests integer, p_window_seconds integer) RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+declare
+  v_window_start timestamptz;
+  v_count int;
+begin
+  v_window_start := date_trunc('minute', now()) -
+    ((extract(minute from now())::int % (p_window_seconds / 60)) || ' minutes')::interval;
+
+  insert into agx.rate_limits (user_id, endpoint, window_start, request_count)
+  values (p_user_id, p_endpoint, v_window_start, 1)
+  on conflict (user_id, endpoint, window_start)
+  do update set request_count = agx.rate_limits.request_count + 1
+  returning request_count into v_count;
+
+  return v_count <= p_max_requests;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION agx.increment_task_version() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+begin
+  new.version = old.version + 1;
+  return new;
+end;
+$$;
+
+CREATE OR REPLACE FUNCTION agx.update_updated_at() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+-- Tables
+
+CREATE TABLE IF NOT EXISTS agx.device_codes (
+    device_code text NOT NULL PRIMARY KEY,
+    user_code text NOT NULL UNIQUE,
+    status text NOT NULL,
+    user_id uuid,
+    access_token text,
+    refresh_token text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    expires_at timestamp with time zone NOT NULL,
+    CONSTRAINT device_codes_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'approved'::text, 'expired'::text, 'denied'::text])))
 );
 
-create index if not exists idx_tasks_queue on tasks(status, priority, created_at) where status = 'queued';
-create index if not exists idx_tasks_user on tasks(user_id);
-create index if not exists idx_tasks_project on tasks(project) where project is not null;
-
-create table if not exists task_logs (
-  id uuid primary key default gen_random_uuid(),
-  task_id uuid references tasks on delete cascade not null,
-  content text not null,
-  log_type text default 'output' check (log_type in ('output', 'error', 'system', 'checkpoint')),
-  created_at timestamptz default now()
-);
-create index if not exists idx_task_logs_task on task_logs(task_id, created_at);
-
-create table if not exists task_comments (
-  id uuid primary key default gen_random_uuid(),
-  task_id uuid references tasks on delete cascade not null,
-  author_type text default 'user' check (author_type in ('user', 'agent')),
-  author_id text,
-  content text not null,
-  created_at timestamptz default now(),
-  deleted_at timestamptz
-);
-create index if not exists idx_task_comments_task on task_comments(task_id, created_at);
-
-create table if not exists learnings (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid,
-  scope text not null check (scope in ('task', 'project', 'global')),
-  scope_id text,
-  content text not null,
-  created_at timestamptz default now()
-);
-create index if not exists idx_learnings_scope on learnings(scope, scope_id);
-create index if not exists idx_learnings_user on learnings(user_id);
-
-create table if not exists stage_prompts (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid,
-  stage text not null check (stage in ('ideation', 'planning', 'coding', 'qa', 'acceptance', 'pr', 'pr_review', 'merge', 'done')),
-  prompt text not null,
-  outputs text[],
-  is_default boolean default false,
-  swarm boolean default false,
-  provider text,
-  model text,
-  swarm_models jsonb,
-  created_at timestamptz default now(),
-  unique(stage, user_id)
+CREATE TABLE IF NOT EXISTS agx.learnings (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    user_id uuid,
+    scope text NOT NULL,
+    scope_id text,
+    content text NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT learnings_scope_check CHECK ((scope = ANY (ARRAY['task'::text, 'project'::text, 'global'::text])))
 );
 
-create unique index if not exists uniq_stage_prompt_default
-  on stage_prompts(stage)
-  where is_default = true;
-
-create table if not exists task_audit_log (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid,
-  task_id uuid references tasks on delete set null,
-  action text not null check (action in ('dispatch', 'execute', 'complete', 'reject', 'fail')),
-  payload jsonb not null,
-  signature text not null,
-  ip_address inet,
-  user_agent text,
-  dispatched_at timestamptz default now(),
-  executed_at timestamptz,
-  result text check (result in ('pending', 'success', 'rejected', 'failed'))
+CREATE TABLE IF NOT EXISTS agx.project_repos (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    project_id uuid NOT NULL,
+    name text NOT NULL,
+    path text,
+    git_url text,
+    notes text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
-create index if not exists idx_audit_user on task_audit_log(user_id, dispatched_at desc);
-create index if not exists idx_audit_task on task_audit_log(task_id);
-
-create table if not exists user_secrets (
-  user_id uuid primary key,
-  daemon_secret_hash text not null,
-  created_at timestamptz default now(),
-  rotated_at timestamptz
+CREATE TABLE IF NOT EXISTS agx.projects (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    user_id uuid NOT NULL,
+    name text NOT NULL,
+    slug text NOT NULL,
+    description text,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    ci_cd_info text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    workflow_id uuid
 );
 
-create table if not exists rate_limits (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null,
-  endpoint text not null,
-  window_start timestamptz not null,
-  request_count int default 1,
-  unique(user_id, endpoint, window_start)
+CREATE TABLE IF NOT EXISTS agx.rate_limits (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    user_id uuid NOT NULL,
+    endpoint text NOT NULL,
+    window_start timestamp with time zone NOT NULL,
+    request_count integer DEFAULT 1,
+    UNIQUE (user_id, endpoint, window_start)
 );
 
-create table if not exists device_codes (
-  id uuid primary key default gen_random_uuid(),
-  device_code text unique not null,
-  user_code text unique not null,
-  status text not null check (status in ('pending', 'approved', 'expired', 'denied')),
-  user_id uuid,
-  access_token text,
-  refresh_token text,
-  created_at timestamptz default now(),
-  expires_at timestamptz not null
+CREATE TABLE IF NOT EXISTS agx.stage_prompts (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    user_id uuid,
+    stage text NOT NULL,
+    prompt text NOT NULL,
+    outputs text[],
+    is_default boolean DEFAULT false,
+    created_at timestamp with time zone DEFAULT now(),
+    swarm boolean DEFAULT false,
+    provider text,
+    model text,
+    swarm_models jsonb,
+    workflow_id uuid
 );
 
-create table if not exists projects (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid,
-  name text not null,
-  slug text not null,
-  description text,
-  metadata jsonb,
-  ci_cd_info text,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now(),
-  unique (user_id, slug)
+CREATE TABLE IF NOT EXISTS agx.task_audit_log (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    user_id uuid,
+    task_id uuid,
+    action text NOT NULL,
+    payload jsonb NOT NULL,
+    signature text NOT NULL,
+    ip_address inet,
+    user_agent text,
+    dispatched_at timestamp with time zone DEFAULT now(),
+    executed_at timestamp with time zone,
+    result text,
+    CONSTRAINT task_audit_log_action_check CHECK ((action = ANY (ARRAY['dispatch'::text, 'execute'::text, 'complete'::text, 'reject'::text, 'fail'::text]))),
+    CONSTRAINT task_audit_log_result_check CHECK ((result = ANY (ARRAY['pending'::text, 'success'::text, 'rejected'::text, 'failed'::text])))
 );
 
-create index if not exists idx_projects_user on projects(user_id, created_at desc);
-
-create table if not exists project_repos (
-  id uuid primary key default gen_random_uuid(),
-  project_id uuid not null references projects(id) on delete cascade,
-  name text not null,
-  path text,
-  git_url text,
-  notes text,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
+CREATE TABLE IF NOT EXISTS agx.task_comments (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    task_id uuid NOT NULL,
+    author_type text NOT NULL,
+    author_id uuid,
+    content text NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    deleted_at timestamp with time zone,
+    CONSTRAINT task_comments_author_type_check CHECK ((author_type = ANY (ARRAY['user'::text, 'agent'::text]))),
+    CONSTRAINT task_comments_check CHECK ((((author_type = 'user'::text) AND (author_id IS NOT NULL)) OR (author_type = 'agent'::text)))
 );
 
-create index if not exists idx_project_repos_project on project_repos(project_id);
-
-alter table tasks
-  add constraint fk_tasks_project
-  foreign key (project_id) references projects(id) on delete set null;
-
-create table if not exists task_workflow_events (
-  id uuid primary key default gen_random_uuid(),
-  task_id uuid not null references tasks(id) on delete cascade,
-  workflow_id text not null,
-  run_id text,
-  event_type text not null,
-  payload jsonb,
-  created_at timestamptz not null default now()
+CREATE TABLE IF NOT EXISTS agx.task_logs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    task_id uuid NOT NULL,
+    content text NOT NULL,
+    log_type text DEFAULT 'output'::text,
+    created_at timestamp with time zone DEFAULT now(),
+    CONSTRAINT task_logs_log_type_check CHECK ((log_type = ANY (ARRAY['output'::text, 'error'::text, 'system'::text, 'checkpoint'::text, 'comment'::text])))
 );
 
-create index if not exists idx_task_workflow_events_task_id on task_workflow_events(task_id, created_at desc);
-create index if not exists idx_task_workflow_events_workflow_id on task_workflow_events(workflow_id, created_at desc);
+CREATE TABLE IF NOT EXISTS agx.task_run_history (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    task_id uuid,
+    pid integer,
+    exit_code integer,
+    started_at timestamp with time zone,
+    completed_at timestamp with time zone,
+    error text,
+    created_at timestamp with time zone DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS agx.task_workflow_events (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    task_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    workflow_id text NOT NULL,
+    run_id text,
+    event_type text NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agx.tasks (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    user_id uuid,
+    content text NOT NULL,
+    title text,
+    status text DEFAULT 'queued'::text,
+    stage text DEFAULT 'ideation'::text,
+    project text,
+    priority integer DEFAULT 0,
+    engine text DEFAULT 'claude'::text,
+    signature text,
+    created_at timestamp with time zone DEFAULT now(),
+    updated_at timestamp with time zone DEFAULT now(),
+    claimed_by uuid,
+    claimed_at timestamp with time zone,
+    started_at timestamp with time zone,
+    completed_at timestamp with time zone,
+    provider text,
+    model text,
+    slug text,
+    description text,
+    swarm_models jsonb,
+    retry_count integer DEFAULT 0,
+    error text,
+    stage_decisions jsonb DEFAULT '{}'::jsonb,
+    project_id uuid,
+    orchestrator text DEFAULT 'temporal'::text NOT NULL,
+    workflow_id text,
+    workflow_run_id text,
+    orchestration_status text,
+    last_orchestration_update timestamp with time zone,
+    version integer DEFAULT 1,
+    run_index jsonb DEFAULT '[]'::jsonb NOT NULL,
+    pid integer,
+    exit_code integer,
+    CONSTRAINT tasks_stage_check CHECK ((stage = ANY (ARRAY['ideation'::text, 'planning'::text, 'execution'::text, 'verification'::text, 'done'::text]))),
+    CONSTRAINT tasks_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'in_progress'::text, 'blocked'::text, 'completed'::text, 'failed'::text])))
+);
+
+CREATE TABLE IF NOT EXISTS agx.user_secrets (
+    user_id uuid NOT NULL PRIMARY KEY,
+    daemon_secret_hash text NOT NULL,
+    created_at timestamp with time zone DEFAULT now(),
+    rotated_at timestamp with time zone
+);
+
+CREATE TABLE IF NOT EXISTS agx.workflow_instances (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    workflow_id uuid NOT NULL,
+    user_id uuid NOT NULL,
+    project_id uuid,
+    status text DEFAULT 'pending'::text,
+    input jsonb DEFAULT '{}'::jsonb NOT NULL,
+    output jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT workflow_instances_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text, 'cancelled'::text])))
+);
+
+CREATE TABLE IF NOT EXISTS agx.workflow_nodes (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    workflow_id uuid NOT NULL,
+    name text NOT NULL,
+    label text,
+    prompt text,
+    provider text,
+    model text,
+    "position" integer NOT NULL,
+    node_type text DEFAULT 'step'::text,
+    metadata jsonb DEFAULT '{}'::jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT workflow_nodes_node_type_check CHECK ((node_type = ANY (ARRAY['step'::text, 'gate'::text, 'branch'::text, 'terminal'::text])))
+);
+
+CREATE TABLE IF NOT EXISTS agx.workflow_transitions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    workflow_id uuid NOT NULL,
+    from_node_id uuid NOT NULL,
+    to_node_id uuid NOT NULL,
+    condition text DEFAULT 'done'::text,
+    priority integer DEFAULT 0,
+    metadata jsonb DEFAULT '{}'::jsonb,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT workflow_transitions_condition_check CHECK ((condition = ANY (ARRAY['done'::text, 'blocked'::text, 'failed'::text, 'retry'::text, 'branch_a'::text, 'branch_b'::text])))
+);
+
+CREATE TABLE IF NOT EXISTS agx.workflows (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    user_id uuid NOT NULL,
+    name text NOT NULL,
+    definition jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+-- Unique constraints (idempotent via DO blocks)
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'stage_prompts_workflow_stage_is_default_key') THEN
+    ALTER TABLE agx.stage_prompts ADD CONSTRAINT stage_prompts_workflow_stage_is_default_key UNIQUE (workflow_id, stage, is_default);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'stage_prompts_workflow_stage_user_id_key') THEN
+    ALTER TABLE agx.stage_prompts ADD CONSTRAINT stage_prompts_workflow_stage_user_id_key UNIQUE (workflow_id, stage, user_id);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'workflow_transitions_workflow_id_from_node_id_condition_key') THEN
+    ALTER TABLE agx.workflow_transitions ADD CONSTRAINT workflow_transitions_workflow_id_from_node_id_condition_key UNIQUE (workflow_id, from_node_id, condition);
+  END IF;
+END $$;
+
+-- Indexes
+
+CREATE INDEX IF NOT EXISTS device_codes_user_code_idx ON agx.device_codes USING btree (user_code);
+CREATE INDEX IF NOT EXISTS idx_audit_task ON agx.task_audit_log USING btree (task_id);
+CREATE INDEX IF NOT EXISTS idx_audit_user ON agx.task_audit_log USING btree (user_id, dispatched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_learnings_scope ON agx.learnings USING btree (scope, scope_id);
+CREATE INDEX IF NOT EXISTS idx_learnings_user ON agx.learnings USING btree (user_id);
+CREATE INDEX IF NOT EXISTS idx_project_repos_project ON agx.project_repos USING btree (project_id);
+CREATE INDEX IF NOT EXISTS idx_projects_user ON agx.projects USING btree (user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_user_slug ON agx.projects USING btree (user_id, slug);
+CREATE INDEX IF NOT EXISTS idx_projects_workflow ON agx.projects USING btree (workflow_id) WHERE (workflow_id IS NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_rate_limits_lookup ON agx.rate_limits USING btree (user_id, endpoint, window_start);
+CREATE INDEX IF NOT EXISTS idx_stage_prompts_workflow_id ON agx.stage_prompts USING btree (workflow_id);
+CREATE INDEX IF NOT EXISTS idx_task_comments_not_deleted ON agx.task_comments USING btree (task_id, created_at) WHERE (deleted_at IS NULL);
+CREATE INDEX IF NOT EXISTS idx_task_comments_task ON agx.task_comments USING btree (task_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_task_logs_task ON agx.task_logs USING btree (task_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_task_run_history_pid ON agx.task_run_history USING btree (pid);
+CREATE INDEX IF NOT EXISTS idx_task_run_history_task_id ON agx.task_run_history USING btree (task_id);
+CREATE INDEX IF NOT EXISTS idx_task_workflow_events_task_id_created_at ON agx.task_workflow_events USING btree (task_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_tasks_claimed_by ON agx.tasks USING btree (claimed_by);
+CREATE INDEX IF NOT EXISTS idx_tasks_orchestrator ON agx.tasks USING btree (orchestrator);
+CREATE INDEX IF NOT EXISTS idx_tasks_pid ON agx.tasks USING btree (pid);
+CREATE INDEX IF NOT EXISTS idx_tasks_project ON agx.tasks USING btree (project) WHERE (project IS NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_tasks_project_id ON agx.tasks USING btree (project_id) WHERE (project_id IS NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_tasks_queue ON agx.tasks USING btree (status, priority, created_at) WHERE (status = 'queued'::text);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_slug ON agx.tasks USING btree (slug);
+CREATE INDEX IF NOT EXISTS idx_tasks_stage_decisions ON agx.tasks USING gin (stage_decisions);
+CREATE INDEX IF NOT EXISTS idx_tasks_status_retry ON agx.tasks USING btree (status, retry_count);
+CREATE INDEX IF NOT EXISTS idx_tasks_user ON agx.tasks USING btree (user_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_workflow_id ON agx.tasks USING btree (workflow_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_instances_project ON agx.workflow_instances USING btree (project_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_instances_status ON agx.workflow_instances USING btree (status);
+CREATE INDEX IF NOT EXISTS idx_workflow_instances_user ON agx.workflow_instances USING btree (user_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_instances_workflow ON agx.workflow_instances USING btree (workflow_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_nodes_name ON agx.workflow_nodes USING btree (workflow_id, name);
+CREATE INDEX IF NOT EXISTS idx_workflow_nodes_workflow ON agx.workflow_nodes USING btree (workflow_id, "position");
+CREATE INDEX IF NOT EXISTS idx_workflow_transitions_from ON agx.workflow_transitions USING btree (from_node_id, condition);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_transitions_unique ON agx.workflow_transitions USING btree (workflow_id, from_node_id, condition);
+CREATE INDEX IF NOT EXISTS idx_workflow_transitions_workflow ON agx.workflow_transitions USING btree (workflow_id);
+CREATE INDEX IF NOT EXISTS idx_workflows_user ON agx.workflows USING btree (user_id);
+
+-- Triggers (drop + create for idempotency)
+
+DROP TRIGGER IF EXISTS tasks_updated_at ON agx.tasks;
+CREATE TRIGGER tasks_updated_at BEFORE UPDATE ON agx.tasks FOR EACH ROW EXECUTE FUNCTION agx.update_updated_at();
+
+DROP TRIGGER IF EXISTS trg_increment_task_version ON agx.tasks;
+CREATE TRIGGER trg_increment_task_version BEFORE UPDATE ON agx.tasks FOR EACH ROW EXECUTE FUNCTION agx.increment_task_version();
+
+DROP TRIGGER IF EXISTS workflow_instances_updated_at ON agx.workflow_instances;
+CREATE TRIGGER workflow_instances_updated_at BEFORE UPDATE ON agx.workflow_instances FOR EACH ROW EXECUTE FUNCTION agx.update_updated_at();
+
+DROP TRIGGER IF EXISTS workflows_updated_at ON agx.workflows;
+CREATE TRIGGER workflows_updated_at BEFORE UPDATE ON agx.workflows FOR EACH ROW EXECUTE FUNCTION agx.update_updated_at();
+
+-- Foreign keys (idempotent via DO blocks)
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'project_repos_project_id_fkey') THEN
+    ALTER TABLE agx.project_repos ADD CONSTRAINT project_repos_project_id_fkey FOREIGN KEY (project_id) REFERENCES agx.projects(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'projects_workflow_id_fkey') THEN
+    ALTER TABLE agx.projects ADD CONSTRAINT projects_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES agx.workflows(id);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'stage_prompts_workflow_id_fkey') THEN
+    ALTER TABLE agx.stage_prompts ADD CONSTRAINT stage_prompts_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES agx.workflows(id);
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'task_audit_log_task_id_fkey') THEN
+    ALTER TABLE agx.task_audit_log ADD CONSTRAINT task_audit_log_task_id_fkey FOREIGN KEY (task_id) REFERENCES agx.tasks(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'task_comments_task_id_fkey') THEN
+    ALTER TABLE agx.task_comments ADD CONSTRAINT task_comments_task_id_fkey FOREIGN KEY (task_id) REFERENCES agx.tasks(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'task_logs_task_id_fkey') THEN
+    ALTER TABLE agx.task_logs ADD CONSTRAINT task_logs_task_id_fkey FOREIGN KEY (task_id) REFERENCES agx.tasks(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'task_run_history_task_id_fkey') THEN
+    ALTER TABLE agx.task_run_history ADD CONSTRAINT task_run_history_task_id_fkey FOREIGN KEY (task_id) REFERENCES agx.tasks(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'task_workflow_events_task_id_fkey') THEN
+    ALTER TABLE agx.task_workflow_events ADD CONSTRAINT task_workflow_events_task_id_fkey FOREIGN KEY (task_id) REFERENCES agx.tasks(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tasks_project_id_fkey') THEN
+    ALTER TABLE agx.tasks ADD CONSTRAINT tasks_project_id_fkey FOREIGN KEY (project_id) REFERENCES agx.projects(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'workflow_instances_project_id_fkey') THEN
+    ALTER TABLE agx.workflow_instances ADD CONSTRAINT workflow_instances_project_id_fkey FOREIGN KEY (project_id) REFERENCES agx.projects(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'workflow_instances_workflow_id_fkey') THEN
+    ALTER TABLE agx.workflow_instances ADD CONSTRAINT workflow_instances_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES agx.workflows(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'workflow_nodes_workflow_id_fkey') THEN
+    ALTER TABLE agx.workflow_nodes ADD CONSTRAINT workflow_nodes_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES agx.workflows(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'workflow_transitions_from_node_id_fkey') THEN
+    ALTER TABLE agx.workflow_transitions ADD CONSTRAINT workflow_transitions_from_node_id_fkey FOREIGN KEY (from_node_id) REFERENCES agx.workflow_nodes(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'workflow_transitions_to_node_id_fkey') THEN
+    ALTER TABLE agx.workflow_transitions ADD CONSTRAINT workflow_transitions_to_node_id_fkey FOREIGN KEY (to_node_id) REFERENCES agx.workflow_nodes(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'workflow_transitions_workflow_id_fkey') THEN
+    ALTER TABLE agx.workflow_transitions ADD CONSTRAINT workflow_transitions_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES agx.workflows(id) ON DELETE CASCADE;
+  END IF;
+END $$;
