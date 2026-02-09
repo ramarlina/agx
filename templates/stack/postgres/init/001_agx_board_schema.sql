@@ -130,6 +130,32 @@ CREATE TABLE IF NOT EXISTS agx.stage_prompts (
     workflow_id uuid
 );
 
+-- Per-user preferences (default provider/model), shared between CLI and web.
+-- `changed_at` is the user-visible last-change timestamp (may come from clients);
+-- `updated_at` is server-maintained via trigger.
+CREATE TABLE IF NOT EXISTS agx.user_settings (
+    user_id uuid NOT NULL PRIMARY KEY,
+    default_provider text,
+    models jsonb DEFAULT '{}'::jsonb NOT NULL,
+    provenance text DEFAULT 'web'::text NOT NULL,
+    changed_at timestamp with time zone DEFAULT now() NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT user_settings_provenance_check CHECK ((provenance = ANY (ARRAY['cli'::text, 'web'::text])))
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgname = 'trg_user_settings_updated_at'
+  ) THEN
+    CREATE TRIGGER trg_user_settings_updated_at
+    BEFORE UPDATE ON agx.user_settings
+    FOR EACH ROW
+    EXECUTE FUNCTION agx.update_updated_at();
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS agx.task_audit_log (
     id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
     user_id uuid,

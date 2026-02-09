@@ -1325,7 +1325,7 @@ async function runSwarmIteration({ taskId, task, prompt, logger, artifacts, canc
   logger?.log('system', `[swarm] iteration start\n`);
 
   const results = await pMap(providers, (provider, index) => {
-    const args = [provider, '--cloud-task', taskId];
+    const args = [provider, '--cloud-task', taskId, '-y'];
     const modelForProvider = swarmModels.length
       ? swarmModels[index]?.model || null
       : null;
@@ -1383,7 +1383,7 @@ async function runSwarmIteration({ taskId, task, prompt, logger, artifacts, canc
 async function runSingleAgentIteration({ taskId, task, provider, model, prompt, logger, onStdout, onStderr, artifacts, cancellationWatcher }) {
   logExecutionFlow('runSingleAgentIteration', 'input', `taskId=${taskId}, provider=${provider}, model=${model}, prompt=${Boolean(prompt) ? 'present' : 'none'}`);
   logExecutionFlow('runSingleAgentIteration', 'processing', 'preparing runAgxCommand');
-  const args = [provider, '--cloud-task', taskId];
+  const args = [provider, '--cloud-task', taskId, '-y'];
   if (model) {
     args.push('--model', model);
   }
@@ -1554,7 +1554,7 @@ async function runSingleAgentAggregate({ task, taskId, prompt, output, iteration
   });
   artifacts?.recordPrompt(`Aggregator Prompt (${aggregatorProvider}${aggregatorModel ? `/${aggregatorModel}` : ''})`, aggregatePrompt);
 
-  const aggregateArgs = [aggregatorProvider, '--prompt', aggregatePrompt, '--print'];
+  const aggregateArgs = [aggregatorProvider, '--prompt', aggregatePrompt, '--print', '-y'];
   if (aggregatorModel) {
     aggregateArgs.push('--model', aggregatorModel);
   }
@@ -2006,7 +2006,7 @@ async function runSingleAgentExecuteVerifyLoop({ taskId, task, provider, model, 
     const verifyArtifacts = createDaemonArtifactsRecorder({ storage, run: verifyRun, taskId });
     verifyArtifacts.recordPrompt(`Verification Prompt (${provider}${model ? `/${model}` : ''}, iter ${iteration})`, verifyPrompt);
 
-    const verifyArgs = [provider, '--prompt', verifyPrompt, '--print'];
+    const verifyArgs = [provider, '--prompt', verifyPrompt, '--print', '-y'];
     if (model) verifyArgs.push('--model', model);
 
     await abortIfCancelled(cancellationWatcher);
@@ -2263,7 +2263,7 @@ async function runSwarmExecuteVerifyLoop({ taskId, task, logger, storage, projec
     const verifyArtifacts = createDaemonArtifactsRecorder({ storage, run: verifyRun, taskId });
     verifyArtifacts.recordPrompt(`Verification Prompt (${verifierProvider}${verifierModel ? `/${verifierModel}` : ''}, iter ${iteration})`, verifyPrompt);
 
-    const verifyArgs = [verifierProvider, '--prompt', verifyPrompt, '--print'];
+    const verifyArgs = [verifierProvider, '--prompt', verifyPrompt, '--print', '-y'];
     if (verifierModel) verifyArgs.push('--model', verifierModel);
 
     let verifyRes;
@@ -2427,7 +2427,7 @@ async function runSwarmAggregate({ task, taskId, prompt, results, iteration, log
   });
   artifacts?.recordPrompt(`Swarm Aggregator Prompt (${aggregatorProvider}${aggregatorModel ? `/${aggregatorModel}` : ''})`, aggregatePrompt);
 
-  const aggregateArgs = [aggregatorProvider, '--prompt', aggregatePrompt, '--print'];
+  const aggregateArgs = [aggregatorProvider, '--prompt', aggregatePrompt, '--print', '-y'];
   if (aggregatorModel) {
     aggregateArgs.push('--model', aggregatorModel);
   }
