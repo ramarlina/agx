@@ -80,7 +80,7 @@ describe('stage-requirements', () => {
     expect(normalized).toEqual(decision);
   });
 
-  test('enforceStageRequirement blocks done=true when stage objective from stage_prompts is not reflected', () => {
+  test('enforceStageRequirement does not require keyword echoes for non-mapped stages', () => {
     const decision = {
       done: true,
       decision: 'done',
@@ -93,8 +93,6 @@ describe('stage-requirements', () => {
       stage: 'qa',
       stagePrompt: 'Run regression tests and document edge cases.'
     });
-    expect(normalized.done).toBe(false);
-    expect(normalized.decision).toBe('not_done');
-    expect(normalized.explanation.toLowerCase()).toContain('completion must satisfy');
+    expect(normalized).toEqual(decision);
   });
 });

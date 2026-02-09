@@ -34,6 +34,7 @@ const {
   buildStageRequirementPrompt,
   enforceStageRequirement
 } = require('./lib/stage-requirements');
+const { detectVerifyCommands, runVerifyCommands, getGitSummary } = require('./lib/verifier');
 const { createOrchestrator } = require('./lib/orchestrator');
 const {
   collectProjectFlags,
@@ -86,8 +87,8 @@ agx watch               # Watch task updates in real-time (SSE)
 ## Cloud
 
 \`\`\`bash
-AGX_CLOUD_URL=http://localhost:3000 agx status
-AGX_CLOUD_URL=http://localhost:3000 agx task ls
+AGX_CLOUD_URL=http://localhost:41741 agx status
+AGX_CLOUD_URL=http://localhost:41741 agx task ls
 agx daemon start  # Start local daemon
 \`\`\`
 
@@ -120,6 +121,9 @@ const SWARM_PROVIDERS = ['claude', 'gemini', 'ollama', 'codex'];
 const SWARM_TIMEOUT_MS = Number(process.env.AGX_SWARM_TIMEOUT_MS || 10 * 60 * 1000);
 const SWARM_RETRIES = Number(process.env.AGX_SWARM_RETRIES || 1);
 const SWARM_MAX_ITERS = Number(process.env.AGX_SWARM_MAX_ITERS || 2);
+const SINGLE_MAX_ITERS = Number(process.env.AGX_SINGLE_MAX_ITERS || 6);
+const VERIFY_TIMEOUT_MS = Number(process.env.AGX_VERIFY_TIMEOUT_MS || 5 * 60 * 1000);
+const VERIFY_PROMPT_MAX_CHARS = Number(process.env.AGX_VERIFY_PROMPT_MAX_CHARS || 6000);
 const SWARM_LOG_FLUSH_MS = Number(process.env.AGX_SWARM_LOG_FLUSH_MS || 500);
 const SWARM_LOG_MAX_BYTES = Number(process.env.AGX_SWARM_LOG_MAX_BYTES || 8000);
 let retryFlowActive = false;
@@ -199,6 +203,52 @@ function cleanAgentOutputForComment(text) {
 
   const cleaned = filteredLines.join('\n').trim();
   return cleaned || finalChunk;
+}
+
+function extractFileRefsFromText(text, { max = 20 } = {}) {
+  const raw = String(text || '');
+  if (!raw.trim()) return [];
+
+  const exts = '(?:md|js|mjs|cjs|ts|tsx|jsx|json|patch|diff|txt|ndjson|yaml|yml)';
+  const refs = new Set();
+  const addRef = (ref) => {
+    const value = String(ref || '').trim();
+    if (!value) return;
+    if (refs.has(value)) return;
+    refs.add(value);
+  };
+
+  const patterns = [
+    // Absolute POSIX paths, optionally with :line or :line:col suffix.
+    new RegExp(String.raw`(?:^|\s)(\/[^\s'"<>]+?\.(?:${exts})(?::\d+(?::\d+)?)?)(?=$|\s)`, 'g'),
+    // Repo-relative paths, optionally with :line or :line:col suffix.
+    new RegExp(String.raw`(?:^|\s)([A-Za-z0-9_.\/-]+?\.(?:${exts})(?::\d+(?::\d+)?)?)(?=$|\s)`, 'g'),
+  ];
+
+  for (const re of patterns) {
+    let match;
+    while ((match = re.exec(raw)) !== null) {
+      const candidate = String(match[1] || '').replace(/[),.;\]]+$/g, '');
+      if (!candidate) continue;
+
+      const [filePart] = candidate.split(':');
+      if (!filePart) continue;
+
+      // Only keep refs that exist on disk (helps avoid random false positives).
+      const abs = filePart.startsWith('/') ? filePart : path.resolve(process.cwd(), filePart);
+      try {
+        if (fs.existsSync(abs) && fs.statSync(abs).isFile()) {
+          const suffix = candidate.slice(filePart.length); // preserve :line[:col] if present
+          addRef(`${abs}${suffix}`);
+          if (refs.size >= max) break;
+        }
+      } catch { }
+      if (refs.size >= max) break;
+    }
+    if (refs.size >= max) break;
+  }
+
+  return Array.from(refs);
 }
 
 async function postTaskLog(taskId, content, logType) {
@@ -781,6 +831,36 @@ function extractJson(text) {
   }
 }
 
+function extractJsonLast(text) {
+  if (!text) return null;
+  const cleaned = String(text)
+    .replace(/```json\s*/gi, '')
+    .replace(/```\s*/g, '')
+    .replace(/\u001b\[[0-9;]*m/g, '');
+
+  // Walk from the end: find the last parseable JSON object.
+  for (let i = cleaned.length - 1; i >= 0; i -= 1) {
+    if (cleaned[i] !== '}') continue;
+    let depth = 0;
+    for (let j = i; j >= 0; j -= 1) {
+      const ch = cleaned[j];
+      if (ch === '}') depth += 1;
+      if (ch === '{') {
+        depth -= 1;
+        if (depth === 0) {
+          const maybe = cleaned.slice(j, i + 1);
+          try {
+            return JSON.parse(maybe);
+          } catch {
+            break;
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
 function ensureNextPrompt(decision) {
   if (!decision || typeof decision !== 'object') return decision;
   if (decision.done) return decision;
@@ -810,6 +890,91 @@ function extractSection(markdown, heading) {
   const section = next === -1 ? rest : rest.slice(0, next);
   return section.trim();
 }
+
+/**
+ * Build the full daemon prompt context for artifact recording.
+ * This mirrors the prompt constructed by the --cloud-task handler.
+ * @param {object} task - The cloud task object
+ * @param {object} options
+ * @param {string[]} [options.comments] - Task thread comments
+ * @param {string} [options.provider] - Engine provider
+ * @param {string} [options.model] - Model name
+ * @param {string} [options.iterationPrompt] - Optional iteration-specific prompt
+ * @returns {string}
+ */
+function buildFullDaemonPromptContext(task, options = {}) {
+  const comments = Array.isArray(options.comments) ? options.comments : [];
+  const provider = options.provider || task?.engine || task?.provider || 'unknown';
+  const model = options.model || task?.model || null;
+  const iterationPrompt = options.iterationPrompt || '';
+
+  const plan = extractSection(task?.content, 'Plan');
+  const todo = extractSection(task?.content, 'Todo') || extractSection(task?.content, 'TODO');
+  const checkpoints = extractSection(task?.content, 'Checkpoints');
+  const learnings = extractSection(task?.content, 'Learnings');
+
+  const stageKey = task?.stage || 'unknown';
+  const stagePrompt = typeof resolveStageObjective === 'function'
+    ? resolveStageObjective(task, stageKey, '')
+    : '';
+  const stageRequirement = typeof buildStageRequirementPrompt === 'function'
+    ? buildStageRequirementPrompt({ stage: stageKey, stagePrompt })
+    : '';
+
+  const commentsSection = comments.length > 0
+    ? comments.map(c => `${c.author || 'user'}: ${c.content || ''}`).join('\n')
+    : '(no comments yet)';
+
+  let prompt = `## Cloud Task Context
+
+You are continuing a cloud task. Here is the current state:
+
+Task ID: ${task?.id || 'unknown'}
+Title: ${task?.title || 'Untitled'}
+Stage: ${task?.stage || 'ideation'}
+Stage Objective: ${stagePrompt}
+Stage Completion Requirement (guidance): ${stageRequirement}
+Provider: ${provider}${model ? `/${model}` : ''}
+
+User Request: 
+"""
+${task?.title || ''}
+${task?.content || ''}
+---
+Task Thread:
+${commentsSection}
+"""
+
+## Extracted State
+
+Goal: ${task?.title || 'Untitled'}
+Plan: ${plan || '(none)'}
+Todo: ${todo || '(none)'}
+Checkpoints: ${checkpoints || '(none)'}
+Learnings: ${learnings || '(none)'}
+
+## Instructions
+
+Continue working on this task. Use the cloud API to sync progress.
+Respect the Stage Completion Requirement before using [complete] or [done].
+
+To update the task:
+- [done] - Mark task complete
+- [complete: message] - Complete current stage
+- [log: message] - Add a log entry
+- [checkpoint: message] - Save progress checkpoint
+- [learn: insight] - Record a learning
+- [plan: text] - Update plan
+- [todo: text] - Update todo list
+`;
+
+  if (iterationPrompt) {
+    prompt += `\nYour specific task for this iteration: ${iterationPrompt}\n`;
+  }
+
+  return prompt;
+}
+
 
 function parseFrontmatterFromContent(content) {
   if (!content) return {};
@@ -878,16 +1043,17 @@ function parseList(value) {
     .filter(Boolean);
 }
 
-function truncateForTemporalTrace(text, maxChars = 4000) {
-  const value = String(text || '');
-  if (value.length <= maxChars) return value;
-  return `[truncated]\n${value.slice(-maxChars)}`;
-}
 
 function appendTail(prev, chunk, maxChars = 4000) {
   const next = `${prev || ''}${String(chunk || '')}`;
   if (next.length <= maxChars) return next;
   return next.slice(-maxChars);
+}
+
+function truncateForTemporalTrace(str, maxChars = 2000) {
+  if (!str) return '';
+  if (str.length <= maxChars) return str;
+  return str.slice(-maxChars);
 }
 
 function randomId() {
@@ -897,27 +1063,6 @@ function randomId() {
   return crypto.createHash('sha1').update(String(Date.now()) + Math.random()).digest('hex').slice(0, 12);
 }
 
-async function signalTemporalTask(taskId, signal, payload = {}) {
-  const cloudConfig = loadCloudConfigFile();
-  if (!cloudConfig?.apiUrl) return;
-  if (!taskId) return;
-
-  try {
-    const orchestratorBase = process.env.AGX_ORCHESTRATOR_API_PREFIX || '/api/orchestrator';
-    const headers = {
-      'Content-Type': 'application/json',
-      'x-user-id': cloudConfig.userId || '',
-    };
-    if (cloudConfig?.token) {
-      headers.Authorization = `Bearer ${cloudConfig.token}`;
-    }
-    await fetch(`${cloudConfig.apiUrl}${orchestratorBase}/tasks/${encodeURIComponent(taskId)}/signal`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ signal, payload }),
-    });
-  } catch { }
-}
 
 async function updateCloudTask(taskId, updates) {
   const cloudConfig = loadCloudConfigFile();
@@ -1112,13 +1257,6 @@ async function runSwarmIteration({ taskId, task, prompt, logger, artifacts }) {
         onStderr: (data) => logger?.log('error', data),
         onTrace: (event) => {
           void artifacts?.recordEngineTrace?.({ provider, model: swarmModels.length ? (swarmModels[index]?.model || null) : null, role: 'swarm-iteration' }, event);
-          void signalTemporalTask(taskId, 'daemonStep', {
-            kind: 'runAgxCommand',
-            task_id: taskId,
-            provider,
-            model: swarmModels.length ? (swarmModels[index]?.model || null) : null,
-            ...event,
-          });
 
           if (taskId) {
             if (event.phase === 'start' && event.pid) {
@@ -1154,11 +1292,20 @@ async function runSingleAgentIteration({ taskId, task, provider, model, prompt, 
   if (model) {
     args.push('--model', model);
   }
+
+  // Record iteration prompt for artifacts
+  // For iteration 1, prompt is empty because context comes via --cloud-task
+  // For subsequent iterations, prompt contains the next_prompt from aggregation
+  const iterationLabel = `Agent Iteration Prompt (${provider}${model ? `/${model}` : ''})`;
   if (prompt) {
     const iterPrompt = String(prompt);
-    artifacts?.recordPrompt(`Agent Iteration Prompt (${provider}${model ? `/${model}` : ''})`, iterPrompt);
+    artifacts?.recordPrompt(iterationLabel, iterPrompt);
     args.push('--prompt', iterPrompt);
+  } else {
+    // First iteration uses --cloud-task context (already recorded as Initial Task Context)
+    artifacts?.recordPrompt(iterationLabel, `(First iteration: using --cloud-task ${taskId} context)`);
   }
+
 
   const res = await pRetryFn(
     () => runAgxCommand(args, SWARM_TIMEOUT_MS, `agx ${provider}`, {
@@ -1172,13 +1319,6 @@ async function runSingleAgentIteration({ taskId, task, provider, model, prompt, 
       },
       onTrace: (event) => {
         void artifacts?.recordEngineTrace?.({ provider, model: model || null, role: 'single-iteration' }, event);
-        void signalTemporalTask(taskId, 'daemonStep', {
-          kind: 'runAgxCommand',
-          task_id: taskId,
-          provider,
-          model: model || null,
-          ...event,
-        });
 
         if (taskId) {
           if (event.phase === 'start' && event.pid) {
@@ -1218,11 +1358,31 @@ function resolveAggregatorModel(task) {
  * @param {object} params.task
  * @param {string} params.stagePrompt
  * @param {string} params.stageRequirement
- * @param {string|null} params.runPath - path to the run artifacts folder
+ * @param {string|null} params.runPath - local run folder containing artifacts (when available)
+ * @param {string[]} params.fileRefs - absolute file refs detected from agent output/logs
  * @returns {string}
  */
-function buildAggregatorPrompt({ role, taskId, task, stagePrompt, stageRequirement, runPath }) {
+function buildAggregatorPrompt({ role, taskId, task, stagePrompt, stageRequirement, runPath, fileRefs }) {
   const taskComments = task?.comments || [];
+  const refs = Array.isArray(fileRefs) ? fileRefs.filter(Boolean).slice(0, 20) : [];
+  const refsBlock = refs.length ? refs.map((p) => `- ${p}`).join('\n') : '- (none detected)';
+  const runRoot = runPath ? String(runPath) : '';
+  const runFiles = runRoot
+    ? [
+      `- ${path.join(runRoot, 'output.md')} (agent output)`,
+      `- ${path.join(runRoot, 'prompt.md')} (prompts captured during the run)`,
+      `- ${path.join(runRoot, 'decision.json')} (final decision payload)`,
+      `- ${path.join(runRoot, 'events.ndjson')} (engine trace + run events)`,
+      `- ${path.join(runRoot, 'artifacts')} (additional artifacts, if any)`,
+    ].join('\n')
+    : [
+      '- output.md (agent output)',
+      '- prompt.md (prompts captured during the run)',
+      '- decision.json (final decision payload)',
+      '- events.ndjson (engine trace + run events)',
+      '- artifacts/ (additional artifacts, if any)',
+    ].join('\n');
+
   return `You are the decision aggregator for a ${role} run.
 
 Task ID: ${taskId}
@@ -1241,11 +1401,13 @@ ${taskComments.map(c => `${c.author}: ${c.content}`).join('\n')}
 Stage Objective: ${stagePrompt}
 Stage Completion Requirement: ${stageRequirement}
 
-Run artifacts folder: ${runPath || '(not available)'}
-- output.md: contains the agent output
-- prompt.md: contains the prompt that was sent
+Local run artifacts folder: ${runRoot || '(not available)'}
+Key run files:
+${runFiles}
 
-Review the output.md file in the run folder to understand what was accomplished.
+Relevant files referenced during execution (detected from output/logs):
+${refsBlock}
+
 Decide if the task is done. If not, provide the next instruction for another iteration.
 Only set "done": true when the Stage Completion Requirement is satisfied.
 
@@ -1282,6 +1444,7 @@ async function runSingleAgentAggregate({ task, taskId, prompt, output, iteration
   const stageRequirement = buildStageRequirementPrompt({ stage: stageKey, stagePrompt });
   const aggregatorProvider = String(provider || task?.provider || task?.engine || 'claude').toLowerCase();
   const aggregatorModel = typeof model === 'string' && model.trim() ? model.trim() : null;
+  const fileRefs = extractFileRefsFromText(output, { max: 20 });
 
   const aggregatePrompt = buildAggregatorPrompt({
     role: 'single-agent',
@@ -1289,7 +1452,8 @@ async function runSingleAgentAggregate({ task, taskId, prompt, output, iteration
     task,
     stagePrompt,
     stageRequirement,
-    runPath: artifacts?.runPath,
+    runPath: artifacts?.runPath || null,
+    fileRefs,
   });
   artifacts?.recordPrompt(`Aggregator Prompt (${aggregatorProvider}${aggregatorModel ? `/${aggregatorModel}` : ''})`, aggregatePrompt);
 
@@ -1304,21 +1468,10 @@ async function runSingleAgentAggregate({ task, taskId, prompt, output, iteration
       onStderr: (data) => logger?.log('error', data),
       onTrace: (event) => {
         void artifacts?.recordEngineTrace?.({ provider: aggregatorProvider, model: aggregatorModel || null, role: 'single-aggregate' }, event);
-        void signalTemporalTask(taskId, 'daemonStep', {
-          kind: 'runAgxCommand',
-          task_id: taskId,
-          provider: aggregatorProvider,
-          model: aggregatorModel || null,
-          role: 'single-aggregate',
-          iteration,
-          ...event,
-        });
       },
     }),
     { retries: SWARM_RETRIES }
   );
-
-  console.log('res', res);
 
   const decision = extractJson(res.stdout) || extractJson(res.stderr);
   logExecutionFlow('runSingleAgentAggregate', 'output', `decision=${JSON.stringify(decision || {})}`);
@@ -1414,6 +1567,552 @@ async function runSingleAgentLoop({ taskId, task, provider, model, logger, onStd
   return { code: 1, decision: lastDecision };
 }
 
+function truncateForPrompt(text, maxChars) {
+  const value = String(text || '');
+  const cap = Number.isFinite(maxChars) && maxChars > 0 ? maxChars : 6000;
+  if (value.length <= cap) return value;
+  return `${value.slice(0, cap)}\n[truncated]`;
+}
+
+function buildExecuteIterationPrompt(nextPrompt, iteration) {
+  const instruction = typeof nextPrompt === 'string' && nextPrompt.trim()
+    ? nextPrompt.trim()
+    : 'Pick the next concrete step and implement it.';
+
+  return [
+    'EXECUTE PHASE',
+    `Iteration: ${iteration}`,
+    '',
+    'Keep output concise and avoid dumping full file contents or long logs.',
+    'If you need to reference code, cite paths and describe changes instead of pasting whole files.',
+    '',
+    'Output contract:',
+    '- Start with "PLAN:" then 2-5 bullets.',
+    '- Do the work.',
+    '- End with "IMPLEMENTATION SUMMARY:" bullets:',
+    '  - Changed: (paths only, 10 max)',
+    '  - Commands: (what you ran)',
+    '  - Notes:',
+    '',
+    `Task for this iteration: ${instruction}`,
+    '',
+    'Do not output JSON in this phase.',
+    ''
+  ].join('\n');
+}
+
+function buildVerifyPrompt({ taskId, task, stagePrompt, stageRequirement, gitSummary, verifyResults, iteration, lastRunPath }) {
+  const title = String(task?.title || taskId || '').trim();
+  const contentRaw = String(task?.content || '').trim();
+  const content = contentRaw.length > 2500 ? `${contentRaw.slice(0, 2500)}\n[truncated]` : contentRaw;
+
+  const diffStat = gitSummary?.diff_stat ? String(gitSummary.diff_stat).trim() : '';
+  const statusPorcelain = gitSummary?.status_porcelain ? String(gitSummary.status_porcelain).trim() : '';
+  const statusShort = statusPorcelain ? statusPorcelain.split('\n').slice(0, 80).join('\n') : '';
+  const diffShort = diffStat ? diffStat.split('\n').slice(0, 60).join('\n') : '';
+
+  const commands = Array.isArray(verifyResults) ? verifyResults : [];
+  const cmdLines = commands.length
+    ? commands.map((r) => {
+      const code = typeof r.exit_code === 'number' ? r.exit_code : null;
+      const label = r.label || `${r.cmd} ${(r.args || []).join(' ')}`.trim();
+      const dur = typeof r.duration_ms === 'number' ? `${r.duration_ms}ms` : '';
+      return `- ${label} => exit=${code} ${dur}`.trim();
+    }).join('\n')
+    : '- (no verification commands detected)';
+
+  const runRoot = lastRunPath ? String(lastRunPath) : '';
+
+  const prompt = `You are the verifier for an agx run.
+
+Task ID: ${taskId}
+Title: ${title || taskId}
+Stage: ${task?.stage || 'unknown'}
+Iteration: ${iteration}
+
+Stage Objective: ${stagePrompt}
+Stage Completion Requirement: ${stageRequirement}
+
+Local run artifacts folder: ${runRoot || '(not available)'}
+
+User Request:
+"""
+${title}
+${content}
+"""
+
+Repo summary (git):
+Status (porcelain):
+${statusShort || '(none)'}
+
+Diff (stat):
+${diffShort || '(none)'}
+
+Verification commands:
+${cmdLines}
+
+Decide if the stage is complete. Use verification commands as evidence.
+Ignore unrelated working tree changes; focus on whether the user request is satisfied.
+If not complete, provide the next smallest instruction for another iteration.
+Set "done": true when the user request is satisfied and the evidence supports it. Treat the stage objective/requirement as guidance, not a keyword checklist.
+
+Output contract (strict): your response MUST be exactly one raw JSON object with this shape:
+{
+  "done": false,
+  "decision": "done|blocked|not_done|failed",
+  "explanation": "clear explanation of the decision",
+  "final_result": "final result if done, empty string otherwise",
+  "next_prompt": "specific actionable instruction for next iteration",
+  "summary": "brief summary of current state",
+  "plan_md": "PLAN markdown for this iteration (newlines escaped)",
+  "implementation_summary_md": "IMPLEMENTATION SUMMARY markdown (newlines escaped)",
+  "verification_md": "VERIFICATION markdown (newlines escaped)"
+}
+
+Rules:
+- Use double-quoted keys and strings.
+- Keep newlines escaped inside strings (use \\n).
+- Keep the markdown fields short and checklist-style.
+`;
+
+  return truncateForPrompt(prompt, VERIFY_PROMPT_MAX_CHARS);
+}
+
+async function persistVerificationArtifacts(storage, run, decision, verifyCommands, verifyResults, gitSummary) {
+  if (!storage || !run?.paths?.artifacts) return;
+
+  const safeText = (v) => (typeof v === 'string' ? v : '');
+
+  const planMd = safeText(decision?.plan_md) || '# Plan\n\n- (not provided)\n';
+  const implMd = safeText(decision?.implementation_summary_md) || '# Implementation Summary\n\n- (not provided)\n';
+  const verificationMd = safeText(decision?.verification_md) || '# Verification\n\nDONE: no\n\n- (not provided)\n';
+
+  await storage.writeArtifact(run, 'plan.md', planMd.endsWith('\n') ? planMd : `${planMd}\n`);
+  await storage.writeArtifact(run, 'implementation_summary.md', implMd.endsWith('\n') ? implMd : `${implMd}\n`);
+  await storage.writeArtifact(run, 'verification.md', verificationMd.endsWith('\n') ? verificationMd : `${verificationMd}\n`);
+
+  const payload = {
+    commands: Array.isArray(verifyCommands) ? verifyCommands : [],
+    results: Array.isArray(verifyResults) ? verifyResults.map((r) => ({
+      id: r.id,
+      label: r.label,
+      cmd: r.cmd,
+      args: r.args,
+      cwd: r.cwd,
+      exit_code: r.exit_code,
+      duration_ms: r.duration_ms,
+      error: r.error,
+    })) : [],
+    git: gitSummary || null,
+  };
+
+  await storage.writeArtifact(run, 'verify_commands.json', JSON.stringify(payload, null, 2) + '\n');
+
+  if (Array.isArray(verifyResults)) {
+    for (let i = 0; i < verifyResults.length; i += 1) {
+      const r = verifyResults[i];
+      const base = `verify_results/${String(i + 1).padStart(2, '0')}-${String(r.id || `cmd_${i + 1}`).replace(/[^a-z0-9_-]/gi, '_')}`;
+      await storage.writeArtifact(run, `${base}.stdout.txt`, (r.stdout || '').toString());
+      await storage.writeArtifact(run, `${base}.stderr.txt`, (r.stderr || '').toString());
+    }
+  }
+
+  if (gitSummary?.status_porcelain) {
+    await storage.writeArtifact(run, 'git_status.txt', String(gitSummary.status_porcelain));
+  }
+  if (gitSummary?.diff_stat) {
+    await storage.writeArtifact(run, 'git_diffstat.txt', String(gitSummary.diff_stat));
+  }
+}
+
+async function runSingleAgentExecuteVerifyLoop({ taskId, task, provider, model, logger, storage, projectSlug, taskSlug, stageLocal, initialPromptContext }) {
+  logExecutionFlow('runSingleAgentExecuteVerifyLoop', 'input', `taskId=${taskId}, provider=${provider}, model=${model}`);
+  const stageKey = task?.stage || 'unknown';
+  const stagePrompt = resolveStageObjective(task, stageKey, '');
+  const stageRequirement = buildStageRequirementPrompt({ stage: stageKey, stagePrompt });
+
+  let iteration = 1;
+  let nextPrompt = '';
+  let lastDecision = null;
+  let lastRun = null;
+  let lastRunEntry = null;
+
+  while (iteration <= SINGLE_MAX_ITERS) {
+    logger?.log('system', `[single] execute/verify iteration ${iteration} start\n`);
+    logExecutionFlow('runSingleAgentExecuteVerifyLoop', 'processing', `iteration ${iteration} start`);
+
+    const run = await storage.createRun({
+      projectSlug,
+      taskSlug,
+      stage: stageLocal,
+      engine: provider,
+      model: model || undefined,
+    });
+    lastRun = run;
+
+    const artifacts = createDaemonArtifactsRecorder({ storage, run, taskId });
+    if (iteration === 1 && initialPromptContext) {
+      artifacts.recordPrompt('Initial Task Context', initialPromptContext);
+    }
+
+    // EXECUTE
+    const executePrompt = buildExecuteIterationPrompt(nextPrompt, iteration);
+    let output = '';
+    try {
+      output = await runSingleAgentIteration({
+        taskId,
+        task,
+        provider,
+        model,
+        prompt: executePrompt,
+        logger,
+        artifacts,
+      });
+    } catch (err) {
+      const message = err?.stdout || err?.stderr || err?.message || 'Single-agent execute phase failed.';
+      artifacts.recordOutput('Execute Error', String(message));
+      await artifacts.flush();
+      await storage.failRun(run, { error: err?.message || 'execute failed', code: 'EXECUTE_FAILED' });
+      lastDecision = {
+        done: false,
+        decision: 'failed',
+        explanation: err?.message || 'Single-agent execute phase failed.',
+        final_result: message,
+        next_prompt: '',
+        summary: err?.message || 'Single-agent execute phase failed.',
+      };
+      return { code: 1, decision: lastDecision, lastRun, runIndexEntry: lastRunEntry };
+    }
+    artifacts.recordOutput(`Agent Output (${provider}${model ? `/${model}` : ''}, iter ${iteration})`, output);
+
+    // VERIFY (local commands)
+    const verifyCommands = detectVerifyCommands({ cwd: process.cwd() });
+    const gitSummary = getGitSummary({ cwd: process.cwd() });
+    const verifyResults = await runVerifyCommands(verifyCommands, { cwd: process.cwd(), max_output_chars: 20000 });
+
+    // VERIFY (LLM)
+    const verifyPrompt = buildVerifyPrompt({
+      taskId,
+      task,
+      stagePrompt,
+      stageRequirement,
+      gitSummary,
+      verifyResults,
+      iteration,
+      lastRunPath: run?.paths?.root || null,
+    });
+    artifacts.recordPrompt(`Verification Prompt (${provider}${model ? `/${model}` : ''}, iter ${iteration})`, verifyPrompt);
+
+    const verifyArgs = [provider, '--prompt', verifyPrompt, '--print'];
+    if (model) verifyArgs.push('--model', model);
+
+    let verifyRes;
+    try {
+      verifyRes = await pRetryFn(
+        () => runAgxCommand(verifyArgs, VERIFY_TIMEOUT_MS, `agx ${provider} verify`, {
+          onStdout: (data) => logger?.log('checkpoint', data),
+          onStderr: (data) => logger?.log('error', data),
+          onTrace: (event) => {
+            void artifacts?.recordEngineTrace?.({ provider, model: model || null, role: 'single-verify' }, event);
+          },
+        }),
+        { retries: SWARM_RETRIES }
+      );
+    } catch (err) {
+      artifacts.recordOutput('Verifier Error', String(err?.message || err));
+      await persistVerificationArtifacts(storage, run, {}, verifyCommands, verifyResults, gitSummary);
+      await artifacts.flush();
+      lastDecision = {
+        done: false,
+        decision: 'failed',
+        explanation: err?.message || 'Verifier failed.',
+        final_result: err?.message || 'Verifier failed.',
+        next_prompt: '',
+        summary: err?.message || 'Verifier failed.',
+      };
+      return { code: 1, decision: lastDecision, lastRun, runIndexEntry: lastRunEntry };
+    }
+
+    const verifierText = verifyRes?.stdout || verifyRes?.stderr || '';
+    artifacts.recordOutput(`Verifier Output (${provider}${model ? `/${model}` : ''}, iter ${iteration})`, verifierText);
+
+    let decision = extractJsonLast(verifierText);
+    if (!decision) decision = extractJsonLast(verifyRes?.stderr || '');
+    if (!decision) {
+      decision = {
+        done: false,
+        decision: 'failed',
+        explanation: 'Verifier returned invalid JSON.',
+        final_result: 'Verifier returned invalid JSON.',
+        next_prompt: '',
+        summary: 'Verifier returned invalid JSON.',
+      };
+    }
+
+    decision = ensureNextPrompt(enforceStageRequirement({
+      done: Boolean(decision.done),
+      decision: typeof decision.decision === 'string' ? decision.decision : '',
+      explanation: typeof decision.explanation === 'string' ? decision.explanation : '',
+      final_result: typeof decision.final_result === 'string' ? decision.final_result : '',
+      next_prompt: typeof decision.next_prompt === 'string' ? decision.next_prompt : '',
+      summary: typeof decision.summary === 'string' ? decision.summary : '',
+      plan_md: typeof decision.plan_md === 'string' ? decision.plan_md : '',
+      implementation_summary_md: typeof decision.implementation_summary_md === 'string' ? decision.implementation_summary_md : '',
+      verification_md: typeof decision.verification_md === 'string' ? decision.verification_md : '',
+    }, { stage: stageKey, stagePrompt }));
+
+    lastDecision = decision;
+
+    await persistVerificationArtifacts(storage, run, decision, verifyCommands, verifyResults, gitSummary);
+
+    // Finalize this iteration run.
+    artifacts.recordOutput('Daemon Decision', JSON.stringify(decision || {}, null, 2));
+    await artifacts.flush();
+
+    const statusMap = {
+      done: 'done',
+      blocked: 'blocked',
+      not_done: 'continue',
+      failed: 'failed',
+    };
+    const localDecisionStatus = statusMap[String(decision?.decision || 'failed')] || 'failed';
+    await storage.finalizeRun(run, {
+      status: localDecisionStatus,
+      reason: decision?.explanation || decision?.summary || '',
+    });
+
+    lastRunEntry = await buildLocalRunIndexEntry(storage, run, localDecisionStatus);
+
+    // Update local task status.
+    const localTaskStatusMap = {
+      done: 'done',
+      blocked: 'blocked',
+      not_done: 'running',
+      failed: 'failed',
+    };
+    const nextLocalStatus = localTaskStatusMap[String(decision?.decision || 'failed')] || 'failed';
+    await storage.updateTaskState(projectSlug, taskSlug, { status: nextLocalStatus });
+
+    await postTaskComment(taskId, decision.summary || decision.explanation || '');
+
+    if (['done', 'blocked', 'failed'].includes(String(decision?.decision || ''))) {
+      const code = decision?.decision === 'done' ? 0 : 1;
+      return { code, decision: lastDecision, lastRun, runIndexEntry: lastRunEntry };
+    }
+
+    nextPrompt = decision.next_prompt || '';
+    iteration += 1;
+  }
+
+  if (!lastDecision) {
+    lastDecision = {
+      done: false,
+      decision: 'not_done',
+      explanation: `Single-agent run reached max iterations (${SINGLE_MAX_ITERS}).`,
+      final_result: `Single-agent run reached max iterations (${SINGLE_MAX_ITERS}).`,
+      next_prompt: '',
+      summary: `Single-agent run reached max iterations (${SINGLE_MAX_ITERS}).`,
+    };
+  }
+
+  return { code: 1, decision: lastDecision, lastRun, runIndexEntry: lastRunEntry };
+}
+
+async function runSwarmExecuteVerifyLoop({ taskId, task, logger, storage, projectSlug, taskSlug, stageLocal, initialPromptContext }) {
+  logExecutionFlow('runSwarmExecuteVerifyLoop', 'input', `taskId=${taskId}`);
+  const stageKey = task?.stage || 'unknown';
+  const stagePrompt = resolveStageObjective(task, stageKey, '');
+  const stageRequirement = buildStageRequirementPrompt({ stage: stageKey, stagePrompt });
+
+  let iteration = 1;
+  let nextPrompt = '';
+  let lastDecision = null;
+  let lastRun = null;
+  let lastRunEntry = null;
+
+  const verifierProvider = String(task?.engine || task?.provider || 'claude').toLowerCase();
+  const verifierModel = resolveAggregatorModel(task);
+
+  while (iteration <= SWARM_MAX_ITERS) {
+    logger?.log('system', `[swarm] execute/verify iteration ${iteration} start\n`);
+    const run = await storage.createRun({
+      projectSlug,
+      taskSlug,
+      stage: stageLocal,
+      engine: verifierProvider,
+      model: verifierModel || undefined,
+    });
+    lastRun = run;
+
+    const artifacts = createDaemonArtifactsRecorder({ storage, run, taskId });
+    if (iteration === 1 && initialPromptContext) {
+      artifacts.recordPrompt('Initial Task Context', initialPromptContext);
+    }
+
+    // EXECUTE (swarm iteration)
+    let results;
+    try {
+      results = await runSwarmIteration({ taskId, task, prompt: nextPrompt ? buildExecuteIterationPrompt(nextPrompt, iteration) : buildExecuteIterationPrompt('', iteration), logger, artifacts });
+    } catch (err) {
+      artifacts.recordOutput('Execute Error', String(err?.message || err));
+      await artifacts.flush();
+      await storage.failRun(run, { error: err?.message || 'swarm execute failed', code: 'EXECUTE_FAILED' });
+      lastDecision = {
+        done: false,
+        decision: 'failed',
+        explanation: err?.message || 'Swarm execute phase failed.',
+        final_result: err?.message || 'Swarm execute phase failed.',
+        next_prompt: '',
+        summary: err?.message || 'Swarm execute phase failed.',
+      };
+      return { code: 1, decision: lastDecision, lastRun, runIndexEntry: lastRunEntry };
+    }
+
+    const combinedOutput = Array.isArray(results)
+      ? results.map((r) => `[${r.provider}]\n${r.output || ''}`).join('\n\n')
+      : '';
+    artifacts.recordOutput(`Swarm Output (iter ${iteration})`, combinedOutput);
+
+    // VERIFY (local commands)
+    const verifyCommands = detectVerifyCommands({ cwd: process.cwd() });
+    const gitSummary = getGitSummary({ cwd: process.cwd() });
+    const verifyResults = await runVerifyCommands(verifyCommands, { cwd: process.cwd(), max_output_chars: 20000 });
+
+    // VERIFY (LLM)
+    const verifyPrompt = buildVerifyPrompt({
+      taskId,
+      task,
+      stagePrompt,
+      stageRequirement,
+      gitSummary,
+      verifyResults,
+      iteration,
+      lastRunPath: run?.paths?.root || null,
+    });
+    artifacts.recordPrompt(`Verification Prompt (${verifierProvider}${verifierModel ? `/${verifierModel}` : ''}, iter ${iteration})`, verifyPrompt);
+
+    const verifyArgs = [verifierProvider, '--prompt', verifyPrompt, '--print'];
+    if (verifierModel) verifyArgs.push('--model', verifierModel);
+
+    let verifyRes;
+    try {
+      verifyRes = await pRetryFn(
+        () => runAgxCommand(verifyArgs, VERIFY_TIMEOUT_MS, `agx ${verifierProvider} verify`, {
+          onStdout: (data) => logger?.log('checkpoint', data),
+          onStderr: (data) => logger?.log('error', data),
+          onTrace: (event) => {
+            void artifacts?.recordEngineTrace?.({ provider: verifierProvider, model: verifierModel || null, role: 'swarm-verify' }, event);
+            void signalTemporalTask(taskId, 'daemonStep', {
+              kind: 'runAgxCommand',
+              task_id: taskId,
+              provider: verifierProvider,
+              model: verifierModel || null,
+              role: 'swarm-verify',
+              iteration,
+              ...event,
+            });
+          },
+        }),
+        { retries: SWARM_RETRIES }
+      );
+    } catch (err) {
+      artifacts.recordOutput('Verifier Error', String(err?.message || err));
+      await persistVerificationArtifacts(storage, run, {}, verifyCommands, verifyResults, gitSummary);
+      await artifacts.flush();
+      await storage.failRun(run, { error: err?.message || 'verify failed', code: 'VERIFY_FAILED' });
+      lastDecision = {
+        done: false,
+        decision: 'failed',
+        explanation: err?.message || 'Verifier failed.',
+        final_result: err?.message || 'Verifier failed.',
+        next_prompt: '',
+        summary: err?.message || 'Verifier failed.',
+      };
+      return { code: 1, decision: lastDecision, lastRun, runIndexEntry: lastRunEntry };
+    }
+
+    const verifierText = verifyRes?.stdout || verifyRes?.stderr || '';
+    artifacts.recordOutput(`Verifier Output (${verifierProvider}${verifierModel ? `/${verifierModel}` : ''}, iter ${iteration})`, verifierText);
+
+    let decision = extractJsonLast(verifierText);
+    if (!decision) decision = extractJsonLast(verifyRes?.stderr || '');
+    if (!decision) {
+      decision = {
+        done: false,
+        decision: 'failed',
+        explanation: 'Verifier returned invalid JSON.',
+        final_result: 'Verifier returned invalid JSON.',
+        next_prompt: '',
+        summary: 'Verifier returned invalid JSON.',
+      };
+    }
+
+    decision = ensureNextPrompt(enforceStageRequirement({
+      done: Boolean(decision.done),
+      decision: typeof decision.decision === 'string' ? decision.decision : '',
+      explanation: typeof decision.explanation === 'string' ? decision.explanation : '',
+      final_result: typeof decision.final_result === 'string' ? decision.final_result : '',
+      next_prompt: typeof decision.next_prompt === 'string' ? decision.next_prompt : '',
+      summary: typeof decision.summary === 'string' ? decision.summary : '',
+      plan_md: typeof decision.plan_md === 'string' ? decision.plan_md : '',
+      implementation_summary_md: typeof decision.implementation_summary_md === 'string' ? decision.implementation_summary_md : '',
+      verification_md: typeof decision.verification_md === 'string' ? decision.verification_md : '',
+    }, { stage: stageKey, stagePrompt }));
+
+    lastDecision = decision;
+    await persistVerificationArtifacts(storage, run, decision, verifyCommands, verifyResults, gitSummary);
+
+    artifacts.recordOutput('Daemon Decision', JSON.stringify(decision || {}, null, 2));
+    await artifacts.flush();
+
+    const statusMap = {
+      done: 'done',
+      blocked: 'blocked',
+      not_done: 'continue',
+      failed: 'failed',
+    };
+    const localDecisionStatus = statusMap[String(decision?.decision || 'failed')] || 'failed';
+    await storage.finalizeRun(run, {
+      status: localDecisionStatus,
+      reason: decision?.explanation || decision?.summary || '',
+    });
+
+    lastRunEntry = await buildLocalRunIndexEntry(storage, run, localDecisionStatus);
+
+    const localTaskStatusMap = {
+      done: 'done',
+      blocked: 'blocked',
+      not_done: 'running',
+      failed: 'failed',
+    };
+    const nextLocalStatus = localTaskStatusMap[String(decision?.decision || 'failed')] || 'failed';
+    await storage.updateTaskState(projectSlug, taskSlug, { status: nextLocalStatus });
+
+    await postTaskComment(taskId, decision.summary || decision.explanation || '');
+
+    if (['done', 'blocked', 'failed'].includes(String(decision?.decision || ''))) {
+      const code = decision?.decision === 'done' ? 0 : 1;
+      return { code, decision: lastDecision, lastRun, runIndexEntry: lastRunEntry };
+    }
+
+    nextPrompt = decision.next_prompt || '';
+    iteration += 1;
+  }
+
+  if (!lastDecision) {
+    lastDecision = {
+      done: false,
+      decision: 'not_done',
+      explanation: `Swarm run reached max iterations (${SWARM_MAX_ITERS}).`,
+      final_result: `Swarm run reached max iterations (${SWARM_MAX_ITERS}).`,
+      next_prompt: '',
+      summary: `Swarm run reached max iterations (${SWARM_MAX_ITERS}).`,
+    };
+  }
+
+  return { code: 1, decision: lastDecision, lastRun, runIndexEntry: lastRunEntry };
+}
+
 async function runSwarmAggregate({ task, taskId, prompt, results, iteration, logger, artifacts }) {
   const providerList = results.map((r) => r.provider).join(',');
   logExecutionFlow('runSwarmAggregate', 'input', `taskId=${taskId}, iteration=${iteration}, providers=${providerList}`);
@@ -1422,6 +2121,10 @@ async function runSwarmAggregate({ task, taskId, prompt, results, iteration, log
   const stageRequirement = buildStageRequirementPrompt({ stage: stageKey, stagePrompt });
   const aggregatorProvider = String(task?.engine || task?.provider || 'claude').toLowerCase();
   const aggregatorModel = resolveAggregatorModel(task);
+  const fileRefs = extractFileRefsFromText(
+    results.map((r) => r?.output || '').filter(Boolean).join('\n\n'),
+    { max: 20 }
+  );
 
   const aggregatePrompt = buildAggregatorPrompt({
     role: 'swarm',
@@ -1429,7 +2132,8 @@ async function runSwarmAggregate({ task, taskId, prompt, results, iteration, log
     task,
     stagePrompt,
     stageRequirement,
-    runPath: artifacts?.runPath,
+    runPath: artifacts?.runPath || null,
+    fileRefs,
   });
   artifacts?.recordPrompt(`Swarm Aggregator Prompt (${aggregatorProvider}${aggregatorModel ? `/${aggregatorModel}` : ''})`, aggregatePrompt);
 
@@ -1574,8 +2278,6 @@ const DAEMON_STATE_FILE = path.join(process.env.HOME || process.env.USERPROFILE,
 // Embedded orchestrator worker (pg-boss) runtime (optional). Keep legacy filenames for backward compatibility.
 const WORKER_PID_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'orchestrator-worker.pid');
 const WORKER_LOG_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'orchestrator-worker.log');
-const LEGACY_TEMPORAL_PID_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'temporal.pid');
-const LEGACY_TEMPORAL_LOG_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'temporal.log');
 const PACKAGED_AGX_CLOUD_DIR = path.join(__dirname, 'cloud-runtime', 'standalone', 'Projects', 'Agents', 'agx-cloud');
 const LOCAL_AGX_CLOUD_DIR = path.resolve(__dirname, '..', 'agx-cloud');
 const TASK_LOGS_DIR = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'logs');
@@ -1711,7 +2413,7 @@ function isTemporalWorkerRunning() {
     }
   };
 
-  return readPid(WORKER_PID_FILE) || readPid(LEGACY_TEMPORAL_PID_FILE) || false;
+  return readPid(WORKER_PID_FILE) || false;
 }
 
 function pickEmbeddedWorkerNpmScript(projectDir) {
@@ -1720,7 +2422,6 @@ function pickEmbeddedWorkerNpmScript(projectDir) {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
     const scripts = pkg?.scripts || {};
     if (scripts['daemon:worker']) return 'daemon:worker';
-    if (scripts['daemon:temporal']) return 'daemon:temporal'; // legacy alias
     if (scripts.worker) return 'worker';
   } catch { }
   return 'worker';
@@ -1754,6 +2455,320 @@ function loadEnvFile(envPath) {
 function loadBoardEnv() {
   // agx board/runtime writes connection info here; used to start the embedded worker with correct DB config.
   return loadEnvFile(path.join(CONFIG_DIR, 'board.env'));
+}
+
+// ==================== BOARD (agx-cloud API server) ====================
+
+const BOARD_PID_FILE = path.join(CONFIG_DIR, 'board.pid');
+const BOARD_LOG_FILE = path.join(CONFIG_DIR, 'board.log');
+const BOARD_ENV_FILE = path.join(CONFIG_DIR, 'board.env');
+
+function isBoardRunning() {
+  try {
+    if (!fs.existsSync(BOARD_PID_FILE)) return false;
+    const pid = parseInt(fs.readFileSync(BOARD_PID_FILE, 'utf8').trim(), 10);
+    if (!pid) return false;
+    process.kill(pid, 0);
+    return pid;
+  } catch {
+    return false;
+  }
+}
+
+function resolveBoardDir() {
+  const override = process.env.AGX_CLOUD_WORKER_DIR;
+  if (override && typeof override === 'string') {
+    const resolved = path.resolve(override);
+    try {
+      if (fs.existsSync(path.join(resolved, 'package.json'))) return { dir: resolved, mode: 'dev' };
+    } catch { }
+  }
+
+  const hasFile = (dir, rel) => {
+    try { return fs.existsSync(path.join(dir, rel)); } catch { return false; }
+  };
+
+  // Dev mode: local sibling checkout
+  const CWD_AGX_CLOUD_DIR = path.resolve(process.cwd(), '..', 'agx-cloud');
+  for (const dir of [CWD_AGX_CLOUD_DIR, LOCAL_AGX_CLOUD_DIR]) {
+    if (hasFile(dir, 'package.json')) {
+      try {
+        const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));
+        if (pkg?.scripts?.dev) return { dir, mode: 'dev' };
+      } catch { }
+    }
+  }
+
+  // Bundled mode: standalone server.js
+  if (hasFile(PACKAGED_AGX_CLOUD_DIR, 'server.js')) {
+    return { dir: PACKAGED_AGX_CLOUD_DIR, mode: 'bundled' };
+  }
+
+  return null;
+}
+
+function getBoardPort() {
+  // Extract port from cloud config apiUrl
+  const apiUrl = process.env.AGX_CLOUD_URL || process.env.AGX_BOARD_URL || 'http://localhost:41741';
+  try {
+    const u = new URL(apiUrl);
+    return parseInt(u.port, 10) || (u.protocol === 'https:' ? 443 : 80);
+  } catch {
+    return 41741;
+  }
+}
+
+async function probeBoardHealth(port, timeoutMs = 1500) {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const res = await fetch(`http://localhost:${port}/api/tasks`, {
+      signal: controller.signal,
+      headers: { 'x-user-id': '' },
+    });
+    clearTimeout(timer);
+    return res.ok || res.status === 401; // 401 means server is up, just needs auth
+  } catch {
+    return false;
+  }
+}
+
+async function ensurePostgresReady() {
+  const boardEnv = loadBoardEnv();
+  if (boardEnv.DATABASE_URL) {
+    // Already configured — check if it's reachable
+    try {
+      const dbUrl = new URL(boardEnv.DATABASE_URL);
+      const host = dbUrl.hostname;
+      const port = dbUrl.port || '5432';
+      const result = spawnSync('pg_isready', ['-h', host, '-p', port], { timeout: 3000 });
+      if (result.status === 0) return boardEnv.DATABASE_URL;
+    } catch { }
+  }
+
+  // Check if docker postgres is already running
+  try {
+    const result = spawnSync('docker', ['inspect', '-f', '{{.State.Running}}', 'agx-postgres'], { timeout: 3000 });
+    if (result.stdout && result.stdout.toString().trim() === 'true') {
+      const dbUrl = 'postgresql://agx:agx@localhost:55432/agx';
+      saveBoardEnvValue('DATABASE_URL', dbUrl);
+      return dbUrl;
+    }
+  } catch { }
+
+  // Not reachable — prompt user
+  console.log(`\n${c.yellow}Postgres is required for the agx board server.${c.reset}`);
+  console.log(`  ${c.bold}1${c.reset}) Enter a custom DATABASE_URL`);
+  console.log(`  ${c.bold}2${c.reset}) Auto-start postgres via Docker`);
+
+  const answer = await prompt(`\n${c.cyan}Choice [2]:${c.reset} `);
+  const choice = answer.trim() || '2';
+
+  if (choice === '1') {
+    const dbUrl = await prompt(`${c.cyan}DATABASE_URL:${c.reset} `);
+    if (!dbUrl) {
+      console.error(`${c.red}No DATABASE_URL provided.${c.reset}`);
+      process.exit(1);
+    }
+    saveBoardEnvValue('DATABASE_URL', dbUrl);
+    return dbUrl;
+  }
+
+  // Auto-start docker postgres
+  console.log(`${c.dim}Starting postgres via Docker...${c.reset}`);
+  const dockerResult = spawnSync('docker', [
+    'run', '-d',
+    '--name', 'agx-postgres',
+    '-e', 'POSTGRES_DB=agx',
+    '-e', 'POSTGRES_USER=agx',
+    '-e', 'POSTGRES_PASSWORD=agx',
+    '-p', '55432:5432',
+    '-v', 'agx_pg_data:/var/lib/postgresql/data',
+    'postgres:16-alpine',
+  ], { stdio: 'pipe', timeout: 60000 });
+
+  if (dockerResult.status !== 0) {
+    const stderr = dockerResult.stderr ? dockerResult.stderr.toString() : '';
+    // Container might already exist but be stopped
+    if (stderr.includes('already in use')) {
+      spawnSync('docker', ['start', 'agx-postgres'], { timeout: 10000 });
+    } else {
+      console.error(`${c.red}Failed to start postgres:${c.reset} ${stderr}`);
+      process.exit(1);
+    }
+  }
+
+  // Wait for postgres to be ready
+  console.log(`${c.dim}Waiting for postgres to be ready...${c.reset}`);
+  const deadline = Date.now() + 30000;
+  while (Date.now() < deadline) {
+    const check = spawnSync('docker', ['exec', 'agx-postgres', 'pg_isready', '-U', 'agx'], { timeout: 3000 });
+    if (check.status === 0) break;
+    await sleep(1000);
+  }
+
+  const dbUrl = 'postgresql://agx:agx@localhost:55432/agx';
+  saveBoardEnvValue('DATABASE_URL', dbUrl);
+
+  // Run init SQL
+  const initSqlPath = path.join(__dirname, 'templates', 'stack', 'postgres', 'init', '001_agx_board_schema.sql');
+  if (fs.existsSync(initSqlPath)) {
+    console.log(`${c.dim}Initializing database schema...${c.reset}`);
+    const initSql = fs.readFileSync(initSqlPath, 'utf8');
+    const psqlResult = spawnSync('docker', [
+      'exec', '-i', 'agx-postgres',
+      'psql', '-U', 'agx', '-d', 'agx',
+    ], { input: initSql, timeout: 10000 });
+    if (psqlResult.status !== 0) {
+      console.log(`${c.yellow}Schema init returned non-zero (may already exist)${c.reset}`);
+    }
+  }
+
+  console.log(`${c.green}✓${c.reset} Postgres ready`);
+  return dbUrl;
+}
+
+function saveBoardEnvValue(key, value) {
+  if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  const existing = loadBoardEnv();
+  existing[key] = value;
+  const content = Object.entries(existing).map(([k, v]) => `${k}=${v}`).join('\n') + '\n';
+  fs.writeFileSync(BOARD_ENV_FILE, content);
+}
+
+let _boardEnsured = false;
+
+async function ensureBoardRunning() {
+  if (_boardEnsured) return;
+  _boardEnsured = true;
+
+  // Only auto-start for local API URLs
+  const apiUrl = process.env.AGX_CLOUD_URL || process.env.AGX_BOARD_URL || 'http://localhost:41741';
+  try {
+    const u = new URL(apiUrl);
+    if (u.hostname !== 'localhost' && u.hostname !== '127.0.0.1' && u.hostname !== '0.0.0.0' && u.hostname !== '::1') return;
+  } catch { return; }
+
+  const port = getBoardPort();
+
+  // Quick probe — if already running, done
+  if (await probeBoardHealth(port)) return;
+
+  // Also check PID file
+  const existingPid = isBoardRunning();
+  if (existingPid && await probeBoardHealth(port)) return;
+
+  // Clean stale PID
+  if (existingPid) {
+    try { fs.unlinkSync(BOARD_PID_FILE); } catch { }
+  }
+
+  console.log(`${c.dim}Board server not reachable at localhost:${port}, starting...${c.reset}`);
+
+  // Ensure postgres
+  const dbUrl = await ensurePostgresReady();
+
+  // Resolve board directory
+  const boardInfo = resolveBoardDir();
+  if (!boardInfo) {
+    console.error(`${c.red}Board runtime not found.${c.reset} Ensure agx-cloud is at ${LOCAL_AGX_CLOUD_DIR} or build standalone runtime.`);
+    console.log(`${c.dim}Tip: set AGX_CLOUD_WORKER_DIR=/path/to/agx-cloud${c.reset}`);
+    _boardEnsured = false;
+    return;
+  }
+
+  if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
+
+  let logFd;
+  try {
+    logFd = fs.openSync(BOARD_LOG_FILE, 'a');
+  } catch (err) {
+    console.error(`${c.red}Unable to open board log:${c.reset} ${err.message}`);
+    _boardEnsured = false;
+    return;
+  }
+
+  const boardEnv = {
+    ...process.env,
+    DATABASE_URL: dbUrl,
+    PORT: String(port),
+    AGX_BOARD_DISABLE_AUTH: '1',
+  };
+
+  // Save env for downstream consumers
+  saveBoardEnvValue('DATABASE_URL', dbUrl);
+  saveBoardEnvValue('PORT', String(port));
+
+  let proc;
+  try {
+    if (boardInfo.mode === 'bundled') {
+      proc = spawn('node', ['server.js'], {
+        cwd: boardInfo.dir,
+        detached: true,
+        stdio: ['ignore', logFd, logFd],
+        env: boardEnv,
+      });
+    } else {
+      proc = spawn('npm', ['run', 'dev'], {
+        cwd: boardInfo.dir,
+        detached: true,
+        stdio: ['ignore', logFd, logFd],
+        env: boardEnv,
+      });
+    }
+  } catch (err) {
+    fs.closeSync(logFd);
+    console.error(`${c.red}Failed to start board server:${c.reset} ${err.message}`);
+    _boardEnsured = false;
+    return;
+  }
+
+  fs.closeSync(logFd);
+  proc.unref();
+  fs.writeFileSync(BOARD_PID_FILE, String(proc.pid));
+
+  // Wait for server to respond
+  console.log(`${c.dim}Waiting for board server (pid ${proc.pid})...${c.reset}`);
+  const deadline = Date.now() + 15000;
+  let ready = false;
+  while (Date.now() < deadline) {
+    if (await probeBoardHealth(port)) {
+      ready = true;
+      break;
+    }
+    await sleep(500);
+  }
+
+  if (ready) {
+    console.log(`${c.green}✓${c.reset} Board server started (pid ${proc.pid}, port ${port})`);
+    console.log(`${c.dim}  Logs: ${BOARD_LOG_FILE}${c.reset}`);
+  } else {
+    console.log(`${c.yellow}Board server started but not yet responding — check ${BOARD_LOG_FILE}${c.reset}`);
+  }
+}
+
+async function stopBoard() {
+  const pid = isBoardRunning();
+  if (!pid) {
+    console.log(`${c.yellow}Board server not running${c.reset}`);
+    return false;
+  }
+
+  try {
+    const stopped = await stopDaemonProcessTree(pid);
+    if (fs.existsSync(BOARD_PID_FILE)) fs.unlinkSync(BOARD_PID_FILE);
+
+    if (!stopped) {
+      console.error(`${c.red}Failed to stop board server:${c.reset} pid ${pid} still running`);
+      return false;
+    }
+
+    console.log(`${c.green}✓${c.reset} Board server stopped (pid ${pid})`);
+    return true;
+  } catch (err) {
+    console.error(`${c.red}Failed to stop board server:${c.reset} ${err.message}`);
+    return false;
+  }
 }
 
 function startTemporalWorker() {
@@ -1836,7 +2851,6 @@ async function stopTemporalWorker() {
     }
 
     if (fs.existsSync(WORKER_PID_FILE)) fs.unlinkSync(WORKER_PID_FILE);
-    if (fs.existsSync(LEGACY_TEMPORAL_PID_FILE)) fs.unlinkSync(LEGACY_TEMPORAL_PID_FILE);
 
     console.log(`${c.green}✓${c.reset} Orchestrator worker stopped (pid ${pid})`);
     return true;
@@ -1917,7 +2931,8 @@ async function stopDaemon() {
   }
 
   const temporalStopped = await stopTemporalWorker();
-  return daemonStopped || temporalStopped;
+  const boardStopped = await stopBoard();
+  return daemonStopped || temporalStopped || boardStopped;
 }
 
 // Load config
@@ -2346,19 +3361,17 @@ ${c.bold}${c.cyan}╰───────────────────�
   console.log(`
 ${c.bold}Quick Start:${c.reset}
 
-  ${c.dim}# Use default provider (${defaultProvider})${c.reset}
-  ${c.cyan}agx --prompt "hello world"${c.reset}
+  ${c.dim}# One-shot question${c.reset}
+  ${c.cyan}agx -p "explain this code"${c.reset}
 
-  ${c.dim}# Or specify a provider${c.reset}
-  ${c.cyan}agx ${defaultProvider} --prompt "explain this code"${c.reset}
+  ${c.dim}# Create and run a task${c.reset}
+  ${c.cyan}agx new "build a REST API"${c.reset}
+  ${c.cyan}agx run <task_id>${c.reset}
 
-  ${c.dim}# Interactive mode${c.reset}
-  ${c.cyan}agx ${defaultProvider} -i --prompt "let's chat"${c.reset}
+  ${c.dim}# Fully autonomous${c.reset}
+  ${c.cyan}agx -a -p "refactor auth middleware"${c.reset}
 
-  ${c.dim}# Cloud URL (defaults to localhost)${c.reset}
-  ${c.cyan}AGX_CLOUD_URL=http://localhost:3000 agx status${c.reset}
-
-${c.dim}Run ${c.reset}agx init${c.dim} anytime to reconfigure.${c.reset}
+${c.dim}Run ${c.reset}agx config${c.dim} anytime to reconfigure.${c.reset}
 `);
 
   process.exit(0);
@@ -2693,6 +3706,13 @@ async function runInteractiveMenu() {
         } else {
           console.log(`${c.yellow}Orchestrator worker not running${c.reset}`);
         }
+        const boardPid = isBoardRunning();
+        if (boardPid) {
+          console.log(`${c.green}Board server running${c.reset} (pid ${boardPid})`);
+          console.log(`${c.dim}Logs: ${BOARD_LOG_FILE}${c.reset}`);
+        } else {
+          console.log(`${c.yellow}Board server not running${c.reset}`);
+        }
         console.log('');
         await prompt(`${c.dim}Press Enter to continue...${c.reset}`);
         hideCursor();
@@ -2856,6 +3876,18 @@ async function checkOnboarding() {
   const args = process.argv.slice(2);
   const cmd = args[0];
 
+  // Version should be non-interactive and must not trigger onboarding.
+  if (args.includes('--version') || args.includes('-v')) {
+    try {
+      const pkg = require('./package.json');
+      console.log(pkg?.version || '');
+    } catch {
+      console.log('');
+    }
+    process.exit(0);
+    return true;
+  }
+
   // ============================================================
   // CLOUD STATE HELPERS
   // ============================================================
@@ -2894,7 +3926,7 @@ async function checkOnboarding() {
       logExecutionFlow('loadCloudConfig', 'output', `error ${err?.message || err}`);
     }
     // Default to local board runtime when no cloud config exists.
-    const apiUrl = (process.env.AGX_CLOUD_URL || process.env.AGX_BOARD_URL || 'http://localhost:3000').replace(/\/$/, '');
+    const apiUrl = (process.env.AGX_CLOUD_URL || process.env.AGX_BOARD_URL || 'http://localhost:41741').replace(/\/$/, '');
     const fallback = {
       apiUrl,
       token: null,
@@ -2982,9 +4014,13 @@ async function checkOnboarding() {
 
   async function cloudRequest(method, endpoint, body = null) {
     logExecutionFlow('cloudRequest', 'input', `method=${method}, endpoint=${endpoint}, body=${body ? JSON.stringify(body) : 'none'}`);
+
+    // Auto-start board server on first API call (only for local URLs)
+    await ensureBoardRunning();
+
     const config = loadCloudConfig();
     if (!config?.apiUrl) {
-      const errMsg = 'Cloud API URL not configured. Set AGX_CLOUD_URL (default http://localhost:3000)';
+      const errMsg = 'Cloud API URL not configured. Set AGX_CLOUD_URL (default http://localhost:41741)';
       logExecutionFlow('cloudRequest', 'output', errMsg);
       throw new Error(errMsg);
     }
@@ -3135,7 +4171,7 @@ async function checkOnboarding() {
   function getOrchestrator() {
     const config = loadCloudConfig();
     if (!config?.apiUrl) {
-      throw new Error('Cloud API URL not configured. Set AGX_CLOUD_URL (default http://localhost:3000)');
+      throw new Error('Cloud API URL not configured. Set AGX_CLOUD_URL (default http://localhost:41741)');
     }
     return createOrchestrator(config);
   }
@@ -3182,33 +4218,6 @@ async function checkOnboarding() {
     }
   }
 
-  async function startTemporalTaskRun(rawTaskId, options = {}) {
-    const { resetFirst = false, follow = true, nudge = null, forceSwarm = false } = options;
-    const taskId = await resolveTaskId(rawTaskId);
-    const orchestrator = getOrchestrator();
-
-    if (resetFirst) {
-      await cloudRequest('PATCH', `/api/tasks/${taskId}`, {
-        status: 'queued',
-        started_at: null,
-        completed_at: null,
-      });
-    }
-
-    await orchestrator.startTask(taskId, { forceSwarm });
-    if (nudge) {
-      await orchestrator.signalTask(taskId, 'nudge', { message: nudge });
-    }
-
-    console.log(`${c.green}✓${c.reset} Orchestrator job started`);
-    console.log(`${c.dim}Task: ${taskId}${c.reset}`);
-
-    const task = await waitForTaskTerminal(taskId, { follow });
-    const finalStatus = String(task?.status || 'unknown');
-    console.log(`\n${c.bold}Final status:${c.reset} ${finalStatus}`);
-    return finalStatus === 'failed' ? 1 : 0;
-  }
-
   async function runTaskInline(rawTaskId, options = {}) {
     const { resetFirst = false, forceSwarm = false } = options;
     const taskId = await resolveTaskId(rawTaskId);
@@ -3221,8 +4230,8 @@ async function checkOnboarding() {
       });
     }
 
-    // Best-effort: ensure the orchestrator worker is running so stage transitions can apply.
-    try { startTemporalWorker(); } catch { }
+    // NOTE: `agx run` should not implicitly start the embedded orchestrator worker.
+    // If you want the worker running, start it explicitly via `agx daemon start`.
 
     const nowIso = new Date().toISOString();
     try {
@@ -3270,7 +4279,7 @@ async function checkOnboarding() {
     };
   }
 
-  async function runCloudDaemonTask(task) {
+async function runCloudDaemonTask(task) {
     const taskId = String(task?.id || '').trim();
     if (!taskId) {
       throw new Error('Queue returned task without id');
@@ -3286,8 +4295,7 @@ async function checkOnboarding() {
     let taskSlug = null;
 
     let lockHandle = null;
-    let run = null;
-    let artifacts = null;
+    let lastRun = null;
     let runIndexEntry = null;
 
     logger.log('system', `[daemon] picked task ${taskId} (${task?.stage || 'unknown'})\n`);
@@ -3353,56 +4361,81 @@ async function checkOnboarding() {
           }
         }
 
-        run = await storage.createRun({
-          projectSlug,
-          taskSlug,
-          stage: stageLocal,
-          engine: provider,
-          model: model || undefined,
-        });
-
-
-        artifacts = createDaemonArtifactsRecorder({ storage, run, taskId });
-
-        // Re-apply working set and attach rewrite event (if any).
-        const workingSetMd2 = renderWorkingSetMarkdownFromCloudTask(task);
-        if (workingSetMd2) {
-          const wsRes2 = await storage.writeWorkingSet(projectSlug, taskSlug, workingSetMd2);
-          if (wsRes2?.event) {
-            await storage.appendEvent(run.paths.events, wsRes2.event);
-          }
+        // Fetch task comments for full context recording.
+        let taskCommentsForArtifact = [];
+        try {
+          const commentsResponse = await cloudRequest('GET', `/api/tasks/${taskId}/comments`);
+          taskCommentsForArtifact = commentsResponse?.comments || [];
+        } catch {
+          // Comments unavailable, continue without them
         }
 
-        await storage.updateTaskState(projectSlug, taskSlug, { status: 'running' });
-        artifacts.recordPrompt('Cloud Task Snapshot', JSON.stringify({
-          id: taskId,
-          slug: task?.slug || null,
-          project: task?.project || task?.project_slug || null,
-          stage: task?.stage || null,
+        // Record the full initial prompt context (not just JSON metadata)
+        const fullPromptContext = buildFullDaemonPromptContext(task, {
+          comments: taskCommentsForArtifact,
           provider,
           model,
-        }, null, 2));
-      }
+        });
 
-      if (task?.swarm) {
-        runResult = await runSwarmLoop({ taskId, task, artifacts });
+        // Mark local task as running once before iterating.
+        await storage.updateTaskState(projectSlug, taskSlug, { status: 'running' });
+
+        // Execute+verify loop runs per-iteration local runs under the mapped cloud stage.
+        let loopResult;
+        if (task?.swarm) {
+          loopResult = await runSwarmExecuteVerifyLoop({
+            taskId,
+            task,
+            logger,
+            storage,
+            projectSlug,
+            taskSlug,
+            stageLocal,
+            initialPromptContext: fullPromptContext,
+          });
+        } else {
+          loopResult = await runSingleAgentExecuteVerifyLoop({
+            taskId,
+            task,
+            provider,
+            model,
+            logger,
+            storage,
+            projectSlug,
+            taskSlug,
+            stageLocal,
+            initialPromptContext: fullPromptContext,
+          });
+        }
+
+        lastRun = loopResult?.lastRun || null;
+        runIndexEntry = loopResult?.runIndexEntry || null;
         decisionPayload = normalizeDaemonDecision(
-          runResult?.decision,
-          runResult?.code === 0 ? 'Swarm execution completed.' : 'Swarm execution failed.'
+          loopResult?.decision,
+          loopResult?.code === 0 ? 'Execution completed.' : 'Execution failed.'
         );
       } else {
-        runResult = await runSingleAgentLoop({
-          taskId,
-          task,
-          provider,
-          model,
-          logger,
-          artifacts,
-        });
-        decisionPayload = normalizeDaemonDecision(
-          runResult?.decision,
-          runResult?.code === 0 ? 'Single-agent execution completed.' : 'Single-agent execution failed.'
-        );
+        // Fallback: cloud-only execution path (legacy).
+        if (task?.swarm) {
+          runResult = await runSwarmLoop({ taskId, task, artifacts: null });
+          decisionPayload = normalizeDaemonDecision(
+            runResult?.decision,
+            runResult?.code === 0 ? 'Swarm execution completed.' : 'Swarm execution failed.'
+          );
+        } else {
+          runResult = await runSingleAgentLoop({
+            taskId,
+            task,
+            provider,
+            model,
+            logger,
+            artifacts: null,
+          });
+          decisionPayload = normalizeDaemonDecision(
+            runResult?.decision,
+            runResult?.code === 0 ? 'Single-agent execution completed.' : 'Single-agent execution failed.'
+          );
+        }
       }
     } catch (err) {
       const message = err?.message || 'Daemon execution failed.';
@@ -3417,38 +4450,7 @@ async function checkOnboarding() {
       await logger.flushAll();
       if (localArtifacts) {
         try {
-          if (artifacts) {
-            artifacts.recordOutput('Daemon Decision', JSON.stringify(decisionPayload || {}, null, 2));
-            await artifacts.flush();
-          }
-
-          if (run && storage) {
-            const statusMap = {
-              done: 'done',
-              blocked: 'blocked',
-              not_done: 'continue',
-              failed: 'failed',
-            };
-            const localDecisionStatus = statusMap[String(decisionPayload?.decision || 'failed')] || 'failed';
-            await storage.finalizeRun(run, {
-              status: localDecisionStatus,
-              reason: decisionPayload?.explanation || decisionPayload?.summary || '',
-            });
-
-            runIndexEntry = await buildLocalRunIndexEntry(storage, run, localDecisionStatus);
-
-          }
-
-          if (storage && projectSlug && taskSlug) {
-            const localTaskStatusMap = {
-              done: 'done',
-              blocked: 'blocked',
-              not_done: 'running',
-              failed: 'failed',
-            };
-            const nextLocalStatus = localTaskStatusMap[String(decisionPayload?.decision || 'failed')] || 'failed';
-            await storage.updateTaskState(projectSlug, taskSlug, { status: nextLocalStatus });
-          }
+          // Runs are finalized per-iteration inside the execute/verify loop.
         } catch (e) {
           // Never break cloud completion because local artifacts failed.
           logger?.log('error', `[daemon] local artifact finalize failed: ${e?.message || e}\n`);
@@ -3466,10 +4468,10 @@ async function checkOnboarding() {
       decision: decisionPayload.decision,
       final_result: decisionPayload.final_result,
       explanation: decisionPayload.explanation,
-      ...(localArtifacts && run?.paths?.root ? {
-        artifact_path: run.paths.root,
+      ...(localArtifacts && lastRun?.paths?.root ? {
+        artifact_path: lastRun.paths.root,
         artifact_host: os.hostname(),
-        artifact_key: localArtifactKey(run.paths.root),
+        artifact_key: localArtifactKey(lastRun.paths.root),
       } : {}),
       ...(runIndexEntry ? { run_entry: runIndexEntry } : {}),
     });
@@ -3481,8 +4483,8 @@ async function checkOnboarding() {
       `Decision: ${decisionPayload.decision}`,
       '',
       decisionPayload.summary || decisionPayload.explanation || '',
-      localArtifacts && run ? '' : '',
-      localArtifacts && run ? `(Local run id: ${run.run_id}, stage: ${run.stage})` : '',
+      localArtifacts && lastRun ? '' : '',
+      localArtifacts && lastRun ? `(Local run id: ${lastRun.run_id}, stage: ${lastRun.stage})` : '',
     ].filter(Boolean).join('\n'));
 
     console.log(`${c.dim}[daemon] completed ${taskId} → ${decisionPayload.decision}${c.reset}`);
@@ -4026,7 +5028,7 @@ async function checkOnboarding() {
     if (!subcmd || subcmd === 'run' || subcmd === '--run') {
       const cloudConfig = loadCloudConfig();
       if (!cloudConfig?.apiUrl) {
-        console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
+        console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
         process.exit(1);
       }
 
@@ -4055,6 +5057,13 @@ async function checkOnboarding() {
       } else {
         console.log(`${c.yellow}Orchestrator worker not running${c.reset}`);
       }
+      const boardPid = isBoardRunning();
+      if (boardPid) {
+        console.log(`${c.green}Board server running${c.reset} (pid ${boardPid})`);
+        console.log(`${c.dim}Logs: ${BOARD_LOG_FILE}${c.reset}`);
+      } else {
+        console.log(`${c.yellow}Board server not running${c.reset}`);
+      }
       process.exit(0);
     } else if (subcmd === 'logs') {
       if (fs.existsSync(DAEMON_LOG_FILE)) {
@@ -4076,6 +5085,52 @@ async function checkOnboarding() {
     } else {
       console.log(`${c.red}Unknown daemon command:${c.reset} ${subcmd}`);
       console.log(`${c.dim}Run: agx daemon --help${c.reset}`);
+      process.exit(0);
+    }
+    return true;
+  }
+
+  // ==================== BOARD COMMAND ====================
+  if (cmd === 'board') {
+    const subcmd = args[1];
+    if (!subcmd || subcmd === 'start') {
+      _boardEnsured = false; // force re-check
+      await ensureBoardRunning();
+      process.exit(0);
+    } else if (subcmd === 'stop') {
+      await stopBoard();
+      process.exit(0);
+    } else if (subcmd === 'status') {
+      const pid = isBoardRunning();
+      if (pid) {
+        const port = getBoardPort();
+        const healthy = await probeBoardHealth(port);
+        console.log(`${c.green}Board server running${c.reset} (pid ${pid}, port ${port}${healthy ? ', healthy' : ', not responding'})`);
+        console.log(`${c.dim}Logs: ${BOARD_LOG_FILE}${c.reset}`);
+      } else {
+        console.log(`${c.yellow}Board server not running${c.reset}`);
+      }
+      process.exit(0);
+    } else if (subcmd === 'logs') {
+      if (fs.existsSync(BOARD_LOG_FILE)) {
+        const logs = fs.readFileSync(BOARD_LOG_FILE, 'utf8');
+        console.log(logs.split('\n').slice(-50).join('\n'));
+      } else {
+        console.log(`${c.dim}No board logs yet${c.reset}`);
+      }
+      process.exit(0);
+    } else if (subcmd === 'tail') {
+      if (!fs.existsSync(BOARD_LOG_FILE)) {
+        console.log(`${c.dim}No board logs yet. Start with: agx board start${c.reset}`);
+        process.exit(0);
+      }
+      console.log(`${c.dim}Tailing ${BOARD_LOG_FILE}... (Ctrl+C to stop)${c.reset}\n`);
+      const tail = spawn('tail', ['-f', BOARD_LOG_FILE], { stdio: 'inherit' });
+      tail.on('close', () => process.exit(0));
+      return true;
+    } else {
+      console.log(`${c.red}Unknown board command:${c.reset} ${subcmd}`);
+      console.log(`${c.dim}Usage: agx board [start|stop|status|logs|tail]${c.reset}`);
       process.exit(0);
     }
     return true;
@@ -4210,7 +5265,7 @@ async function checkOnboarding() {
 
     const cloudConfig = loadCloudConfigFile();
     if (!cloudConfig?.apiUrl) {
-      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
       process.exit(1);
     }
 
@@ -4335,16 +5390,20 @@ async function checkOnboarding() {
   if (cmd === 'new' || cmd === 'push') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
       process.exit(1);
     }
 
     // Parse flags
-    let project = null, priority = null, engine = null, provider = null, model = null, ticketType = null;
+    let projectSlug = null, projectId = null, priority = null, engine = null, provider = null, model = null, ticketType = null;
     const taskParts = [];
     for (let i = 1; i < args.length; i++) {
       if (args[i] === '--project' || args[i] === '-p') {
-        project = args[++i];
+        projectSlug = args[++i];
+      } else if (args[i] === '--project-slug') {
+        projectSlug = args[++i];
+      } else if (args[i] === '--project-id') {
+        projectId = args[++i];
       } else if (args[i] === '--priority' || args[i] === '-P') {
         priority = parseInt(args[++i]);
       } else if (args[i] === '--engine' || args[i] === '-e') {
@@ -4362,13 +5421,14 @@ async function checkOnboarding() {
 
     const taskDesc = taskParts.join(' ');
     if (!taskDesc) {
-      console.log(`${c.yellow}Usage:${c.reset} agx new "<task>" [--project name] [--priority n] [--engine claude|gemini|ollama|codex] [--type spike|task]`);
+      console.log(`${c.yellow}Usage:${c.reset} agx new "<task>" [--project <slug>] [--project-slug <slug>] [--project-id <uuid>] [--priority n] [--engine claude|gemini|ollama|codex] [--type spike|task]`);
       process.exit(1);
     }
 
     // Build markdown content
     const frontmatter = ['status: queued', 'stage: ideation'];
-    if (project) frontmatter.push(`project: ${project}`);
+    if (projectSlug) frontmatter.push(`project: ${projectSlug}`);
+    if (projectId) frontmatter.push(`project_id: ${projectId}`);
     if (priority) frontmatter.push(`priority: ${priority}`);
     if (engine) frontmatter.push(`engine: ${engine}`);
     if (provider) frontmatter.push(`provider: ${provider}`);
@@ -4386,7 +5446,8 @@ async function checkOnboarding() {
         console.log(`  Slug: ${task.slug}`);
       }
       console.log(`  Stage: ${task.stage || 'ideation'}`);
-      if (project) console.log(`  Project: ${project}`);
+      if (projectSlug) console.log(`  Project: ${projectSlug}`);
+      if (projectId) console.log(`  Project ID: ${projectId}`);
       console.log(`${c.dim}Use: agx run ${task.slug || task.id}${c.reset}`);
     } catch (err) {
       const message = err?.message || String(err);
@@ -4440,7 +5501,7 @@ async function checkOnboarding() {
   if (cmd === 'reset' || (cmd === 'task' && args[1] === 'reset')) {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
       process.exit(1);
     }
 
@@ -4533,7 +5594,7 @@ async function checkOnboarding() {
     const showAll = args.includes('-a') || args.includes('--all');
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
       process.exit(1);
     }
 
@@ -4579,7 +5640,7 @@ async function checkOnboarding() {
   if (cmd === 'complete' || cmd === 'done') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
       process.exit(1);
     }
 
@@ -4625,7 +5686,7 @@ async function checkOnboarding() {
   if (cmd === 'watch') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
       process.exit(1);
     }
 
@@ -4687,7 +5748,7 @@ async function checkOnboarding() {
   if (cmd === 'comments' && args[1] === 'clear') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
       process.exit(1);
     }
 
@@ -4721,7 +5782,7 @@ async function checkOnboarding() {
   if (cmd === 'logs' && args[1] === 'clear') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
       process.exit(1);
     }
 
@@ -4755,7 +5816,7 @@ async function checkOnboarding() {
   if (cmd === 'comments' && args[1] === 'ls') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
       process.exit(1);
     }
 
@@ -4795,7 +5856,7 @@ async function checkOnboarding() {
   if (cmd === 'comments' && args[1] === 'tail') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
       process.exit(1);
     }
 
@@ -4849,7 +5910,7 @@ async function checkOnboarding() {
   if (cmd === 'logs' && args[1] === 'ls') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
       process.exit(1);
     }
 
@@ -4888,7 +5949,7 @@ async function checkOnboarding() {
   if (cmd === 'logs' && args[1] === 'tail') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
       process.exit(1);
     }
 
@@ -4954,7 +6015,7 @@ async function checkOnboarding() {
   if ((cmd === 'task' && (args[1] === 'logs' || args[1] === 'tail')) || (cmd === 'logs' && args[1] !== 'tail' && args[1] !== 'clear')) {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
       process.exit(1);
     }
 
@@ -5056,7 +6117,7 @@ async function checkOnboarding() {
   if (cmd === 'task' && args[1] === 'clear') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
       process.exit(1);
     }
 
@@ -5091,7 +6152,7 @@ async function checkOnboarding() {
   if (cmd === 'task' && args[1] === 'rm') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
       process.exit(1);
     }
 
@@ -5327,9 +6388,10 @@ async function checkOnboarding() {
     return true;
   }
 
-  // First run detection
+  // First run detection — skip for non-interactive/daemon contexts
   const config = loadConfig();
-  if (!config && !args.includes('--help') && !args.includes('-h')) {
+  const isNonInteractive = args.includes('--print') || args.includes('--cloud-task') || args.some(a => a.startsWith('--cloud-task'));
+  if (!config && args.length === 0 && !args.includes('--help') && !args.includes('-h') && !isNonInteractive) {
     console.log(`${c.cyan}First time using agx? Let's get you set up!${c.reset}\n`);
     await runOnboarding();
     return true;
@@ -5711,7 +6773,7 @@ EXAMPLES:
     } catch { }
     // Default to local board runtime when no cloud config exists.
     // Daemon should work without any auth flow; cloud may be unauthenticated.
-    const apiUrl = (process.env.AGX_CLOUD_URL || process.env.AGX_BOARD_URL || 'http://localhost:3000').replace(/\/$/, '');
+    const apiUrl = (process.env.AGX_CLOUD_URL || process.env.AGX_BOARD_URL || 'http://localhost:41741').replace(/\/$/, '');
     return {
       apiUrl,
       token: null,
@@ -5760,7 +6822,7 @@ EXAMPLES:
   async function cloudRequest(method, endpoint, body = null) {
     const config = loadCloudConfig();
     if (!config?.apiUrl) {
-      throw new Error('Cloud API URL not configured. Set AGX_CLOUD_URL (default http://localhost:3000)');
+      throw new Error('Cloud API URL not configured. Set AGX_CLOUD_URL (default http://localhost:41741)');
     }
 
     const url = `${config.apiUrl}${endpoint}`;
@@ -5967,7 +7029,7 @@ Goal: ${finalPrompt}
           console.log(`${c.green}✓${c.reset} Autonomous mode: daemon running\n`);
         }
       } else {
-        console.log(`${c.yellow}Cloud API URL not configured. Set AGX_CLOUD_URL (default http://localhost:3000).${c.reset}`);
+        console.log(`${c.yellow}Cloud API URL not configured. Set AGX_CLOUD_URL (default http://localhost:41741).${c.reset}`);
         console.log(`${c.dim}Task not created. Running in one-shot mode.${c.reset}`);
       }
     } catch (err) {

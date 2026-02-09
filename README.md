@@ -1,195 +1,259 @@
-# agx
+# AGX
 
-Task orchestrator for autonomous AI agents with an embedded dashboard. Uses cloud API for persistent storage and task management.
+**Autonomous Agent Orchestration for Developers.**
+
+AGX transforms your favorite AI coding assistants into autonomous agents capable of executing complex tasks, managing their own state, and persisting work across sessions. It combines a powerful CLI for execution with a bundled visual dashboard for orchestration.
 
 ![AGX Dashboard](agx_dashboard.png)
+
+## Why AGX?
+
+Most AI coding tools wait for you to type. AGX is active. You define the goal, and the agent works through a **Wake-Work-Sleep** cycle to achieve it:
+
+1.  **Wake**: The agent receives a task with full context.
+2.  **Work**: It executes commands, edits code, and validates output.
+3.  **Sleep**: It yields state when blocked or finished, ready to resume later.
+
+## Features
+
+*   **Bundled Dashboard**: A visual Kanban board included with the CLI to manage tasks and track progress.
+*   **Autonomous & Resumable**: Tasks persist across sessions. Agents can pause and resume exactly where they left off.
+*   **Multi-Provider**: Use Claude, Gemini, or Ollama depending on your needs.
+*   **Secure**: Runs locally with critical operation safeguards (`rm -rf` protection) and task signing.
+*   **Project Workflows**: Define custom stage prompts tailored to your repository.
+
+---
+
+## ⭐ Star This Project
+
+If AGX helps you build better software with AI agents, please **give us a star**! It helps others discover the project and motivates us to keep improving.
+
+[![GitHub stars](https://img.shields.io/github/stars/ramarlina/agx?style=social)](https://github.com/ramarlina/agx)
+
+---
+
+## Prerequisites
+
+AGX requires:
+
+- **PostgreSQL** - Local database for task persistence and queue management. AGX can **auto-start Postgres via Docker** if you don't have one running — just run any command and follow the prompt.
+- **At least one AI provider CLI**:
+  - **[Claude Code](https://docs.anthropic.com/claude/docs/claude-cli)** - Anthropic's CLI for Claude
+  - **[Gemini CLI](https://ai.google.dev/gemini-api/docs/cli)** - Google's CLI for Gemini models
+  - **[Ollama](https://ollama.ai/)** - Local LLM runtime
+
+PostgreSQL and the board server are auto-started on demand — no manual setup required.
+
+---
+
+## Getting Started
+
+### Installation
+
+AGX is distributed via npm. Install it globally:
 
 ```bash
 npm install -g @mndrk/agx
 ```
 
-## Core Concept: Wake-Work-Sleep Cycle
+### Usage
 
-Agents have **no memory** between sessions. All continuity comes from the cloud API:
+1.  **Initialize a Project**
+    ```bash
+    cd my-project
+    agx init
+    ```
 
-```
-WAKE -> Load state from cloud -> WORK -> Save state to cloud -> SLEEP -> repeat
-```
+2.  **Run an Agent**
+    Create a new task and let the agent take over. The board server and Postgres are started automatically if needed:
+    ```bash
+    agx new "Refactor the authentication middleware"
+    agx run <task>
+    ```
 
-This enables truly autonomous operation across multiple sessions.
+---
 
-## Quick Start
+## Commands
 
-```bash
-# Create and run a task
-agx new "Build a REST API with auth"
-agx run build-rest-api
-
-# Or one command for full autonomous mode
-agx -a -p "Build a REST API with auth"
-# ✓ Created task: build-rest-api
-# ✓ Daemon started
-# ✓ Working...
-```
-
-## Task Management
+### Task Management
 
 ```bash
-agx new "<goal>"       # Create task
-agx run [task]         # Run task (loads context from cloud, wakes agent)
-agx run [task] --swarm # Run task via swarm
-agx tasks              # Interactive TUI - browse all tasks
-agx status             # Current task status
-agx context [task]     # View task context
+agx init               # Initialize AGX in current directory
+agx new "<goal>"       # Create a new task
+agx run <task_id>      # Run a specific task
+agx status             # Show current status
 ```
 
-### Task Commands (Docker-style namespaces)
+### Board Server
+
+The board server (agx-cloud) starts automatically when you run any command that needs it. You can also manage it manually:
 
 ```bash
-agx task ls           # List all tasks
-agx task logs <id>    # View task logs
-agx task tail <id>    # Tail task logs
-agx task stop <id>    # Stop a task
-agx task rm <id>      # Remove a task
-agx info <task>       # Get detailed task info
-agx complete <taskId> # Mark task stage as complete
+agx board start        # Start the board server (auto-starts Postgres if needed)
+agx board stop         # Stop the board server
+agx board status       # Check if board is running
+agx board logs         # Show recent board logs
+agx board tail         # Live tail board logs
 ```
 
-## Projects
+### Daemon Mode
 
-Structured project metadata is managed entirely in the cloud. The CLI exposes the following helpers:
+Run a background worker to poll for tasks from the queue:
 
 ```bash
-agx project list
-agx project get <project-id|slug>
-agx project create --name "<name>" [--slug <slug>] [--description "<text>"] [--ci "<info>"] \
-                 [--metadata key=value ...] [--repo '{"name":"app","path":"/src","git_url":"https://github.com/...","notes":"local"}']
-agx project update <project-id|slug> [--name "<name>"] [--slug <slug>] [--description "<text>"] \
-                 [--ci "<info>"] [--metadata key=value ...] [--repo ...]
+agx daemon start       # Start background worker
+agx daemon stop        # Stop the daemon and board server
+agx daemon status      # Check daemon/worker/board status
 ```
 
-Use `--metadata key=value` to attach arbitrary key/value decisions and `--repo` to describe repo paths or remote URLs. Every `agx project` command talks to the cloud `/api/projects` APIs so you always see your latest structured context.
+### One-Shot Mode
 
-Link tasks to projects when you create them:
+For quick questions without creating a persistent task:
 
 ```bash
-agx new "Build auth flow" --project-slug my-app --project-id 123e4567-e89b-12d3-a456-426614174000
+agx -p "Explain this error"
+agx claude -p "Refactor this function"
+agx gemini -p "Debug this code"
 ```
 
-`--project-slug` prefers the canonical slug for prompts, while `--project-id` records the structured reference; fall back to the legacy `--project` free-form title if you do not yet have a project slug.
-
-### Container Commands (Docker-style namespaces)
-
-```bash
-agx container ls      # List running containers
-agx container logs    # View container logs
-agx container stop    # Stop container
-```
-
-### Interactive Tasks Browser
-
-`agx tasks` opens a TUI showing all tasks with status, progress, and last run time.
-
-Keys: `↑/↓` select, `enter` details, `r` run, `d` done
-
-## Steering: Nudge a Task
-
-Send guidance to an agent for its next wake cycle:
-
-```bash
-agx nudge <task> "focus on auth first"    # Add nudge
-agx nudge <task>                          # View pending nudges
-```
-
-Nudges are stored and shown to the agent on wake, then cleared.
-
-## Agent Workflow
-
-When an agent wakes, it should:
-
-1. **Orient** - Read state (goal, criteria, progress, next step, nudges)
-2. **Plan** - Define criteria if missing, set intent via API
-3. **Execute** - Work toward criteria, save learnings
-4. **Checkpoint** - Save progress
-5. **Adapt** - Handle blockers or ask user for nudge
-
-## Daemon Mode
-
-Run tasks automatically on a schedule:
-
-```bash
-agx daemon start       # Start background daemon
-agx daemon stop        # Stop daemon
-agx daemon status      # Check if running
-agx daemon logs        # View logs
-
-# Execution concurrency:
-agx daemon start -w 4
-```
-
-The daemon:
-- Pulls tasks from AGX Cloud queue and executes locally
-- Reports stage results back to AGX Cloud
-- Logs to `~/.agx/daemon.log`
-- Optionally starts the embedded orchestrator worker (`npm run daemon:worker`) when running the local board runtime; logs to `~/.agx/orchestrator-worker.log`
-
-## One-Shot Mode
-
-For quick questions without task creation:
-
-```bash
-agx -p "explain this error"
-agx claude -p "refactor this function"
-```
+---
 
 ## Providers
 
-| Provider | Alias | Description |
-|----------|-------|-------------|
-| claude | c | Anthropic Claude Code |
-| gemini | g | Google Gemini |
-| ollama | o | Local Ollama |
+| Provider | Alias | Command |
+|----------|-------|---------|
+| **Claude** | `c` | `agx claude` or `agx c` |
+| **Gemini** | `g` | `agx gemini` or `agx g` |
+| **Ollama** | `o` | `agx ollama` or `agx o` |
 
 ## Key Flags
 
 ```bash
 -a, --autonomous    # Full auto: create task + daemon + work until done
 -p, --prompt        # The prompt/goal
---prompt-file       # Read prompt from file path (avoids argv size limits)
--y, --yolo          # Skip confirmations
---continue <task>   # Continue specific task
+-y, --yolo          # Skip confirmation prompts
+-P, --provider      # Specify provider (c|g|o) for new tasks
 ```
 
-## Key Principles
+---
 
-- **Persistent storage is everything** - Agents forget between sessions. Save state.
-- **Criteria drive completion** - No criteria = no way to know when done.
-- **Checkpoint often** - Sessions can die anytime. Sync to API.
-- **Ask when stuck** - Get a nudge from the user vs. spinning.
-- **Learn & adapt** - Build knowledge for future tasks via API.
+## Workflows
+
+AGX supports project-specific workflows. You can define custom prompts for each stage of the SDLC pipeline (Planning, Coding, QA, etc.) to tailor agent behavior.
+
+Use `agx workflow` to manage workflow configurations for your project.
+
+
+---
 
 ## Architecture
 
+AGX uses a split-plane architecture to manage autonomous agents locally.
+
 ```
-agx (agent execution)
- ├── Uses API for all state operations
- ├── Task CRUD via: agx commands
- ├── Nudges via: API
- ├── Context via: agx info / context
- └── Task orchestration: Orchestrator worker (pg-boss)
-
-Embedded Runtime (agx-cloud)
- ├── Next.js Dashboard (Kanban, Chat)
- ├── Task Queue & State Management
- └── Real-time Updates
+┌─────────────────────────────────────────────────────────────────┐
+│                   Control Plane (Orchestration)                 │
+│                                                                 │
+│   ┌──────────────┐       ┌──────────────┐      ┌────────────┐ │
+│   │  AGX Board   │◄─────►│ PostgreSQL   │◄────►│  pg-boss   │ │
+│   │  (Next.js)   │       │   Database   │      │ Task Queue │ │
+│   └──────────────┘       └──────┬───────┘      └─────▲──────┘ │
+│                                 │                     │         │
+└─────────────────────────────────┼─────────────────────┼─────────┘
+                                  │                     │
+                                  │                   Polls
+┌─────────────────────────────────┼─────────────────────┼─────────┐
+│                                 │                     │         │
+│                   Data Plane (Execution)              │         │
+│                                 │                     │         │
+│   ┌──────────────┐       ┌──────▼───────┐      ┌─────▼──────┐ │
+│   │  AI Provider │◄──────│   AGX CLI    │◄─────│ AGX Daemon │ │
+│   │ Claude/Gemini│ Calls │              │ Exec │            │ │
+│   │   /Ollama    │       └──────────────┘      └────────────┘ │
+│   └──────────────┘                                            │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-## Contributing
+### Control Plane vs. Data Plane
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on our workflow.
+- **Control Plane**: Managed via `agx board`. It handles task creation, workflow definitions, and monitoring. It stores state in a local PostgreSQL database and uses `pg-boss` for reliable task distribution. The board server auto-starts when any CLI command needs it.
+- **Data Plane**: Managed via `agx run` or `agx daemon`. This is where the actual work happens. The CLI interacts with your local AI providers and updates the task state in the database.
 
-- **Bugs & Features:** Use [GitHub Issues](https://github.com/mndrk/agx/issues).
-- **Ideas & Questions:** Use [GitHub Discussions](https://github.com/mndrk/agx/discussions).
+## Under the Hood: Local Sessions
+
+Most AI tools lose context the moment the process ends. AGX solves this through **Persistent Local Sessions**:
+
+1.  **State Checkpointing**: After every tool call or model iteration, AGX serializes the entire agent state (including memory, working set, and logs) to the local database.
+2.  **Atomic Updates**: Transitions between SDLC stages are atomic, ensuring that if a process is interrupted, it can resume from the exact last successful checkpoint.
+3.  **Resume Anywhere**: Run `agx run --continue <id>` on any machine with access to the database to pick up exactly where the agent left off.
+
+## Tech Stack
+
+AGX is built with a modern, local-first stack:
+
+*   **Frontend**: Next.js 15, Tailwind CSS 4, Lucide React.
+*   **Database**: PostgreSQL with `pg-boss` for background job processing.
+*   **Runtime**: Node.js (with `tsx` for type-safe execution).
+*   **Communication**: EventSource for real-time log streaming from CLI to Board.
+
+---
+
+## Contributing to agx
+
+We love your input! We want to make contributing to `agx` as easy and transparent as possible, whether it's:
+
+- Reporting a bug
+- Discussing the current state of the code
+- Submitting a fix
+- Proposing new features
+
+### We use GitHub Flow
+
+We use GitHub to host code, to track issues and feature requests, as well as accept pull requests.
+
+### How to Contribute
+
+#### 1. Ideas & Questions -> GitHub Discussions
+Have a vague idea? A "what if"? A question about how something works?
+👉 **Start in [GitHub Discussions](https://github.com/mndrk/agx/discussions)**
+
+This keeps our Issue tracker clean and focused on actionable items.
+
+#### 2. Bugs & Concrete Features -> GitHub Issues
+Found a bug? Have a specific, actionable feature request?
+👉 **Open a [GitHub Issue](https://github.com/mndrk/agx/issues)**
+
+**Please use our Issue Templates:**
+- **Bug Report:** Tell us what happened, what you expected, and how to reproduce it.
+- **Feature Request:** Describe the problem you are solving, not just the solution.
+
+#### 3. The Label System
+We use labels to communicate status and intent. Key labels to know:
+
+*   **Type:** `bug`, `feature`, `question`, `proposal`
+*   **Status:**
+    *   `needs-repro`: We can't fix it if we can't see it.
+    *   `needs-design`: Good idea, but needs a plan before coding.
+    *   `blocked`: Waiting on something else.
+    *   `help-wanted`: We'd love your help on this!
+    *   `good-first-issue`: Great for new contributors.
+*   **Reality Checks:** `won't-fix`, `out-of-scope`.
+
+#### 4. Pull Requests
+1.  Fork the repo and create your branch from `main`.
+2.  If you've added code that should be tested, add tests.
+3.  Ensure the test suite passes.
+4.  Make sure your code lints.
+5.  Issue that Pull Request!
+
+### Triage Cadence
+We triage issues **weekly**. If you don't hear back immediately, don't worry—we'll get to it.
+
+### License
+By contributing, you agree that your contributions will be licensed under its MIT License.
+
+---
 
 ## License
 
