@@ -30,3 +30,4 @@ agx.log
 # Project specific
 cloud-runtime/
 docs/
+templates/stack/postgres/init/001_agx_board_schema.sql
