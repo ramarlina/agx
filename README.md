@@ -129,7 +129,7 @@ The daemon:
 - Pulls tasks from AGX Cloud queue and executes locally
 - Reports stage results back to AGX Cloud
 - Logs to `~/.agx/daemon.log`
-- Starts the embedded Temporal worker (`npm run daemon:temporal`) and logs to `~/.agx/temporal.log`
+- Optionally starts the embedded orchestrator worker (`npm run daemon:worker`) when running the local board runtime; logs to `~/.agx/orchestrator-worker.log`
 
 ## One-Shot Mode
 
@@ -174,7 +174,7 @@ agx (agent execution)
  ├── Task CRUD via: agx commands
  ├── Nudges via: API
  ├── Context via: agx info / context
- └── Task orchestration: Temporal workflows
+ └── Task orchestration: Orchestrator worker (pg-boss)
 
 API
  ├── Task storage and retrieval

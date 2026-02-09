@@ -461,4 +461,62 @@ describe('lib/storage/runs', () => {
             expect(decision).toBeNull();
         });
     });
+
+    describe('gcRuns', () => {
+        afterEach(() => {
+            // Ensure we don't leak fake timers into other test suites.
+            jest.useRealTimers();
+        });
+
+        it('keeps newest N runs and deletes the rest (deterministic ordering by second)', async () => {
+            jest.useFakeTimers();
+
+            const created = [];
+            const base = new Date('2026-02-08T00:00:00.000Z');
+
+            for (let i = 0; i < 30; i++) {
+                jest.setSystemTime(new Date(base.getTime() + i * 1000));
+                const run = await runs.createRun({
+                    projectSlug: 'my-project',
+                    taskSlug: 'my-task',
+                    stage: 'execute',
+                    engine: 'claude',
+                });
+                await runs.finalizeRun(run, { status: 'done' });
+                created.push(run.run_id);
+            }
+
+            const result = await runs.gcRuns('my-project', 'my-task', { keep: 25 });
+            expect(result.deleted).toBe(5);
+
+            const remaining = await runs.listRuns('my-project', 'my-task', { stage: 'execute' });
+            expect(remaining).toHaveLength(25);
+            expect(remaining.map(r => r.run_id)).toEqual(created.slice(5));
+        });
+
+        it('preserves all runs when task is blocked/failed (default policy)', async () => {
+            jest.useFakeTimers();
+
+            // Mark task as blocked
+            await state.updateTaskState('my-project', 'my-task', { status: 'blocked' });
+
+            const base = new Date('2026-02-08T00:10:00.000Z');
+            for (let i = 0; i < 3; i++) {
+                jest.setSystemTime(new Date(base.getTime() + i * 1000));
+                const run = await runs.createRun({
+                    projectSlug: 'my-project',
+                    taskSlug: 'my-task',
+                    stage: 'execute',
+                    engine: 'claude',
+                });
+                await runs.finalizeRun(run, { status: 'done' });
+            }
+
+            const result = await runs.gcRuns('my-project', 'my-task', { keep: 1 });
+            expect(result.deleted).toBe(0);
+
+            const remaining = await runs.listRuns('my-project', 'my-task', { stage: 'execute' });
+            expect(remaining).toHaveLength(3);
+        });
+    });
 });

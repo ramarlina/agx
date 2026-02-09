@@ -27,11 +27,23 @@ create table if not exists tasks (
   signature text,
   claimed_by uuid,
   claimed_at timestamptz,
-  orchestrator text not null default 'temporal',
+  -- Orchestration engine identifier (legacy value was 'temporal').
+  orchestrator text not null default 'pg-boss',
   workflow_id text,
   workflow_run_id text,
   orchestration_status text,
   last_orchestration_update timestamptz,
+  -- Structured working set fields (hybrid support)
+  current_plan text,
+  open_blockers jsonb default '[]'::jsonb,
+  next_action text,
+  version integer default 1,
+  -- Recent run metadata index (hybrid artifact pointers; no blob uploads)
+  run_index jsonb default '[]'::jsonb,
+  -- Latest run artifact pointers (daemon-reported)
+  artifact_path text,
+  artifact_host text,
+  artifact_key text,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

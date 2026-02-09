@@ -18,53 +18,5 @@ services:
       timeout: 5s
       retries: 20
 
-  temporal-postgres:
-    image: postgres:16-alpine
-    container_name: temporal-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: temporal
-      POSTGRES_USER: temporal
-      POSTGRES_PASSWORD: temporal
-    ports:
-      - "5433:5432"
-    volumes:
-      - temporal_pg_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U temporal -d temporal"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
-
-  temporal:
-    image: temporalio/auto-setup:1.28.1
-    container_name: temporal
-    restart: unless-stopped
-    depends_on:
-      temporal-postgres:
-        condition: service_healthy
-    environment:
-      DB: postgres12
-      DB_PORT: 5432
-      POSTGRES_USER: temporal
-      POSTGRES_PWD: temporal
-      POSTGRES_SEEDS: temporal-postgres
-    ports:
-      - "7233:7233"
-
-  temporal-ui:
-    image: temporalio/ui:2.39.0
-    container_name: temporal-ui
-    restart: unless-stopped
-    depends_on:
-      - temporal
-    environment:
-      TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_CORS_ORIGINS: http://localhost:3000,http://localhost:3333
-    ports:
-      - "8088:8080"
-
 volumes:
   agx_pg_data:
-  temporal_pg_data:
-

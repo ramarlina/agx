@@ -1,5 +1,8 @@
 module.exports = {
   testEnvironment: 'node',
+  setupFiles: [
+    '<rootDir>/__tests__/helpers/jest-global-shims.cjs',
+  ],
   testMatch: ['**/__tests__/**/*.test.js'],
   testTimeout: 15000,
   collectCoverageFrom: [

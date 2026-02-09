@@ -36,4 +36,4 @@ The daemon:
 - Runs in background (survives terminal close)
 - Executes agent work locally with access to your machine
 - Uses AGX Cloud API for queue pull + stage completion
-- Also launches the embedded Temporal worker (`npm run daemon:temporal`); see `~/.agx/temporal.log` for its output.
+- Optionally launches the embedded orchestrator worker (`npm run daemon:worker`) when running the local board runtime; logs to `~/.agx/orchestrator-worker.log`.

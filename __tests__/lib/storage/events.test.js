@@ -164,6 +164,48 @@ describe('lib/storage/events', () => {
             expect(event.total_bytes).toBe(1500);
         });
 
+        it('engineCallStartedEvent creates correct structure', () => {
+            const event = events.engineCallStartedEvent({
+                trace_id: 'trace-1',
+                label: 'agx claude',
+                provider: 'claude',
+                model: 'test-model',
+                role: 'single-iteration',
+                pid: 123,
+                args: ['node', 'index.js', 'claude'],
+                timeout_ms: 1000,
+                started_at: '2026-02-08T00:00:00Z',
+            });
+
+            expect(event.t).toBe('ENGINE_CALL_STARTED');
+            expect(event.trace_id).toBe('trace-1');
+            expect(event.label).toBe('agx claude');
+            expect(event.provider).toBe('claude');
+            expect(event.role).toBe('single-iteration');
+            expect(event.pid).toBe(123);
+            expect(event.timeout_ms).toBe(1000);
+        });
+
+        it('engineCallCompletedEvent creates correct structure', () => {
+            const event = events.engineCallCompletedEvent({
+                trace_id: 'trace-1',
+                label: 'agx claude',
+                provider: 'claude',
+                role: 'single-iteration',
+                phase: 'exit',
+                exit_code: 0,
+                duration_ms: 42,
+                finished_at: '2026-02-08T00:00:10Z',
+                stdout_tail: 'ok',
+            });
+
+            expect(event.t).toBe('ENGINE_CALL_COMPLETED');
+            expect(event.trace_id).toBe('trace-1');
+            expect(event.phase).toBe('exit');
+            expect(event.exit_code).toBe(0);
+            expect(event.duration_ms).toBe(42);
+        });
+
         it('runFinishedEvent creates correct structure', () => {
             const event = events.runFinishedEvent({ status: 'continue', reason: 'More work needed' });
 
@@ -190,6 +232,26 @@ describe('lib/storage/events', () => {
             expect(event.t).toBe('APPROVAL_REQUESTED');
             expect(event.id).toBe('appr_1');
             expect(event.action).toBe('git push');
+        });
+
+        it('approvalGrantedEvent creates correct structure', () => {
+            const event = events.approvalGrantedEvent({ id: 'appr_1' });
+            expect(event.t).toBe('APPROVAL_GRANTED');
+            expect(event.id).toBe('appr_1');
+        });
+
+        it('approvalRejectedEvent creates correct structure', () => {
+            const event = events.approvalRejectedEvent({ id: 'appr_1', reason: 'nope' });
+            expect(event.t).toBe('APPROVAL_REJECTED');
+            expect(event.id).toBe('appr_1');
+            expect(event.reason).toBe('nope');
+        });
+
+        it('toolCallEvent creates correct structure', () => {
+            const event = events.toolCallEvent({ tool: 'git', summary: 'status', duration_ms: 12 });
+            expect(event.t).toBe('TOOL_CALL');
+            expect(event.tool).toBe('git');
+            expect(event.duration_ms).toBe(12);
         });
 
         it('recoveryDetectedEvent creates correct structure', () => {

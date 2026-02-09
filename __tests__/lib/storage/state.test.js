@@ -220,19 +220,39 @@ describe('lib/storage/state', () => {
             ).rejects.toThrow(/not found/);
         });
 
-        it('updateTaskState updates project index', async () => {
-            await state.createTask('my-project', {
-                user_request: 'Test',
-                taskSlug: 'my-task',
-            });
+	        it('updateTaskState updates project index', async () => {
+	            await state.createTask('my-project', {
+	                user_request: 'Test',
+	                taskSlug: 'my-task',
+	            });
 
-            await state.updateTaskState('my-project', 'my-task', { status: 'done' });
+	            await state.updateTaskState('my-project', 'my-task', { status: 'done' });
 
-            const index = await state.readProjectIndex('my-project');
-            const entry = index.tasks.find(t => t.task_slug === 'my-task');
-            expect(entry.status).toBe('done');
-        });
-    });
+	            const index = await state.readProjectIndex('my-project');
+	            const entry = index.tasks.find(t => t.task_slug === 'my-task');
+	            expect(entry.status).toBe('done');
+	        });
+
+	        it('updateTaskState emits STATE_UPDATED into last run events when last_run is set', async () => {
+	            await state.createTask('my-project', {
+	                user_request: 'Original',
+	                taskSlug: 'my-task',
+	            });
+
+	            await state.updateLastRun('my-project', 'my-task', 'execute', '20260208-010203-abcd');
+	            await state.updateTaskState('my-project', 'my-task', {
+	                goal: 'Updated goal',
+	                status: 'running',
+	            });
+
+	            const run = paths.runPaths('my-project', 'my-task', 'execute', '20260208-010203-abcd');
+	            const ndjson = await fs.promises.readFile(run.events, 'utf8');
+	            const lines = ndjson.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+
+	            const updatedFields = lines.filter((e) => e.t === 'STATE_UPDATED').map((e) => e.field);
+	            expect(updatedFields).toEqual(expect.arrayContaining(['goal', 'status']));
+	        });
+	    });
 
     describe('working set', () => {
         beforeEach(async () => {
@@ -281,14 +301,14 @@ describe('lib/storage/state', () => {
         });
     });
 
-    describe('approvals', () => {
-        beforeEach(async () => {
-            await state.writeProjectState('my-project', { repo_path: '/path' });
-            await state.createTask('my-project', {
-                user_request: 'Test',
-                taskSlug: 'my-task',
-            });
-        });
+	    describe('approvals', () => {
+	        beforeEach(async () => {
+	            await state.writeProjectState('my-project', { repo_path: '/path' });
+	            await state.createTask('my-project', {
+	                user_request: 'Test',
+	                taskSlug: 'my-task',
+	            });
+	        });
 
         it('addPendingApproval adds to pending list', async () => {
             const request = await state.addPendingApproval('my-project', 'my-task', {
@@ -330,11 +350,28 @@ describe('lib/storage/state', () => {
             expect(approvals.rejected).toHaveLength(1);
         });
 
-        it('approveRequest returns null for unknown ID', async () => {
-            const result = await state.approveRequest('my-project', 'my-task', 'unknown');
-            expect(result).toBeNull();
-        });
-    });
+	        it('approveRequest returns null for unknown ID', async () => {
+	            const result = await state.approveRequest('my-project', 'my-task', 'unknown');
+	            expect(result).toBeNull();
+	        });
+
+	        it('approvals emit per-run events when last_run is set', async () => {
+	            await state.updateLastRun('my-project', 'my-task', 'execute', '20260208-010203-abcd');
+
+	            const request = await state.addPendingApproval('my-project', 'my-task', {
+	                action: 'deploy',
+	                reason: 'production deploy',
+	            });
+	            await state.approveRequest('my-project', 'my-task', request.id);
+
+	            const run = paths.runPaths('my-project', 'my-task', 'execute', '20260208-010203-abcd');
+	            const ndjson = await fs.promises.readFile(run.events, 'utf8');
+	            const lines = ndjson.trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
+
+	            expect(lines.some((e) => e.t === 'APPROVAL_REQUESTED' && e.id === request.id)).toBe(true);
+	            expect(lines.some((e) => e.t === 'APPROVAL_GRANTED' && e.id === request.id)).toBe(true);
+	        });
+	    });
 
     describe('last run', () => {
         beforeEach(async () => {

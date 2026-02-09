@@ -21,12 +21,12 @@
   "scripts": {
     "prepack": "node ./scripts/package-board-runtime.js",
     "board:bundle": "node ./scripts/package-board-runtime.js",
-    "test": "jest --forceExit",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage --forceExit",
-    "test:unit": "jest --testPathIgnorePatterns=integration --forceExit",
-    "test:integration": "jest --testPathPattern=integration --forceExit",
-    "test:all": "jest --coverage --forceExit"
+    "test": "node --localstorage-file=/tmp/agx-jest-localstorage ./node_modules/jest/bin/jest.js --forceExit",
+    "test:watch": "node --localstorage-file=/tmp/agx-jest-localstorage ./node_modules/jest/bin/jest.js --watch",
+    "test:coverage": "node --localstorage-file=/tmp/agx-jest-localstorage ./node_modules/jest/bin/jest.js --coverage --forceExit",
+    "test:unit": "node --localstorage-file=/tmp/agx-jest-localstorage ./node_modules/jest/bin/jest.js --testPathIgnorePatterns=integration --forceExit",
+    "test:integration": "node --localstorage-file=/tmp/agx-jest-localstorage ./node_modules/jest/bin/jest.js --testPathPattern=integration --forceExit",
+    "test:all": "node --localstorage-file=/tmp/agx-jest-localstorage ./node_modules/jest/bin/jest.js --coverage --forceExit"
   },
   "keywords": [
     "ai",

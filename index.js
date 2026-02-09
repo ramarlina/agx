@@ -26,6 +26,7 @@ const pRetry = require("p-retry");
 const pRetryFn = pRetry.default || pRetry;
 const crypto = require('crypto');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const readline = require('readline');
 const {
@@ -78,30 +79,11 @@ agx logs tail <id>      # Tail task logs
 agx watch               # Watch task updates in real-time (SSE)
 \`\`\`
 
-## Authentication
+## Cloud
 
 \`\`\`bash
-agx login [url]   # Login to AGX Cloud
-agx logout        # Logout from cloud
-agx status        # Show connection status
-agx task ls           # List cloud tasks
-agx task logs <id> [-f]  # View/tail task logs
-agx task tail <id>       # Tail task logs
-agx comments clear <id>  # Clear task comments
-agx comments ls <id>     # List task comments
-agx comments tail <id>   # Tail task comments
-agx logs clear <id>      # Clear task logs
-agx logs ls <id>         # List task logs
-agx logs tail <id>       # Tail task logs
-agx task stop <id>      # Stop a task
-agx task rm <id>        # Remove a task
-agx container ls        # List running containers
-agx container logs      # View daemon logs
-agx container stop      # Stop containers
-agx new "task"    # Create task
-agx complete <taskId>   # Mark task stage complete
-agx done [task]   # Mark task done
-agx watch         # Watch task updates in real-time (SSE)
+AGX_CLOUD_URL=http://localhost:3000 agx status
+AGX_CLOUD_URL=http://localhost:3000 agx task ls
 agx daemon start  # Start local daemon
 \`\`\`
 
@@ -218,14 +200,14 @@ function cleanAgentOutputForComment(text) {
 
 async function postTaskLog(taskId, content, logType) {
   const cloudConfig = loadCloudConfigFile();
-  if (!cloudConfig?.apiUrl || !cloudConfig?.token) return;
+  if (!cloudConfig?.apiUrl) return;
 
   try {
     await fetch(`${cloudConfig.apiUrl}/api/tasks/${taskId}/logs`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${cloudConfig.token}`,
+        ...(cloudConfig?.token ? { 'Authorization': `Bearer ${cloudConfig.token}` } : {}),
         'x-user-id': cloudConfig.userId || '',
       },
       body: JSON.stringify({ content, log_type: logType })
@@ -233,28 +215,232 @@ async function postTaskLog(taskId, content, logType) {
   } catch { }
 }
 
-async function postTaskComment(taskId, content) {
+async function postTaskComment(taskIdOrParams, contentMaybe) {
+  // Back-compat: callers historically used both `postTaskComment(taskId, content)`
+  // and the (incorrect) `postTaskComment({ taskId, comment })` shape.
+  let taskId = null;
+  let content = null;
+
+  if (taskIdOrParams && typeof taskIdOrParams === 'object') {
+    taskId = String(taskIdOrParams.taskId || taskIdOrParams.task_id || taskIdOrParams.id || '').trim();
+    content = taskIdOrParams.content || taskIdOrParams.comment || '';
+  } else {
+    taskId = String(taskIdOrParams || '').trim();
+    content = contentMaybe || '';
+  }
+
   if (!taskId) return;
   if (!content) return;
+
+  const cloudConfig = loadCloudConfigFile();
+  if (!cloudConfig?.apiUrl) return;
+
   logRetryFlow('postTaskComment', 'input', `taskId=${taskId}`);
   logRetryFlow('postTaskComment', 'processing', `POST /api/tasks/${taskId}/comments`);
 
-  const truncatedContent = truncateForComment(content);
+  const truncatedContent = truncateForComment(String(content));
 
   try {
     await fetch(`${cloudConfig.apiUrl}/api/tasks/${taskId}/comments`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${cloudConfig.token}`,
+        ...(cloudConfig?.token ? { 'Authorization': `Bearer ${cloudConfig.token}` } : {}),
         'x-user-id': cloudConfig.userId || '',
       },
-      body: JSON.stringify({ truncatedContent })
+      // Some server builds expect `content`, older clients used `truncatedContent`.
+      body: JSON.stringify({ content: truncatedContent, truncatedContent })
     });
     logRetryFlow('postTaskComment', 'output', 'success');
   } catch (err) {
     logRetryFlow('postTaskComment', 'output', `failed ${err?.message || err}`);
   }
+}
+
+function isLocalArtifactsEnabled() {
+  // Single cutover: always on, no opt-out.
+  return true;
+}
+
+function mapCloudStageToLocalStage(stage) {
+  const raw = String(stage || '').toLowerCase().trim();
+  if (raw === 'plan' || raw === 'execute' || raw === 'verify' || raw === 'resume') return raw;
+  if (raw === 'ideation' || raw === 'planning') return 'plan';
+  if (raw === 'verification') return 'verify';
+  return 'execute';
+}
+
+function renderWorkingSetMarkdownFromCloudTask(task) {
+  const currentPlan = typeof task?.current_plan === 'string' ? task.current_plan.trim() : '';
+  const openBlockers = Array.isArray(task?.open_blockers) ? task.open_blockers.filter(Boolean).map(String) : [];
+  const nextAction = typeof task?.next_action === 'string' ? task.next_action.trim() : '';
+
+  if (!currentPlan && openBlockers.length === 0 && !nextAction) return '';
+
+  const lines = ['# Working Set', ''];
+  if (currentPlan) {
+    lines.push('## Current Plan', '', currentPlan.trim(), '');
+  }
+  if (openBlockers.length > 0) {
+    lines.push('## Open Blockers', '');
+    for (const blocker of openBlockers) lines.push(`- ${blocker}`);
+    lines.push('');
+  }
+  if (nextAction) {
+    lines.push('## Next Action', '', nextAction.trim(), '');
+  }
+  return lines.join('\n').trim() + '\n';
+}
+
+function createDaemonArtifactsRecorder({ storage, run, taskId }) {
+  const promptParts = [];
+  const outputParts = [];
+
+  const pushSection = (arr, title, text) => {
+    if (!text) return;
+    arr.push(`# ${title}`.trim(), '');
+    arr.push(String(text).trim(), '');
+    // Keep a clear separator between sections.
+    arr.push('---', '');
+  };
+
+  return {
+    recordPrompt(title, text) {
+      pushSection(promptParts, title, text);
+    },
+    recordOutput(title, text) {
+      pushSection(outputParts, title, text);
+    },
+    async recordEngineTrace(meta, traceEvent) {
+      if (!storage || !run?.paths?.events || !traceEvent) return;
+      const safeMeta = meta && typeof meta === 'object' ? meta : {};
+
+      try {
+        if (traceEvent.phase === 'start') {
+          await storage.appendEvent(
+            run.paths.events,
+            storage.engineCallStartedEvent({
+              trace_id: traceEvent.id,
+              label: traceEvent.label,
+              provider: safeMeta.provider || null,
+              model: safeMeta.model || null,
+              role: safeMeta.role || null,
+              pid: traceEvent.pid ?? null,
+              args: traceEvent.args,
+              timeout_ms: traceEvent.timeout_ms,
+              started_at: traceEvent.started_at,
+            })
+          );
+          return;
+        }
+
+        if (traceEvent.phase === 'exit' || traceEvent.phase === 'error' || traceEvent.phase === 'timeout') {
+          await storage.appendEvent(
+            run.paths.events,
+            storage.engineCallCompletedEvent({
+              trace_id: traceEvent.id,
+              label: traceEvent.label,
+              provider: safeMeta.provider || null,
+              model: safeMeta.model || null,
+              role: safeMeta.role || null,
+              phase: traceEvent.phase,
+              exit_code: traceEvent.exit_code ?? null,
+              duration_ms: traceEvent.duration_ms,
+              finished_at: traceEvent.finished_at,
+              stdout_tail: traceEvent.stdout_tail,
+              stderr_tail: traceEvent.stderr_tail,
+              error: traceEvent.error,
+            })
+          );
+        }
+      } catch {
+        // Never let trace/event writing break daemon execution.
+      }
+    },
+    async flush() {
+      const promptText = promptParts.join('\n').trim() + '\n';
+      const outputText = outputParts.join('\n').trim() + '\n';
+
+      if (promptText.trim()) {
+        const totalBytes = Buffer.byteLength(promptText, 'utf8');
+        const event = storage.promptBuiltEvent({ sections: { daemon: totalBytes }, total_bytes: totalBytes });
+        await storage.writePrompt(run, promptText, event);
+      }
+
+      if (outputText.trim()) {
+        await storage.writeOutput(run, outputText);
+      }
+
+      await storage.appendEvent(run.paths.events, { t: 'DAEMON_ARTIFACTS_FLUSHED', task_id: taskId });
+    }
+  };
+}
+
+function localArtifactKey(filePath) {
+  const host = os.hostname();
+  const p = String(filePath || '');
+  if (!p) return `local://${host}/`;
+  // Use a URI-like prefix to make it obvious this is a local-only pointer.
+  return `local://${host}${p.startsWith('/') ? '' : '/'}${p}`;
+}
+
+async function buildLocalRunIndexEntry(storage, run, status) {
+  if (!storage || !run?.paths?.root) return null;
+
+  const maxShaBytes = Number(process.env.AGX_LOCAL_ARTIFACT_SHA_MAX_BYTES || 5 * 1024 * 1024);
+  const shaMax = Number.isFinite(maxShaBytes) && maxShaBytes > 0 ? maxShaBytes : 5 * 1024 * 1024;
+
+  const sha256File = async (filePath) => {
+    const stat = await fs.promises.stat(filePath);
+    if (stat.size > shaMax) {
+      return { bytes: stat.size, sha256: undefined };
+    }
+
+    return new Promise((resolve, reject) => {
+      const hash = crypto.createHash('sha256');
+      const stream = fs.createReadStream(filePath);
+      stream.on('data', (chunk) => hash.update(chunk));
+      stream.on('error', reject);
+      stream.on('end', () => resolve({ bytes: stat.size, sha256: hash.digest('hex') }));
+    });
+  };
+
+  const tryRef = async (kind, filePath) => {
+    try {
+      const { bytes, sha256 } = await sha256File(filePath);
+      return { kind, key: localArtifactKey(filePath), bytes, sha256 };
+    } catch {
+      return null;
+    }
+  };
+
+  const meta = await storage.readJsonSafe(run.paths.meta);
+  const createdAt = meta?.created_at || new Date().toISOString();
+
+  const manifest = [];
+  manifest.push({ kind: 'artifact', key: localArtifactKey(run.paths.root) });
+
+  const promptRef = await tryRef('prompt', run.paths.prompt);
+  if (promptRef) manifest.push(promptRef);
+
+  const outputRef = await tryRef('output', run.paths.output);
+  if (outputRef) manifest.push(outputRef);
+
+  const eventsRef = await tryRef('events', run.paths.events);
+  if (eventsRef) manifest.push(eventsRef);
+
+  const decisionRef = await tryRef('artifact', run.paths.decision);
+  if (decisionRef) manifest.push({ ...decisionRef, kind: 'artifact' });
+
+  return {
+    run_id: run.run_id,
+    stage: run.stage,
+    engine: meta?.engine || meta?.provider || meta?.engine_name || run.engine || 'unknown',
+    model: meta?.model || null,
+    status: String(status || 'unknown'),
+    created_at: createdAt,
+    artifact_manifest: manifest,
+  };
 }
 
 function saveAugmentedPrompt(content, debug = false) {
@@ -272,7 +458,7 @@ function saveAugmentedPrompt(content, debug = false) {
 
 async function patchTaskState(taskId, state) {
   const cloudConfig = loadCloudConfigFile();
-  if (!cloudConfig?.apiUrl || !cloudConfig?.token) return;
+  if (!cloudConfig?.apiUrl) return;
 
   logRetryFlow('patchTaskState', 'input', `taskId=${taskId}, state=${JSON.stringify(state)}`);
   logRetryFlow('patchTaskState', 'processing', `PATCH /api/tasks/${taskId}`);
@@ -282,7 +468,7 @@ async function patchTaskState(taskId, state) {
       method: 'PATCH',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${cloudConfig.token}`,
+        ...(cloudConfig?.token ? { 'Authorization': `Bearer ${cloudConfig.token}` } : {}),
         'x-user-id': cloudConfig.userId || '',
       },
       body: JSON.stringify(state)
@@ -330,7 +516,7 @@ function createTaskLogger(taskId) {
 
   const updateTaskSection = async (heading, content, mode = 'replace') => {
     const cloudConfig = loadCloudConfigFile();
-    if (!cloudConfig?.apiUrl || !cloudConfig?.token) return;
+    if (!cloudConfig?.apiUrl) return;
 
     logRetryFlow('updateTaskSection', 'input', `taskId=${taskId}, heading=${heading}, mode=${mode}`);
     logRetryFlow('updateTaskSection', 'processing', `GET /api/tasks/${taskId}`);
@@ -338,7 +524,7 @@ function createTaskLogger(taskId) {
       const res = await fetch(`${cloudConfig.apiUrl}/api/tasks/${taskId}`, {
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${cloudConfig.token}`,
+          ...(cloudConfig?.token ? { 'Authorization': `Bearer ${cloudConfig.token}` } : {}),
           'x-user-id': cloudConfig.userId || '',
         }
       });
@@ -369,7 +555,7 @@ function createTaskLogger(taskId) {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${cloudConfig.token}`,
+            ...(cloudConfig?.token ? { 'Authorization': `Bearer ${cloudConfig.token}` } : {}),
             'x-user-id': cloudConfig.userId || '',
           },
           body: JSON.stringify({ content: updated })
@@ -608,7 +794,7 @@ async function signalTemporalTask(taskId, signal, payload = {}) {
   if (!taskId) return;
 
   try {
-    const orchestratorBase = process.env.AGX_TEMPORAL_API_PREFIX || '/api/orchestrator/temporal';
+    const orchestratorBase = process.env.AGX_ORCHESTRATOR_API_PREFIX || '/api/orchestrator';
     const headers = {
       'Content-Type': 'application/json',
       'x-user-id': cloudConfig.userId || '',
@@ -634,8 +820,8 @@ function runAgxCommand(args, timeoutMs, label, handlers = {}) {
 
     const childArgs = sanitizeCliArgs([process.argv[1], ...args]);
     logRetryFlow('runAgxCommand', 'input', `label=${label}, args=${childArgs.join(' ')}, timeout=${timeoutMs}`);
-    logRetryFlow('runAgxCommand', 'processing', 'spawning child process');
     const child = spawnCloudTaskProcess(childArgs);
+    logRetryFlow('runAgxCommand', 'processing', `spawning child process (pid: ${child.pid})`);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -722,7 +908,7 @@ function runAgxCommand(args, timeoutMs, label, handlers = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      logRetryFlow('runAgxCommand', 'output', `exit code=${code}`);
+      logRetryFlow('runAgxCommand', 'output', `pid=${child.pid}, exit code=${code}`);
       emitTrace({
         id: traceId,
         phase: 'exit',
@@ -750,7 +936,7 @@ function runAgxCommand(args, timeoutMs, label, handlers = {}) {
   });
 }
 
-async function runSwarmIteration({ taskId, task, prompt, logger }) {
+async function runSwarmIteration({ taskId, task, prompt, logger, artifacts }) {
   logRetryFlow('runSwarmIteration', 'input', `taskId=${taskId}, prompt=${Boolean(prompt)}`);
   const swarmModels = Array.isArray(task?.swarm_models)
     ? task.swarm_models
@@ -789,6 +975,7 @@ async function runSwarmIteration({ taskId, task, prompt, logger }) {
         onStdout: (data) => logger?.log('output', data),
         onStderr: (data) => logger?.log('error', data),
         onTrace: (event) => {
+          void artifacts?.recordEngineTrace?.({ provider, model: swarmModels.length ? (swarmModels[index]?.model || null) : null, role: 'swarm-iteration' }, event);
           void signalTemporalTask(taskId, 'daemonStep', {
             kind: 'runAgxCommand',
             task_id: taskId,
@@ -815,7 +1002,7 @@ async function runSwarmIteration({ taskId, task, prompt, logger }) {
   return results;
 }
 
-async function runSingleAgentIteration({ taskId, task, provider, model, prompt, logger, onStdout, onStderr }) {
+async function runSingleAgentIteration({ taskId, task, provider, model, prompt, logger, onStdout, onStderr, artifacts }) {
   logRetryFlow('runSingleAgentIteration', 'input', `taskId=${taskId}, provider=${provider}, model=${model}, prompt=${Boolean(prompt) ? 'present' : 'none'}`);
   logRetryFlow('runSingleAgentIteration', 'processing', 'preparing runAgxCommand');
   const args = [provider, '--cloud-task', taskId];
@@ -823,7 +1010,9 @@ async function runSingleAgentIteration({ taskId, task, provider, model, prompt, 
     args.push('--model', model);
   }
   if (prompt) {
-    args.push('--prompt', buildAgentIterationPrompt(task, prompt));
+    const iterPrompt = buildAgentIterationPrompt(task, prompt);
+    artifacts?.recordPrompt(`Agent Iteration Prompt (${provider}${model ? `/${model}` : ''})`, iterPrompt);
+    args.push('--prompt', iterPrompt);
   }
 
   const res = await pRetryFn(
@@ -837,6 +1026,7 @@ async function runSingleAgentIteration({ taskId, task, provider, model, prompt, 
         logger?.log('error', data);
       },
       onTrace: (event) => {
+        void artifacts?.recordEngineTrace?.({ provider, model: model || null, role: 'single-iteration' }, event);
         void signalTemporalTask(taskId, 'daemonStep', {
           kind: 'runAgxCommand',
           task_id: taskId,
@@ -882,7 +1072,7 @@ Instruction: ${instruction}
 Keep work scoped to this stage.`;
 }
 
-async function runSingleAgentAggregate({ task, taskId, prompt, output, iteration, logger, provider, model }) {
+async function runSingleAgentAggregate({ task, taskId, prompt, output, iteration, logger, provider, model, artifacts }) {
   logRetryFlow('runSingleAgentAggregate', 'input', `taskId=${taskId}, iteration=${iteration}`);
   logRetryFlow('runSingleAgentAggregate', 'processing', 'running aggregator');
   const stageKey = task?.stage || 'unknown';
@@ -919,6 +1109,7 @@ Return ONLY JSON with this exact shape:
 {"done": true|false, "decision": "done|blocked|not_done|failed", "explanation": "string", "final_result": "string", "next_prompt": "string", "summary": "string"}
 If uncertain, still return valid JSON with decision "failed" and explain why in "explanation".
 `;
+  artifacts?.recordPrompt(`Aggregator Prompt (${aggregatorProvider}${aggregatorModel ? `/${aggregatorModel}` : ''})`, aggregatePrompt);
 
   const aggregateArgs = [aggregatorProvider, '--prompt', aggregatePrompt, '--print'];
   if (aggregatorModel) {
@@ -930,6 +1121,7 @@ If uncertain, still return valid JSON with decision "failed" and explain why in 
       onStdout: (data) => logger?.log('checkpoint', data),
       onStderr: (data) => logger?.log('error', data),
       onTrace: (event) => {
+        void artifacts?.recordEngineTrace?.({ provider: aggregatorProvider, model: aggregatorModel || null, role: 'single-aggregate' }, event);
         void signalTemporalTask(taskId, 'daemonStep', {
           kind: 'runAgxCommand',
           task_id: taskId,
@@ -963,7 +1155,7 @@ If uncertain, still return valid JSON with decision "failed" and explain why in 
   }, { stage: stageKey, stagePrompt });
 }
 
-async function runSingleAgentLoop({ taskId, task, provider, model, logger, onStdout, onStderr }) {
+async function runSingleAgentLoop({ taskId, task, provider, model, logger, onStdout, onStderr, artifacts }) {
   logRetryFlow('runSingleAgentLoop', 'input', `taskId=${taskId}, provider=${provider}, model=${model}`);
   let iteration = 1;
   let prompt = '';
@@ -977,14 +1169,15 @@ async function runSingleAgentLoop({ taskId, task, provider, model, logger, onStd
     }
     let output = '';
     try {
-      output = await runSingleAgentIteration({ taskId, task, provider, model, prompt, logger, onStdout, onStderr });
+      output = await runSingleAgentIteration({ taskId, task, provider, model, prompt, logger, onStdout, onStderr, artifacts });
+      artifacts?.recordOutput(`Agent Output (${provider}${model ? `/${model}` : ''}, iter ${iteration})`, output);
 
       // Do not remove this part
       // Get the last part of the output
       const finalComment = truncateForComment(cleanAgentOutputForComment(output));
 
       // Post as comment to the task
-      await postTaskComment({ taskId, comment: finalComment });
+      await postTaskComment(taskId, finalComment);
 
     } catch (err) {
       const message = err?.stdout || err?.stderr || err?.message || 'Single-agent run failed.';
@@ -1001,14 +1194,14 @@ async function runSingleAgentLoop({ taskId, task, provider, model, logger, onStd
     }
 
     const decision = ensureNextPrompt(
-      await runSingleAgentAggregate({ task, taskId, prompt, output, iteration, logger, provider, model })
+      await runSingleAgentAggregate({ task, taskId, prompt, output, iteration, logger, provider, model, artifacts })
     );
 
     console.log(JSON.stringify(decision, null, 2));
     lastDecision = decision;
 
     // Post as comment to the task
-    await postTaskComment({ taskId, comment: decision.summary });
+    await postTaskComment(taskId, decision.summary);
 
     if (decision.summary) {
       console.log(`${c.dim}[single] Decision: ${decision.summary}${c.reset}`);
@@ -1037,7 +1230,7 @@ async function runSingleAgentLoop({ taskId, task, provider, model, logger, onStd
   return { code: 1, decision: lastDecision };
 }
 
-async function runSwarmAggregate({ task, taskId, prompt, results, iteration, logger }) {
+async function runSwarmAggregate({ task, taskId, prompt, results, iteration, logger, artifacts }) {
   const providerList = results.map((r) => r.provider).join(',');
   logRetryFlow('runSwarmAggregate', 'input', `taskId=${taskId}, iteration=${iteration}, providers=${providerList}`);
   const stageKey = task?.stage || 'unknown';
@@ -1078,6 +1271,7 @@ Return ONLY JSON with this exact shape:
 {"done": true|false, "decision": "done|blocked|not_done|failed", "explanation": "string", "final_result": "string", "next_prompt": "string", "summary": "string"}
 If uncertain, still return valid JSON with decision "failed" and explain why in "explanation".
 `;
+  artifacts?.recordPrompt(`Swarm Aggregator Prompt (${aggregatorProvider}${aggregatorModel ? `/${aggregatorModel}` : ''})`, aggregatePrompt);
 
   const aggregateArgs = [aggregatorProvider, '--prompt', aggregatePrompt, '--print'];
   if (aggregatorModel) {
@@ -1090,6 +1284,7 @@ If uncertain, still return valid JSON with decision "failed" and explain why in 
       onStdout: (data) => logger?.log('checkpoint', data),
       onStderr: (data) => logger?.log('error', data),
       onTrace: (event) => {
+        void artifacts?.recordEngineTrace?.({ provider: aggregatorProvider, model: aggregatorModel || null, role: 'swarm-aggregate' }, event);
         void signalTemporalTask(taskId, 'daemonStep', {
           kind: 'runAgxCommand',
           task_id: taskId,
@@ -1131,7 +1326,7 @@ If uncertain, still return valid JSON with decision "failed" and explain why in 
   }, { stage: stageKey, stagePrompt });
 }
 
-async function runSwarmLoop({ taskId, task }) {
+async function runSwarmLoop({ taskId, task, artifacts }) {
   logRetryFlow('runSwarmLoop', 'input', `taskId=${taskId}`);
   let iteration = 1;
   let prompt = '';
@@ -1144,15 +1339,21 @@ async function runSwarmLoop({ taskId, task }) {
   try {
     while (iteration <= SWARM_MAX_ITERS) {
       logRetryFlow('runSwarmLoop', 'processing', `starting iteration ${iteration}`);
-      const results = await runSwarmIteration({ taskId, task, prompt, logger });
+      const results = await runSwarmIteration({ taskId, task, prompt, logger, artifacts });
+      if (Array.isArray(results)) {
+        for (const r of results) {
+          artifacts?.recordOutput(`Swarm Output (${r.provider}, iter ${iteration})`, r.output || '');
+        }
+      }
       const decision = ensureNextPrompt(
-        await runSwarmAggregate({ task, taskId, prompt, results, iteration, logger })
+        await runSwarmAggregate({ task, taskId, prompt, results, iteration, logger, artifacts })
       );
       lastDecision = decision;
 
       if (decision.summary) {
         console.log(`${c.dim}[swarm] ${decision.summary}${c.reset}`);
       }
+      await postTaskComment(taskId, decision.summary);
       logRetryFlow('runSwarmLoop', 'output', `iteration ${iteration} decision=${decision.decision}`);
 
       if (decision.done) {
@@ -1210,8 +1411,11 @@ async function runSwarmLoop({ taskId, task }) {
 const DAEMON_PID_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'daemon.pid');
 const DAEMON_LOG_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'daemon.log');
 const DAEMON_STATE_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'daemon-state.json');
-const TEMPORAL_PID_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'temporal.pid');
-const TEMPORAL_LOG_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'temporal.log');
+// Embedded orchestrator worker (pg-boss) runtime (optional). Keep legacy filenames for backward compatibility.
+const WORKER_PID_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'orchestrator-worker.pid');
+const WORKER_LOG_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'orchestrator-worker.log');
+const LEGACY_TEMPORAL_PID_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'temporal.pid');
+const LEGACY_TEMPORAL_LOG_FILE = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'temporal.log');
 const PACKAGED_AGX_CLOUD_DIR = path.join(__dirname, 'cloud-runtime', 'standalone', 'Projects', 'Agents', 'agx-cloud');
 const LOCAL_AGX_CLOUD_DIR = path.resolve(__dirname, '..', 'agx-cloud');
 const TASK_LOGS_DIR = path.join(process.env.HOME || process.env.USERPROFILE, '.agx', 'logs');
@@ -1272,7 +1476,7 @@ async function stopDaemonProcessTree(pid, timeoutMs = 5000) {
   return !isPidAlive(pid);
 }
 
-function resolveTemporalProjectDir() {
+function resolveEmbeddedWorkerProjectDir() {
   const candidates = [PACKAGED_AGX_CLOUD_DIR, LOCAL_AGX_CLOUD_DIR];
   for (const candidate of candidates) {
     if (!candidate) continue;
@@ -1288,27 +1492,43 @@ function resolveTemporalProjectDir() {
 }
 
 function isTemporalWorkerRunning() {
+  const readPid = (pidFile) => {
+    try {
+      if (!fs.existsSync(pidFile)) return null;
+      const pid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+      if (!pid) return null;
+      process.kill(pid, 0);
+      return pid;
+    } catch {
+      return null;
+    }
+  };
+
+  return readPid(WORKER_PID_FILE) || readPid(LEGACY_TEMPORAL_PID_FILE) || false;
+}
+
+function pickEmbeddedWorkerNpmScript(projectDir) {
   try {
-    if (!fs.existsSync(TEMPORAL_PID_FILE)) return false;
-    const pid = parseInt(fs.readFileSync(TEMPORAL_PID_FILE, 'utf8').trim(), 10);
-    if (!pid) return false;
-    process.kill(pid, 0);
-    return pid;
-  } catch {
-    return false;
-  }
+    const pkgPath = path.join(projectDir, 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    const scripts = pkg?.scripts || {};
+    if (scripts['daemon:worker']) return 'daemon:worker';
+    if (scripts['daemon:temporal']) return 'daemon:temporal'; // legacy alias
+    if (scripts.worker) return 'worker';
+  } catch { }
+  return 'worker';
 }
 
 function startTemporalWorker() {
   const existingPid = isTemporalWorkerRunning();
   if (existingPid) {
-    console.log(`${c.dim}Temporal worker already running (pid ${existingPid})${c.reset}`);
+    console.log(`${c.dim}Orchestrator worker already running (pid ${existingPid})${c.reset}`);
     return existingPid;
   }
 
-  const projectDir = resolveTemporalProjectDir();
+  const projectDir = resolveEmbeddedWorkerProjectDir();
   if (!projectDir) {
-    console.log(`${c.yellow}Temporal runtime not found${c.reset} Build the board runtime (npm run build in agx-cloud) or ensure ${path.join('cloud-runtime', 'standalone', 'Projects', 'Agents', 'agx-cloud')} exists.`);
+    console.log(`${c.yellow}Local board runtime not found${c.reset} Build the board runtime (npm run build in agx-cloud) or ensure ${path.join('cloud-runtime', 'standalone', 'Projects', 'Agents', 'agx-cloud')} exists.`);
     return null;
   }
 
@@ -1318,15 +1538,16 @@ function startTemporalWorker() {
 
   let logFd;
   try {
-    logFd = fs.openSync(TEMPORAL_LOG_FILE, 'a');
+    logFd = fs.openSync(WORKER_LOG_FILE, 'a');
   } catch (err) {
-    console.error(`${c.red}Unable to open temporal log:${c.reset} ${err.message}`);
+    console.error(`${c.red}Unable to open orchestrator worker log:${c.reset} ${err.message}`);
     return null;
   }
 
-  let temporal;
+  const script = pickEmbeddedWorkerNpmScript(projectDir);
+  let worker;
   try {
-    temporal = spawn('npm', ['run', 'daemon:temporal'], {
+    worker = spawn('npm', ['run', script], {
       cwd: projectDir,
       detached: true,
       stdio: ['ignore', logFd, logFd],
@@ -1334,41 +1555,40 @@ function startTemporalWorker() {
     });
   } catch (err) {
     fs.closeSync(logFd);
-    console.error(`${c.red}Failed to start temporal worker:${c.reset} ${err.message}`);
+    console.error(`${c.red}Failed to start orchestrator worker:${c.reset} ${err.message}`);
     return null;
   }
 
   fs.closeSync(logFd);
-  temporal.unref();
-  fs.writeFileSync(TEMPORAL_PID_FILE, String(temporal.pid));
+  worker.unref();
+  fs.writeFileSync(WORKER_PID_FILE, String(worker.pid));
 
-  console.log(`${c.green}✓${c.reset} Temporal worker started (pid ${temporal.pid})`);
-  console.log(`${c.dim}  Logs: ${TEMPORAL_LOG_FILE}${c.reset}`);
-  return temporal.pid;
+  console.log(`${c.green}✓${c.reset} Orchestrator worker started (pid ${worker.pid})`);
+  console.log(`${c.dim}  Logs: ${WORKER_LOG_FILE}${c.reset}`);
+  return worker.pid;
 }
 
 async function stopTemporalWorker() {
   const pid = isTemporalWorkerRunning();
   if (!pid) {
-    console.log(`${c.yellow}Temporal worker not running${c.reset}`);
+    console.log(`${c.yellow}Orchestrator worker not running${c.reset}`);
     return false;
   }
 
   try {
     const stopped = await stopDaemonProcessTree(pid);
     if (!stopped) {
-      console.error(`${c.red}Failed to stop temporal worker process tree:${c.reset} pid ${pid} is still running`);
+      console.error(`${c.red}Failed to stop orchestrator worker process tree:${c.reset} pid ${pid} is still running`);
       return false;
     }
 
-    if (fs.existsSync(TEMPORAL_PID_FILE)) {
-      fs.unlinkSync(TEMPORAL_PID_FILE);
-    }
+    if (fs.existsSync(WORKER_PID_FILE)) fs.unlinkSync(WORKER_PID_FILE);
+    if (fs.existsSync(LEGACY_TEMPORAL_PID_FILE)) fs.unlinkSync(LEGACY_TEMPORAL_PID_FILE);
 
-    console.log(`${c.green}✓${c.reset} Temporal worker stopped (pid ${pid})`);
+    console.log(`${c.green}✓${c.reset} Orchestrator worker stopped (pid ${pid})`);
     return true;
   } catch (err) {
-    console.error(`${c.red}Failed to stop temporal worker:${c.reset} ${err.message}`);
+    console.error(`${c.red}Failed to stop orchestrator worker:${c.reset} ${err.message}`);
     return false;
   }
 }
@@ -1882,8 +2102,8 @@ ${c.bold}Quick Start:${c.reset}
   ${c.dim}# Interactive mode${c.reset}
   ${c.cyan}agx ${defaultProvider} -i --prompt "let's chat"${c.reset}
 
-  ${c.dim}# Cloud mode (recommended for autonomous tasks)${c.reset}
-  ${c.cyan}agx login${c.reset}
+  ${c.dim}# Cloud URL (defaults to localhost)${c.reset}
+  ${c.cyan}AGX_CLOUD_URL=http://localhost:3000 agx status${c.reset}
 
 ${c.dim}Run ${c.reset}agx init${c.dim} anytime to reconfigure.${c.reset}
 `);
@@ -2215,10 +2435,10 @@ async function runInteractiveMenu() {
         }
         const temporalPid = isTemporalWorkerRunning();
         if (temporalPid) {
-          console.log(`${c.green}Temporal worker running${c.reset} (pid ${temporalPid})`);
-          console.log(`${c.dim}Logs: ${TEMPORAL_LOG_FILE}${c.reset}`);
+          console.log(`${c.green}Orchestrator worker running${c.reset} (pid ${temporalPid})`);
+          console.log(`${c.dim}Logs: ${WORKER_LOG_FILE}${c.reset}`);
         } else {
-          console.log(`${c.yellow}Temporal worker not running${c.reset}`);
+          console.log(`${c.yellow}Orchestrator worker not running${c.reset}`);
         }
         console.log('');
         await prompt(`${c.dim}Press Enter to continue...${c.reset}`);
@@ -2511,7 +2731,7 @@ async function checkOnboarding() {
     logRetryFlow('cloudRequest', 'input', `method=${method}, endpoint=${endpoint}, body=${body ? JSON.stringify(body) : 'none'}`);
     const config = loadCloudConfig();
     if (!config?.apiUrl) {
-      const errMsg = 'Cloud API URL not configured. Set AGX_CLOUD_URL (or run: agx login)';
+      const errMsg = 'Cloud API URL not configured. Set AGX_CLOUD_URL (default http://localhost:3000)';
       logRetryFlow('cloudRequest', 'output', errMsg);
       throw new Error(errMsg);
     }
@@ -2673,7 +2893,7 @@ async function checkOnboarding() {
   function getOrchestrator() {
     const config = loadCloudConfig();
     if (!config?.apiUrl) {
-      throw new Error('Cloud API URL not configured. Set AGX_CLOUD_URL (or run: agx login)');
+      throw new Error('Cloud API URL not configured. Set AGX_CLOUD_URL (default http://localhost:3000)');
     }
     return createOrchestrator(config);
   }
@@ -2738,7 +2958,7 @@ async function checkOnboarding() {
       await orchestrator.signalTask(taskId, 'nudge', { message: nudge });
     }
 
-    console.log(`${c.green}✓${c.reset} Temporal workflow started`);
+    console.log(`${c.green}✓${c.reset} Orchestrator job started`);
     console.log(`${c.dim}Task: ${taskId}${c.reset}`);
 
     const task = await waitForTaskTerminal(taskId, { follow });
@@ -2779,14 +2999,93 @@ async function checkOnboarding() {
     const provider = String(task?.provider || task?.engine || 'claude').toLowerCase();
     const model = typeof task?.model === 'string' && task.model.trim() ? task.model.trim() : null;
     const logger = createTaskLogger(taskId);
+    const localArtifacts = isLocalArtifactsEnabled();
+    const storage = localArtifacts ? require('./lib/storage') : null;
+    const stageLocal = mapCloudStageToLocalStage(task?.stage);
+    const projectSlug = localArtifacts
+      ? storage.slugify(String(task?.project || task?.project_slug || 'cloud'), { maxLength: 64 })
+      : null;
+    const taskSlug = localArtifacts
+      ? storage.slugify(String(task?.slug || task?.task_slug || taskId), { maxLength: 64 })
+      : null;
+
+    let lockHandle = null;
+    let run = null;
+    let artifacts = null;
+    let runIndexEntry = null;
 
     logger.log('system', `[daemon] picked task ${taskId} (${task?.stage || 'unknown'})\n`);
     console.log(`${c.dim}[daemon] picked ${taskId} (${task?.stage || 'unknown'}) via ${provider}${model ? `/${model}` : ''}${c.reset}`);
 
     let decisionPayload;
     try {
+      if (localArtifacts) {
+        await storage.writeProjectState(projectSlug, { repo_path: process.cwd() });
+
+        const existing = await storage.readTaskState(projectSlug, taskSlug);
+        if (!existing) {
+          await storage.createTask(projectSlug, {
+            user_request: String(task?.title || task?.user_request || task?.goal || `Cloud task ${taskId}`),
+            goal: String(task?.goal || task?.title || task?.user_request || `Cloud task ${taskId}`),
+            taskSlug,
+          });
+        }
+
+        // Refresh working_set.md from cloud structured fields (cloud remains authoritative).
+        const workingSetMd = renderWorkingSetMarkdownFromCloudTask(task);
+        if (workingSetMd) {
+          const wsRes = await storage.writeWorkingSet(projectSlug, taskSlug, workingSetMd);
+          // Event emission is per-run; buffer until run exists.
+          if (wsRes?.event) {
+            // Create run first so we can attach the event.
+            // (If run creation fails, we'll still have the working_set.md updated.)
+          }
+        }
+
+        // Acquire local lock so concurrent daemons don't stomp local artifacts.
+        lockHandle = await storage.acquireTaskLock(storage.taskRoot(projectSlug, taskSlug));
+
+        // Recovery: close incomplete runs and create resume runs (if any).
+        const incomplete = await storage.findIncompleteRuns(projectSlug, taskSlug);
+        if (incomplete.length > 0) {
+          for (const inc of incomplete) {
+            await storage.createRecoveryRun(projectSlug, taskSlug, inc);
+          }
+        }
+
+        run = await storage.createRun({
+          projectSlug,
+          taskSlug,
+          stage: stageLocal,
+          engine: provider,
+          model: model || undefined,
+        });
+
+
+        artifacts = createDaemonArtifactsRecorder({ storage, run, taskId });
+
+        // Re-apply working set and attach rewrite event (if any).
+        const workingSetMd2 = renderWorkingSetMarkdownFromCloudTask(task);
+        if (workingSetMd2) {
+          const wsRes2 = await storage.writeWorkingSet(projectSlug, taskSlug, workingSetMd2);
+          if (wsRes2?.event) {
+            await storage.appendEvent(run.paths.events, wsRes2.event);
+          }
+        }
+
+        await storage.updateTaskState(projectSlug, taskSlug, { status: 'running' });
+        artifacts.recordPrompt('Cloud Task Snapshot', JSON.stringify({
+          id: taskId,
+          slug: task?.slug || null,
+          project: task?.project || task?.project_slug || null,
+          stage: task?.stage || null,
+          provider,
+          model,
+        }, null, 2));
+      }
+
       if (task?.swarm) {
-        runResult = await runSwarmLoop({ taskId, task });
+        runResult = await runSwarmLoop({ taskId, task, artifacts });
         decisionPayload = normalizeDaemonDecision(
           runResult?.decision,
           runResult?.code === 0 ? 'Swarm execution completed.' : 'Swarm execution failed.'
@@ -2798,6 +3097,7 @@ async function checkOnboarding() {
           provider,
           model,
           logger,
+          artifacts,
         });
         decisionPayload = normalizeDaemonDecision(
           runResult?.decision,
@@ -2815,6 +3115,49 @@ async function checkOnboarding() {
       logger.log('error', `[daemon] execution failed: ${message}\n`);
     } finally {
       await logger.flushAll();
+      if (localArtifacts) {
+        try {
+          if (artifacts) {
+            artifacts.recordOutput('Daemon Decision', JSON.stringify(decisionPayload || {}, null, 2));
+            await artifacts.flush();
+          }
+
+          if (run && storage) {
+            const statusMap = {
+              done: 'done',
+              blocked: 'blocked',
+              not_done: 'continue',
+              failed: 'failed',
+            };
+            const localDecisionStatus = statusMap[String(decisionPayload?.decision || 'failed')] || 'failed';
+            await storage.finalizeRun(run, {
+              status: localDecisionStatus,
+              reason: decisionPayload?.explanation || decisionPayload?.summary || '',
+            });
+
+            runIndexEntry = await buildLocalRunIndexEntry(storage, run, localDecisionStatus);
+
+          }
+
+          if (storage && projectSlug && taskSlug) {
+            const localTaskStatusMap = {
+              done: 'done',
+              blocked: 'blocked',
+              not_done: 'running',
+              failed: 'failed',
+            };
+            const nextLocalStatus = localTaskStatusMap[String(decisionPayload?.decision || 'failed')] || 'failed';
+            await storage.updateTaskState(projectSlug, taskSlug, { status: nextLocalStatus });
+          }
+        } catch (e) {
+          // Never break cloud completion because local artifacts failed.
+          logger?.log('error', `[daemon] local artifact finalize failed: ${e?.message || e}\n`);
+        } finally {
+          if (lockHandle && storage) {
+            try { await storage.releaseTaskLock(lockHandle); } catch { }
+          }
+        }
+      }
     }
 
     await cloudRequest('POST', '/api/queue/complete', {
@@ -2823,7 +3166,24 @@ async function checkOnboarding() {
       decision: decisionPayload.decision,
       final_result: decisionPayload.final_result,
       explanation: decisionPayload.explanation,
+      ...(localArtifacts && run?.paths?.root ? {
+        artifact_path: run.paths.root,
+        artifact_host: os.hostname(),
+        artifact_key: localArtifactKey(run.paths.root),
+      } : {}),
+      ...(runIndexEntry ? { run_entry: runIndexEntry } : {}),
     });
+
+    // Post a structured outcome comment (separate from queue completion log).
+    await postTaskComment(taskId, [
+      `## ${task?.stage || 'stage'} completed`,
+      '',
+      `Decision: ${decisionPayload.decision}`,
+      '',
+      decisionPayload.summary || decisionPayload.explanation || '',
+      localArtifacts && run ? '' : '',
+      localArtifacts && run ? `(Local run id: ${run.run_id}, stage: ${run.stage})` : '',
+    ].filter(Boolean).join('\n'));
 
     console.log(`${c.dim}[daemon] completed ${taskId} → ${decisionPayload.decision}${c.reset}`);
   }
@@ -3425,9 +3785,8 @@ async function checkOnboarding() {
 
     if (!subcmd || subcmd === 'run' || subcmd === '--run') {
       const cloudConfig = loadCloudConfig();
-      const authDisabled = isAuthDisabled(cloudConfig);
-      if (!cloudConfig?.apiUrl || (!cloudConfig?.token && !authDisabled)) {
-        console.log(`${c.red}Not connected to cloud.${c.reset} Run: agx login`);
+      if (!cloudConfig?.apiUrl) {
+        console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
         process.exit(1);
       }
 
@@ -3451,10 +3810,10 @@ async function checkOnboarding() {
       }
       const temporalPid = isTemporalWorkerRunning();
       if (temporalPid) {
-        console.log(`${c.green}Temporal worker running${c.reset} (pid ${temporalPid})`);
-        console.log(`${c.dim}Logs: ${TEMPORAL_LOG_FILE}${c.reset}`);
+        console.log(`${c.green}Orchestrator worker running${c.reset} (pid ${temporalPid})`);
+        console.log(`${c.dim}Logs: ${WORKER_LOG_FILE}${c.reset}`);
       } else {
-        console.log(`${c.yellow}Temporal worker not running${c.reset}`);
+        console.log(`${c.yellow}Orchestrator worker not running${c.reset}`);
       }
       process.exit(0);
     } else if (subcmd === 'logs') {
@@ -3490,149 +3849,12 @@ async function checkOnboarding() {
   // DIRECT COMMANDS - No 'cloud' prefix needed
   // ============================================================
 
-  // agx login [url]
-  if (cmd === 'login') {
-    const cloudUrl = args[1] || 'http://localhost:3000';
-    console.log(`${c.cyan}→${c.reset} Connecting to AGX Cloud...`);
-    console.log(`${c.dim}Cloud URL: ${cloudUrl}${c.reset}\n`);
-
-    try {
-      // 1. Request Device Code
-      const deviceRes = await fetch(`${cloudUrl}/api/auth/device/code`, { method: 'POST' });
-      if (!deviceRes.ok) {
-        let detail = deviceRes.statusText || '';
-        try {
-          const payload = await deviceRes.json();
-          detail = payload?.error || payload?.message || detail;
-        } catch {
-          try {
-            const text = await deviceRes.text();
-            if (text) detail = text;
-          } catch { }
-        }
-        throw new Error(`Failed to init device flow: ${detail || `HTTP ${deviceRes.status}`}`);
-      }
-      const deviceData = await deviceRes.json();
-
-      console.log(`${c.bold}First, configure your device:${c.reset}`);
-      console.log(`\n  ${c.cyan}${c.bold}${deviceData.user_code}${c.reset}\n`);
-      console.log(`Open this URL in your browser:\n  ${c.blue}${deviceData.verification_uri}${c.reset}\n`);
-
-      // Try to open browser automatically
-      try {
-        if (process.platform === 'darwin') execSync(`open "${deviceData.verification_uri_complete || deviceData.verification_uri}"`);
-        else if (process.platform === 'linux') execSync(`xdg-open "${deviceData.verification_uri_complete || deviceData.verification_uri}"`);
-        else if (process.platform === 'win32') execSync(`start "${deviceData.verification_uri_complete || deviceData.verification_uri}"`);
-      } catch { /* ignore */ }
-
-      // 2. Poll for token
-      process.stdout.write('Waiting for approval...');
-
-      const interval = (deviceData.interval || 5) * 1000;
-      let tokenData = null;
-
-      while (!tokenData) {
-        await new Promise(r => setTimeout(r, interval));
-
-        const pollRes = await fetch(`${cloudUrl}/api/auth/device/token`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ device_code: deviceData.device_code })
-        });
-
-        const data = await pollRes.json();
-
-        if (pollRes.ok && data.access_token) {
-          tokenData = data;
-          process.stdout.write(`\n${c.green}✓${c.reset} Approved!\n`);
-          break;
-        }
-
-        if (data.error === 'authorization_pending') {
-          process.stdout.write('.');
-          continue;
-        }
-
-        if (data.error === 'slow_down') {
-          await new Promise(r => setTimeout(r, 5000));
-          continue;
-        }
-
-        if (data.error === 'expired_token') {
-          console.log(`\n${c.red}✗${c.reset} Code expired. Please try again.`);
-          process.exit(1);
-        }
-
-        if (data.error === 'access_denied') {
-          console.log(`\n${c.red}✗${c.reset} Access denied.`);
-          process.exit(1);
-        }
-
-        const detail = data?.error || data?.message || `HTTP ${pollRes.status}`;
-        console.log(`\n${c.red}✗${c.reset} Error: ${detail}`);
-        if (detail === 'unknown_error') {
-          console.log(`${c.dim}Server returned approved-but-no-token. Ensure the board runtime is up to date and device approval sets access_token/refresh_token.${c.reset}`);
-        }
-        process.exit(1);
-      }
-
-      // 3. Save Config
-      const config = {
-        apiUrl: cloudUrl.replace(/\/$/, ''),
-        token: tokenData.access_token,
-        refreshToken: tokenData.refresh_token
-      };
-
-      saveCloudConfig(config);
-
-      // Get user details
-      const authRes = await fetch(`${config.apiUrl}/api/auth/status`, {
-        headers: { 'Authorization': `Bearer ${config.token}` }
-      });
-
-      if (authRes.ok) {
-        const auth = await authRes.json();
-        if (auth.user) {
-          config.userId = auth.user.id;
-          config.userName = auth.user.name || auth.user.email;
-          saveCloudConfig(config);
-          console.log(`${c.green}✓${c.reset} Logged in as ${c.bold}${config.userName}${c.reset}`);
-        }
-      }
-
-      // Generate daemon secret
-      console.log(`\n${c.cyan}→${c.reset} Setting up daemon security...`);
-
-      const { setupDaemonSecret, loadSecurityConfig } = require('./lib/security');
-      const existingConfig = loadSecurityConfig();
-
-      if (existingConfig?.daemonSecret) {
-        console.log(`${c.green}✓${c.reset} Using existing daemon secret`);
-        console.log(`${c.dim}  Run 'agx security rotate' only when you intentionally want to invalidate pending signed tasks${c.reset}`);
-      } else {
-        const { secret, isNew } = await setupDaemonSecret({
-          cloudApiUrl: config.apiUrl,
-          cloudToken: config.token,
-        });
-        console.log(`${c.green}✓${c.reset} Daemon secret generated`);
-        console.log(`${c.dim}  Secret stored in ~/.agx/security.json${c.reset}`);
-      }
-
-      console.log(`\n${c.green}Setup complete!${c.reset}`);
-      console.log(`${c.dim}Run: agx daemon start${c.reset}`);
-    } catch (err) {
-      console.log(`\n${c.red}✗${c.reset} Failed to connect: ${err.message}`);
-      process.exit(1);
-    }
-    process.exit(0);
-  }
-
   // agx logout
   if (cmd === 'logout') {
     if (fs.existsSync(CLOUD_CONFIG_FILE)) {
       fs.unlinkSync(CLOUD_CONFIG_FILE);
     }
-    console.log(`${c.green}✓${c.reset} Logged out from cloud`);
+    console.log(`${c.green}✓${c.reset} Cleared cloud configuration`);
     process.exit(0);
   }
 
@@ -3641,7 +3863,7 @@ async function checkOnboarding() {
     const config = loadCloudConfig();
     if (!config) {
       console.log(`${c.yellow}Not connected to cloud${c.reset}`);
-      console.log(`${c.dim}Run: agx login [url]${c.reset}`);
+      console.log(`${c.dim}Configure ${path.join(CONFIG_DIR, 'cloud.json')} or set AGX_CLOUD_URL${c.reset}`);
       process.exit(0);
     }
     console.log(`${c.bold}Cloud Status${c.reset}\n`);
@@ -3688,11 +3910,24 @@ async function checkOnboarding() {
     process.exit(1);
   }
 
+  // agx workflow ... - manage workflows
+  if (cmd === 'workflow') {
+    const { handleWorkflowCommand } = require('./lib/workflow-cli');
+    const workflowArgs = args.slice(1);
+    try {
+      await handleWorkflowCommand(workflowArgs, cloudRequest);
+      process.exit(0);
+    } catch (err) {
+      console.log(`${c.red}✗${c.reset} ${err.message}`);
+      process.exit(1);
+    }
+  }
+
   // agx new "<task description>" [--project <name>] [--priority <n>] [--engine <name>]
   if (cmd === 'new' || cmd === 'push') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
       process.exit(1);
     }
 
@@ -3794,7 +4029,7 @@ async function checkOnboarding() {
   if (cmd === 'reset' || (cmd === 'task' && args[1] === 'reset')) {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
       process.exit(1);
     }
 
@@ -3891,7 +4126,7 @@ async function checkOnboarding() {
     const showAll = args.includes('-a') || args.includes('--all');
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
       process.exit(1);
     }
 
@@ -3937,7 +4172,7 @@ async function checkOnboarding() {
   if (cmd === 'complete' || cmd === 'done') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
       process.exit(1);
     }
 
@@ -3983,7 +4218,7 @@ async function checkOnboarding() {
   if (cmd === 'watch') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
       process.exit(1);
     }
 
@@ -3992,11 +4227,11 @@ async function checkOnboarding() {
     // Use EventSource for SSE
     const eventsourcePkg = require('eventsource');
     const EventSource = eventsourcePkg.EventSource || eventsourcePkg;
-    const es = new EventSource(`${config.apiUrl}/api/tasks/stream`, {
-      headers: {
-        'Authorization': `Bearer ${config.token}`,
-      },
-    });
+    const esOptions = {};
+    if (config?.token) {
+      esOptions.headers = { Authorization: `Bearer ${config.token}` };
+    }
+    const es = new EventSource(`${config.apiUrl}/api/tasks/stream`, esOptions);
 
     es.onopen = () => {
       console.log(`${c.green}✓${c.reset} Connected to stream`);
@@ -4045,7 +4280,7 @@ async function checkOnboarding() {
   if (cmd === 'comments' && args[1] === 'clear') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
       process.exit(1);
     }
 
@@ -4079,7 +4314,7 @@ async function checkOnboarding() {
   if (cmd === 'logs' && args[1] === 'clear') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
       process.exit(1);
     }
 
@@ -4113,7 +4348,7 @@ async function checkOnboarding() {
   if (cmd === 'comments' && args[1] === 'ls') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
       process.exit(1);
     }
 
@@ -4153,7 +4388,7 @@ async function checkOnboarding() {
   if (cmd === 'comments' && args[1] === 'tail') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
       process.exit(1);
     }
 
@@ -4207,7 +4442,7 @@ async function checkOnboarding() {
   if (cmd === 'logs' && args[1] === 'ls') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
       process.exit(1);
     }
 
@@ -4246,7 +4481,7 @@ async function checkOnboarding() {
   if (cmd === 'logs' && args[1] === 'tail') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
       process.exit(1);
     }
 
@@ -4280,9 +4515,11 @@ async function checkOnboarding() {
     console.log(`\n${c.cyan}→${c.reset} Tailing logs... (Ctrl+C to stop)\n`);
     const eventsourcePkg = require('eventsource');
     const EventSource = eventsourcePkg.EventSource || eventsourcePkg;
-    const es = new EventSource(`${config.apiUrl}/api/tasks/stream`, {
-      headers: { 'Authorization': `Bearer ${config.token}` },
-    });
+    const esOptions = {};
+    if (config?.token) {
+      esOptions.headers = { Authorization: `Bearer ${config.token}` };
+    }
+    const es = new EventSource(`${config.apiUrl}/api/tasks/stream`, esOptions);
 
     es.onmessage = (event) => {
       try {
@@ -4310,7 +4547,7 @@ async function checkOnboarding() {
   if ((cmd === 'task' && (args[1] === 'logs' || args[1] === 'tail')) || (cmd === 'logs' && args[1] !== 'tail' && args[1] !== 'clear')) {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
       process.exit(1);
     }
 
@@ -4354,9 +4591,11 @@ async function checkOnboarding() {
 
         const eventsourcePkg = require('eventsource');
         const EventSource = eventsourcePkg.EventSource || eventsourcePkg;
-        const es = new EventSource(`${config.apiUrl}/api/tasks/stream`, {
-          headers: { 'Authorization': `Bearer ${config.token}` },
-        });
+        const esOptions = {};
+        if (config?.token) {
+          esOptions.headers = { Authorization: `Bearer ${config.token}` };
+        }
+        const es = new EventSource(`${config.apiUrl}/api/tasks/stream`, esOptions);
 
         es.onmessage = (event) => {
           try {
@@ -4410,7 +4649,7 @@ async function checkOnboarding() {
   if (cmd === 'task' && args[1] === 'clear') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
       process.exit(1);
     }
 
@@ -4445,7 +4684,7 @@ async function checkOnboarding() {
   if (cmd === 'task' && args[1] === 'rm') {
     const config = loadCloudConfig();
     if (!config) {
-      console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
       process.exit(1);
     }
 
@@ -4618,7 +4857,7 @@ async function checkOnboarding() {
         }
       } else {
         console.log(`  ${c.yellow}⚠${c.reset} Daemon secret: Not configured`);
-        console.log(`    ${c.dim}Run: agx login to generate${c.reset}`);
+        console.log(`    ${c.dim}Run: agx security rotate${c.reset}`);
       }
 
       console.log(`\n  Config: ${SECURITY_CONFIG_FILE}`);
@@ -4627,11 +4866,6 @@ async function checkOnboarding() {
 
     if (securityCmd === 'rotate') {
       const config = loadCloudConfig();
-      if (!config) {
-        console.log(`${c.red}Not logged in.${c.reset} Run: agx login`);
-        process.exit(1);
-      }
-
       const confirm = await prompt(`${c.yellow}Rotate daemon secret?${c.reset} This will invalidate all pending signed tasks. (y/N): `);
       if (confirm?.toLowerCase() !== 'y' && confirm?.toLowerCase() !== 'yes') {
         console.log(`${c.dim}Cancelled${c.reset}`);
@@ -4641,7 +4875,7 @@ async function checkOnboarding() {
       const { secret, isNew } = await setupDaemonSecret({
         force: true,
         cloudApiUrl: config.apiUrl,
-        cloudToken: config.token,
+        cloudToken: config?.token || null,
       });
 
       console.log(`${c.green}✓${c.reset} Daemon secret rotated`);
@@ -4653,33 +4887,6 @@ async function checkOnboarding() {
     console.log(`  agx security status    Show security configuration`);
     console.log(`  agx security rotate    Rotate daemon secret`);
     process.exit(0);
-  }
-
-
-  // Login command
-  if (cmd === 'login') {
-    const provider = args[1];
-    if (!provider) {
-      console.log(`${c.yellow}Usage:${c.reset} agx login <provider>`);
-      console.log(`${c.dim}Providers: claude, gemini, ollama, codex${c.reset}`);
-      process.exit(1);
-    }
-    if (!['claude', 'gemini', 'ollama', 'codex'].includes(provider)) {
-      console.log(`${c.red}Unknown provider:${c.reset} ${provider}`);
-      process.exit(1);
-    }
-    if (!commandExists(provider)) {
-      console.log(`${c.yellow}${provider} is not installed.${c.reset}`);
-      const answer = await prompt(`Install it now? [Y/n]: `);
-      if (answer.toLowerCase() !== 'n') {
-        await installProvider(provider);
-      } else {
-        process.exit(1);
-      }
-    }
-    await loginProvider(provider);
-    process.exit(0);
-    return true;
   }
 
   // Add/install command
@@ -4835,7 +5042,6 @@ PROVIDERS:
   ollama, o    Local Ollama
 
   CLOUD:
-  agx login [url]        Login to cloud
   agx new "<task>"       Create task in cloud
   agx run <id|slug|#>    Claim and run a task
   agx retry <id|slug|#>  Reset + retry a task
@@ -5146,7 +5352,7 @@ EXAMPLES:
       }
     } catch { }
     // Default to local board runtime when no cloud config exists.
-    // This makes `agx daemon` usable without `agx login` when auth is disabled locally.
+    // Daemon should work without any auth flow; cloud may be unauthenticated.
     const apiUrl = (process.env.AGX_CLOUD_URL || process.env.AGX_BOARD_URL || 'http://localhost:3000').replace(/\/$/, '');
     return {
       apiUrl,
@@ -5196,7 +5402,7 @@ EXAMPLES:
   async function cloudRequest(method, endpoint, body = null) {
     const config = loadCloudConfig();
     if (!config?.apiUrl) {
-      throw new Error('Cloud API URL not configured. Set AGX_CLOUD_URL (or run: agx login)');
+      throw new Error('Cloud API URL not configured. Set AGX_CLOUD_URL (default http://localhost:3000)');
     }
 
     const url = `${config.apiUrl}${endpoint}`;
@@ -5371,7 +5577,7 @@ Goal: ${finalPrompt}
           console.log(`${c.green}✓${c.reset} Autonomous mode: daemon running\n`);
         }
       } else {
-        console.log(`${c.yellow}Cloud API URL not configured. Set AGX_CLOUD_URL (or run: agx login).${c.reset}`);
+        console.log(`${c.yellow}Cloud API URL not configured. Set AGX_CLOUD_URL (default http://localhost:3000).${c.reset}`);
         console.log(`${c.dim}Task not created. Running in one-shot mode.${c.reset}`);
       }
     } catch (err) {

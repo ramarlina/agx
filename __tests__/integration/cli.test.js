@@ -103,12 +103,6 @@ describe('AGX CLI Integration Tests', () => {
   });
 
   describe('Direct Commands (no cloud prefix)', () => {
-    test('agx login command exists', () => {
-      const output = runAgx('login 2>&1');
-      // Command should execute (may show error if no URL provided)
-      expect(output).toBeTruthy();
-    });
-
     test('agx logout command exists', () => {
       const output = runAgx('logout 2>&1');
       // Command should execute
