@@ -35,7 +35,11 @@ const {
   enforceStageRequirement
 } = require('./lib/stage-requirements');
 const { createOrchestrator } = require('./lib/orchestrator');
-const { collectProjectFlags, createProject } = require('./lib/project-cli');
+const {
+  collectProjectFlags,
+  buildProjectBody,
+  createProject,
+} = require('./lib/project-cli');
 
 // Config paths
 const CONFIG_DIR = path.join(process.env.HOME || process.env.USERPROFILE, '.agx');
@@ -118,14 +122,13 @@ const SWARM_RETRIES = Number(process.env.AGX_SWARM_RETRIES || 1);
 const SWARM_MAX_ITERS = Number(process.env.AGX_SWARM_MAX_ITERS || 2);
 const SWARM_LOG_FLUSH_MS = Number(process.env.AGX_SWARM_LOG_FLUSH_MS || 500);
 const SWARM_LOG_MAX_BYTES = Number(process.env.AGX_SWARM_LOG_MAX_BYTES || 8000);
-const RETRY_FLOW_PREFIX = '[retry-flow]';
 let retryFlowActive = false;
 
-function logRetryFlow(step, phase, detail = '') {
+function logExecutionFlow(step, phase, detail = '') {
   //if (!retryFlowActive) return;
   if (['cloudRequest', 'loadCloudConfig'].includes(step)) return;
   const info = detail ? ` | ${detail}` : '';
-  console.log(`${RETRY_FLOW_PREFIX} ${step} | ${phase}${info}`);
+  console.log(`[worker] ${step} | ${phase}${info}`);
 }
 
 function sleep(ms) {
@@ -235,8 +238,8 @@ async function postTaskComment(taskIdOrParams, contentMaybe) {
   const cloudConfig = loadCloudConfigFile();
   if (!cloudConfig?.apiUrl) return;
 
-  logRetryFlow('postTaskComment', 'input', `taskId=${taskId}`);
-  logRetryFlow('postTaskComment', 'processing', `POST /api/tasks/${taskId}/comments`);
+  logExecutionFlow('postTaskComment', 'input', `taskId=${taskId}`);
+  logExecutionFlow('postTaskComment', 'processing', `POST /api/tasks/${taskId}/comments`);
 
   const truncatedContent = truncateForComment(String(content));
 
@@ -251,9 +254,9 @@ async function postTaskComment(taskIdOrParams, contentMaybe) {
       // Some server builds expect `content`, older clients used `truncatedContent`.
       body: JSON.stringify({ content: truncatedContent, truncatedContent })
     });
-    logRetryFlow('postTaskComment', 'output', 'success');
+    logExecutionFlow('postTaskComment', 'output', 'success');
   } catch (err) {
-    logRetryFlow('postTaskComment', 'output', `failed ${err?.message || err}`);
+    logExecutionFlow('postTaskComment', 'output', `failed ${err?.message || err}`);
   }
 }
 
@@ -268,6 +271,109 @@ function mapCloudStageToLocalStage(stage) {
   if (raw === 'ideation' || raw === 'planning') return 'plan';
   if (raw === 'verification') return 'verify';
   return 'execute';
+}
+
+function shortStableHex(value, len = 6) {
+  const v = String(value || '');
+  if (!v) return crypto.randomBytes(Math.max(2, Math.ceil(len / 2))).toString('hex').slice(0, len);
+  return crypto.createHash('sha1').update(v).digest('hex').slice(0, len);
+}
+
+function extractCloudProjectIdentity(task) {
+  const projectObj = task?.project && typeof task.project === 'object' ? task.project : null;
+  const projectId =
+    task?.project_id ||
+    task?.projectId ||
+    projectObj?.id ||
+    projectObj?.project_id ||
+    null;
+
+  const projectSlug =
+    task?.project_slug ||
+    projectObj?.slug ||
+    projectObj?.project_slug ||
+    (typeof task?.project === 'string' ? task.project : null) ||
+    null;
+
+  const projectName =
+    task?.project_name ||
+    projectObj?.name ||
+    projectObj?.project_name ||
+    null;
+
+  return { projectId: projectId ? String(projectId) : null, projectSlug: projectSlug ? String(projectSlug) : null, projectName: projectName ? String(projectName) : null };
+}
+
+function extractCloudTaskIdentity(task) {
+  const taskId = task?.id ? String(task.id).trim() : '';
+  const taskSlug = task?.slug ? String(task.slug).trim() : '';
+  return { taskId, taskSlug };
+}
+
+async function resolveLocalProjectSlugForCloudTask(storage, task) {
+  const { projectId, projectSlug, projectName } = extractCloudProjectIdentity(task);
+  const label = projectSlug || projectName || 'cloud';
+  const base = storage.slugify(label, { maxLength: 64 });
+  const baseState = await storage.readProjectState(base);
+
+  if (!baseState) {
+    return base;
+  }
+
+  const baseCloudId = baseState?.cloud?.project_id ? String(baseState.cloud.project_id) : null;
+  // Back-compat: if base exists but has no cloud id, "adopt" it (this preserves the pre-collision behavior).
+  if (!baseCloudId && projectId) {
+    return base;
+  }
+  if (baseCloudId && projectId && baseCloudId === projectId) {
+    return base;
+  }
+
+  // Collision: choose a stable suffix derived from cloud project id when available.
+  const suffix = projectId ? shortStableHex(projectId, 6) : shortStableHex(`${label}:${process.cwd()}:${Date.now()}`, 6);
+  const trimmedBase = storage.slugify(label, { maxLength: 64 - (1 + suffix.length) });
+  let candidate = `${trimmedBase}-${suffix}`;
+
+  // If even the suffixed candidate exists but belongs to someone else, fall back to numeric increments.
+  for (let i = 0; i < 200; i += 1) {
+    const s = await storage.readProjectState(candidate);
+    if (!s) return candidate;
+    const cid = s?.cloud?.project_id ? String(s.cloud.project_id) : null;
+    if (projectId && cid === projectId) return candidate;
+    candidate = `${trimmedBase}-${suffix}-${i + 1}`;
+  }
+
+  // Extremely unlikely fallback.
+  return `${trimmedBase}-${suffix}-${crypto.randomBytes(2).toString('hex')}`;
+}
+
+async function resolveLocalTaskSlugForCloudTask(storage, projectSlug, task) {
+  const { taskId, taskSlug: cloudTaskSlug } = extractCloudTaskIdentity(task);
+  const label = cloudTaskSlug || taskId;
+  const desired = storage.slugify(label, { maxLength: 64 });
+
+  const existing = await storage.readTaskState(projectSlug, desired);
+  if (!existing) return desired;
+
+  const existingCloudTaskId = existing?.cloud?.task_id ? String(existing.cloud.task_id) : null;
+  // Back-compat: if a folder exists without cloud id, adopt it (preserves previous behavior).
+  if (!existingCloudTaskId && taskId) return desired;
+  if (existingCloudTaskId && taskId && existingCloudTaskId === taskId) return desired;
+
+  // Collision: prefer a stable suffix based on task id.
+  const suffix = taskId ? shortStableHex(taskId, 6) : shortStableHex(`${label}:${Date.now()}`, 6);
+  const trimmedBase = storage.slugify(label, { maxLength: 64 - (1 + suffix.length) });
+  let candidate = `${trimmedBase}-${suffix}`;
+
+  for (let i = 0; i < 200; i += 1) {
+    const st = await storage.readTaskState(projectSlug, candidate);
+    if (!st) return candidate;
+    const cid = st?.cloud?.task_id ? String(st.cloud.task_id) : null;
+    if (taskId && cid === taskId) return candidate;
+    candidate = `${trimmedBase}-${suffix}-${i + 1}`;
+  }
+
+  return `${trimmedBase}-${suffix}-${crypto.randomBytes(2).toString('hex')}`;
 }
 
 function renderWorkingSetMarkdownFromCloudTask(task) {
@@ -305,6 +411,9 @@ function createDaemonArtifactsRecorder({ storage, run, taskId }) {
   };
 
   return {
+    get runPath() {
+      return run?.paths?.root || null;
+    },
     recordPrompt(title, text) {
       pushSection(promptParts, title, text);
     },
@@ -460,8 +569,8 @@ async function patchTaskState(taskId, state) {
   const cloudConfig = loadCloudConfigFile();
   if (!cloudConfig?.apiUrl) return;
 
-  logRetryFlow('patchTaskState', 'input', `taskId=${taskId}, state=${JSON.stringify(state)}`);
-  logRetryFlow('patchTaskState', 'processing', `PATCH /api/tasks/${taskId}`);
+  logExecutionFlow('patchTaskState', 'input', `taskId=${taskId}, state=${JSON.stringify(state)}`);
+  logExecutionFlow('patchTaskState', 'processing', `PATCH /api/tasks/${taskId}`);
 
   try {
     await fetch(`${cloudConfig.apiUrl}/api/tasks/${taskId}`, {
@@ -473,9 +582,9 @@ async function patchTaskState(taskId, state) {
       },
       body: JSON.stringify(state)
     });
-    logRetryFlow('patchTaskState', 'output', 'success');
+    logExecutionFlow('patchTaskState', 'output', 'success');
   } catch (err) {
-    logRetryFlow('patchTaskState', 'output', `failed ${err?.message || err}`);
+    logExecutionFlow('patchTaskState', 'output', `failed ${err?.message || err}`);
   }
 }
 
@@ -518,8 +627,8 @@ function createTaskLogger(taskId) {
     const cloudConfig = loadCloudConfigFile();
     if (!cloudConfig?.apiUrl) return;
 
-    logRetryFlow('updateTaskSection', 'input', `taskId=${taskId}, heading=${heading}, mode=${mode}`);
-    logRetryFlow('updateTaskSection', 'processing', `GET /api/tasks/${taskId}`);
+    logExecutionFlow('updateTaskSection', 'input', `taskId=${taskId}, heading=${heading}, mode=${mode}`);
+    logExecutionFlow('updateTaskSection', 'processing', `GET /api/tasks/${taskId}`);
     try {
       const res = await fetch(`${cloudConfig.apiUrl}/api/tasks/${taskId}`, {
         headers: {
@@ -550,7 +659,7 @@ function createTaskLogger(taskId) {
       }
 
       if (updated !== original) {
-        logRetryFlow('updateTaskSection', 'processing', 'PUT content update');
+        logExecutionFlow('updateTaskSection', 'processing', 'PUT content update');
         await fetch(`${cloudConfig.apiUrl}/api/tasks/${taskId}`, {
           method: 'PUT',
           headers: {
@@ -560,12 +669,12 @@ function createTaskLogger(taskId) {
           },
           body: JSON.stringify({ content: updated })
         });
-        logRetryFlow('updateTaskSection', 'output', 'updated');
+        logExecutionFlow('updateTaskSection', 'output', 'updated');
       } else {
-        logRetryFlow('updateTaskSection', 'output', 'no change');
+        logExecutionFlow('updateTaskSection', 'output', 'no change');
       }
     } catch (err) {
-      logRetryFlow('updateTaskSection', 'output', `failed ${err?.message || err}`);
+      logExecutionFlow('updateTaskSection', 'output', `failed ${err?.message || err}`);
     }
   };
 
@@ -810,6 +919,31 @@ async function signalTemporalTask(taskId, signal, payload = {}) {
   } catch { }
 }
 
+async function updateCloudTask(taskId, updates) {
+  const cloudConfig = loadCloudConfigFile();
+  if (!cloudConfig?.apiUrl) return;
+  if (!taskId) return;
+
+  try {
+    const headers = {
+      'Content-Type': 'application/json',
+      'x-user-id': cloudConfig.userId || '',
+    };
+    if (cloudConfig?.token) {
+      headers.Authorization = `Bearer ${cloudConfig.token}`;
+    }
+    // Assume standard API route is /api/tasks/:id
+    await fetch(`${cloudConfig.apiUrl}/api/tasks/${encodeURIComponent(taskId)}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(updates),
+    });
+  } catch (err) {
+    // Silent fail or log debug
+    // console.debug('Failed to update cloud task', err);
+  }
+}
+
 function runAgxCommand(args, timeoutMs, label, handlers = {}) {
   return new Promise((resolve, reject) => {
     let stdout = '';
@@ -819,9 +953,9 @@ function runAgxCommand(args, timeoutMs, label, handlers = {}) {
     let settled = false;
 
     const childArgs = sanitizeCliArgs([process.argv[1], ...args]);
-    logRetryFlow('runAgxCommand', 'input', `label=${label}, args=${childArgs.join(' ')}, timeout=${timeoutMs}`);
+    logExecutionFlow('runAgxCommand', 'input', `label=${label}, args=${childArgs.join(' ')}, timeout=${timeoutMs}`);
     const child = spawnCloudTaskProcess(childArgs);
-    logRetryFlow('runAgxCommand', 'processing', `spawning child process (pid: ${child.pid})`);
+    logExecutionFlow('runAgxCommand', 'processing', `spawning child process (pid: ${child.pid})`);
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -886,7 +1020,7 @@ function runAgxCommand(args, timeoutMs, label, handlers = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      logRetryFlow('runAgxCommand', 'output', `error ${err?.message || err}`);
+      logExecutionFlow('runAgxCommand', 'output', `error ${err?.message || err}`);
       emitTrace({
         id: traceId,
         phase: 'error',
@@ -908,7 +1042,7 @@ function runAgxCommand(args, timeoutMs, label, handlers = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
-      logRetryFlow('runAgxCommand', 'output', `pid=${child.pid}, exit code=${code}`);
+      logExecutionFlow('runAgxCommand', 'output', `pid=${child.pid}, exit code=${code}`);
       emitTrace({
         id: traceId,
         phase: 'exit',
@@ -937,7 +1071,7 @@ function runAgxCommand(args, timeoutMs, label, handlers = {}) {
 }
 
 async function runSwarmIteration({ taskId, task, prompt, logger, artifacts }) {
-  logRetryFlow('runSwarmIteration', 'input', `taskId=${taskId}, prompt=${Boolean(prompt)}`);
+  logExecutionFlow('runSwarmIteration', 'input', `taskId=${taskId}, prompt=${Boolean(prompt)}`);
   const swarmModels = Array.isArray(task?.swarm_models)
     ? task.swarm_models
       .filter((entry) => entry && entry.provider && entry.model)
@@ -955,7 +1089,7 @@ async function runSwarmIteration({ taskId, task, prompt, logger, artifacts }) {
     throw new Error(`Missing providers for swarm run: ${missing.join(', ')}`);
   }
 
-  logRetryFlow('runSwarmIteration', 'processing', `providers=${providers.join(',')}`);
+  logExecutionFlow('runSwarmIteration', 'processing', `providers=${providers.join(',')}`);
   logger?.log('system', `[swarm] iteration start\n`);
 
   const results = await pMap(providers, (provider, index) => {
@@ -967,7 +1101,9 @@ async function runSwarmIteration({ taskId, task, prompt, logger, artifacts }) {
       args.push('--model', modelForProvider);
     }
     if (prompt) {
-      args.push('--prompt', buildAgentIterationPrompt(task, prompt));
+      // The agent already receives full task context via --cloud-task; keep the per-iteration
+      // prompt narrowly scoped to the next instruction to avoid duplicating context.
+      args.push('--prompt', String(prompt));
     }
 
     return pRetryFn(
@@ -983,6 +1119,15 @@ async function runSwarmIteration({ taskId, task, prompt, logger, artifacts }) {
             model: swarmModels.length ? (swarmModels[index]?.model || null) : null,
             ...event,
           });
+
+          if (taskId) {
+            if (event.phase === 'start' && event.pid) {
+              void updateCloudTask(taskId, { pid: event.pid, started_at: event.started_at });
+            }
+            if (event.phase === 'exit') {
+              void updateCloudTask(taskId, { exit_code: event.exit_code, completed_at: event.finished_at });
+            }
+          }
         }
       }),
       {
@@ -998,19 +1143,19 @@ async function runSwarmIteration({ taskId, task, prompt, logger, artifacts }) {
     logger?.log('output', `\n[${result.provider}] ${result.output}\n`);
   }
 
-  logRetryFlow('runSwarmIteration', 'output', `providers finished count=${results.length}`);
+  logExecutionFlow('runSwarmIteration', 'output', `providers finished count=${results.length}`);
   return results;
 }
 
 async function runSingleAgentIteration({ taskId, task, provider, model, prompt, logger, onStdout, onStderr, artifacts }) {
-  logRetryFlow('runSingleAgentIteration', 'input', `taskId=${taskId}, provider=${provider}, model=${model}, prompt=${Boolean(prompt) ? 'present' : 'none'}`);
-  logRetryFlow('runSingleAgentIteration', 'processing', 'preparing runAgxCommand');
+  logExecutionFlow('runSingleAgentIteration', 'input', `taskId=${taskId}, provider=${provider}, model=${model}, prompt=${Boolean(prompt) ? 'present' : 'none'}`);
+  logExecutionFlow('runSingleAgentIteration', 'processing', 'preparing runAgxCommand');
   const args = [provider, '--cloud-task', taskId];
   if (model) {
     args.push('--model', model);
   }
   if (prompt) {
-    const iterPrompt = buildAgentIterationPrompt(task, prompt);
+    const iterPrompt = String(prompt);
     artifacts?.recordPrompt(`Agent Iteration Prompt (${provider}${model ? `/${model}` : ''})`, iterPrompt);
     args.push('--prompt', iterPrompt);
   }
@@ -1034,13 +1179,22 @@ async function runSingleAgentIteration({ taskId, task, provider, model, prompt, 
           model: model || null,
           ...event,
         });
+
+        if (taskId) {
+          if (event.phase === 'start' && event.pid) {
+            void updateCloudTask(taskId, { pid: event.pid, started_at: event.started_at });
+          }
+          if (event.phase === 'exit') {
+            void updateCloudTask(taskId, { exit_code: event.exit_code, completed_at: event.finished_at });
+          }
+        }
       },
     }),
     { retries: SWARM_RETRIES }
   );
 
   const outputSource = res.stdout || res.stderr || '';
-  logRetryFlow('runSingleAgentIteration', 'output', `response length=${outputSource.length}`);
+  logExecutionFlow('runSingleAgentIteration', 'output', `response length=${outputSource.length}`);
   return res.stdout || res.stderr || '';
 }
 
@@ -1056,59 +1210,87 @@ function resolveAggregatorModel(task) {
   return null;
 }
 
-function buildAgentIterationPrompt(task, prompt) {
-  const stageKey = task?.stage || 'unknown';
-  const stagePrompt = resolveStageObjective(task, stageKey, '');
-  const stageRequirement = buildStageRequirementPrompt({ stage: stageKey, stagePrompt });
-  const instruction = typeof prompt === 'string' && prompt.trim()
-    ? prompt.trim()
-    : 'Continue the next concrete step for this stage and verify the result.';
+/**
+ * Build the common aggregator prompt structure.
+ * @param {object} params
+ * @param {string} params.role - e.g. 'single-agent' or 'swarm'
+ * @param {string} params.taskId
+ * @param {object} params.task
+ * @param {string} params.stagePrompt
+ * @param {string} params.stageRequirement
+ * @param {string|null} params.runPath - path to the run artifacts folder
+ * @returns {string}
+ */
+function buildAggregatorPrompt({ role, taskId, task, stagePrompt, stageRequirement, runPath }) {
+  const taskComments = task?.comments || [];
+  return `You are the decision aggregator for a ${role} run.
 
-  return `Stage: ${stageKey}
+Task ID: ${taskId}
+Title: ${task?.title || taskId}
+Stage: ${task?.stage || 'unknown'}
+
+User Request: 
+"""
+${task?.title}
+${task?.content}
+---
+Task Thread:
+${taskComments.map(c => `${c.author}: ${c.content}`).join('\n')}
+"""
+
 Stage Objective: ${stagePrompt}
 Stage Completion Requirement: ${stageRequirement}
-Instruction: ${instruction}
 
-Keep work scoped to this stage.`;
+Run artifacts folder: ${runPath || '(not available)'}
+- output.md: contains the agent output
+- prompt.md: contains the prompt that was sent
+
+Review the output.md file in the run folder to understand what was accomplished.
+Decide if the task is done. If not, provide the next instruction for another iteration.
+Only set "done": true when the Stage Completion Requirement is satisfied.
+
+You may think through your analysis first, but you MUST end your response with valid JSON.
+
+Output contract (strict):
+- You may include thinking/reasoning at the start of your response
+- Your response MUST end with exactly one raw JSON object
+- Do not use markdown/code fences/backticks around the JSON
+- Do not add commentary after the JSON
+- Use double-quoted keys and strings
+- Keep newlines escaped inside strings
+- If "done" is false, "next_prompt" must be a non-empty actionable instruction
+
+The final JSON in your response must have this exact shape:
+{
+  "done": false,
+  "decision": "done|blocked|not_done|failed",
+  "explanation": "clear explanation of the decision",
+  "final_result": "final result if done, empty string otherwise",
+  "next_prompt": "specific actionable instruction for next iteration",
+  "summary": "brief summary of current state"
+}
+
+If uncertain, still return valid JSON with decision "failed" and explain why in "explanation".
+`;
 }
 
 async function runSingleAgentAggregate({ task, taskId, prompt, output, iteration, logger, provider, model, artifacts }) {
-  logRetryFlow('runSingleAgentAggregate', 'input', `taskId=${taskId}, iteration=${iteration}`);
-  logRetryFlow('runSingleAgentAggregate', 'processing', 'running aggregator');
+  logExecutionFlow('runSingleAgentAggregate', 'input', `taskId=${taskId}, iteration=${iteration}`);
+  logExecutionFlow('runSingleAgentAggregate', 'processing', 'running aggregator');
   const stageKey = task?.stage || 'unknown';
   const stagePrompt = resolveStageObjective(task, stageKey, '');
   const stageRequirement = buildStageRequirementPrompt({ stage: stageKey, stagePrompt });
   const aggregatorProvider = String(provider || task?.provider || task?.engine || 'claude').toLowerCase();
   const aggregatorModel = typeof model === 'string' && model.trim() ? model.trim() : null;
 
-  const aggregatePrompt = `You are the decision aggregator for a single-agent run.
-
-Task ID: ${taskId}
-Title: ${task?.title || taskId}
-Stage: ${task?.stage || 'unknown'}
-Stage Objective: ${stagePrompt}
-Stage Completion Requirement: ${stageRequirement}
-User Request: ${task?.title || taskId}
-Iteration: ${iteration}
-
-${prompt ? `Latest instruction:\n${prompt}\n` : ''}
-
-Output:
-${output || '(no output)'}
-
-Decide if the task is done. If not, provide the next instruction for another iteration.
-Only set "done": true when the Stage Completion Requirement is satisfied.
-Output contract (strict):
-- Return exactly one raw JSON object and nothing else.
-- Do not use markdown/code fences/backticks.
-- Do not add commentary before/after JSON.
-- Use double-quoted keys and strings.
-- Keep newlines escaped inside strings.
-- If "done" is false, "next_prompt" must be a non-empty actionable instruction.
-Return ONLY JSON with this exact shape:
-{"done": true|false, "decision": "done|blocked|not_done|failed", "explanation": "string", "final_result": "string", "next_prompt": "string", "summary": "string"}
-If uncertain, still return valid JSON with decision "failed" and explain why in "explanation".
-`;
+  const aggregatePrompt = buildAggregatorPrompt({
+    role: 'single-agent',
+    taskId,
+    task,
+    stagePrompt,
+    stageRequirement,
+    runPath: artifacts?.runPath,
+  });
   artifacts?.recordPrompt(`Aggregator Prompt (${aggregatorProvider}${aggregatorModel ? `/${aggregatorModel}` : ''})`, aggregatePrompt);
 
   const aggregateArgs = [aggregatorProvider, '--prompt', aggregatePrompt, '--print'];
@@ -1136,8 +1318,10 @@ If uncertain, still return valid JSON with decision "failed" and explain why in 
     { retries: SWARM_RETRIES }
   );
 
+  console.log('res', res);
+
   const decision = extractJson(res.stdout) || extractJson(res.stderr);
-  logRetryFlow('runSingleAgentAggregate', 'output', `decision=${JSON.stringify(decision || {})}`);
+  logExecutionFlow('runSingleAgentAggregate', 'output', `decision=${JSON.stringify(decision || {})}`);
   if (!decision) {
     logger?.log('error', '[single] Aggregator returned invalid JSON\n');
     return { done: true, decision: 'failed', explanation: 'Aggregator response was not valid JSON.', final_result: 'Aggregator response was not valid JSON.', next_prompt: '', summary: 'Aggregator response was not valid JSON.' };
@@ -1156,13 +1340,13 @@ If uncertain, still return valid JSON with decision "failed" and explain why in 
 }
 
 async function runSingleAgentLoop({ taskId, task, provider, model, logger, onStdout, onStderr, artifacts }) {
-  logRetryFlow('runSingleAgentLoop', 'input', `taskId=${taskId}, provider=${provider}, model=${model}`);
+  logExecutionFlow('runSingleAgentLoop', 'input', `taskId=${taskId}, provider=${provider}, model=${model}`);
   let iteration = 1;
   let prompt = '';
   let lastDecision = null;
 
   while (iteration <= 2) {
-    logRetryFlow('runSingleAgentLoop', 'processing', `iteration ${iteration} start`);
+    logExecutionFlow('runSingleAgentLoop', 'processing', `iteration ${iteration} start`);
     logger?.log('system', `[single] iteration ${iteration} start\n`);
     if (iteration === 1) {
       console.log(`${c.dim}[single] Starting single-agent run...${c.reset}`);
@@ -1182,7 +1366,7 @@ async function runSingleAgentLoop({ taskId, task, provider, model, logger, onStd
     } catch (err) {
       const message = err?.stdout || err?.stderr || err?.message || 'Single-agent run failed.';
       console.log(`${c.red}[single] Failed: ${err?.message || 'Single-agent run failed.'}${c.reset}`);
-      logRetryFlow('runSingleAgentLoop', 'output', `iteration ${iteration} failed ${err?.message || 'run failed'}`);
+      logExecutionFlow('runSingleAgentLoop', 'output', `iteration ${iteration} failed ${err?.message || 'run failed'}`);
       lastDecision = {
         decision: 'failed',
         explanation: err?.message || 'Single-agent run failed.',
@@ -1206,10 +1390,10 @@ async function runSingleAgentLoop({ taskId, task, provider, model, logger, onStd
     if (decision.summary) {
       console.log(`${c.dim}[single] Decision: ${decision.summary}${c.reset}`);
     }
-    logRetryFlow('runSingleAgentLoop', 'output', `decision ${iteration} ${decision.decision}`);
+    logExecutionFlow('runSingleAgentLoop', 'output', `decision ${iteration} ${decision.decision}`);
 
     if (['done', 'blocked'].includes(decision.decision)) {
-      logRetryFlow('runSingleAgentLoop', 'output', `done at iteration ${iteration}`);
+      logExecutionFlow('runSingleAgentLoop', 'output', `done at iteration ${iteration}`);
       return { code: 0, decision: lastDecision };
     }
 
@@ -1232,45 +1416,21 @@ async function runSingleAgentLoop({ taskId, task, provider, model, logger, onStd
 
 async function runSwarmAggregate({ task, taskId, prompt, results, iteration, logger, artifacts }) {
   const providerList = results.map((r) => r.provider).join(',');
-  logRetryFlow('runSwarmAggregate', 'input', `taskId=${taskId}, iteration=${iteration}, providers=${providerList}`);
+  logExecutionFlow('runSwarmAggregate', 'input', `taskId=${taskId}, iteration=${iteration}, providers=${providerList}`);
   const stageKey = task?.stage || 'unknown';
   const stagePrompt = resolveStageObjective(task, stageKey, '');
   const stageRequirement = buildStageRequirementPrompt({ stage: stageKey, stagePrompt });
   const aggregatorProvider = String(task?.engine || task?.provider || 'claude').toLowerCase();
   const aggregatorModel = resolveAggregatorModel(task);
 
-  const outputs = results
-    .map((r) => `### ${r.provider.toUpperCase()}\n${r.output || '(no output)'}`)
-    .join('\n\n');
-
-  const aggregatePrompt = `You are the swarm aggregator.
-
-Task ID: ${taskId}
-Title: ${task?.title || taskId}
-Stage: ${task?.stage || 'unknown'}
-Stage Objective: ${stagePrompt}
-Stage Completion Requirement: ${stageRequirement}
-User Request: ${task?.title || taskId}
-Iteration: ${iteration}
-
-${prompt ? `Latest instruction:\n${prompt}\n` : ''}
-
-Outputs:
-${outputs}
-
-Decide if the task is done. If not, provide the next instruction for another iteration.
-Only set "done": true when the Stage Completion Requirement is satisfied.
-Output contract (strict):
-- Return exactly one raw JSON object and nothing else.
-- Do not use markdown/code fences/backticks.
-- Do not add commentary before/after JSON.
-- Use double-quoted keys and strings.
-- Keep newlines escaped inside strings.
-- If "done" is false, "next_prompt" must be a non-empty actionable instruction.
-Return ONLY JSON with this exact shape:
-{"done": true|false, "decision": "done|blocked|not_done|failed", "explanation": "string", "final_result": "string", "next_prompt": "string", "summary": "string"}
-If uncertain, still return valid JSON with decision "failed" and explain why in "explanation".
-`;
+  const aggregatePrompt = buildAggregatorPrompt({
+    role: 'swarm',
+    taskId,
+    task,
+    stagePrompt,
+    stageRequirement,
+    runPath: artifacts?.runPath,
+  });
   artifacts?.recordPrompt(`Swarm Aggregator Prompt (${aggregatorProvider}${aggregatorModel ? `/${aggregatorModel}` : ''})`, aggregatePrompt);
 
   const aggregateArgs = [aggregatorProvider, '--prompt', aggregatePrompt, '--print'];
@@ -1278,7 +1438,7 @@ If uncertain, still return valid JSON with decision "failed" and explain why in 
     aggregateArgs.push('--model', aggregatorModel);
   }
 
-  logRetryFlow('runSwarmAggregate', 'processing', 'running aggregator');
+  logExecutionFlow('runSwarmAggregate', 'processing', 'running aggregator');
   const res = await pRetryFn(
     () => runAgxCommand(aggregateArgs, SWARM_TIMEOUT_MS, `agx ${aggregatorProvider} aggregate`, {
       onStdout: (data) => logger?.log('checkpoint', data),
@@ -1301,7 +1461,7 @@ If uncertain, still return valid JSON with decision "failed" and explain why in 
   );
 
   const decision = extractJson(res.stdout) || extractJson(res.stderr);
-  logRetryFlow('runSwarmAggregate', 'output', `decision=${JSON.stringify(decision || {})}`);
+  logExecutionFlow('runSwarmAggregate', 'output', `decision=${JSON.stringify(decision || {})}`);
   if (!decision) {
     logger?.log('error', '[swarm] Aggregator returned invalid JSON\n');
     return {
@@ -1327,7 +1487,7 @@ If uncertain, still return valid JSON with decision "failed" and explain why in 
 }
 
 async function runSwarmLoop({ taskId, task, artifacts }) {
-  logRetryFlow('runSwarmLoop', 'input', `taskId=${taskId}`);
+  logExecutionFlow('runSwarmLoop', 'input', `taskId=${taskId}`);
   let iteration = 1;
   let prompt = '';
   const logger = createTaskLogger(taskId);
@@ -1338,7 +1498,7 @@ async function runSwarmLoop({ taskId, task, artifacts }) {
 
   try {
     while (iteration <= SWARM_MAX_ITERS) {
-      logRetryFlow('runSwarmLoop', 'processing', `starting iteration ${iteration}`);
+      logExecutionFlow('runSwarmLoop', 'processing', `starting iteration ${iteration}`);
       const results = await runSwarmIteration({ taskId, task, prompt, logger, artifacts });
       if (Array.isArray(results)) {
         for (const r of results) {
@@ -1354,10 +1514,10 @@ async function runSwarmLoop({ taskId, task, artifacts }) {
         console.log(`${c.dim}[swarm] ${decision.summary}${c.reset}`);
       }
       await postTaskComment(taskId, decision.summary);
-      logRetryFlow('runSwarmLoop', 'output', `iteration ${iteration} decision=${decision.decision}`);
+      logExecutionFlow('runSwarmLoop', 'output', `iteration ${iteration} decision=${decision.decision}`);
 
       if (decision.done) {
-        logRetryFlow('runSwarmLoop', 'output', `done at iteration ${iteration}`);
+        logExecutionFlow('runSwarmLoop', 'output', `done at iteration ${iteration}`);
         logger.log('system', `[swarm] done ${new Date().toISOString()}\n`);
         await logger.flushAll();
         await patchTaskState(taskId, { status: 'completed', completed_at: new Date().toISOString() });
@@ -1370,7 +1530,7 @@ async function runSwarmLoop({ taskId, task, artifacts }) {
 
     if (SWARM_MAX_ITERS > 0) {
       console.log(`${c.yellow}[swarm] Max iterations reached (${SWARM_MAX_ITERS}).${c.reset}`);
-      logRetryFlow('runSwarmLoop', 'output', `max iterations reached ${SWARM_MAX_ITERS}`);
+      logExecutionFlow('runSwarmLoop', 'output', `max iterations reached ${SWARM_MAX_ITERS}`);
       logger.log('system', `[swarm] max iterations reached\n`);
       await logger.flushAll();
       await patchTaskState(taskId, { completed_at: new Date().toISOString() });
@@ -1390,7 +1550,7 @@ async function runSwarmLoop({ taskId, task, artifacts }) {
     return { code: 0, decision: lastDecision };
   } catch (err) {
     logger.log('error', `[swarm] failed: ${err.message}\n`);
-    logRetryFlow('runSwarmLoop', 'output', `failed ${err?.message || 'unknown'}`);
+    logExecutionFlow('runSwarmLoop', 'output', `failed ${err?.message || 'unknown'}`);
     await logger.flushAll();
     await patchTaskState(taskId, { status: 'failed', completed_at: new Date().toISOString() });
     if (!lastDecision) {
@@ -1477,18 +1637,65 @@ async function stopDaemonProcessTree(pid, timeoutMs = 5000) {
 }
 
 function resolveEmbeddedWorkerProjectDir() {
-  const candidates = [PACKAGED_AGX_CLOUD_DIR, LOCAL_AGX_CLOUD_DIR];
-  for (const candidate of candidates) {
-    if (!candidate) continue;
+  // Allow explicit override for unusual setups.
+  const override = process.env.AGX_CLOUD_WORKER_DIR;
+  if (override && typeof override === 'string') {
+    const resolved = path.resolve(override);
     try {
-      if (fs.existsSync(path.join(candidate, 'package.json'))) {
-        return candidate;
-      }
-    } catch {
-      // ignore
+      if (fs.existsSync(path.join(resolved, 'package.json'))) return resolved;
+    } catch { }
+  }
+
+  const hasFile = (dir, rel) => {
+    try { return fs.existsSync(path.join(dir, rel)); } catch { return false; }
+  };
+
+  const scoreCandidate = (dir) => {
+    if (!dir) return -Infinity;
+    if (!hasFile(dir, 'package.json')) return -Infinity;
+
+    // The embedded worker needs actual source entrypoints; the packaged standalone runtime
+    // often contains only `.next/` output and `server.js`, without `worker/`.
+    const hasWorkerEntrypoint =
+      hasFile(dir, path.join('worker', 'index.ts')) ||
+      hasFile(dir, path.join('worker', 'index.js')) ||
+      hasFile(dir, path.join('worker', 'index.mjs'));
+
+    const hasTsx =
+      hasFile(dir, path.join('node_modules', '.bin', 'tsx')) ||
+      hasFile(dir, path.join('node_modules', 'tsx', 'dist', 'cli.mjs'));
+
+    let score = 0;
+    if (hasWorkerEntrypoint) score += 10;
+    if (hasTsx) score += 3;
+
+    // Prefer local dev checkout when present.
+    if (path.resolve(dir) === path.resolve(LOCAL_AGX_CLOUD_DIR)) score += 5;
+
+    // Penalize standalone runtime dir unless it actually contains a worker.
+    if (path.resolve(dir) === path.resolve(PACKAGED_AGX_CLOUD_DIR) && !hasWorkerEntrypoint) score -= 5;
+    return score;
+  };
+
+  // When agx is installed globally, LOCAL_AGX_CLOUD_DIR points into the global install prefix
+  // and is usually not what a developer wants. Prefer a sibling checkout relative to the
+  // current working directory when present (common monorepo layout).
+  const CWD_AGX_CLOUD_DIR = path.resolve(process.cwd(), '..', 'agx-cloud');
+
+  const candidates = [CWD_AGX_CLOUD_DIR, LOCAL_AGX_CLOUD_DIR, PACKAGED_AGX_CLOUD_DIR];
+  let best = null;
+  let bestScore = -Infinity;
+  for (const candidate of candidates) {
+    const s = scoreCandidate(candidate);
+    if (s > bestScore) {
+      bestScore = s;
+      best = candidate;
     }
   }
-  return null;
+
+  // If we only found a packaged runtime without a worker, treat as missing so we fail loudly.
+  if (!best || bestScore < 1) return null;
+  return best;
 }
 
 function isTemporalWorkerRunning() {
@@ -1519,6 +1726,36 @@ function pickEmbeddedWorkerNpmScript(projectDir) {
   return 'worker';
 }
 
+function loadEnvFile(envPath) {
+  try {
+    if (!envPath || !fs.existsSync(envPath)) return {};
+    const raw = fs.readFileSync(envPath, 'utf8');
+    const env = {};
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const idx = trimmed.indexOf('=');
+      if (idx === -1) continue;
+      const key = trimmed.slice(0, idx).trim();
+      let value = trimmed.slice(idx + 1).trim();
+      // Strip simple wrapping quotes.
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      if (!key) continue;
+      env[key] = value;
+    }
+    return env;
+  } catch {
+    return {};
+  }
+}
+
+function loadBoardEnv() {
+  // agx board/runtime writes connection info here; used to start the embedded worker with correct DB config.
+  return loadEnvFile(path.join(CONFIG_DIR, 'board.env'));
+}
+
 function startTemporalWorker() {
   const existingPid = isTemporalWorkerRunning();
   if (existingPid) {
@@ -1529,6 +1766,21 @@ function startTemporalWorker() {
   const projectDir = resolveEmbeddedWorkerProjectDir();
   if (!projectDir) {
     console.log(`${c.yellow}Local board runtime not found${c.reset} Build the board runtime (npm run build in agx-cloud) or ensure ${path.join('cloud-runtime', 'standalone', 'Projects', 'Agents', 'agx-cloud')} exists.`);
+    return null;
+  }
+
+  // Guardrail: packaged standalone builds frequently do not include the worker entrypoint.
+  const workerEntrypoints = [
+    path.join(projectDir, 'worker', 'index.ts'),
+    path.join(projectDir, 'worker', 'index.js'),
+    path.join(projectDir, 'worker', 'index.mjs'),
+  ];
+  if (!workerEntrypoints.some((p) => {
+    try { return fs.existsSync(p); } catch { return false; }
+  })) {
+    console.log(`${c.red}Orchestrator worker entrypoint not found in:${c.reset} ${projectDir}`);
+    console.log(`${c.dim}Expected one of:${c.reset} ${workerEntrypoints.join(', ')}`);
+    console.log(`${c.dim}Tip:${c.reset} set AGX_CLOUD_WORKER_DIR=/path/to/agx-cloud`);
     return null;
   }
 
@@ -1547,11 +1799,12 @@ function startTemporalWorker() {
   const script = pickEmbeddedWorkerNpmScript(projectDir);
   let worker;
   try {
+    const boardEnv = loadBoardEnv();
     worker = spawn('npm', ['run', script], {
       cwd: projectDir,
       detached: true,
       stdio: ['ignore', logFd, logFd],
-      env: { ...process.env },
+      env: { ...process.env, ...boardEnv },
     });
   } catch (err) {
     fs.closeSync(logFd);
@@ -2627,18 +2880,18 @@ async function checkOnboarding() {
   }
 
   function loadCloudConfig() {
-    logRetryFlow('loadCloudConfig', 'input', `path=${CLOUD_CONFIG_FILE}`);
+    logExecutionFlow('loadCloudConfig', 'input', `path=${CLOUD_CONFIG_FILE}`);
     try {
       if (fs.existsSync(CLOUD_CONFIG_FILE)) {
-        logRetryFlow('loadCloudConfig', 'processing', 'file exists');
+        logExecutionFlow('loadCloudConfig', 'processing', 'file exists');
         const raw = fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8');
         const config = JSON.parse(raw);
-        logRetryFlow('loadCloudConfig', 'output', 'config loaded');
+        logExecutionFlow('loadCloudConfig', 'output', 'config loaded');
         return config;
       }
-      logRetryFlow('loadCloudConfig', 'output', 'file missing');
+      logExecutionFlow('loadCloudConfig', 'output', 'file missing');
     } catch (err) {
-      logRetryFlow('loadCloudConfig', 'output', `error ${err?.message || err}`);
+      logExecutionFlow('loadCloudConfig', 'output', `error ${err?.message || err}`);
     }
     // Default to local board runtime when no cloud config exists.
     const apiUrl = (process.env.AGX_CLOUD_URL || process.env.AGX_BOARD_URL || 'http://localhost:3000').replace(/\/$/, '');
@@ -2649,7 +2902,7 @@ async function checkOnboarding() {
       userId: process.env.AGX_USER_ID || '',
       authDisabled: isLocalApiUrl(apiUrl),
     };
-    logRetryFlow('loadCloudConfig', 'output', `using default apiUrl=${fallback.apiUrl}`);
+    logExecutionFlow('loadCloudConfig', 'output', `using default apiUrl=${fallback.apiUrl}`);
     return fallback;
   }
 
@@ -2694,7 +2947,7 @@ async function checkOnboarding() {
     if (!config?.apiUrl || !config?.refreshToken) return null;
 
     const refreshUrl = `${config.apiUrl}/api/auth/refresh`;
-    logRetryFlow('cloudRequest', 'processing', `refresh token via ${refreshUrl}`);
+    logExecutionFlow('cloudRequest', 'processing', `refresh token via ${refreshUrl}`);
 
     try {
       const response = await fetch(refreshUrl, {
@@ -2709,7 +2962,7 @@ async function checkOnboarding() {
       } catch { }
 
       if (!response.ok || !data?.access_token) {
-        logRetryFlow('cloudRequest', 'output', `refresh failed HTTP ${response.status}`);
+        logExecutionFlow('cloudRequest', 'output', `refresh failed HTTP ${response.status}`);
         return null;
       }
 
@@ -2719,25 +2972,25 @@ async function checkOnboarding() {
         refreshToken: data.refresh_token || config.refreshToken,
       };
       saveCloudConfig(updated);
-      logRetryFlow('cloudRequest', 'output', 'token refreshed');
+      logExecutionFlow('cloudRequest', 'output', 'token refreshed');
       return updated;
     } catch (err) {
-      logRetryFlow('cloudRequest', 'output', `refresh exception ${err?.message || err}`);
+      logExecutionFlow('cloudRequest', 'output', `refresh exception ${err?.message || err}`);
       return null;
     }
   }
 
   async function cloudRequest(method, endpoint, body = null) {
-    logRetryFlow('cloudRequest', 'input', `method=${method}, endpoint=${endpoint}, body=${body ? JSON.stringify(body) : 'none'}`);
+    logExecutionFlow('cloudRequest', 'input', `method=${method}, endpoint=${endpoint}, body=${body ? JSON.stringify(body) : 'none'}`);
     const config = loadCloudConfig();
     if (!config?.apiUrl) {
       const errMsg = 'Cloud API URL not configured. Set AGX_CLOUD_URL (default http://localhost:3000)';
-      logRetryFlow('cloudRequest', 'output', errMsg);
+      logExecutionFlow('cloudRequest', 'output', errMsg);
       throw new Error(errMsg);
     }
 
     const url = `${config.apiUrl}${endpoint}`;
-    logRetryFlow('cloudRequest', 'processing', `url=${url}`);
+    logExecutionFlow('cloudRequest', 'processing', `url=${url}`);
     try {
       const makeRequest = async (cfg) => {
         const options = {
@@ -2769,26 +3022,15 @@ async function checkOnboarding() {
       }
 
       if (!response.ok) {
-        logRetryFlow('cloudRequest', 'output', `error HTTP ${response.status}`);
+        logExecutionFlow('cloudRequest', 'output', `error HTTP ${response.status}`);
         throw new Error(data?.error || `HTTP ${response.status}`);
       }
-      logRetryFlow('cloudRequest', 'output', `status=${response.status}`);
+      logExecutionFlow('cloudRequest', 'output', `status=${response.status}`);
       return data;
     } catch (err) {
-      logRetryFlow('cloudRequest', 'output', `exception ${err?.message || err}`);
+      logExecutionFlow('cloudRequest', 'output', `exception ${err?.message || err}`);
       throw err;
     }
-  }
-
-  function printProjectHelp() {
-    console.log(`${c.bold}agx project${c.reset} - Manage task/project assignments`);
-    console.log('');
-    console.log('Usage:');
-    console.log('  agx project assign <id|slug> --task <task>');
-    console.log('  agx project unassign --task <task>');
-    console.log('');
-    console.log('Flags:');
-    console.log('  --task, -t       Task ID, slug, or lookup index from agx task ls');
   }
 
   async function resolveProjectByIdentifier(identifier) {
@@ -2816,40 +3058,40 @@ async function checkOnboarding() {
   }
 
   async function resolveTaskId(taskId) {
-    logRetryFlow('resolveTaskId', 'input', `taskId=${taskId}`);
+    logExecutionFlow('resolveTaskId', 'input', `taskId=${taskId}`);
     let resolvedTaskId = taskId;
     const isNumber = /^\d+$/.test(taskId);
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(taskId);
 
     if (isNumber) {
-      logRetryFlow('resolveTaskId', 'processing', 'numeric shorthand');
+      logExecutionFlow('resolveTaskId', 'processing', 'numeric shorthand');
       const cache = loadTaskCache();
       const index = parseInt(taskId, 10) - 1;
       const cached = cache?.tasks?.[index];
       if (!cached?.id) {
         const errMsg = `No cached task for #${taskId}. Run: agx task ls`;
-        logRetryFlow('resolveTaskId', 'output', errMsg);
+        logExecutionFlow('resolveTaskId', 'output', errMsg);
         throw new Error(errMsg);
       }
       resolvedTaskId = cached.id;
-      logRetryFlow('resolveTaskId', 'output', `resolved from cache ${resolvedTaskId}`);
+      logExecutionFlow('resolveTaskId', 'output', `resolved from cache ${resolvedTaskId}`);
       return resolvedTaskId;
     }
 
     if (!isUuid) {
       const normalizedInput = String(taskId || '').trim().toLowerCase();
-      logRetryFlow('resolveTaskId', 'processing', `slug lookup: ${normalizedInput}`);
+      logExecutionFlow('resolveTaskId', 'processing', `slug lookup: ${normalizedInput}`);
 
       // Prefer server-side exact slug resolution if available.
       try {
         const { task } = await cloudRequest('GET', `/api/tasks?slug=${encodeURIComponent(taskId)}`);
         if (task?.id) {
           resolvedTaskId = task.id;
-          logRetryFlow('resolveTaskId', 'output', `resolved slug exact ${resolvedTaskId}`);
+          logExecutionFlow('resolveTaskId', 'output', `resolved slug exact ${resolvedTaskId}`);
           return resolvedTaskId;
         }
       } catch (err) {
-        logRetryFlow('resolveTaskId', 'processing', `exact slug lookup failed: ${err.message}`);
+        logExecutionFlow('resolveTaskId', 'processing', `exact slug lookup failed: ${err.message}`);
       }
 
       // Fallback for older/newer API variants: fetch task list and resolve locally.
@@ -2861,19 +3103,19 @@ async function checkOnboarding() {
 
       const exact = tasks.find((t) => String(t?.slug || '').toLowerCase() === normalizedInput);
       if (exact?.id) {
-        logRetryFlow('resolveTaskId', 'output', `resolved slug exact(list) ${exact.id}`);
+        logExecutionFlow('resolveTaskId', 'output', `resolved slug exact(list) ${exact.id}`);
         return exact.id;
       }
 
       const prefixMatches = tasks.filter((t) => String(t?.slug || '').toLowerCase().startsWith(normalizedInput));
       if (prefixMatches.length === 1 && prefixMatches[0]?.id) {
-        logRetryFlow('resolveTaskId', 'output', `resolved slug prefix ${prefixMatches[0].id}`);
+        logExecutionFlow('resolveTaskId', 'output', `resolved slug prefix ${prefixMatches[0].id}`);
         return prefixMatches[0].id;
       }
 
       const idPrefixMatches = tasks.filter((t) => String(t?.id || '').toLowerCase().startsWith(normalizedInput));
       if (idPrefixMatches.length === 1 && idPrefixMatches[0]?.id) {
-        logRetryFlow('resolveTaskId', 'output', `resolved id prefix ${idPrefixMatches[0].id}`);
+        logExecutionFlow('resolveTaskId', 'output', `resolved id prefix ${idPrefixMatches[0].id}`);
         return idPrefixMatches[0].id;
       }
 
@@ -2885,8 +3127,8 @@ async function checkOnboarding() {
       throw new Error(`Task not found for "${taskId}". Run: agx task ls`);
     }
 
-    logRetryFlow('resolveTaskId', 'processing', 'uuid shortcut');
-    logRetryFlow('resolveTaskId', 'output', `using uuid ${resolvedTaskId}`);
+    logExecutionFlow('resolveTaskId', 'processing', 'uuid shortcut');
+    logExecutionFlow('resolveTaskId', 'output', `using uuid ${resolvedTaskId}`);
     return resolvedTaskId;
   }
 
@@ -2967,6 +3209,44 @@ async function checkOnboarding() {
     return finalStatus === 'failed' ? 1 : 0;
   }
 
+  async function runTaskInline(rawTaskId, options = {}) {
+    const { resetFirst = false, forceSwarm = false } = options;
+    const taskId = await resolveTaskId(rawTaskId);
+
+    if (resetFirst) {
+      await cloudRequest('PATCH', `/api/tasks/${taskId}`, {
+        status: 'queued',
+        started_at: null,
+        completed_at: null,
+      });
+    }
+
+    // Best-effort: ensure the orchestrator worker is running so stage transitions can apply.
+    try { startTemporalWorker(); } catch { }
+
+    const nowIso = new Date().toISOString();
+    try {
+      await cloudRequest('PATCH', `/api/tasks/${taskId}`, {
+        status: 'in_progress',
+        started_at: nowIso,
+        completed_at: null,
+      });
+    } catch { }
+
+    const { task } = await cloudRequest('GET', `/api/tasks/${taskId}`);
+    if (!task?.id) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+
+    const effectiveTask = forceSwarm ? { ...task, swarm: true } : task;
+    console.log(`${c.green}✓${c.reset} Running task inline`);
+    console.log(`${c.dim}Task: ${taskId}${c.reset}`);
+
+    const decisionPayload = await runCloudDaemonTask(effectiveTask);
+    const decision = String(decisionPayload?.decision || 'failed').toLowerCase();
+    return decision === 'done' ? 0 : 1;
+  }
+
   function normalizeDaemonDecision(decision, fallbackSummary = '') {
     const allowed = new Set(['done', 'blocked', 'not_done', 'failed']);
     const extractedDecision = typeof decision?.decision === 'string' ? decision.decision.trim() : '';
@@ -3002,12 +3282,8 @@ async function checkOnboarding() {
     const localArtifacts = isLocalArtifactsEnabled();
     const storage = localArtifacts ? require('./lib/storage') : null;
     const stageLocal = mapCloudStageToLocalStage(task?.stage);
-    const projectSlug = localArtifacts
-      ? storage.slugify(String(task?.project || task?.project_slug || 'cloud'), { maxLength: 64 })
-      : null;
-    const taskSlug = localArtifacts
-      ? storage.slugify(String(task?.slug || task?.task_slug || taskId), { maxLength: 64 })
-      : null;
+    let projectSlug = null;
+    let taskSlug = null;
 
     let lockHandle = null;
     let run = null;
@@ -3020,7 +3296,18 @@ async function checkOnboarding() {
     let decisionPayload;
     try {
       if (localArtifacts) {
-        await storage.writeProjectState(projectSlug, { repo_path: process.cwd() });
+        projectSlug = await resolveLocalProjectSlugForCloudTask(storage, task);
+        taskSlug = await resolveLocalTaskSlugForCloudTask(storage, projectSlug, task);
+
+        const cloudProject = extractCloudProjectIdentity(task);
+        await storage.writeProjectState(projectSlug, {
+          repo_path: process.cwd(),
+          cloud: {
+            project_id: cloudProject.projectId,
+            project_slug: cloudProject.projectSlug,
+            project_name: cloudProject.projectName,
+          }
+        });
 
         const existing = await storage.readTaskState(projectSlug, taskSlug);
         if (!existing) {
@@ -3030,6 +3317,19 @@ async function checkOnboarding() {
             taskSlug,
           });
         }
+        // Always stamp cloud references so future runs can detect collisions and reuse the same folder.
+        try {
+          const cloudProject2 = extractCloudProjectIdentity(task);
+          const cloudTask = extractCloudTaskIdentity(task);
+          await storage.updateTaskState(projectSlug, taskSlug, {
+            cloud: {
+              task_id: cloudTask.taskId || taskId,
+              task_slug: cloudTask.taskSlug || null,
+              project_id: cloudProject2.projectId,
+              project_slug: cloudProject2.projectSlug,
+            }
+          });
+        } catch { }
 
         // Refresh working_set.md from cloud structured fields (cloud remains authoritative).
         const workingSetMd = renderWorkingSetMarkdownFromCloudTask(task);
@@ -3186,6 +3486,7 @@ async function checkOnboarding() {
     ].filter(Boolean).join('\n'));
 
     console.log(`${c.dim}[daemon] completed ${taskId} → ${decisionPayload.decision}${c.reset}`);
+    return decisionPayload;
   }
 
   async function runCloudDaemonLoop(options = {}) {
@@ -3305,70 +3606,6 @@ async function checkOnboarding() {
     'g': 'gemini', 'gem': 'gemini', 'gemini': 'gemini',
     'o': 'ollama', 'ol': 'ollama', 'ollama': 'ollama'
   };
-
-  if (cmd === 'project') {
-    const projectArgs = args.slice(1);
-    const wantsHelp = projectArgs.includes('--help') || projectArgs.includes('-h');
-    if (wantsHelp || projectArgs.length === 0) {
-      printProjectHelp();
-      process.exit(0);
-    }
-
-    const subcmd = projectArgs[0];
-    const subArgs = projectArgs.slice(1);
-
-    const handleTaskFlag = (list) => {
-      for (let i = 0; i < list.length; i++) {
-        if (list[i] === '--task' || list[i] === '-t') {
-          return list[i + 1];
-        }
-      }
-      return null;
-    };
-
-    try {
-      if (subcmd === 'assign') {
-        const projectIdentifier = subArgs[0];
-        if (!projectIdentifier) {
-          console.log(`${c.yellow}Usage:${c.reset} agx project assign <id|slug> --task <task>`);
-          process.exit(1);
-        }
-        const taskIdentifier = handleTaskFlag(subArgs);
-        if (!taskIdentifier) {
-          console.log(`${c.yellow}Usage:${c.reset} agx project assign <id|slug> --task <task>`);
-          process.exit(1);
-        }
-        const project = await resolveProjectByIdentifier(projectIdentifier);
-        const resolvedTaskId = await resolveTaskId(taskIdentifier);
-        await cloudRequest('PATCH', `/api/tasks/${resolvedTaskId}`, {
-          project: project.slug,
-          project_id: project.id,
-        });
-        console.log(`${c.green}✓${c.reset} Task ${resolvedTaskId} assigned to project ${project.slug}`);
-        process.exit(0);
-      } else if (subcmd === 'unassign') {
-        const taskIdentifier = handleTaskFlag(subArgs);
-        if (!taskIdentifier) {
-          console.log(`${c.yellow}Usage:${c.reset} agx project unassign --task <task>`);
-          process.exit(1);
-        }
-        const resolvedTaskId = await resolveTaskId(taskIdentifier);
-        await cloudRequest('PATCH', `/api/tasks/${resolvedTaskId}`, {
-          project: null,
-          project_id: null,
-        });
-        console.log(`${c.green}✓${c.reset} Task ${resolvedTaskId} removed from its project`);
-        process.exit(0);
-      } else {
-        console.log(`${c.yellow}Unknown project command:${c.reset} ${subcmd}`);
-        printProjectHelp();
-        process.exit(1);
-      }
-    } catch (err) {
-      console.log(`${c.red}✗${c.reset} ${err.message}`);
-      process.exit(1);
-    }
-  }
 
   // ============================================================
   // LOCAL-FIRST CLI COMMANDS
@@ -3718,6 +3955,9 @@ async function checkOnboarding() {
       console.log(`${c.green}✓${c.reset} Task created in cloud`);
       if (task?.id) {
         console.log(`${c.dim}Task ID: ${task.id}${c.reset}`);
+        if (task.slug) {
+          console.log(`${c.dim}Slug: ${task.slug}${c.reset}`);
+        }
       }
 
       if (!runAfter) {
@@ -3883,6 +4123,83 @@ async function checkOnboarding() {
   }
 
   // agx project ... - manage structured metadata
+  function formatProjectMetadataEntries(metadata) {
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return [];
+    return Object.entries(metadata);
+  }
+
+  function printProjectSummary(project) {
+    if (!project) return;
+    const slugSuffix = project.slug ? ` (${project.slug})` : '';
+    console.log(`${c.bold}${project.name || '(unnamed project)'}${c.reset}${slugSuffix}`);
+    console.log(`  ID: ${project.id}`);
+    if (project.description) {
+      console.log(`  Description: ${project.description}`);
+    }
+  }
+
+  function printProjectDetails(project) {
+    if (!project) return;
+    printProjectSummary(project);
+    if (project.ci_cd_info) {
+      console.log(`  CI/CD: ${project.ci_cd_info}`);
+    }
+    if (project.workflow_id) {
+      console.log(`  Workflow: ${project.workflow_id}`);
+    }
+    const metadataEntries = formatProjectMetadataEntries(project.metadata);
+    if (metadataEntries.length) {
+      console.log('  Metadata:');
+      metadataEntries.forEach(([key, value]) => {
+        console.log(`    ${key}: ${value}`);
+      });
+    }
+    if (Array.isArray(project.repos) && project.repos.length) {
+      console.log('  Repos:');
+      project.repos.forEach((repo) => {
+        const parts = [repo.name];
+        if (repo.path) parts.push(`path: ${repo.path}`);
+        if (repo.git_url) parts.push(`git_url: ${repo.git_url}`);
+        if (repo.notes) parts.push(`notes: ${repo.notes}`);
+        console.log(`    - ${parts.join(' | ')}`);
+      });
+    }
+  }
+
+  function printProjectHelp() {
+    console.log(`${c.bold}agx project${c.reset} - Manage structured project metadata`);
+    console.log('');
+    console.log('Usage:');
+    console.log('  agx project list');
+    console.log('  agx project get <id|slug>');
+    console.log('  agx project create --name <name> [--slug <slug>] [--description <text>] [--ci <info>] [--workflow <id>]');
+    console.log('                    [--metadata key=value] [--repo \'{"name":"repo","path":"/code"}\']');
+    console.log('  agx project update <id|slug> [--name <name>] [--slug <slug>] [--description <text>]');
+    console.log('                    [--ci <info>] [--workflow <id>] [--metadata key=value] [--repo <json>]');
+    console.log('  agx project assign <id|slug> --task <task>');
+    console.log('  agx project unassign --task <task>');
+    console.log('');
+    console.log('Flags:');
+    console.log('  --name <name>               Project name (required for create)');
+    console.log('  --slug <slug>               Optional canonical slug');
+    console.log('  --description <text>        Human-friendly description');
+    console.log('  --ci, --ci-info <info>      CI/CD notes');
+    console.log('  --workflow, --workflow-id <id>  Workflow reference');
+    console.log('  --metadata key=value        Attach metadata entries (repeatable)');
+    console.log('  --repo <json>               Describe repo info (repeatable; JSON)');
+    console.log('  --task, -t                  Task identifier for assign/unassign');
+  }
+
+  function getTaskFlagValue(argv) {
+    for (let i = 0; i < argv.length; i += 1) {
+      if (argv[i] === '--task' || argv[i] === '-t') {
+        const next = argv[i + 1];
+        if (next && !next.startsWith('-')) return next;
+      }
+    }
+    return null;
+  }
+
   if (cmd === 'project') {
     const projectArgs = args.slice(1);
     const wantsHelp = projectArgs.includes('--help') || projectArgs.includes('-h');
@@ -3891,23 +4208,114 @@ async function checkOnboarding() {
       process.exit(wantsHelp ? 0 : 1);
     }
 
-    const subcmd = projectArgs[0];
-    if (subcmd === 'create') {
-      try {
-        const flags = collectProjectFlags(projectArgs.slice(1));
-        const { project } = await createProject(flags, cloudRequest);
-        console.log(`${c.green}✓${c.reset} Project created: ${project.name} (${project.slug})`);
-        printProjectDetails(project);
-        process.exit(0);
-      } catch (err) {
-        console.log(`${c.red}✗${c.reset} ${err.message}`);
-        process.exit(1);
-      }
+    const cloudConfig = loadCloudConfigFile();
+    if (!cloudConfig?.apiUrl) {
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:3000)`);
+      process.exit(1);
     }
 
-    console.log(`${c.yellow}Usage:${c.reset} agx project <subcommand>`);
-    printProjectHelp();
-    process.exit(1);
+    const subcmd = projectArgs[0];
+    const subArgs = projectArgs.slice(1);
+
+    try {
+      switch (subcmd) {
+        case 'list': {
+          const { projects } = await cloudRequest('GET', '/api/projects');
+          const items = Array.isArray(projects) ? projects : [];
+          if (items.length === 0) {
+            console.log(`${c.dim}No projects found${c.reset}`);
+          } else {
+            console.log(`${c.bold}Projects (${items.length})${c.reset}`);
+            items.forEach((project, index) => {
+              printProjectSummary(project);
+              if (index < items.length - 1) console.log('');
+            });
+          }
+          process.exit(0);
+          break;
+        }
+        case 'get': {
+          const identifier = subArgs[0];
+          if (!identifier) {
+            console.log(`${c.yellow}Usage:${c.reset} agx project get <id|slug>`);
+            process.exit(1);
+          }
+          const project = await resolveProjectByIdentifier(identifier);
+          printProjectDetails(project);
+          process.exit(0);
+          break;
+        }
+        case 'create': {
+          const flags = collectProjectFlags(subArgs);
+          const { project } = await createProject(flags, cloudRequest);
+          console.log(`${c.green}✓${c.reset} Project created: ${project.name} (${project.slug || project.id})`);
+          printProjectDetails(project);
+          process.exit(0);
+          break;
+        }
+        case 'update': {
+          const identifier = subArgs[0];
+          if (!identifier) {
+            console.log(`${c.yellow}Usage:${c.reset} agx project update <id|slug> [flags]`);
+            process.exit(1);
+          }
+          const flags = collectProjectFlags(subArgs.slice(1));
+          const body = buildProjectBody(flags);
+          if (!Object.keys(body).length) {
+            throw new Error('At least one field must be specified to update a project.');
+          }
+          const targetProject = await resolveProjectByIdentifier(identifier);
+          const { project } = await cloudRequest('PATCH', `/api/projects/${targetProject.id}`, body);
+          console.log(`${c.green}✓${c.reset} Project updated: ${project.name} (${project.slug || project.id})`);
+          printProjectDetails(project);
+          process.exit(0);
+          break;
+        }
+        case 'assign': {
+          const projectIdentifier = subArgs[0];
+          if (!projectIdentifier) {
+            console.log(`${c.yellow}Usage:${c.reset} agx project assign <id|slug> --task <task>`);
+            process.exit(1);
+          }
+          const taskIdentifier = getTaskFlagValue(subArgs);
+          if (!taskIdentifier) {
+            console.log(`${c.yellow}Usage:${c.reset} agx project assign <id|slug> --task <task>`);
+            process.exit(1);
+          }
+          const project = await resolveProjectByIdentifier(projectIdentifier);
+          const resolvedTaskId = await resolveTaskId(taskIdentifier);
+          await cloudRequest('PATCH', `/api/tasks/${resolvedTaskId}`, {
+            project: project.slug || project.id,
+            project_id: project.id,
+          });
+          console.log(`${c.green}✓${c.reset} Task ${resolvedTaskId} assigned to project ${project.slug || project.id}`);
+          process.exit(0);
+          break;
+        }
+        case 'unassign': {
+          const taskIdentifier = getTaskFlagValue(subArgs);
+          if (!taskIdentifier) {
+            console.log(`${c.yellow}Usage:${c.reset} agx project unassign --task <task>`);
+            process.exit(1);
+          }
+          const resolvedTaskId = await resolveTaskId(taskIdentifier);
+          await cloudRequest('PATCH', `/api/tasks/${resolvedTaskId}`, {
+            project: null,
+            project_id: null,
+          });
+          console.log(`${c.green}✓${c.reset} Task ${resolvedTaskId} removed from its project`);
+          process.exit(0);
+          break;
+        }
+        default:
+          console.log(`${c.yellow}Unknown project command:${c.reset} ${subcmd}`);
+          printProjectHelp();
+          process.exit(1);
+      }
+    } catch (err) {
+      console.log(`${c.red}✗${c.reset} ${err.message}`);
+      process.exit(1);
+    }
   }
 
   // agx workflow ... - manage workflows
@@ -3974,9 +4382,12 @@ async function checkOnboarding() {
       const { task } = await cloudRequest('POST', '/api/tasks', { content });
       console.log(`${c.green}✓${c.reset} Task created`);
       console.log(`  ID: ${task.id}`);
+      if (task.slug) {
+        console.log(`  Slug: ${task.slug}`);
+      }
       console.log(`  Stage: ${task.stage || 'ideation'}`);
       if (project) console.log(`  Project: ${project}`);
-      console.log(`${c.dim}Use: agx ${task.engine || engine || 'claude'} --cloud-task ${task.id}${c.reset}`);
+      console.log(`${c.dim}Use: agx run ${task.slug || task.id}${c.reset}`);
     } catch (err) {
       const message = err?.message || String(err);
       console.log(`${c.red}✗${c.reset} Failed: ${message}`);
@@ -4017,7 +4428,7 @@ async function checkOnboarding() {
     }
 
     try {
-      const exitCode = await startTemporalTaskRun(taskId, { forceSwarm, follow: true });
+      const exitCode = await runTaskInline(taskId, { forceSwarm });
       process.exit(exitCode);
     } catch (err) {
       console.log(`${c.red}✗${c.reset} Failed: ${err.message}`);
@@ -4087,7 +4498,7 @@ async function checkOnboarding() {
   if (cmd === 'retry' || (cmd === 'task' && args[1] === 'retry')) {
     const runArgs = cmd === 'task' ? args.slice(1) : args;
     retryFlowActive = true;
-    logRetryFlow('retry command', 'input', `cmd=${cmd}, args=${runArgs.slice(1).join(' ')}`);
+    logExecutionFlow('retry command', 'input', `cmd=${cmd}, args=${runArgs.slice(1).join(' ')}`);
     let taskId = null;
     let forceSwarm = false;
     for (let i = 1; i < runArgs.length; i++) {
@@ -4101,21 +4512,17 @@ async function checkOnboarding() {
       taskId = runArgs.slice(1).find(a => !a.startsWith('-'));
     }
     if (!taskId) {
-      logRetryFlow('retry command', 'output', 'missing task id');
+      logExecutionFlow('retry command', 'output', 'missing task id');
       console.log(`${c.yellow}Usage:${c.reset} agx retry <taskId> [--task <id>] [--swarm]`);
       console.log(`${c.dim}   or:${c.reset} agx task retry <taskId> [--task <id>] [--swarm]`);
       process.exit(1);
     }
 
     try {
-      const exitCode = await startTemporalTaskRun(taskId, {
-        resetFirst: true,
-        forceSwarm,
-        follow: true,
-      });
+      const exitCode = await runTaskInline(taskId, { resetFirst: true, forceSwarm });
       process.exit(exitCode);
     } catch (err) {
-      logRetryFlow('retry command', 'output', `failed ${err.message}`);
+      logExecutionFlow('retry command', 'output', `failed ${err.message}`);
       console.log(`${c.red}✗${c.reset} Failed: ${err.message}`);
       process.exit(1);
     }
@@ -4931,55 +5338,6 @@ async function checkOnboarding() {
   return false;
 }
 
-function printProjectHelp() {
-  console.log(`${c.bold}agx project${c.reset} - Manage structured project metadata`);
-  console.log('');
-  console.log('Usage:');
-  console.log('  agx project create --name <name> [--slug <slug>] [--description <text>] [--ci <info>]');
-  console.log('                    [--metadata key=value] [--repo \'{"name":"repo","path":"/code"}\']');
-  console.log('');
-  console.log('Flags:');
-  console.log('  --name <name>         Project name (required)');
-  console.log('  --slug <slug>         Optional canonical slug');
-  console.log('  --description <text>  Human-friendly description');
-  console.log('  --ci <info>           CI/CD notes');
-  console.log('  --metadata key=value  Attach metadata entries (repeatable)');
-  console.log('  --repo <json>         Describe repo info (repeatable; JSON)');
-}
-
-function formatProjectMetadata(metadata) {
-  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return [];
-  return Object.entries(metadata);
-}
-
-function printProjectDetails(project) {
-  if (!project) return;
-  console.log(`  ID: ${project.id}`);
-  if (project.description) {
-    console.log(`  Description: ${project.description}`);
-  }
-  if (project.ci_cd_info) {
-    console.log(`  CI/CD: ${project.ci_cd_info}`);
-  }
-  const metadataEntries = formatProjectMetadata(project.metadata);
-  if (metadataEntries.length) {
-    console.log('  Metadata:');
-    metadataEntries.forEach(([key, value]) => {
-      console.log(`    ${key}: ${value}`);
-    });
-  }
-  if (Array.isArray(project.repos) && project.repos.length) {
-    console.log('  Repos:');
-    project.repos.forEach((repo) => {
-      const parts = [repo.name];
-      if (repo.path) parts.push(`path: ${repo.path}`);
-      if (repo.git_url) parts.push(`git_url: ${repo.git_url}`);
-      if (repo.notes) parts.push(`notes: ${repo.notes}`);
-      console.log(`    - ${parts.join(' | ')}`);
-    });
-  }
-}
-
 // Main execution
 (async () => {
   if (await checkOnboarding()) return;
@@ -5448,6 +5806,15 @@ EXAMPLES:
     try {
       const { task } = await cloudRequest('GET', `/api/tasks/${options.cloudTaskId}`);
 
+      // Fetch task comments
+      let taskComments = [];
+      try {
+        const commentsResponse = await cloudRequest('GET', `/api/tasks/${options.cloudTaskId}/comments`);
+        taskComments = commentsResponse?.comments || [];
+      } catch (err) {
+        console.error(`${c.yellow}Warning: Could not fetch task comments:${c.reset} ${err.message}`);
+      }
+
       // Build augmented prompt with task context
       const plan = extractSection(task.content, 'Plan');
       const todo = extractSection(task.content, 'Todo') || extractSection(task.content, 'TODO');
@@ -5467,9 +5834,15 @@ Title: ${task.title || 'Untitled'}
 Stage: ${task.stage || 'ideation'}
 Stage Objective: ${stagePrompt}
 Stage Completion Requirement: ${stageRequirement}
-Status: ${task.status || 'unknown'}
 
-${task.content ? `---\n${task.content}\n---` : ''}
+User Request: 
+"""
+${task?.title}
+${task?.content}
+---
+Task Thread:
+${taskComments.map(c => `${c.author}: ${c.content}`).join('\n')}
+"""
 
 ## Extracted State
 
@@ -5534,6 +5907,15 @@ ${finalPrompt ? `Your specific task: ${finalPrompt}` : ''}
         console.log(`${c.green}✓${c.reset} Task created in cloud: ${task.id}`);
         options.cloudTaskId = task.id;
 
+        // Fetch task comments (should be empty for new tasks, but good practice)
+        let taskComments = [];
+        try {
+          const commentsResponse = await cloudRequest('GET', `/api/tasks/${task.id}/comments`);
+          taskComments = commentsResponse?.comments || [];
+        } catch (err) {
+          console.error(`${c.yellow}Warning: Could not fetch task comments:${c.reset} ${err.message}`);
+        }
+
         // Update prompt with task context
         const stageKey = task?.stage || 'unknown';
         const stagePrompt = resolveStageObjective(task, stageKey, '');
@@ -5546,7 +5928,15 @@ Title: ${task.title || finalPrompt}
 Stage: ${task.stage}
 Stage Objective: ${stagePrompt}
 Stage Completion Requirement: ${stageRequirement}
-Status: ${task.status}
+
+User Request: 
+"""
+${task?.title}
+${task?.content}
+---
+Task Thread:
+${taskComments.map(c => `${c.author}: ${c.content}`).join('\n')}
+"""
 
 ---
 

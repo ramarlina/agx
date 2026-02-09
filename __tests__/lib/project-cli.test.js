@@ -19,6 +19,7 @@ describe('project-cli helpers', () => {
         ci_cd_info: 'CI pipeline',
         metadata: ['framework=react'],
         repos: [{ name: 'web', path: '/code/web' }],
+        workflow_id: null,
       });
     });
 

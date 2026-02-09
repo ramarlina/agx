@@ -1,6 +1,8 @@
 # agx
 
-Task orchestrator for autonomous AI agents. Uses cloud API for persistent storage and task management.
+Task orchestrator for autonomous AI agents with an embedded dashboard. Uses cloud API for persistent storage and task management.
+
+![AGX Dashboard](agx_dashboard.png)
 
 ```bash
 npm install -g @mndrk/agx
@@ -176,11 +178,10 @@ agx (agent execution)
  ├── Context via: agx info / context
  └── Task orchestration: Orchestrator worker (pg-boss)
 
-API
- ├── Task storage and retrieval
- ├── State persistence (goal, criteria, progress)
- ├── KV primitives (set/get/pop)
- └── Task queue and scheduling
+Embedded Runtime (agx-cloud)
+ ├── Next.js Dashboard (Kanban, Chat)
+ ├── Task Queue & State Management
+ └── Real-time Updates
 ```
 
 ## Contributing
