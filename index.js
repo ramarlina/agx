@@ -7169,6 +7169,88 @@ async function checkOnboarding() {
     process.exit(0);
   }
 
+  // ============================================================
+  // agx update - Self-update and auto-update management
+  // ============================================================
+  if (cmd === 'update') {
+    const subCmd = args[1];
+    const CRON_MARKER = '# agx-auto-update';
+    const CRON_SCHEDULE = '0 3 * * *'; // Daily at 3am
+    const CRON_CMD = 'npm update -g @mndrk/agx';
+
+    // Helper to get current crontab
+    const getCrontab = () => {
+      try {
+        return execSync('crontab -l 2>/dev/null', { encoding: 'utf8' });
+      } catch {
+        return '';
+      }
+    };
+
+    // Helper to set crontab
+    const setCrontab = (content) => {
+      const tmp = path.join(os.tmpdir(), `agx-crontab-${Date.now()}`);
+      fs.writeFileSync(tmp, content);
+      execSync(`crontab ${tmp}`);
+      fs.unlinkSync(tmp);
+    };
+
+    // Check if auto-update is enabled
+    const isAutoEnabled = () => getCrontab().includes(CRON_MARKER);
+
+    if (subCmd === 'status' || subCmd === '--status') {
+      const pkg = require('./package.json');
+      console.log(`${c.bold}agx update status${c.reset}\n`);
+      console.log(`  Current version: ${c.cyan}${pkg.version}${c.reset}`);
+      console.log(`  Auto-update: ${isAutoEnabled() ? `${c.green}enabled${c.reset} (daily at 3am)` : `${c.dim}disabled${c.reset}`}`);
+      process.exit(0);
+    }
+
+    if (subCmd === '--auto' || subCmd === 'auto' || subCmd === 'enable') {
+      if (isAutoEnabled()) {
+        console.log(`${c.yellow}⚠${c.reset} Auto-update already enabled`);
+        process.exit(0);
+      }
+      const crontab = getCrontab();
+      const newLine = `${CRON_SCHEDULE} ${CRON_CMD} ${CRON_MARKER}\n`;
+      setCrontab(crontab + newLine);
+      console.log(`${c.green}✓${c.reset} Auto-update enabled (daily at 3am)`);
+      console.log(`  ${c.dim}To disable: agx update --off${c.reset}`);
+      process.exit(0);
+    }
+
+    if (subCmd === '--off' || subCmd === 'off' || subCmd === 'disable') {
+      const crontab = getCrontab();
+      if (!isAutoEnabled()) {
+        console.log(`${c.dim}Auto-update not enabled${c.reset}`);
+        process.exit(0);
+      }
+      const lines = crontab.split('\n').filter(l => !l.includes(CRON_MARKER));
+      setCrontab(lines.join('\n'));
+      console.log(`${c.green}✓${c.reset} Auto-update disabled`);
+      process.exit(0);
+    }
+
+    // Default: update now
+    console.log(`${c.cyan}→${c.reset} Checking for updates...`);
+    try {
+      const result = spawnSync('npm', ['update', '-g', '@mndrk/agx'], { 
+        stdio: 'inherit',
+        shell: true 
+      });
+      if (result.status === 0) {
+        console.log(`${c.green}✓${c.reset} Update complete`);
+      } else {
+        console.log(`${c.red}✗${c.reset} Update failed`);
+        process.exit(1);
+      }
+    } catch (err) {
+      console.error(`${c.red}✗${c.reset} Update failed: ${err.message}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
   // agx security - Manage daemon security settings
   if (cmd === 'security') {
     const securityCmd = args[1];
