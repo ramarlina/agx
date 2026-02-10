@@ -1,6 +1,6 @@
 {
   "name": "@mndrk/agx",
-  "version": "1.4.23",
+  "version": "1.4.24",
   "description": "Autonomous AI Agent Orchestrator for Claude, Gemini, and Ollama",
   "main": "lib/index.js",
   "exports": {
