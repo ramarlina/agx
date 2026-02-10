@@ -1,19 +1,50 @@
-# AGX
+<h1 align="center">
+  <br>
+  AGX
+  <br>
+</h1>
 
-[![GitHub stars](https://img.shields.io/github/stars/ramarlina/agx?style=social)](https://github.com/ramarlina/agx)
+<h4 align="center">Local-first agent orchestrator with durable state and visual control.</h4>
 
-**Local-first agent orchestrator with durable state and visual control.**
+  <a href="https://github.com/ramarlina/agx">
+    <img src="agx_dashboard.png" alt="AGX" width="600">
+  </a>
+  <br>
+  <br>
+<p align="center">
+  <a href="https://github.com/ramarlina/agx/stargazers">
+    <img src="https://img.shields.io/github/stars/ramarlina/agx?style=social" alt="GitHub Stars">
+  </a>
+  <a href="https://www.npmjs.com/package/@mndrk/agx">
+    <img src="https://img.shields.io/npm/v/@mndrk/agx?color=green" alt="NPM Version">
+  </a>
+  <a href="https://www.npmjs.com/package/@mndrk/agx">
+    <img src="https://img.shields.io/npm/dm/@mndrk/agx" alt="NPM Downloads">
+  </a>
+  <a href="https://github.com/ramarlina/agx/commits/main">
+    <img src="https://img.shields.io/github/last-commit/ramarlina/agx" alt="Last Commit">
+  </a>
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
+  </a>
+  <a href="https://nodejs.org">
+    <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg" alt="Node">
+  </a>
+</p>
 
-AGX turns AI coding CLIs (Claude Code, Gemini CLI, Ollama) into autonomous agents that persist across sessions, survive crashes, and run unattended.
+<p align="center">
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#why-agx-exists">Why AGX</a> •
+  <a href="#features">Features</a> •
+  <a href="#commands">Commands</a> •
+  <a href="#architecture">Architecture</a> •
+  <a href="#contributing">Contributing</a> •
+  <a href="#license">License</a>
+</p>
 
-Instead of reconstructing context from chat history, AGX stores **authoritative agent state locally in PostgreSQL**.
-If a process dies mid-task, AGX resumes from the **last checkpoint** — not from replayed logs, not from rebuilt prompts.
-
-- The **CLI** runs agents.
-- The bundled **dashboard** shows live state from the database.
-- If the dashboard stops, agents keep working.
-
-![AGX Dashboard](agx_dashboard.png)
+<p align="center">
+  AGX turns AI coding CLIs (Claude Code, Gemini CLI, Ollama) into autonomous agents that persist across sessions, survive crashes, and run unattended. Instead of reconstructing context from chat history, AGX stores <strong>authoritative agent state locally in PostgreSQL</strong>.
+</p>
 
 ---
 
@@ -37,26 +68,15 @@ AGX separates **execution state** from **execution history**:
 History is never replayed to rebuild context.
 Resuming a task is a constant-cost operation, no matter how long it has been running.
 
-This single design choice is what makes long-running, multi-session agent execution reliable.
-
 ---
 
 ## Features
 
-- **Durable, resumable execution**
-  Tasks survive restarts, crashes, and machine reboots. State is checkpointed after every agent iteration.
-
-- **Bundled dashboard (Kanban)**
-  Ships with the CLI. Reflects authoritative database state — it does not maintain its own copy.
-
-- **Multi-provider**
-  Use Claude, Gemini, or Ollama depending on your needs.
-
-- **Local & inspectable**
-  Runs entirely on your machine. Safeguards for destructive commands (`rm -rf` protection), task signing, and full execution logs.
-
-- **Project workflows**
-  Define custom SDLC stage prompts (Planning, Coding, QA, etc.) tailored to your repository.
+- **Durable, resumable execution** — Tasks survive restarts, crashes, and machine reboots. State is checkpointed after every agent iteration.
+- **Bundled dashboard (Kanban)** — Ships with the CLI. Reflects authoritative database state.
+- **Multi-provider** — Use Claude, Gemini, or Ollama depending on your needs.
+- **Local & inspectable** — Runs entirely on your machine. Safeguards for destructive commands, task signing, and full execution logs.
+- **Project workflows** — Define custom SDLC stage prompts (Planning, Coding, QA, etc.) tailored to your repository.
 
 ---
 
@@ -71,24 +91,7 @@ AGX is infrastructure for running agents **locally, durably, and observably**.
 
 ---
 
-## Prerequisites
-
-AGX manages its own infrastructure.
-
-- **PostgreSQL**
-  Used for durable state and task queueing.
-  AGX can auto-start Postgres via Docker if none is running.
-
-- **At least one AI provider CLI**
-  - [Claude Code](https://docs.anthropic.com/claude/docs/claude-cli)
-  - [Gemini CLI](https://ai.google.dev/gemini-api/docs/cli)
-  - [Ollama](https://ollama.ai/)
-
-No manual database setup required.
-
----
-
-## Getting Started
+## Quick Start
 
 ### Installation
 
@@ -106,6 +109,18 @@ agx daemon start
 ```
 
 Open the board, watch the agent work, stop/restart at will.
+
+---
+
+## Prerequisites
+
+- **PostgreSQL** — Used for durable state and task queueing. AGX can auto-start Postgres via Docker if none is running.
+- **At least one AI provider CLI:**
+  - [Claude Code](https://docs.anthropic.com/claude/docs/claude-cli)
+  - [Gemini CLI](https://ai.google.dev/gemini-api/docs/cli)
+  - [Ollama](https://ollama.ai/)
+
+No manual database setup required.
 
 ---
 
@@ -129,8 +144,6 @@ agx board status
 agx board logs
 agx board tail
 ```
-
-The board auto-starts when required.
 
 ### Daemon Mode
 
@@ -211,10 +224,22 @@ Contributions welcome.
 * **Bugs & features:** GitHub Issues
 * **PRs:** Fork `main`, add tests, submit
 
-We triage weekly.
-
 ---
 
 ## License
 
 MIT
+
+---
+
+<p align="center">
+  <br>
+  ⭐ <strong>Star This Project</strong><br>
+  If AGX helps you build better software with AI agents, please give us a star! It helps others discover the project and motivates us to keep improving.
+</p>
+
+---
+
+<p align="center">
+  <strong>Built for autonomous agents</strong> · <strong>Powered by durable state</strong> · <strong>Made with TypeScript</strong>
+</p>
