@@ -6378,18 +6378,21 @@ async function checkOnboarding() {
     process.exit(0);
   }
 
-  // agx retry <taskId> [--task <id>] [--swarm]
+  // agx retry <taskId> [--task <id>] [--swarm] [--async]
   if (cmd === 'retry' || (cmd === 'task' && args[1] === 'retry')) {
     const runArgs = cmd === 'task' ? args.slice(1) : args;
     retryFlowActive = true;
     logExecutionFlow('retry command', 'input', `cmd=${cmd}, args=${runArgs.slice(1).join(' ')}`);
     let taskId = null;
     let forceSwarm = false;
+    let asyncMode = false;
     for (let i = 1; i < runArgs.length; i++) {
       if (runArgs[i] === '--task' || runArgs[i] === '-t') {
         taskId = runArgs[++i];
       } else if (runArgs[i] === '--swarm') {
         forceSwarm = true;
+      } else if (runArgs[i] === '--async' || runArgs[i] === '-a') {
+        asyncMode = true;
       }
     }
     if (!taskId) {
@@ -6397,12 +6400,26 @@ async function checkOnboarding() {
     }
     if (!taskId) {
       logExecutionFlow('retry command', 'output', 'missing task id');
-      console.log(`${c.yellow}Usage:${c.reset} agx retry <taskId> [--task <id>] [--swarm]`);
-      console.log(`${c.dim}   or:${c.reset} agx task retry <taskId> [--task <id>] [--swarm]`);
+      console.log(`${c.yellow}Usage:${c.reset} agx retry <taskId> [--task <id>] [--swarm] [--async]`);
+      console.log(`${c.dim}   or:${c.reset} agx task retry <taskId> [--task <id>] [--swarm] [--async]`);
+      console.log(`${c.dim}--async: Reset status and let daemon handle (non-blocking)${c.reset}`);
       process.exit(1);
     }
 
     try {
+      // Async mode: just reset task status, daemon will pick it up
+      if (asyncMode) {
+        const resolvedId = await resolveTaskId(taskId);
+        await cloudRequest('PATCH', `/api/tasks/${resolvedId}`, {
+          status: 'queued',
+          started_at: null,
+          completed_at: null,
+        });
+        console.log(`${c.green}✓${c.reset} Task ${resolvedId.slice(0, 8)} queued for retry`);
+        console.log(`${c.dim}Daemon will pick it up shortly${c.reset}`);
+        process.exit(0);
+      }
+
       const exitCode = await runTaskInline(taskId, { resetFirst: true, forceSwarm });
       process.exit(exitCode);
     } catch (err) {
@@ -7421,7 +7438,7 @@ PROVIDERS:
   CLOUD:
   agx new "<task>"       Create task in cloud
   agx run <id|slug|#>    Claim and run a task
-  agx retry <id|slug|#>  Reset + retry a task
+  agx retry <id|slug|#>  Reset + retry a task (--async for non-blocking)
   agx status             Show cloud status
   agx complete <taskId>  Mark task stage complete
   agx project assign <project> --task <task>   Assign task to project
