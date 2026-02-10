@@ -244,6 +244,7 @@ describe('lib/storage/paths', () => {
             expect(p.output).toContain('output.md');
             expect(p.decision).toContain('decision.json');
             expect(p.events).toContain('events.ndjson');
+            expect(p.plan).toContain(`${path.sep}plan`);
             expect(p.artifacts).toContain('artifacts');
         });
 
