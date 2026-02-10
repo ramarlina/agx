@@ -6315,6 +6315,69 @@ async function checkOnboarding() {
     process.exit(0);
   }
 
+  // agx task update <taskId> [--provider <p>] [--model <m>] [--status <s>]
+  if (cmd === 'task' && args[1] === 'update') {
+    const config = loadCloudConfig();
+    if (!config) {
+      console.log(`${c.red}Cloud API URL not configured.${c.reset} Set AGX_CLOUD_URL (default is http://localhost:41741)`);
+      process.exit(1);
+    }
+
+    const runArgs = args.slice(1);
+    let taskId = null;
+    let provider = null;
+    let model = null;
+    let status = null;
+
+    for (let i = 1; i < runArgs.length; i++) {
+      if (runArgs[i] === '--provider' || runArgs[i] === '-p') {
+        const alias = runArgs[++i]?.toLowerCase();
+        provider = PROVIDER_ALIASES[alias] || alias;
+      } else if (runArgs[i] === '--model' || runArgs[i] === '-m') {
+        model = runArgs[++i];
+      } else if (runArgs[i] === '--status' || runArgs[i] === '-s') {
+        status = runArgs[++i];
+      } else if (!runArgs[i].startsWith('-') && !taskId) {
+        taskId = runArgs[i];
+      }
+    }
+
+    if (!taskId) {
+      console.log(`${c.yellow}Usage:${c.reset} agx task update <taskId> [--provider <p>] [--model <m>] [--status <s>]`);
+      process.exit(1);
+    }
+
+    let resolvedTaskId = null;
+    try {
+      resolvedTaskId = await resolveTaskId(taskId);
+    } catch (err) {
+      console.log(`${c.red}✗${c.reset} Failed to resolve task: ${err.message}`);
+      process.exit(1);
+    }
+
+    const patch = {};
+    if (provider) patch.provider = provider;
+    if (model) patch.model = model;
+    if (status) patch.status = status;
+
+    if (Object.keys(patch).length === 0) {
+      console.log(`${c.yellow}Nothing to update.${c.reset} Use --provider, --model, or --status`);
+      process.exit(1);
+    }
+
+    try {
+      await cloudRequest('PATCH', `/api/tasks/${resolvedTaskId}`, patch);
+      console.log(`${c.green}✓${c.reset} Task updated`);
+      if (provider) console.log(`${c.dim}  Provider: ${provider}${c.reset}`);
+      if (model) console.log(`${c.dim}  Model: ${model}${c.reset}`);
+      if (status) console.log(`${c.dim}  Status: ${status}${c.reset}`);
+    } catch (err) {
+      console.log(`${c.red}✗${c.reset} Failed: ${err.message}`);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
   // agx retry <taskId> [--task <id>] [--swarm]
   if (cmd === 'retry' || (cmd === 'task' && args[1] === 'retry')) {
     const runArgs = cmd === 'task' ? args.slice(1) : args;
