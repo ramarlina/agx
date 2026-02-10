@@ -7191,8 +7191,11 @@ async function checkOnboarding() {
     const setCrontab = (content) => {
       const tmp = path.join(os.tmpdir(), `agx-crontab-${Date.now()}`);
       fs.writeFileSync(tmp, content);
-      execSync(`crontab ${tmp}`);
-      fs.unlinkSync(tmp);
+      try {
+        execSync(`crontab ${tmp}`, { timeout: 5000 });
+      } finally {
+        try { fs.unlinkSync(tmp); } catch {}
+      }
     };
 
     // Check if auto-update is enabled
@@ -7213,9 +7216,15 @@ async function checkOnboarding() {
       }
       const crontab = getCrontab();
       const newLine = `${CRON_SCHEDULE} ${CRON_CMD} ${CRON_MARKER}\n`;
-      setCrontab(crontab + newLine);
-      console.log(`${c.green}✓${c.reset} Auto-update enabled (daily at 3am)`);
-      console.log(`  ${c.dim}To disable: agx update --off${c.reset}`);
+      try {
+        setCrontab(crontab + newLine);
+        console.log(`${c.green}✓${c.reset} Auto-update enabled (daily at 3am)`);
+        console.log(`  ${c.dim}To disable: agx update --off${c.reset}`);
+      } catch (err) {
+        console.log(`${c.yellow}⚠${c.reset} Could not modify crontab automatically.`);
+        console.log(`\n  Add this line to your crontab (${c.cyan}crontab -e${c.reset}):\n`);
+        console.log(`  ${c.dim}${CRON_SCHEDULE} ${CRON_CMD}${c.reset}\n`);
+      }
       process.exit(0);
     }
 
@@ -7226,8 +7235,13 @@ async function checkOnboarding() {
         process.exit(0);
       }
       const lines = crontab.split('\n').filter(l => !l.includes(CRON_MARKER));
-      setCrontab(lines.join('\n'));
-      console.log(`${c.green}✓${c.reset} Auto-update disabled`);
+      try {
+        setCrontab(lines.join('\n'));
+        console.log(`${c.green}✓${c.reset} Auto-update disabled`);
+      } catch (err) {
+        console.log(`${c.yellow}⚠${c.reset} Could not modify crontab automatically.`);
+        console.log(`\n  Remove the agx-auto-update line from your crontab (${c.cyan}crontab -e${c.reset})\n`);
+      }
       process.exit(0);
     }
 
