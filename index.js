@@ -190,7 +190,12 @@ function sanitizeCliArgs(values) {
 function loadCloudConfigFile() {
   try {
     if (fs.existsSync(CLOUD_CONFIG_FILE)) {
-      return JSON.parse(fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8'));
+      const config = JSON.parse(fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8'));
+      // Normalize: accept cloudUrl as fallback for apiUrl
+      if (!config.apiUrl && config.cloudUrl) {
+        config.apiUrl = config.cloudUrl;
+      }
+      return config;
     }
   } catch { }
   return null;
@@ -1691,7 +1696,9 @@ async function runSingleAgentLoop({ taskId, task, provider, model, logger, onStd
       return { code: 0, decision: lastDecision };
     }
 
-    prompt = buildNextPromptWithDecisionContext(decision);
+    prompt = (typeof buildNextPromptWithDecisionContext === 'function'
+      ? buildNextPromptWithDecisionContext(decision)
+      : (decision?.next_prompt || ''));
     iteration += 1;
   }
 
@@ -2151,7 +2158,9 @@ async function runSingleAgentExecuteVerifyLoop({ taskId, task, provider, model, 
       return { code, decision: lastDecision, lastRun, runIndexEntry: lastRunEntry };
     }
 
-    nextPrompt = buildNextPromptWithDecisionContext(decision);
+    nextPrompt = (typeof buildNextPromptWithDecisionContext === 'function'
+      ? buildNextPromptWithDecisionContext(decision)
+      : (decision?.next_prompt || ''));
     iteration += 1;
   }
 
@@ -2411,7 +2420,9 @@ async function runSwarmExecuteVerifyLoop({ taskId, task, logger, storage, projec
       return { code, decision: lastDecision, lastRun, runIndexEntry: lastRunEntry };
     }
 
-	    nextPrompt = buildNextPromptWithDecisionContext(decision);
+	    nextPrompt = (typeof buildNextPromptWithDecisionContext === 'function'
+	      ? buildNextPromptWithDecisionContext(decision)
+	      : (decision?.next_prompt || ''));
 	    iteration += 1;
 	  }
 
@@ -2544,7 +2555,9 @@ async function runSwarmLoop({ taskId, task, artifacts, cancellationWatcher }) {
         return { code: 0, decision: lastDecision };
       }
 
-      prompt = buildNextPromptWithDecisionContext(decision);
+      prompt = (typeof buildNextPromptWithDecisionContext === 'function'
+        ? buildNextPromptWithDecisionContext(decision)
+        : (decision?.next_prompt || ''));
       iteration += 1;
     }
 
@@ -4562,6 +4575,10 @@ async function checkOnboarding() {
         logExecutionFlow('loadCloudConfig', 'processing', 'file exists');
         const raw = fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8');
         const config = JSON.parse(raw);
+        // Normalize: accept cloudUrl as fallback for apiUrl
+        if (!config.apiUrl && config.cloudUrl) {
+          config.apiUrl = config.cloudUrl;
+        }
         logExecutionFlow('loadCloudConfig', 'output', 'config loaded');
         return config;
       }
@@ -5287,6 +5304,24 @@ async function checkOnboarding() {
     await handleSkillCommand(args);
     process.exit(0);
     return true;
+  }
+
+  // Test command - creates test.txt file
+  if (cmd === 'test') {
+    const testFilePath = path.join(process.cwd(), 'test.txt');
+    const timestamp = new Date().toISOString();
+    const content = `Test file created by agx CLI\nTimestamp: ${timestamp}\n`;
+
+    try {
+      fs.writeFileSync(testFilePath, content, 'utf8');
+      console.log(`${c.green}✓${c.reset} Created test.txt in ${process.cwd()}`);
+      process.exit(0);
+      return true;
+    } catch (err) {
+      console.error(`${c.red}Error:${c.reset} Failed to create test.txt: ${err.message}`);
+      process.exit(1);
+      return false;
+    }
   }
 
   // ============================================================
@@ -7562,7 +7597,12 @@ EXAMPLES:
   function loadCloudConfig() {
     try {
       if (fs.existsSync(CLOUD_CONFIG_FILE)) {
-        return JSON.parse(fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8'));
+        const config = JSON.parse(fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8'));
+        // Normalize: accept cloudUrl as fallback for apiUrl
+        if (!config.apiUrl && config.cloudUrl) {
+          config.apiUrl = config.cloudUrl;
+        }
+        return config;
       }
     } catch { }
     // Default to local board runtime when no cloud config exists.
