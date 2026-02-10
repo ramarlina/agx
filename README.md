@@ -6,11 +6,15 @@
 
 <h4 align="center">Local-first agent orchestrator with durable state and visual control.</h4>
 
+<p align="center">
+  <br>
   <a href="https://github.com/ramarlina/agx">
     <img src="agx_dashboard.png" alt="AGX" width="600">
   </a>
   <br>
   <br>
+</p>
+
 <p align="center">
   <a href="https://github.com/ramarlina/agx/stargazers">
     <img src="https://img.shields.io/github/stars/ramarlina/agx?style=social" alt="GitHub Stars">
