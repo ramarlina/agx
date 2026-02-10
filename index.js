@@ -322,6 +322,34 @@ async function postTaskComment(taskIdOrParams, contentMaybe) {
   }
 }
 
+async function postLearning(taskId, content) {
+  if (!taskId || !content) return;
+
+  const cloudConfig = loadCloudConfigFile();
+  if (!cloudConfig?.apiUrl) return;
+
+  logExecutionFlow('postLearning', 'input', `taskId=${taskId}`);
+
+  try {
+    await fetch(`${cloudConfig.apiUrl}/api/learnings`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(cloudConfig?.token ? { 'Authorization': `Bearer ${cloudConfig.token}` } : {}),
+        'x-user-id': cloudConfig.userId || '',
+      },
+      body: JSON.stringify({
+        scope: 'task',
+        scope_id: taskId,
+        content: String(content).slice(0, 2000)
+      })
+    });
+    logExecutionFlow('postLearning', 'output', 'success');
+  } catch (err) {
+    logExecutionFlow('postLearning', 'output', `failed ${err?.message || err}`);
+  }
+}
+
 function isLocalArtifactsEnabled() {
   // Single cutover: always on, no opt-out.
   return true;
@@ -370,6 +398,33 @@ function extractCloudTaskIdentity(task) {
   const taskId = task?.id ? String(task.id).trim() : '';
   const taskSlug = task?.slug ? String(task.slug).trim() : '';
   return { taskId, taskSlug };
+}
+
+/**
+ * Extract the repo path from a task's project_context.
+ * Falls back to process.cwd() if no repo path is configured.
+ */
+function extractProjectRepoPath(task) {
+  // Check project_context.repos (returned by /api/queue with buildTaskContext)
+  const repos = task?.project_context?.repos;
+  if (Array.isArray(repos) && repos.length > 0) {
+    const firstRepo = repos[0];
+    if (firstRepo?.path && typeof firstRepo.path === 'string' && firstRepo.path.trim()) {
+      let repoPath = firstRepo.path.trim();
+      // Expand tilde to home directory
+      if (repoPath.startsWith('~/')) {
+        repoPath = path.join(os.homedir(), repoPath.slice(2));
+      } else if (repoPath === '~') {
+        repoPath = os.homedir();
+      }
+      // Validate the path exists before using it
+      if (fs.existsSync(repoPath)) {
+        return repoPath;
+      }
+      console.log(`${c.yellow}[daemon] repo path "${repoPath}" does not exist, using cwd${c.reset}`);
+    }
+  }
+  return process.cwd();
 }
 
 async function resolveLocalProjectSlugForCloudTask(storage, task) {
@@ -1913,8 +1968,10 @@ async function finalizeRunSafe(storage, run, decision) {
   } catch { }
 }
 
-async function runSingleAgentExecuteVerifyLoop({ taskId, task, provider, model, logger, storage, projectSlug, taskSlug, stageLocal, initialPromptContext, cancellationWatcher }) {
-  logExecutionFlow('runSingleAgentExecuteVerifyLoop', 'input', `taskId=${taskId}, provider=${provider}, model=${model}`);
+async function runSingleAgentExecuteVerifyLoop({ taskId, task, provider, model, logger, storage, projectSlug, taskSlug, stageLocal, initialPromptContext, cancellationWatcher, repoPath }) {
+  logExecutionFlow('runSingleAgentExecuteVerifyLoop', 'input', `taskId=${taskId}, provider=${provider}, model=${model}, repoPath=${repoPath || 'cwd'}`);
+  // Use provided repoPath or fall back to cwd
+  const workingDir = repoPath || process.cwd();
   const stageKey = task?.stage || 'unknown';
   const stagePrompt = resolveStageObjective(task, stageKey, '');
   const stageRequirement = buildStageRequirementPrompt({ stage: stageKey, stagePrompt });
@@ -1994,9 +2051,9 @@ async function runSingleAgentExecuteVerifyLoop({ taskId, task, provider, model, 
 	    await executeArtifacts.flush();
 
 	    // VERIFY (local commands)
-	    const verifyCommands = detectVerifyCommands({ cwd: process.cwd() });
-    const gitSummary = getGitSummary({ cwd: process.cwd() });
-    const verifyResults = await runVerifyCommands(verifyCommands, { cwd: process.cwd(), max_output_chars: 20000 });
+	    const verifyCommands = detectVerifyCommands({ cwd: workingDir });
+    const gitSummary = getGitSummary({ cwd: workingDir });
+    const verifyResults = await runVerifyCommands(verifyCommands, { cwd: workingDir, max_output_chars: 20000 });
 
 	    const verifyRun = await storage.createRun({
       projectSlug,
@@ -2167,8 +2224,10 @@ async function runSingleAgentExecuteVerifyLoop({ taskId, task, provider, model, 
   return { code: 1, decision: lastDecision, lastRun, runIndexEntry: lastRunEntry };
 }
 
-async function runSwarmExecuteVerifyLoop({ taskId, task, logger, storage, projectSlug, taskSlug, stageLocal, initialPromptContext, cancellationWatcher }) {
-  logExecutionFlow('runSwarmExecuteVerifyLoop', 'input', `taskId=${taskId}`);
+async function runSwarmExecuteVerifyLoop({ taskId, task, logger, storage, projectSlug, taskSlug, stageLocal, initialPromptContext, cancellationWatcher, repoPath }) {
+  logExecutionFlow('runSwarmExecuteVerifyLoop', 'input', `taskId=${taskId}, repoPath=${repoPath || 'cwd'}`);
+  // Use provided repoPath or fall back to cwd
+  const workingDir = repoPath || process.cwd();
   const stageKey = task?.stage || 'unknown';
   const stagePrompt = resolveStageObjective(task, stageKey, '');
   const stageRequirement = buildStageRequirementPrompt({ stage: stageKey, stagePrompt });
@@ -2253,9 +2312,9 @@ async function runSwarmExecuteVerifyLoop({ taskId, task, logger, storage, projec
     await executeArtifacts.flush();
 
     // VERIFY (local commands)
-    const verifyCommands = detectVerifyCommands({ cwd: process.cwd() });
-    const gitSummary = getGitSummary({ cwd: process.cwd() });
-    const verifyResults = await runVerifyCommands(verifyCommands, { cwd: process.cwd(), max_output_chars: 20000 });
+    const verifyCommands = detectVerifyCommands({ cwd: workingDir });
+    const gitSummary = getGitSummary({ cwd: workingDir });
+    const verifyResults = await runVerifyCommands(verifyCommands, { cwd: workingDir, max_output_chars: 20000 });
 
     const verifyRun = await storage.createRun({
       projectSlug,
@@ -4945,8 +5004,12 @@ async function checkOnboarding() {
         taskSlug = await resolveLocalTaskSlugForCloudTask(storage, projectSlug, task);
 
         const cloudProject = extractCloudProjectIdentity(task);
+        const taskRepoPath = extractProjectRepoPath(task);
+        if (taskRepoPath !== process.cwd()) {
+          console.log(`${c.cyan}[daemon] using project repo path: ${taskRepoPath}${c.reset}`);
+        }
         await storage.writeProjectState(projectSlug, {
-          repo_path: process.cwd(),
+          repo_path: taskRepoPath,
           cloud: {
             project_id: cloudProject.projectId,
             project_slug: cloudProject.projectSlug,
@@ -5030,6 +5093,7 @@ async function checkOnboarding() {
 	            stageLocal,
 	            initialPromptContext: fullPromptContext,
 	            cancellationWatcher,
+	            repoPath: taskRepoPath,
 	          });
 	        } else {
           loopResult = await runSingleAgentExecuteVerifyLoop({
@@ -5044,6 +5108,7 @@ async function checkOnboarding() {
             stageLocal,
             initialPromptContext: fullPromptContext,
             cancellationWatcher,
+            repoPath: taskRepoPath,
           });
         }
 
