@@ -49,7 +49,8 @@ describe('lib/storage/locks', () => {
         it('second acquire fails while lock is held', async () => {
             const handle1 = await locks.acquireTaskLock(taskDir);
 
-            await expect(locks.acquireTaskLock(taskDir)).rejects.toThrow(/locked by process/);
+            // Same process trying to re-acquire should get a clear error
+            await expect(locks.acquireTaskLock(taskDir)).rejects.toThrow(/Lock already held by this process instance/);
 
             await locks.releaseTaskLock(handle1);
         });
