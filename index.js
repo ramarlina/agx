@@ -48,12 +48,11 @@ const {
   buildProjectBody,
   createProject,
 } = require('./lib/project-cli');
+const { loadCloudConfigFile: _loadCloudConfigFromConfig, saveCloudConfigFile: _saveCloudConfigToConfig, clearCloudConfig } = require('./lib/config/cloudConfig');
 
 // Config paths
 const CONFIG_DIR = path.join(process.env.HOME || process.env.USERPROFILE, '.agx');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
-const CLOUD_CONFIG_FILE = path.join(CONFIG_DIR, 'cloud.json');
-
 // agx skill - instructions for LLMs on how to use agx
 const AGX_SKILL = `---
 name: agx
@@ -188,17 +187,7 @@ function sanitizeCliArgs(values) {
 }
 
 function loadCloudConfigFile() {
-  try {
-    if (fs.existsSync(CLOUD_CONFIG_FILE)) {
-      const config = JSON.parse(fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8'));
-      // Normalize: accept cloudUrl as fallback for apiUrl
-      if (!config.apiUrl && config.cloudUrl) {
-        config.apiUrl = config.cloudUrl;
-      }
-      return config;
-    }
-  } catch { }
-  return null;
+  return _loadCloudConfigFromConfig();
 }
 
 function truncateForComment(text, maxChars = 12000) {
@@ -4549,8 +4538,6 @@ async function checkOnboarding() {
   // CLOUD STATE HELPERS
   // ============================================================
 
-  const CLOUD_CONFIG_FILE = path.join(CONFIG_DIR, 'cloud.json');
-
   function isLocalApiUrl(apiUrl) {
     if (!apiUrl || typeof apiUrl !== 'string') return false;
     try {
@@ -4569,34 +4556,10 @@ async function checkOnboarding() {
   }
 
   function loadCloudConfig() {
-    logExecutionFlow('loadCloudConfig', 'input', `path=${CLOUD_CONFIG_FILE}`);
-    try {
-      if (fs.existsSync(CLOUD_CONFIG_FILE)) {
-        logExecutionFlow('loadCloudConfig', 'processing', 'file exists');
-        const raw = fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8');
-        const config = JSON.parse(raw);
-        // Normalize: accept cloudUrl as fallback for apiUrl
-        if (!config.apiUrl && config.cloudUrl) {
-          config.apiUrl = config.cloudUrl;
-        }
-        logExecutionFlow('loadCloudConfig', 'output', 'config loaded');
-        return config;
-      }
-      logExecutionFlow('loadCloudConfig', 'output', 'file missing');
-    } catch (err) {
-      logExecutionFlow('loadCloudConfig', 'output', `error ${err?.message || err}`);
-    }
-    // Default to local board runtime when no cloud config exists.
-    const apiUrl = (process.env.AGX_CLOUD_URL || process.env.AGX_BOARD_URL || 'http://localhost:41741').replace(/\/$/, '');
-    const fallback = {
-      apiUrl,
-      token: null,
-      refreshToken: null,
-      userId: process.env.AGX_USER_ID || '',
-      authDisabled: isLocalApiUrl(apiUrl),
-    };
-    logExecutionFlow('loadCloudConfig', 'output', `using default apiUrl=${fallback.apiUrl}`);
-    return fallback;
+    logExecutionFlow('loadCloudConfig', 'input', 'config.json cloud key');
+    const config = _loadCloudConfigFromConfig();
+    logExecutionFlow('loadCloudConfig', 'output', config ? 'config loaded' : 'using defaults');
+    return config;
   }
 
   const TASK_CACHE_FILE = path.join(CONFIG_DIR, 'task-cache.json');
@@ -4632,8 +4595,7 @@ async function checkOnboarding() {
   }
 
   function saveCloudConfig(config) {
-    if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-    fs.writeFileSync(CLOUD_CONFIG_FILE, JSON.stringify(config, null, 2));
+    _saveCloudConfigToConfig(config);
   }
 
   async function tryRefreshCloudToken(config) {
@@ -5283,6 +5245,21 @@ async function checkOnboarding() {
 
   // Config menu
   if (cmd === 'config') {
+    const configSubcmd = args[1];
+    if (configSubcmd === 'cloud-url') {
+      const newUrl = args[2];
+      if (!newUrl) {
+        const cloudConfig = _loadCloudConfigFromConfig();
+        const currentUrl = cloudConfig?.apiUrl || 'http://localhost:41741';
+        console.log(currentUrl);
+        process.exit(0);
+      }
+      const cloudConfig = _loadCloudConfigFromConfig() || {};
+      cloudConfig.apiUrl = newUrl.replace(/\/$/, '');
+      _saveCloudConfigToConfig(cloudConfig);
+      console.log(`${c.green}✓${c.reset} Cloud URL set to ${c.cyan}${cloudConfig.apiUrl}${c.reset}`);
+      process.exit(0);
+    }
     await runConfigMenu();
     return true;
   }
@@ -5931,9 +5908,7 @@ async function checkOnboarding() {
 
   // agx logout
   if (cmd === 'logout') {
-    if (fs.existsSync(CLOUD_CONFIG_FILE)) {
-      fs.unlinkSync(CLOUD_CONFIG_FILE);
-    }
+    clearCloudConfig();
     console.log(`${c.green}✓${c.reset} Cleared cloud configuration`);
     process.exit(0);
   }
@@ -5943,7 +5918,7 @@ async function checkOnboarding() {
     const config = loadCloudConfig();
     if (!config) {
       console.log(`${c.yellow}Not connected to cloud${c.reset}`);
-      console.log(`${c.dim}Configure ${path.join(CONFIG_DIR, 'cloud.json')} or set AGX_CLOUD_URL${c.reset}`);
+      console.log(`${c.dim}Run ${c.reset}agx config cloud-url <url>${c.dim} or set AGX_CLOUD_URL${c.reset}`);
       process.exit(0);
     }
     console.log(`${c.bold}Cloud Status${c.reset}\n`);
@@ -7575,8 +7550,6 @@ EXAMPLES:
   // - agx -a -p "..." → create new task in cloud
   // - agx --cloud-task <id> → continue cloud task (used by daemon)
 
-  const CLOUD_CONFIG_FILE = path.join(CONFIG_DIR, 'cloud.json');
-
   function isLocalApiUrl(apiUrl) {
     if (!apiUrl || typeof apiUrl !== 'string') return false;
     try {
@@ -7595,31 +7568,11 @@ EXAMPLES:
   }
 
   function loadCloudConfig() {
-    try {
-      if (fs.existsSync(CLOUD_CONFIG_FILE)) {
-        const config = JSON.parse(fs.readFileSync(CLOUD_CONFIG_FILE, 'utf8'));
-        // Normalize: accept cloudUrl as fallback for apiUrl
-        if (!config.apiUrl && config.cloudUrl) {
-          config.apiUrl = config.cloudUrl;
-        }
-        return config;
-      }
-    } catch { }
-    // Default to local board runtime when no cloud config exists.
-    // Daemon should work without any auth flow; cloud may be unauthenticated.
-    const apiUrl = (process.env.AGX_CLOUD_URL || process.env.AGX_BOARD_URL || 'http://localhost:41741').replace(/\/$/, '');
-    return {
-      apiUrl,
-      token: null,
-      refreshToken: null,
-      userId: process.env.AGX_USER_ID || '',
-      authDisabled: isLocalApiUrl(apiUrl),
-    };
+    return _loadCloudConfigFromConfig();
   }
 
   function saveCloudConfig(config) {
-    if (!fs.existsSync(CONFIG_DIR)) fs.mkdirSync(CONFIG_DIR, { recursive: true });
-    fs.writeFileSync(CLOUD_CONFIG_FILE, JSON.stringify(config, null, 2));
+    _saveCloudConfigToConfig(config);
   }
 
   async function tryRefreshCloudToken(config) {
