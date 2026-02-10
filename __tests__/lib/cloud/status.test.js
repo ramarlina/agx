@@ -5,9 +5,9 @@ describe('buildCloudTaskTerminalPatch', () => {
     expect(buildCloudTaskTerminalPatch({ decision: 'not_done', newStage: 'execution', nowIso: '2020-01-01T00:00:00.000Z' })).toBe(null);
   });
 
-  test('marks completed when decision is done', () => {
+  test('returns null when decision is done but stage is not done (stage machine handles transitions)', () => {
     expect(buildCloudTaskTerminalPatch({ decision: 'done', newStage: 'execution', nowIso: '2020-01-01T00:00:00.000Z' }))
-      .toEqual({ status: 'completed', completed_at: '2020-01-01T00:00:00.000Z' });
+      .toBe(null);
   });
 
   test('marks failed when decision is failed', () => {

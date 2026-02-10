@@ -1,2 +1,0 @@
-Test file created by agx CLI
-Timestamp: 2026-02-09T22:54:11.887Z
