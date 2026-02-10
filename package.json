@@ -19,6 +19,7 @@
     "cloud-runtime/**"
   ],
   "scripts": {
+    "postinstall": "node ./scripts/postinstall.js || true",
     "prepack": "node ./scripts/package-board-runtime.js",
     "board:bundle": "node ./scripts/package-board-runtime.js",
     "test": "node --localstorage-file=/tmp/agx-jest-localstorage ./node_modules/jest/bin/jest.js --forceExit",
