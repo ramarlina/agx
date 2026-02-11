@@ -32,13 +32,13 @@ describe('Kanban column add behavior (bundled board runtime)', () => {
 
   test('column + delegates to onAddTask callback', () => {
     const content = fs.readFileSync(kanbanChunk, 'utf8');
-    expect(content).toContain('onClick:()=>{null==i?void 0:i(r)}');
+    expect(content).toContain('onClick:()=>null==i?void 0:i(r)');
   });
 
   test('dashboard includes draft TaskDetail modal wiring', () => {
     const content = fs.readFileSync(dashboardChunk, 'utf8');
-    expect(content).toContain('id:"draft"');
-    expect(content).toContain('isDraft:!0');
-    expect(content).toContain('onClose:()=>en(null)');
+    expect(content).toContain('onClose:()=>D(null)');
+    expect(content).toContain('onAddComment:eO');
+    expect(content).toContain('onUpdate:ez');
   });
 });

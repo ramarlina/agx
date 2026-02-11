@@ -67,6 +67,273 @@ function findPackagedAppDir(rootDir) {
   return null;
 }
 
+const GA_MEASUREMENT_ID = "G-DVQQG95LNL";
+const GA_SCRIPT_URL = `https://www.googletagmanager.com/gtag/js?id=${GA_MEASUREMENT_ID}`;
+
+function buildGoogleAnalyticsSnippet(includeLink) {
+  const parts = [];
+  if (includeLink) {
+    parts.push(`<link rel="preload" href="${GA_SCRIPT_URL}" as="script"/>`);
+  }
+  parts.push(`<script async src="${GA_SCRIPT_URL}"></script>`);
+  parts.push(`<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', '${GA_MEASUREMENT_ID}');
+</script>`);
+  return `\n${parts.join("\n")}\n`;
+}
+
+function injectGoogleAnalyticsIntoHtmlFile(htmlPath) {
+  if (!fs.existsSync(htmlPath)) return false;
+  const content = fs.readFileSync(htmlPath, "utf8");
+  if (content.includes(`<script async src="${GA_SCRIPT_URL}">`)) {
+    return false;
+  }
+  const hasPreload = content.includes(`rel="preload" href="${GA_SCRIPT_URL}" as="script"`);
+  const snippet = buildGoogleAnalyticsSnippet(!hasPreload);
+  const headIndex = content.indexOf("</head>");
+  if (headIndex === -1) {
+    return false;
+  }
+  const updated =
+    content.slice(0, headIndex) +
+    snippet +
+    "</head>" +
+    content.slice(headIndex + "</head>".length);
+  fs.writeFileSync(htmlPath, updated);
+  return true;
+}
+
+function injectGoogleAnalyticsIntoAppHtml(appDir) {
+  const appHtmlDir = path.join(appDir, ".next", "server", "app");
+  if (!fs.existsSync(appHtmlDir)) return false;
+  let patched = false;
+  for (const entry of fs.readdirSync(appHtmlDir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".html")) continue;
+    const fullPath = path.join(appHtmlDir, entry.name);
+    if (injectGoogleAnalyticsIntoHtmlFile(fullPath)) {
+      patched = true;
+    }
+  }
+  return patched;
+}
+
+const useTasksPatches = [
+  {
+    match: 'let{task:e}=await d.json();return c(a=>a.some(a=>a.id===e.id)?a:[e,...a]),e},[a.realtime]),',
+    replace:
+      'let{task:e}=await d.json();c(a=>a.some(a=>a.id===e.id)?a:[e,...a]);n().catch(a=>console.error("Failed to refresh tasks:",a));return e},[a.realtime,n]),',
+  },
+  {
+    match:
+      'let{task:e}=await d.json();return c(b=>b.map(b=>b.id===a?{...b,...e}:b)),e},[a.realtime]),',
+    replace:
+      'let{task:e}=await d.json();c(b=>b.map(b=>b.id===a?{...b,...e}:b));n().catch(a=>console.error("Failed to refresh tasks:",a));return e},[a.realtime,n]),',
+  },
+  {
+    match:
+      'if(!(await fetch(`/api/tasks/${a}`,{method:"DELETE"})).ok)throw Error("Failed to delete task");c(b=>b.filter(b=>b.id!==a))},[a.realtime]),',
+    replace:
+      'if(!(await fetch(`/api/tasks/${a}`,{method:"DELETE"})).ok)throw Error("Failed to delete task");c(b=>b.filter(b=>b.id!==a));n().catch(a=>console.error("Failed to refresh tasks:",a))},[a.realtime,n]),',
+  },
+  {
+    match:
+      'let{task:d}=await b.json();return c(b=>b.map(b=>b.id===a.taskId?{...b,...d}:b)),d},[a.realtime]);',
+    replace:
+      'let{task:d}=await b.json();c(b=>b.map(b=>b.id===a.taskId?{...b,...d}:b));n().catch(a=>console.error("Failed to refresh tasks:",a));return d},[a.realtime,n]);',
+  },
+  {
+    match: '},[e.realtime,t]);',
+    replace:
+      '},[e.realtime,t]);(0,r.useEffect)(()=>{if(!e.realtime)return;if("undefined"===typeof EventSource)return;const o=new EventSource("/api/tasks/stream"),d=a=>{try{const n=JSON.parse(a.data);if(!n||"UPDATE"!==n.type||!n.task)return;const t=n.task;return l(r=>{if(!r.some(e=>e.id===t.id))return[t,...r];return r.map(e=>e.id===t.id?t:e)})}catch{}};o.onmessage=d,o.onerror=()=>{};return()=>o.close()},[e.realtime]);',
+  },
+];
+
+const dbClientMatch =
+  'function n(){return{auth:{getSession:async()=>({data:{session:{access_token:"local-token",refresh_token:"local-refresh",expires_in:3600,user:{id:r.g.id,email:r.g.email,user_metadata:{name:r.g.name,full_name:r.g.name}}}},error:null}),signInWithOAuth:async()=>({error:Error("Auth disabled in AGX Board local mode")}),signOut:async()=>({error:null}),onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}})},channel:()=>({on(){return this},subscribe(){return this}}),removeChannel(){}}}';
+
+const dbClientReplacement = `function n(){
+  function deriveConfig(name){
+    if(name==="tasks-changes"){
+      return {
+        url:"/api/tasks",
+        extract:function(response){
+          return response&&Array.isArray(response.tasks)?response.tasks:[];
+        },
+        pollInterval:2200,
+      };
+    }
+    if(name&&name.startsWith("task-comments-")){
+      var id=name.slice(14);
+      return {
+        url:"/api/tasks/".concat(id,"/comments"),
+        extract:function(response){
+          return response&&Array.isArray(response.comments)?response.comments:[];
+        },
+        pollInterval:4000,
+      };
+    }
+    return null;
+  }
+  function buildSnapshot(items){
+    var snapshot=new Map();
+    var list=Array.isArray(items)?items:[];
+    for(var index=0;index<list.length;index++){
+      var item=list[index];
+      item&&item.id&&snapshot.set(item.id,item);
+    }
+    return snapshot;
+  }
+  function areEqual(a,b){
+    try{
+      return JSON.stringify(a)===JSON.stringify(b);
+    }catch(e){}
+    return a===b;
+  }
+  function createPollingChannel(name){
+    var config=deriveConfig(name);
+    if(!config){
+      return {
+        on:function(){return this},
+        subscribe:function(){return this},
+        unsubscribe:function(){return this},
+        stop:function(){return this},
+      };
+    }
+    var handler=function(){};
+    var timer=null;
+    var primed=false;
+    var snapshot=new Map();
+    var runPoll=async function(){
+      try{
+        var response=await fetch(config.url,{cache:"no-store"});
+        if(!response.ok)return;
+        var payload=await response.json().catch(function(){return null});
+        if(!payload)return;
+        var items=config.extract(payload);
+        if(!Array.isArray(items))return;
+        if(!primed){
+          primed=true;
+          snapshot=buildSnapshot(items);
+          return;
+        }
+        var nextSnapshot=buildSnapshot(items);
+        for(var idx=0;idx<items.length;idx++){
+          var item=items[idx];
+          if(!item||!item.id)continue;
+          var previous=snapshot.get(item.id);
+          if(!previous){
+            handler({eventType:"INSERT",new:item});
+          }else if(!areEqual(previous,item)){
+            handler({eventType:"UPDATE",new:item,old:previous});
+          }
+        }
+        snapshot.forEach(function(value,key){
+          if(!nextSnapshot.has(key)){
+            handler({eventType:"DELETE",old:value});
+          }
+        });
+        snapshot=nextSnapshot;
+      }catch(e){}
+    };
+    function startPolling(){
+      runPoll();
+      if(timer)clearInterval(timer);
+      timer=setInterval(runPoll,config.pollInterval||2500);
+    }
+    function stopPolling(){
+      if(timer){
+        clearInterval(timer);
+        timer=null;
+      }
+    }
+    return {
+      on:function(_event,_options,cb){
+        if(cb)handler=cb;
+        return this;
+      },
+      subscribe:function(){
+        startPolling();
+        return this;
+      },
+      unsubscribe:function(){
+        stopPolling();
+        return this;
+      },
+      stop:function(){
+        stopPolling();
+      },
+    };
+  }
+  return {
+    auth:{
+      getSession:async()=>({data:{session:{access_token:"local-token",refresh_token:"local-refresh",expires_in:3600,user:{id:r.g.id,email:r.g.email,user_metadata:{name:r.g.name,full_name:r.g.name}}}},error:null}),
+      signInWithOAuth:async()=>({error:Error("Auth disabled in AGX Board local mode")}),
+      signOut:async()=>({error:null}),
+      onAuthStateChange:function(){return {data:{subscription:{unsubscribe:function(){}}}}},
+    },
+    channel:function(name){
+      return createPollingChannel(name);
+    },
+    removeChannel:function(channel){
+      channel&&channel.unsubscribe&&channel.unsubscribe();
+    },
+  };
+}`;
+
+const dbClientPatch = {
+  match: dbClientMatch,
+  replace: dbClientReplacement,
+};
+
+const bundledRuntimePatches = [...useTasksPatches, dbClientPatch];
+
+function patchChunkDirectory(dirPath) {
+  if (!fs.existsSync(dirPath)) return false;
+  let patchedAny = false;
+
+  for (const entry of fs.readdirSync(dirPath, { withFileTypes: true })) {
+    const entryPath = path.join(dirPath, entry.name);
+    if (entry.isDirectory()) {
+      if (patchChunkDirectory(entryPath)) {
+        patchedAny = true;
+      }
+      continue;
+    }
+    if (!entry.isFile() || !entry.name.endsWith('.js')) continue;
+
+    let content = fs.readFileSync(entryPath, 'utf8');
+    let updated = content;
+    for (const { match, replace } of bundledRuntimePatches) {
+      if (updated.includes(replace)) continue;
+      if (updated.includes(match)) {
+        updated = updated.replace(match, replace);
+      }
+    }
+    if (updated !== content) {
+      fs.writeFileSync(entryPath, updated);
+      patchedAny = true;
+    }
+  }
+
+  return patchedAny;
+}
+
+function patchBundledRuntime(appDir) {
+  const serverChunkDir = path.join(appDir, '.next', 'server', 'chunks');
+  const staticChunkDir = path.join(appDir, '.next', 'static', 'chunks');
+
+  const patchedDirs = [];
+  if (patchChunkDirectory(serverChunkDir)) patchedDirs.push('server');
+  if (patchChunkDirectory(staticChunkDir)) patchedDirs.push('static');
+
+  if (patchedDirs.length > 0) {
+    console.log(`[agx] Patched bundled useTasks hook to refresh after mutations (${patchedDirs.join(', ')})`);
+  }
+}
+
 async function bundleWorker({ appDir }) {
   const entry = path.join(cloudRoot, 'worker', 'index.ts');
   ensureExists(entry, 'Worker entrypoint');
@@ -135,6 +402,9 @@ async function main() {
   try {
     fs.rmSync(path.join(cloudRoot, '.next'), { recursive: true, force: true });
   } catch { }
+  try {
+    fs.rmSync(path.join(cloudRoot, '.next', 'trace'), { force: true });
+  } catch { }
   execa.commandSync('npm run build', { cwd: cloudRoot, stdio: 'inherit' });
 
   ensureExists(standaloneSrc, 'Next standalone output');
@@ -150,9 +420,15 @@ async function main() {
     throw new Error(`Unable to locate packaged agx-cloud app dir under ${standaloneDest}`);
   }
 
+  patchBundledRuntime(appDir);
+
   // Next serves assets relative to the app dir (where `server.js` lives), not the standalone root.
   const staticDest = path.join(appDir, '.next', 'static');
   copyDir(staticSrc, staticDest);
+
+  if (injectGoogleAnalyticsIntoAppHtml(appDir)) {
+    console.log('[agx] Injected Google Analytics snippet into app HTML');
+  }
 
   if (fs.existsSync(publicSrc)) {
     const publicDest = path.join(appDir, 'public');

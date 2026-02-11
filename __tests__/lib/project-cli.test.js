@@ -30,6 +30,22 @@ describe('project-cli helpers', () => {
     test('throws when metadata value missing', () => {
       expect(() => collectProjectFlags(['--metadata'])).toThrow('Missing value for --metadata');
     });
+
+    test('throws when name value missing', () => {
+      expect(() => collectProjectFlags(['--name'])).toThrow('Missing value for --name');
+    });
+
+    test('throws when slug value missing', () => {
+      expect(() => collectProjectFlags(['--slug'])).toThrow('Missing value for --slug');
+    });
+
+    test('throws when description value missing', () => {
+      expect(() => collectProjectFlags(['--description'])).toThrow('Missing value for --description');
+    });
+
+    test('throws when ci value missing', () => {
+      expect(() => collectProjectFlags(['--ci'])).toThrow('Missing value for --ci');
+    });
   });
 
   describe('buildProjectBody', () => {

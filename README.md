@@ -139,6 +139,18 @@ agx run <task_id>      # Run a specific task
 agx status             # Show current status
 ```
 
+### Project Management
+
+```bash
+agx project create --name "My Project" \
+  --slug my-project \
+  --description "Agent work" \
+  --ci "CI pipeline notes" \
+  --workflow 00000000-0000-0000-0000-000000000001 \
+  --metadata team=core \
+  --repo '{"name":"api","path":"/code/api"}'
+```
+
 ### Board Server
 
 ```bash
