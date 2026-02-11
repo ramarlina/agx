@@ -149,6 +149,16 @@ const useTasksPatches = [
     replace:
       '},[e.realtime,t]);(0,r.useEffect)(()=>{if(!e.realtime)return;if("undefined"===typeof EventSource)return;const o=new EventSource("/api/tasks/stream"),d=a=>{try{const n=JSON.parse(a.data);if(!n||"UPDATE"!==n.type||!n.task)return;const t=n.task;return l(r=>{if(!r.some(e=>e.id===t.id))return[t,...r];return r.map(e=>e.id===t.id?t:e)})}catch{}};o.onmessage=d,o.onerror=()=>{};return()=>o.close()},[e.realtime]);',
   },
+  {
+    match:
+      'eB=async e=>{try{await completeTaskStage({taskId:e,decision:"blocked",final_result:"Manually blocked by user.",explanation:"Manually blocked by user."})}catch(e){console.error("Failed to stop task",e)}}',
+    replace:
+      'eB=async e=>{let a=ed.find(a=>a.id===e);R(null);try{var s;await ep({taskId:e}),await eh(),R({type:"success",message:"Cancellation requested for ".concat((null==a?void 0:a.title)||(null==a||null==(s=a.content)?void 0:s.slice(0,30))||e,".")})}catch(t){console.error("Failed to stop task",t);let s=t instanceof Error?t.message:"unknown error";R({type:"error",message:"Unable to stop ".concat((null==a?void 0:a.title)||e,": ").concat(s,".")})}}',
+  },
+  {
+    match: 'onStop:eB,onRetry:eq',
+    replace: 'onStop:eB,onRetry:eq,cancellingTaskId:ev',
+  },
 ];
 
 const dbClientMatch =

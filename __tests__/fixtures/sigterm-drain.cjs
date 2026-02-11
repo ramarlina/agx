@@ -52,10 +52,13 @@ async function main() {
   process.stdout.write('READY\n');
 
   const drainAndExit = async () => {
+    console.log('drain handler invoked');
     try {
       // Ensure decision.json exists to mark the run immutable.
+      console.log('finalize run start', run.paths.decision);
       await storage.writeOutput(run, 'Interrupted by SIGTERM\n');
       await storage.finalizeRun(run, { status: 'failed', reason: 'SIGTERM drain' });
+      console.log('finalize run complete');
     } catch {
       // best-effort
     }
@@ -78,4 +81,3 @@ main().catch((err) => {
   process.stderr.write(String(err && err.stack ? err.stack : err) + '\n');
   process.exit(1);
 });
-
