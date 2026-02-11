@@ -47,6 +47,7 @@
   },
   "dependencies": {
     "eventsource": "^4.1.0",
+    "execa": "^5.1.1",
     "p-map": "^7.0.4",
     "p-retry": "^7.1.1"
   },

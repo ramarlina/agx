@@ -310,6 +310,18 @@ CREATE TABLE IF NOT EXISTS agx.workflows (
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS agx.agents (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    user_id uuid NOT NULL,
+    name text NOT NULL,
+    style text NOT NULL,
+    description text,
+    config jsonb DEFAULT '{}'::jsonb NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT agents_style_check CHECK ((style = ANY (ARRAY['degen'::text, 'conservative'::text, 'specialist'::text, 'balanced'::text])))
+);
+
 -- Unique constraints (idempotent via DO blocks)
 
 DO $$ BEGIN
@@ -370,6 +382,8 @@ CREATE INDEX IF NOT EXISTS idx_workflow_transitions_from ON agx.workflow_transit
 CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_transitions_unique ON agx.workflow_transitions USING btree (workflow_id, from_node_id, condition);
 CREATE INDEX IF NOT EXISTS idx_workflow_transitions_workflow ON agx.workflow_transitions USING btree (workflow_id);
 CREATE INDEX IF NOT EXISTS idx_workflows_user ON agx.workflows USING btree (user_id);
+CREATE INDEX IF NOT EXISTS idx_agents_user ON agx.agents USING btree (user_id);
+CREATE INDEX IF NOT EXISTS idx_agents_style ON agx.agents USING btree (style);
 
 -- Triggers (drop + create for idempotency)
 
@@ -384,6 +398,9 @@ CREATE TRIGGER workflow_instances_updated_at BEFORE UPDATE ON agx.workflow_insta
 
 DROP TRIGGER IF EXISTS workflows_updated_at ON agx.workflows;
 CREATE TRIGGER workflows_updated_at BEFORE UPDATE ON agx.workflows FOR EACH ROW EXECUTE FUNCTION agx.update_updated_at();
+
+DROP TRIGGER IF EXISTS agents_updated_at ON agx.agents;
+CREATE TRIGGER agents_updated_at BEFORE UPDATE ON agx.agents FOR EACH ROW EXECUTE FUNCTION agx.update_updated_at();
 
 -- Foreign keys (idempotent via DO blocks)
 

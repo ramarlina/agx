@@ -4,7 +4,7 @@
  * Users can opt out with: agx update --off
  */
 
-const { execSync } = require('child_process');
+const execa = require('execa');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -25,7 +25,11 @@ if (process.platform === 'win32') {
 
 try {
   // Check if already enabled
-  const crontab = execSync('crontab -l 2>/dev/null || true', { encoding: 'utf8' });
+  const crontab = execa.commandSync('crontab -l 2>/dev/null || true', {
+    shell: true,
+    encoding: 'utf8',
+    reject: false,
+  }).stdout || '';
   if (crontab.includes(CRON_MARKER)) {
     // Already enabled, skip
     process.exit(0);
@@ -35,7 +39,7 @@ try {
   const newLine = `${CRON_SCHEDULE} ${CRON_CMD} ${CRON_MARKER}\n`;
   const tmp = path.join(os.tmpdir(), `agx-crontab-${Date.now()}`);
   fs.writeFileSync(tmp, crontab + newLine);
-  execSync(`crontab ${tmp}`, { stdio: 'pipe' });
+  execa.commandSync(`crontab ${tmp}`, { shell: true, stdio: 'pipe', reject: false });
   fs.unlinkSync(tmp);
 
   console.log('\n  \x1b[32m✓\x1b[0m Auto-update enabled (daily at 3am)');

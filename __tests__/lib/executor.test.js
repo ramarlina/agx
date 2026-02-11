@@ -1,12 +1,14 @@
-const { spawn, spawnSync } = require('child_process');
+const execa = require('execa');
 const fs = require('fs');
 const path = require('path');
 
-// Mock child_process
-jest.mock('child_process', () => ({
-  spawn: jest.fn(),
-  spawnSync: jest.fn(),
-}));
+jest.mock('execa', () => {
+  const fn = jest.fn();
+  fn.sync = jest.fn();
+  fn.commandSync = jest.fn();
+  fn.command = jest.fn();
+  return fn;
+});
 
 // Mock fs
 jest.mock('fs', () => ({
@@ -19,6 +21,10 @@ const { executeTask, ENGINES, resolveStageConfig } = require('../../lib/executor
 describe('AGX Executor Module', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Avoid depending on local machine provider CLIs in unit tests.
+    for (const engine of Object.values(ENGINES)) {
+      engine.available = () => true;
+    }
   });
 
   describe('resolveStageConfig', () => {
@@ -93,9 +99,6 @@ describe('AGX Executor Module', () => {
     });
 
     test('engine.available checks command existence', () => {
-      // Mock spawnSync to simulate command exists
-      spawnSync.mockReturnValue({ status: 0 });
-      
       Object.values(ENGINES).forEach(engine => {
         const result = engine.available();
         expect(typeof result).toBe('boolean');
@@ -119,8 +122,7 @@ describe('AGX Executor Module', () => {
         kill: jest.fn(),
       };
 
-      spawn.mockReturnValue(mockProcess);
-      spawnSync.mockReturnValue({ status: 0 }); // Command exists
+      execa.mockReturnValue(mockProcess);
       fs.existsSync.mockReturnValue(false);
     });
 
@@ -147,7 +149,7 @@ describe('AGX Executor Module', () => {
       // Simulate successful execution
       await promise;
 
-      expect(spawn).toHaveBeenCalledWith(
+      expect(execa).toHaveBeenCalledWith(
         'claude',
         expect.arrayContaining(['-p', expect.stringContaining('Test Task')]),
         expect.any(Object)
@@ -219,14 +221,14 @@ describe('AGX Executor Module', () => {
     });
 
     test('throws error when engine not available', async () => {
-      spawnSync.mockImplementation(() => { throw new Error('not found'); });
+      ENGINES.claude.available = () => false;
 
       await expect(executeTask({
         taskId: 'task-no-engine',
         title: 'Test',
         content: 'Content',
         stage: 'coding',
-        engine: 'nonexistent',
+        engine: 'claude',
       })).rejects.toThrow();
     });
 
@@ -274,7 +276,7 @@ describe('AGX Executor Module', () => {
         stage: 'coding',
       });
 
-      expect(spawn).toHaveBeenCalledWith(
+      expect(execa).toHaveBeenCalledWith(
         'claude',
         expect.any(Array),
         expect.any(Object)
@@ -301,7 +303,7 @@ describe('AGX Executor Module', () => {
         }
       });
 
-      const callArgs = spawn.mock.calls[0][1];
+      const callArgs = execa.mock.calls[0][1];
       const prompt = callArgs[callArgs.length - 1];
       expect(prompt).toContain('plan');
     });
@@ -321,7 +323,7 @@ describe('AGX Executor Module', () => {
       });
 
       // Should still execute without throwing
-      expect(spawn).toHaveBeenCalled();
+      expect(execa).toHaveBeenCalled();
     });
 
     test('parses [checkpoint:] markers', async () => {

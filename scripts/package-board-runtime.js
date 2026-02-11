@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { execSync } = require('child_process');
+const execa = require('execa');
 const fs = require('fs');
 const path = require('path');
 const esbuild = require('esbuild');
@@ -135,7 +135,7 @@ async function main() {
   try {
     fs.rmSync(path.join(cloudRoot, '.next'), { recursive: true, force: true });
   } catch { }
-  execSync('npm run build', { cwd: cloudRoot, stdio: 'inherit' });
+  execa.commandSync('npm run build', { cwd: cloudRoot, stdio: 'inherit' });
 
   ensureExists(standaloneSrc, 'Next standalone output');
   ensureExists(staticSrc, 'Next static output');

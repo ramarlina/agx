@@ -1,4 +1,4 @@
-const { spawnSync } = require('child_process');
+const execa = require('execa');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -7,19 +7,19 @@ const AGX_PATH = path.join(__dirname, '../../index.js');
 const DISABLE_NETWORK = path.join(__dirname, '../helpers/disable-network.cjs');
 
 function runAgx(args, { cwd, env }) {
-  const res = spawnSync(process.execPath, [AGX_PATH, ...args], {
+  const res = execa.sync(process.execPath, [AGX_PATH, ...args], {
     cwd,
     env,
     encoding: 'utf8',
     timeout: 15000,
+    reject: false,
   });
 
   const stdout = res.stdout || '';
   const stderr = res.stderr || '';
 
-  if (res.error) throw res.error;
-  if (res.status !== 0) {
-    const msg = `agx failed (code=${res.status})\nstdout:\n${stdout}\nstderr:\n${stderr}`;
+  if (res.exitCode !== 0) {
+    const msg = `agx failed (code=${res.exitCode})\nstdout:\n${stdout}\nstderr:\n${stderr}`;
     throw new Error(msg);
   }
 
@@ -125,4 +125,3 @@ describe('CLI local-first E2E (hermetic, no network)', () => {
     expect(runs.runs.map((r) => r.run_id)).toContain(run.run_id);
   });
 });
-

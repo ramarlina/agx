@@ -4,7 +4,7 @@
  * Updated for simplified command structure (no cloud prefix)
  */
 
-const { execSync, spawn } = require('child_process');
+const execa = require('execa');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -13,15 +13,22 @@ const AGX_PATH = path.join(__dirname, '../../index.js');
 
 // Helper to run agx command
 function runAgx(args, options = {}) {
-  const cmd = `node ${AGX_PATH} ${args}`;
+  const argv = String(args || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((a) => a !== '2>&1');
   try {
-    return execSync(cmd, {
+    const res = execa.sync(process.execPath, [AGX_PATH, ...argv], {
+      all: true,
       encoding: 'utf8',
       timeout: 10000,
-      ...options
+      reject: false,
+      ...options,
     });
+    return res.all || res.stdout || res.stderr || '';
   } catch (err) {
-    return err.stdout || err.stderr || err.message;
+    return err?.stdout || err?.stderr || err?.message || String(err);
   }
 }
 

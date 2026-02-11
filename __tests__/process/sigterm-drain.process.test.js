@@ -1,4 +1,4 @@
-const { spawn } = require('child_process');
+const execa = require('execa');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -18,7 +18,7 @@ describe('process: SIGTERM drain finalizes run and releases lock', () => {
   });
 
   afterEach(async () => {
-    if (child && !child.killed) {
+    if (child) {
       try {
         child.kill('SIGTERM');
       } catch {
@@ -46,9 +46,10 @@ describe('process: SIGTERM drain finalizes run and releases lock', () => {
       OUT_PATH: outPath,
     };
 
-    child = spawn(process.execPath, [fixture], {
+    child = execa(process.execPath, [fixture], {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
+      reject: false,
     });
 
     // Wait for READY signal.
@@ -80,4 +81,3 @@ describe('process: SIGTERM drain finalizes run and releases lock', () => {
     expect(fs.existsSync(info.lockPath)).toBe(false);
   });
 });
-
