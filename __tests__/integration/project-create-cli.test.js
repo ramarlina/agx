@@ -14,6 +14,8 @@ function buildCliArgs(...args) {
 }
 
 describe('agx project create CLI', () => {
+  const originalEnv = { ...process.env };
+
   beforeEach(() => {
     process.env.HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'agx-cli-test-'));
     process.env.AGX_CLOUD_URL = 'http://example.test';
@@ -96,9 +98,7 @@ describe('agx project create CLI', () => {
       exitSpy.mockRestore();
       logSpy.mockRestore();
       errorSpy.mockRestore();
-      process.env.HOME = undefined;
-      process.env.AGX_CLOUD_URL = undefined;
-      process.env.AGX_USER_ID = undefined;
+      process.env = { ...originalEnv };
     }
   });
 });

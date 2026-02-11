@@ -40,5 +40,7 @@ describe('Kanban column add behavior (bundled board runtime)', () => {
     expect(content).toContain('onClose:()=>D(null)');
     expect(content).toContain('onAddComment:eO');
     expect(content).toContain('onUpdate:ez');
+    expect(content).toContain('isDraft:!0');
+    expect(content).toContain('onUpdate:eF');
   });
 });

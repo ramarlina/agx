@@ -122,32 +122,42 @@ function injectGoogleAnalyticsIntoAppHtml(appDir) {
 
 const useTasksPatches = [
   {
-    match: 'let{task:e}=await d.json();return c(a=>a.some(a=>a.id===e.id)?a:[e,...a]),e},[a.realtime]),',
+    match: 'let{task:r}=await a.json();return l(e=>e.some(e=>e.id===r.id)?e:[r,...e]),r},[e.realtime]),',
     replace:
-      'let{task:e}=await d.json();c(a=>a.some(a=>a.id===e.id)?a:[e,...a]);n().catch(a=>console.error("Failed to refresh tasks:",a));return e},[a.realtime,n]),',
+      'let{task:r}=await a.json();l(e=>e.some(e=>e.id===r.id)?e:[r,...e]);m().catch(a=>console.error("Failed to refresh tasks:",a));return r},[e.realtime,m]),',
   },
   {
     match:
-      'let{task:e}=await d.json();return c(b=>b.map(b=>b.id===a?{...b,...e}:b)),e},[a.realtime]),',
+      'let{task:r}=await a.json();return l(t=>t.map(t=>t.id===e?{...t,...r}:t)),r},[e.realtime]),',
     replace:
-      'let{task:e}=await d.json();c(b=>b.map(b=>b.id===a?{...b,...e}:b));n().catch(a=>console.error("Failed to refresh tasks:",a));return e},[a.realtime,n]),',
+      'let{task:r}=await a.json();l(t=>t.map(t=>t.id===e?{...t,...r}:t));m().catch(a=>console.error("Failed to refresh tasks:",a));return r},[e.realtime,m]),',
   },
   {
     match:
-      'if(!(await fetch(`/api/tasks/${a}`,{method:"DELETE"})).ok)throw Error("Failed to delete task");c(b=>b.filter(b=>b.id!==a))},[a.realtime]),',
+      'if(!(await fetch("/api/tasks/".concat(e),{method:"DELETE"})).ok)throw Error("Failed to delete task");l(t=>t.filter(t=>t.id!==e))},[e.realtime]),',
     replace:
-      'if(!(await fetch(`/api/tasks/${a}`,{method:"DELETE"})).ok)throw Error("Failed to delete task");c(b=>b.filter(b=>b.id!==a));n().catch(a=>console.error("Failed to refresh tasks:",a))},[a.realtime,n]),',
+      'if(!(await fetch("/api/tasks/".concat(e),{method:"DELETE"})).ok)throw Error("Failed to delete task");l(t=>t.filter(t=>t.id!==e));m().catch(a=>console.error("Failed to refresh tasks:",a))},[e.realtime,m]),',
   },
   {
     match:
-      'let{task:d}=await b.json();return c(b=>b.map(b=>b.id===a.taskId?{...b,...d}:b)),d},[a.realtime]);',
+      'let{task:a}=await t.json();return l(t=>t.map(t=>t.id===e.taskId?{...t,...a}:t)),a},[e.realtime]);',
     replace:
-      'let{task:d}=await b.json();c(b=>b.map(b=>b.id===a.taskId?{...b,...d}:b));n().catch(a=>console.error("Failed to refresh tasks:",a));return d},[a.realtime,n]);',
+      'let{task:a}=await t.json();l(t=>t.map(t=>t.id===e.taskId?{...t,...a}:t));m().catch(a=>console.error("Failed to refresh tasks:",a));return a},[e.realtime,m]);',
   },
   {
-    match: '},[e.realtime,t]);',
+    match: '},[e.realtime,t]);let k',
     replace:
-      '},[e.realtime,t]);(0,r.useEffect)(()=>{if(!e.realtime)return;if("undefined"===typeof EventSource)return;const o=new EventSource("/api/tasks/stream"),d=a=>{try{const n=JSON.parse(a.data);if(!n||"UPDATE"!==n.type||!n.task)return;const t=n.task;return l(r=>{if(!r.some(e=>e.id===t.id))return[t,...r];return r.map(e=>e.id===t.id?t:e)})}catch{}};o.onmessage=d,o.onerror=()=>{};return()=>o.close()},[e.realtime]);',
+      '},[e.realtime,t]);(0,r.useEffect)(()=>{if(!e.realtime)return;if("undefined"===typeof EventSource)return;const o=new EventSource("/api/tasks/stream"),d=a=>{try{const n=JSON.parse(a.data);if(!n||"UPDATE"!==n.type||!n.task)return;const t=n.task;return l(r=>{if(!r.some(e=>e.id===t.id))return[t,...r];return r.map(e=>e.id===t.id?t:e)})}catch{}};o.onmessage=d,o.onerror=()=>{};return()=>o.close()},[e.realtime]);let k',
+  },
+  {
+    match: 'c((b)=>{const d=b.some((b)=>b.id===u.id);if(!d)return [u,...b];return b.map((b)=>b.id===u.id?u:b);});',
+    replace:
+      'c((b)=>{const d=b.some((b)=>b.id===u.id);if(!d)return [u,...b];return b.map((b)=>b.id===u.id?u:b);});n().catch(a=>console.error("Failed to refresh tasks:",a));',
+  },
+  {
+    match: ',[l,m]=(0,d.useState)(null),n=',
+    replace:
+      ',[l,m]=(0,d.useState)(null),o=(0,d.useEffect)(()=>{if(!a.realtime)return;if("undefined"===typeof EventSource)return;const p=new EventSource("/api/tasks/stream"),q=r=>{if(!r||!r.data)return;let t;try{t=JSON.parse(r.data)}catch(e){return}if(!t||"UPDATE"!==t.type||!t.task)return;const n=t.task;if(!n||!n.id)return;c(u=>{const a=u.some(a=>a.id===n.id);if(!a)return[n,...u];return u.map(a=>a.id===n.id?n:a)})};p.onmessage=q;p.onerror=()=>{};return()=>p.close()},[a.realtime]),n=',
   },
   {
     match:
@@ -158,6 +168,22 @@ const useTasksPatches = [
   {
     match: 'onStop:eB,onRetry:eq',
     replace: 'onStop:eB,onRetry:eq,cancellingTaskId:ev',
+  },
+  {
+    match: '{tasks:c,isLoading:e}=(0,j.si)({project:a.slug});',
+    replace: '{tasks:c,isLoading:e}=(0,j.si)({project:a.slug,realtime:!0});',
+  },
+  {
+    match: '{tasks:s,isLoading:n}=(0,d.si)({project:r.slug});',
+    replace: '{tasks:s,isLoading:n}=(0,d.si)({project:r.slug,realtime:!0});',
+  },
+  {
+    match: '({project:r.slug});',
+    replace: '({project:r.slug,realtime:!0});',
+  },
+  {
+    match: '({project:r.slug})',
+    replace: '({project:r.slug,realtime:!0})',
   },
 ];
 
@@ -458,12 +484,24 @@ async function main() {
   console.log(`[agx] Embedded board runtime at ${standaloneDest}`);
 }
 
-try {
-  main().catch((error) => {
+async function runPackaging() {
+  try {
+    await main();
+  } catch (error) {
     console.error(`[agx] Failed to package board runtime: ${error.message}`);
     process.exit(1);
-  });
-} catch (error) {
-  console.error(`[agx] Failed to package board runtime: ${error.message}`);
-  process.exit(1);
+  }
 }
+
+if (require.main === module) {
+  runPackaging();
+}
+
+module.exports = {
+  GA_MEASUREMENT_ID,
+  GA_SCRIPT_URL,
+  buildGoogleAnalyticsSnippet,
+  injectGoogleAnalyticsIntoHtmlFile,
+  injectGoogleAnalyticsIntoAppHtml,
+  main,
+};

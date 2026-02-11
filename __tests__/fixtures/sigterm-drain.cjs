@@ -59,7 +59,8 @@ async function main() {
       await storage.writeOutput(run, 'Interrupted by SIGTERM\n');
       await storage.finalizeRun(run, { status: 'failed', reason: 'SIGTERM drain' });
       console.log('finalize run complete');
-    } catch {
+    } catch (err) {
+      console.error('finalize run error', err && err.stack ? err.stack : err);
       // best-effort
     }
     try {
