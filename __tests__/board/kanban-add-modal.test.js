@@ -12,7 +12,7 @@ describe('Kanban column add behavior (bundled board runtime)', () => {
     '.next',
     'static',
     'chunks',
-    '9337-09000d8a6c85f40c.js'
+    '9337-1475b21ebc625376.js'
   );
 
   const dashboardChunkDir = path.join(
