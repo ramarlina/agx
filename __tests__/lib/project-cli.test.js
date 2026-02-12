@@ -96,22 +96,45 @@ describe('project-cli helpers', () => {
       const cloudRequestMock = jest.fn().mockResolvedValue({ project: { id: '123', name: 'Test' } });
       const result = await createProject({
         name: 'Test',
-        slug: 'test-slug',
         description: 'desc',
-        ci_cd_info: 'ci info',
-        metadata: ['foo=bar'],
         repos: [{ name: 'repo', path: '/code/repo' }],
       }, cloudRequestMock);
 
       expect(cloudRequestMock).toHaveBeenCalledWith('POST', '/api/projects', {
         name: 'Test',
-        slug: 'test-slug',
         description: 'desc',
-        ci_cd_info: 'ci info',
-        metadata: { foo: 'bar' },
         repos: [{ name: 'repo', path: '/code/repo' }],
       });
       expect(result).toEqual({ project: { id: '123', name: 'Test' } });
+    });
+
+    test('issues a patch when post-create fields are provided', async () => {
+      const cloudRequestMock = jest.fn()
+        .mockResolvedValueOnce({ project: { id: '123', name: 'Test' } })
+        .mockResolvedValueOnce({ project: { id: '123', name: 'Test', slug: 'test-slug' } });
+
+      const result = await createProject({
+        name: 'Test',
+        slug: 'test-slug',
+        description: 'desc',
+        ci_cd_info: 'ci info',
+        metadata: ['foo=bar'],
+        workflow_id: 'wf-1',
+        repos: [{ name: 'repo', path: '/code/repo' }],
+      }, cloudRequestMock);
+
+      expect(cloudRequestMock).toHaveBeenNthCalledWith(1, 'POST', '/api/projects', {
+        name: 'Test',
+        description: 'desc',
+        repos: [{ name: 'repo', path: '/code/repo' }],
+      });
+      expect(cloudRequestMock).toHaveBeenNthCalledWith(2, 'PATCH', '/api/projects/123', {
+        slug: 'test-slug',
+        metadata: { foo: 'bar' },
+        ci_cd_info: 'ci info',
+        workflow_id: 'wf-1',
+      });
+      expect(result).toEqual({ project: { id: '123', name: 'Test', slug: 'test-slug' } });
     });
   });
 });
