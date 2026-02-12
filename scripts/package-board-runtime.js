@@ -477,6 +477,23 @@ async function main() {
     copyDir(scriptsSrc, scriptsDest);
   }
 
+  // Patch package.json scripts for standalone context:
+  // - "dev"/"start" should use `node server.js` (not next dev/start)
+  // - "worker" should use `node worker/index.js` (not tsx worker/index.ts)
+  const appPkgPath = path.join(appDir, 'package.json');
+  if (fs.existsSync(appPkgPath)) {
+    const appPkg = JSON.parse(fs.readFileSync(appPkgPath, 'utf8'));
+    appPkg.scripts = appPkg.scripts || {};
+    appPkg.scripts.dev = 'node server.js';
+    appPkg.scripts.start = 'node server.js';
+    appPkg.scripts.build = "echo 'standalone build - nothing to build'";
+    appPkg.scripts.worker = 'node worker/index.js';
+    appPkg.scripts['daemon:worker'] = 'node worker/index.js';
+    appPkg.scripts['daemon:temporal'] = 'node worker/index.js';
+    fs.writeFileSync(appPkgPath, JSON.stringify(appPkg, null, 2) + '\n');
+    console.log('[agx] Patched package.json scripts for standalone runtime');
+  }
+
   // Ensure the embedded worker exists even when Next standalone output does not include it.
   // The CLI will run it via `node worker/index.js` for bundled runtimes.
   await bundleWorker({ appDir });
