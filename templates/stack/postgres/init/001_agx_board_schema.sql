@@ -250,6 +250,9 @@ CREATE TABLE IF NOT EXISTS agx.tasks (
     run_index jsonb DEFAULT '[]'::jsonb NOT NULL,
     pid integer,
     exit_code integer,
+    artifact_path text,
+    artifact_host text,
+    artifact_key text,
     CONSTRAINT tasks_stage_check CHECK ((stage = ANY (ARRAY['ideation'::text, 'planning'::text, 'execution'::text, 'verification'::text, 'done'::text]))),
     CONSTRAINT tasks_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'in_progress'::text, 'blocked'::text, 'completed'::text, 'failed'::text])))
 );
