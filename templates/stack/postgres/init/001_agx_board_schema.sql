@@ -253,6 +253,8 @@ CREATE TABLE IF NOT EXISTS agx.tasks (
     artifact_path text,
     artifact_host text,
     artifact_key text,
+    created_by text DEFAULT 'user'::text,
+    CONSTRAINT tasks_created_by_check CHECK ((created_by = ANY (ARRAY['user'::text, 'ai'::text]))),
     CONSTRAINT tasks_stage_check CHECK ((stage = ANY (ARRAY['ideation'::text, 'planning'::text, 'execution'::text, 'verification'::text, 'done'::text]))),
     CONSTRAINT tasks_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'in_progress'::text, 'blocked'::text, 'completed'::text, 'failed'::text])))
 );
@@ -501,3 +503,4 @@ END $$;
 ALTER TABLE agx.tasks ADD COLUMN IF NOT EXISTS artifact_path text;
 ALTER TABLE agx.tasks ADD COLUMN IF NOT EXISTS artifact_host text;
 ALTER TABLE agx.tasks ADD COLUMN IF NOT EXISTS artifact_key text;
+ALTER TABLE agx.tasks ADD COLUMN IF NOT EXISTS created_by text DEFAULT 'user'::text;
