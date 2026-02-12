@@ -496,3 +496,8 @@ DO $$ BEGIN
     ALTER TABLE agx.workflow_transitions ADD CONSTRAINT workflow_transitions_workflow_id_fkey FOREIGN KEY (workflow_id) REFERENCES agx.workflows(id) ON DELETE CASCADE;
   END IF;
 END $$;
+
+-- Idempotent column additions for existing installations
+ALTER TABLE agx.tasks ADD COLUMN IF NOT EXISTS artifact_path text;
+ALTER TABLE agx.tasks ADD COLUMN IF NOT EXISTS artifact_host text;
+ALTER TABLE agx.tasks ADD COLUMN IF NOT EXISTS artifact_key text;
