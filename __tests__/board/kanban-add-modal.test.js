@@ -15,7 +15,7 @@ describe('Kanban column add behavior (bundled board runtime)', () => {
     '9337-09000d8a6c85f40c.js'
   );
 
-  const dashboardChunk = path.join(
+  const dashboardChunkDir = path.join(
     process.cwd(),
     'cloud-runtime',
     'standalone',
@@ -26,9 +26,16 @@ describe('Kanban column add behavior (bundled board runtime)', () => {
     'static',
     'chunks',
     'app',
-    'dashboard',
-    'page-7437499eb05d5ce8.js'
+    'dashboard'
   );
+  const dashboardChunk = (() => {
+    const entries = fs.readdirSync(dashboardChunkDir);
+    const pageChunk = entries.find((entry) => /^page-.*\.js$/.test(entry));
+    if (!pageChunk) {
+      throw new Error(`Dashboard chunk not found in ${dashboardChunkDir}`);
+    }
+    return path.join(dashboardChunkDir, pageChunk);
+  })();
 
   test('column + delegates to onAddTask callback', () => {
     const content = fs.readFileSync(kanbanChunk, 'utf8');
@@ -37,10 +44,10 @@ describe('Kanban column add behavior (bundled board runtime)', () => {
 
   test('dashboard includes draft TaskDetail modal wiring', () => {
     const content = fs.readFileSync(dashboardChunk, 'utf8');
-    expect(content).toContain('onClose:()=>D(null)');
-    expect(content).toContain('onAddComment:eO');
-    expect(content).toContain('onUpdate:ez');
-    expect(content).toContain('isDraft:!0');
-    expect(content).toContain('onUpdate:eF');
+    expect(content).toMatch(/isDraft:!0/);
+    expect(content).toMatch(/onClose:\(\)=>[A-Za-z]\(null\)/);
+    expect(content).toMatch(/onAddComment:/);
+    expect(content).toMatch(/onAddLearning:/);
+    expect(content).toMatch(/onUpdate:async/);
   });
 });
