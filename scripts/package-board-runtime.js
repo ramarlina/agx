@@ -406,7 +406,7 @@ async function bundleWorker({ appDir }) {
             ];
             for (const p of candidates) {
               try {
-                if (fs.existsSync(p)) return p;
+                if (fs.existsSync(p) && fs.statSync(p).isFile()) return p;
               } catch { }
             }
             return null;
