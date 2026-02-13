@@ -130,6 +130,23 @@ CREATE TABLE IF NOT EXISTS agx.stage_prompts (
     workflow_id uuid
 );
 
+CREATE TABLE IF NOT EXISTS agx.task_templates (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    user_id uuid,
+    slug text NOT NULL,
+    name text NOT NULL,
+    description text,
+    provider text,
+    model text,
+    content text NOT NULL,
+    is_public boolean DEFAULT false,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS task_templates_public_slug_idx ON agx.task_templates (slug) WHERE user_id IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS task_templates_user_slug_idx ON agx.task_templates (user_id, slug) WHERE user_id IS NOT NULL;
+
 -- Per-user preferences (default provider/model), shared between CLI and web.
 -- `changed_at` is the user-visible last-change timestamp (may come from clients);
 -- `updated_at` is server-maintained via trigger.

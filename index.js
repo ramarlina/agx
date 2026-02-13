@@ -11,6 +11,7 @@
     const msg = err && err.stack ? err.stack : String(err);
     // Keep failures readable even if the implementation throws before it can render errors.
     process.stderr.write(`${msg}\n`);
+    process.stderr.write(`\n💡 Run \x1b[36magx feedback\x1b[0m to report this issue\n`);
     process.exit(1);
   }
 })();
