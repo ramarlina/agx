@@ -244,6 +244,46 @@ Contributions welcome.
 
 ---
 
+## Telemetry
+
+**Telemetry is enabled by default.**
+
+AGX collects anonymous usage data to improve the tool. Here's exactly what we collect:
+
+| Data | Example |
+|------|---------|
+| OS & architecture | `darwin`, `arm64` |
+| Node.js version | `v20.10.0` |
+| AGX version | `1.4.55` |
+| Commands run | `new`, `daemon start` |
+| Provider used | `claude`, `gemini`, `ollama` |
+| Task outcomes | `completed`, `failed` |
+| Timing | `duration_ms: 12345` |
+
+**We do NOT collect:**
+- ❌ Prompts or task descriptions
+- ❌ Code or file contents
+- ❌ API keys or secrets
+- ❌ File paths or project names
+- ❌ Any personally identifiable information
+
+### Disable telemetry
+
+```bash
+# Via CLI
+agx telemetry off
+
+# Via environment variable
+export AGX_TELEMETRY=0
+
+# Via config file (~/.agx/config.json)
+{ "telemetry": { "enabled": false } }
+```
+
+Check status: `agx telemetry status`
+
+---
+
 ## License
 
 MIT
