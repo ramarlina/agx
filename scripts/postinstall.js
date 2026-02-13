@@ -43,7 +43,9 @@ try {
   fs.unlinkSync(tmp);
 
   console.log('\n  \x1b[32m✓\x1b[0m Auto-update enabled (daily at 3am)');
-  console.log('    To disable: \x1b[36magx update --off\x1b[0m\n');
+  console.log('    To disable: \x1b[36magx update --off\x1b[0m');
+  console.log('\n  \x1b[2magx collects anonymous usage data to improve the tool.\x1b[0m');
+  console.log('    To disable: \x1b[36magx telemetry off\x1b[0m\n');
 } catch (err) {
   // Silently fail - don't break install if cron setup fails
 }

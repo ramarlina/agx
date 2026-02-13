@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 describe('Kanban column add behavior (bundled board runtime)', () => {
-  const kanbanChunk = path.join(
+  const kanbanChunkDir = path.join(
     process.cwd(),
     'cloud-runtime',
     'standalone',
@@ -11,9 +11,16 @@ describe('Kanban column add behavior (bundled board runtime)', () => {
     'agx-cloud',
     '.next',
     'static',
-    'chunks',
-    '9337-1475b21ebc625376.js'
+    'chunks'
   );
+  const kanbanChunk = (() => {
+    const entries = fs.readdirSync(kanbanChunkDir);
+    const chunk = entries.find((entry) => /^9337-.*\.js$/.test(entry));
+    if (!chunk) {
+      throw new Error(`Kanban chunk (9337-*) not found in ${kanbanChunkDir}`);
+    }
+    return path.join(kanbanChunkDir, chunk);
+  })();
 
   const dashboardChunkDir = path.join(
     process.cwd(),
@@ -39,7 +46,7 @@ describe('Kanban column add behavior (bundled board runtime)', () => {
 
   test('column + delegates to onAddTask callback', () => {
     const content = fs.readFileSync(kanbanChunk, 'utf8');
-    expect(content).toContain('onClick:()=>null==i?void 0:i(r)');
+    expect(content).toMatch(/onClick:\(\)=>null==[a-z]\?void 0:[a-z]\([a-z]\)/);
   });
 
   test('dashboard includes draft TaskDetail modal wiring', () => {
