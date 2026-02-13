@@ -136,7 +136,9 @@ No manual database setup required.
 agx init               # Initialize AGX in current directory
 agx new "<goal>"       # Create a new task
 agx run <task_id>      # Run a specific task
-agx status             # Show current status
+agx status <task-id-or-slug>  # Show detailed info for a single task
+agx status             # Show current queue/cloud status
+agx retry <task_id-or-slug> [--from <stage>]  # Reset + retry a task (ideation/planning/execution/verification)
 ```
 
 ### Project Management
