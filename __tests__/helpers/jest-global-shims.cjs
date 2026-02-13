@@ -1,3 +1,6 @@
+// Telemetry is disabled in tests to avoid external network calls.
+process.env.AGX_TELEMETRY = '0';
+
 // Jest's node environment teardown enumerates and clears globals.
 // On recent Node versions, accessing globalThis.localStorage/sessionStorage
 // can emit a warning unless Node is started with a valid --localstorage-file.
@@ -18,4 +21,3 @@ function tryOverride(name) {
 
 tryOverride('localStorage');
 tryOverride('sessionStorage');
-
