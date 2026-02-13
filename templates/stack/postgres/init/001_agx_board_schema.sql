@@ -193,6 +193,19 @@ CREATE TABLE IF NOT EXISTS agx.task_logs (
     CONSTRAINT task_logs_log_type_check CHECK ((log_type = ANY (ARRAY['output'::text, 'error'::text, 'system'::text, 'checkpoint'::text, 'comment'::text])))
 );
 
+CREATE TABLE IF NOT EXISTS agx.task_costs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    task_id uuid NOT NULL,
+    stage text NOT NULL,
+    provider text,
+    model text,
+    input_tokens integer DEFAULT 0 NOT NULL,
+    output_tokens integer DEFAULT 0 NOT NULL,
+    estimated_cost numeric(12,6) DEFAULT 0 NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT task_costs_task_fk FOREIGN KEY (task_id) REFERENCES agx.tasks(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS agx.task_run_history (
     id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
     task_id uuid,
@@ -221,11 +234,13 @@ CREATE TABLE IF NOT EXISTS agx.tasks (
     content text NOT NULL,
     title text,
     status text DEFAULT 'queued'::text,
+    blocked_reason text,
     stage text DEFAULT 'ideation'::text,
     project text,
     priority integer DEFAULT 0,
     engine text DEFAULT 'claude'::text,
     signature text,
+    depends_on uuid[] DEFAULT '{}'::uuid[],
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
     claimed_by uuid,
