@@ -2,6 +2,17 @@ const execa = require('execa');
 const fs = require('fs');
 const path = require('path');
 
+const mockCreateCheckpoint = jest.fn().mockResolvedValue(null);
+const mockCaptureGitState = jest.fn().mockReturnValue({ sha: 'abc123', branch: 'main', dirty: false });
+
+jest.mock('../../lib/storage/checkpoints', () => ({
+  createCheckpoint: mockCreateCheckpoint,
+}));
+
+jest.mock('../../lib/storage/git', () => ({
+  captureGitState: mockCaptureGitState,
+}));
+
 jest.mock('execa', () => {
   const fn = jest.fn();
   fn.sync = jest.fn();
@@ -21,6 +32,8 @@ const { executeTask, ENGINES, resolveStageConfig } = require('../../lib/executor
 describe('AGX Executor Module', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockCaptureGitState.mockReturnValue({ sha: 'abc123', branch: 'main', dirty: false });
+    mockCreateCheckpoint.mockResolvedValue(null);
     // Avoid depending on local machine provider CLIs in unit tests.
     for (const engine of Object.values(ENGINES)) {
       engine.available = () => true;
@@ -346,10 +359,30 @@ describe('AGX Executor Module', () => {
         title: 'Test',
         content: 'Content',
         stage: 'coding',
+        projectSlug: 'proj-1',
+        taskSlug: 'task-1',
+        iteration: 2,
+        objective: 'Finish the job',
+        constraints: ['keep tests green'],
+        dontRepeat: ['avoid rewrites'],
+        verifyFailures: true,
         onLog,
       });
 
       expect(onLog).toHaveBeenCalledWith(expect.stringContaining('checkpoint'));
+      expect(mockCreateCheckpoint).toHaveBeenCalledTimes(1);
+      expect(mockCreateCheckpoint.mock.calls[0][0]).toBe('proj-1');
+      expect(mockCreateCheckpoint.mock.calls[0][1]).toBe('task-1');
+      const payload = mockCreateCheckpoint.mock.calls[0][2];
+      expect(payload).toMatchObject({
+        label: 'Save point 1',
+        iteration: 2,
+        objective: 'Finish the job',
+        constraints: ['keep tests green'],
+        dontRepeat: ['avoid rewrites'],
+        verifyFailures: true,
+      });
+      expect(payload.git).toEqual({ sha: 'abc123', branch: 'main', dirty: false });
     });
 
     test('parses [learn:] markers', async () => {
@@ -454,6 +487,84 @@ describe('AGX Executor Module', () => {
       });
 
       expect(onProgress).toHaveBeenCalledWith(50);
+    });
+
+    test('persists parsed plan_json and criteria_json markers', async () => {
+      mockProcess.stdout.on.mockImplementation((event, callback) => {
+        if (event === 'data') {
+          callback(Buffer.from('[plan_json: {"steps":[{"desc":"Plan step","status":"todo"}],"current":2}]'));
+          callback(Buffer.from('[criteria_json: {"status":"blocked","notes":"Waiting on review"}]'));
+          callback(Buffer.from('[checkpoint: Plan checkpoint]'));
+        }
+      });
+
+      mockProcess.on.mockImplementation((event, callback) => {
+        if (event === 'close') {
+          setTimeout(() => callback(0), 10);
+        }
+      });
+
+      await executeTask({
+        taskId: 'task-plan-json',
+        title: 'Test',
+        content: 'Content',
+        stage: 'coding',
+        projectSlug: 'proj-plan',
+        taskSlug: 'task-plan',
+        iteration: 1,
+        objective: 'Wrap up plan',
+        constraints: ['avoid regressions'],
+        dontRepeat: ['dont rewrite history'],
+        verifyFailures: 'none',
+      });
+
+      expect(mockCreateCheckpoint).toHaveBeenCalledTimes(1);
+      const payload = mockCreateCheckpoint.mock.calls[0][2];
+      expect(payload.plan).toEqual({
+        steps: [{ desc: 'Plan step', status: 'todo' }],
+        current: 2,
+      });
+      expect(payload.criteria).toEqual({
+        status: 'blocked',
+        notes: 'Waiting on review',
+      });
+      expect(payload.objective).toBe('Wrap up plan');
+      expect(payload.git).toEqual({ sha: 'abc123', branch: 'main', dirty: false });
+    });
+
+    test('generates default plan when none provided on first iteration', async () => {
+      mockProcess.stdout.on.mockImplementation((event, callback) => {
+        if (event === 'data') {
+          callback(Buffer.from('[checkpoint: Default plan checkpoint]'));
+        }
+      });
+
+      mockProcess.on.mockImplementation((event, callback) => {
+        if (event === 'close') {
+          setTimeout(() => callback(0), 10);
+        }
+      });
+
+      await executeTask({
+        taskId: 'task-default-plan',
+        title: 'Test',
+        content: 'Content',
+        stage: 'coding',
+        projectSlug: 'proj-plan',
+        taskSlug: 'task-plan',
+        iteration: 1,
+      });
+
+      expect(mockCreateCheckpoint).toHaveBeenCalledTimes(1);
+      const payload = mockCreateCheckpoint.mock.calls[0][2];
+      expect(payload.plan).toEqual({
+        steps: [
+          { desc: 'Analyze', status: 'done' },
+          { desc: 'Implement', status: 'in_progress' },
+          { desc: 'Verify', status: 'todo' },
+        ],
+        current: 1,
+      });
     });
 
     test('returns result object on success', async () => {
