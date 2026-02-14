@@ -248,6 +248,11 @@ describe('lib/storage/paths', () => {
             expect(p.artifacts).toContain('artifacts');
         });
 
+        it('graphJsonPath returns graph.json under task root', () => {
+            expect(paths.graphJsonPath('my-project', 'my-task'))
+                .toBe('/test/agx/projects/my-project/my-task/graph.json');
+        });
+
         it('never escapes AGX_HOME even with malicious slugs', () => {
             // These should throw before returning paths
             expect(() => paths.projectRoot('../escape')).toThrow();

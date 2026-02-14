@@ -3,14 +3,36 @@ const fs = require('fs');
 const path = require('path');
 
 const mockCreateCheckpoint = jest.fn().mockResolvedValue(null);
+const mockCheckpointsPath = jest.fn().mockReturnValue('/tmp/agx/projects/proj/tasks/task/checkpoints.json');
 const mockCaptureGitState = jest.fn().mockReturnValue({ sha: 'abc123', branch: 'main', dirty: false });
+const mockCloudSync = jest.fn().mockResolvedValue({ success: true });
+const mockCreateCloudSyncer = jest.fn(() => ({
+  sync: mockCloudSync,
+  processQueue: jest.fn(),
+}));
+const mockRunVerifyGate = jest.fn().mockResolvedValue({
+  passed: true,
+  results: [],
+  verifyFailures: 0,
+  forceAction: false,
+  needsLlm: false,
+});
 
 jest.mock('../../lib/storage/checkpoints', () => ({
   createCheckpoint: mockCreateCheckpoint,
+  checkpointsPath: mockCheckpointsPath,
 }));
 
 jest.mock('../../lib/storage/git', () => ({
   captureGitState: mockCaptureGitState,
+}));
+
+jest.mock('../../lib/cloud-sync', () => ({
+  createCloudSyncer: mockCreateCloudSyncer,
+}));
+
+jest.mock('../../lib/verify-gate', () => ({
+  runVerifyGate: mockRunVerifyGate,
 }));
 
 jest.mock('execa', () => {
@@ -34,6 +56,15 @@ describe('AGX Executor Module', () => {
     jest.clearAllMocks();
     mockCaptureGitState.mockReturnValue({ sha: 'abc123', branch: 'main', dirty: false });
     mockCreateCheckpoint.mockResolvedValue(null);
+    mockCreateCloudSyncer.mockReturnValue({ sync: mockCloudSync, processQueue: jest.fn() });
+    mockCloudSync.mockResolvedValue({ success: true });
+    mockRunVerifyGate.mockResolvedValue({
+      passed: true,
+      results: [],
+      verifyFailures: 0,
+      forceAction: false,
+      needsLlm: false,
+    });
     // Avoid depending on local machine provider CLIs in unit tests.
     for (const engine of Object.values(ENGINES)) {
       engine.available = () => true;
@@ -385,6 +416,134 @@ describe('AGX Executor Module', () => {
       expect(payload.git).toEqual({ sha: 'abc123', branch: 'main', dirty: false });
     });
 
+    test('syncs checkpoint when cloud task id is provided', async () => {
+      mockCreateCheckpoint.mockResolvedValue({ id: 'cp-123', label: 'sync me' });
+
+      mockProcess.stdout.on.mockImplementation((event, callback) => {
+        if (event === 'data') {
+          callback(Buffer.from('[checkpoint: sync me]'));
+        }
+      });
+
+      mockProcess.on.mockImplementation((event, callback) => {
+        if (event === 'close') {
+          setTimeout(() => callback(0), 10);
+        }
+      });
+
+      await executeTask({
+        taskId: 'task-cloud-sync',
+        title: 'Test',
+        content: 'Content',
+        stage: 'coding',
+        projectSlug: 'proj-1',
+        taskSlug: 'task-1',
+        cloudTaskId: 'cloud-123',
+      });
+
+      expect(mockCreateCloudSyncer).toHaveBeenCalledTimes(1);
+      expect(mockCloudSync).toHaveBeenCalledWith(expect.objectContaining({ id: 'cp-123' }));
+    });
+
+    test('waits for pending checkpoint persistence before resolving', async () => {
+      let releaseCheckpoint;
+      const checkpointPending = new Promise((resolve) => {
+        releaseCheckpoint = resolve;
+      });
+      mockCreateCheckpoint.mockImplementation(() => checkpointPending);
+
+      mockProcess.stdout.on.mockImplementation((event, callback) => {
+        if (event === 'data') {
+          callback(Buffer.from('[checkpoint: delayed write]'));
+        }
+      });
+
+      mockProcess.on.mockImplementation((event, callback) => {
+        if (event === 'close') {
+          setTimeout(() => callback(0), 10);
+        }
+      });
+
+      let settled = false;
+      const executionPromise = executeTask({
+        taskId: 'task-delayed-checkpoint',
+        title: 'Test',
+        content: 'Content',
+        stage: 'coding',
+        projectSlug: 'proj-1',
+        taskSlug: 'task-1',
+      }).then(() => {
+        settled = true;
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(settled).toBe(false);
+
+      releaseCheckpoint({ id: 'cp-delayed', label: 'delayed write' });
+      await executionPromise;
+      expect(settled).toBe(true);
+    });
+
+    test('syncs blocked checkpoint when cloud task id is provided', async () => {
+      mockCreateCheckpoint.mockResolvedValue({ id: 'cp-blocked', label: 'blocked: Need API access' });
+
+      mockProcess.stdout.on.mockImplementation((event, callback) => {
+        if (event === 'data') {
+          callback(Buffer.from('[blocked: Need API access]'));
+        }
+      });
+
+      mockProcess.on.mockImplementation((event, callback) => {
+        if (event === 'close') {
+          setTimeout(() => callback(0), 10);
+        }
+      });
+
+      await executeTask({
+        taskId: 'task-blocked-cloud-sync',
+        title: 'Test',
+        content: 'Content',
+        stage: 'coding',
+        projectSlug: 'proj-1',
+        taskSlug: 'task-1',
+        cloudTaskId: 'cloud-123',
+      });
+
+      expect(mockCloudSync).toHaveBeenCalledWith(expect.objectContaining({ id: 'cp-blocked' }));
+    });
+
+    test('continues execution when cloud sync fails', async () => {
+      const onLog = jest.fn();
+      mockCreateCheckpoint.mockResolvedValue({ id: 'cp-sync-fail', label: 'sync me' });
+      mockCloudSync.mockRejectedValue(new Error('network unavailable'));
+
+      mockProcess.stdout.on.mockImplementation((event, callback) => {
+        if (event === 'data') {
+          callback(Buffer.from('[checkpoint: sync me]'));
+        }
+      });
+
+      mockProcess.on.mockImplementation((event, callback) => {
+        if (event === 'close') {
+          setTimeout(() => callback(0), 10);
+        }
+      });
+
+      const result = await executeTask({
+        taskId: 'task-cloud-sync-fails',
+        title: 'Test',
+        content: 'Content',
+        stage: 'coding',
+        projectSlug: 'proj-1',
+        taskSlug: 'task-1',
+        cloudTaskId: 'cloud-123',
+        onLog,
+      });
+
+      expect(result.success).toBe(true);
+      expect(onLog).toHaveBeenCalledWith(expect.stringContaining('[cloud-sync] sync failed'));
+    });
+
     test('parses [learn:] markers', async () => {
       const onLog = jest.fn();
       
@@ -591,6 +750,60 @@ describe('AGX Executor Module', () => {
       expect(result).toHaveProperty('output');
       expect(result).toHaveProperty('workDir');
       expect(result).toHaveProperty('exitCode', 0);
+      expect(result).toHaveProperty('gateResult');
+      expect(mockRunVerifyGate).toHaveBeenCalled();
+    });
+
+    test('returns verify gate force-action result', async () => {
+      mockRunVerifyGate.mockResolvedValue({
+        passed: false,
+        results: [],
+        verifyFailures: 3,
+        forceAction: true,
+        needsLlm: false,
+        reason: 'Exceeded verify attempts',
+      });
+
+      mockProcess.on.mockImplementation((event, callback) => {
+        if (event === 'close') {
+          setTimeout(() => callback(0), 10);
+        }
+      });
+
+      const result = await executeTask({
+        taskId: 'task-verify-force',
+        title: 'Test',
+        content: 'Content',
+        stage: 'coding',
+      });
+
+      expect(result.gateResult).toEqual(expect.objectContaining({
+        forceAction: true,
+        verifyFailures: 3,
+      }));
+    });
+
+    test('continues execution when verify gate throws', async () => {
+      const onLog = jest.fn();
+      mockRunVerifyGate.mockRejectedValue(new Error('verify command crashed'));
+
+      mockProcess.on.mockImplementation((event, callback) => {
+        if (event === 'close') {
+          setTimeout(() => callback(0), 10);
+        }
+      });
+
+      const result = await executeTask({
+        taskId: 'task-verify-throws',
+        title: 'Test',
+        content: 'Content',
+        stage: 'coding',
+        onLog,
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.gateResult).toBeNull();
+      expect(onLog).toHaveBeenCalledWith(expect.stringContaining('[verify-gate] execution error: verify command crashed'));
     });
   });
 });
