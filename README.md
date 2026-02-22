@@ -62,7 +62,7 @@ agx init
 ### Start a multi-agent chat
 
 ```bash
-agx chat claude            # or codex, gemini, ollama
+agx chat
 ```
 
 Drop an idea, @mention agents, let them plan. When ready, push tasks to the board.
