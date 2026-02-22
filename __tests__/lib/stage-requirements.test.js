@@ -7,8 +7,8 @@ const {
 } = require('../../lib/stage-requirements');
 
 describe('stage-requirements', () => {
-  test('defines explicit ideation and planning requirements', () => {
-    expect(STAGE_REQUIREMENTS.ideation.artifact).toBe('idea');
+  test('defines explicit intake and planning requirements', () => {
+    expect(STAGE_REQUIREMENTS.intake.artifact).toBe('idea');
     expect(STAGE_REQUIREMENTS.planning.artifact).toBe('plan');
   });
 

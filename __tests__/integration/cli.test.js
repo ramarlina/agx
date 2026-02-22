@@ -216,12 +216,19 @@ describe('AGX Daemon Tests', () => {
 
   test('daemon --help shows options', () => {
     const output = runAgx('daemon --help');
-    expect(output).toMatch(/daemon|worker|temporal/i);
+    expect(output).toMatch(/daemon|worker|orchestrator/i);
+    expect(output).toMatch(/pick|dry-pick/i);
   });
 
   test('daemon --dry-run validates without starting', () => {
     // Some implementations have --dry-run
     const output = runAgx('daemon --dry-run 2>&1');
     expect(output).toBeTruthy();
+  });
+
+  test('daemon --dry-pick shows next-candidate preview path', () => {
+    const output = runAgx('daemon --dry-pick 2>&1');
+    expect(output).toBeTruthy();
+    expect(output).toMatch(/next daemon pick|no queued tasks|no runnable queued tasks|cloud api url not configured/i);
   });
 });

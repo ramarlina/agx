@@ -72,4 +72,26 @@ describe('cloud task prompt helpers', () => {
     expect(prompt).toContain('User note');
     expect(prompt).not.toContain('[execution/decision]');
   });
+
+  test('buildCloudTaskPromptFromContext prefers description over content body', () => {
+    const prompt = buildCloudTaskPromptFromContext({
+      id: 'task-2',
+      title: 'Task Two',
+      slug: 'task-two',
+      stage: 'execution',
+      project: 'alpha',
+      description: 'description-priority-text',
+      content: '---\nstatus: queued\n---\n# Task Two\n\nlegacy-content-text',
+      comments: [],
+      learnings: { task: [], project: [], global: [] },
+      project_context: null,
+      resolved_provider: 'claude',
+      resolved_model: 'claude-3.5',
+      resolved_swarm: false,
+      resolved_swarm_models: [],
+    });
+
+    expect(prompt).toContain('description-priority-text');
+    expect(prompt).not.toContain('legacy-content-text');
+  });
 });

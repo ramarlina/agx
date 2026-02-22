@@ -206,6 +206,7 @@ CREATE TABLE IF NOT EXISTS agx.task_logs (
     task_id uuid NOT NULL,
     content text NOT NULL,
     log_type text DEFAULT 'output'::text,
+    node_id text,
     created_at timestamp with time zone DEFAULT now(),
     CONSTRAINT task_logs_log_type_check CHECK ((log_type = ANY (ARRAY['output'::text, 'error'::text, 'system'::text, 'checkpoint'::text, 'comment'::text])))
 );
@@ -252,7 +253,7 @@ CREATE TABLE IF NOT EXISTS agx.tasks (
     title text,
     status text DEFAULT 'queued'::text,
     blocked_reason text,
-    stage text DEFAULT 'ideation'::text,
+    stage text DEFAULT 'INTAKE'::text,
     project text,
     priority integer DEFAULT 0,
     engine text DEFAULT 'claude'::text,
@@ -287,7 +288,6 @@ CREATE TABLE IF NOT EXISTS agx.tasks (
     artifact_key text,
     created_by text DEFAULT 'user'::text,
     CONSTRAINT tasks_created_by_check CHECK ((created_by = ANY (ARRAY['user'::text, 'ai'::text]))),
-    CONSTRAINT tasks_stage_check CHECK ((stage = ANY (ARRAY['ideation'::text, 'planning'::text, 'execution'::text, 'verification'::text, 'done'::text]))),
     CONSTRAINT tasks_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'in_progress'::text, 'blocked'::text, 'completed'::text, 'failed'::text])))
 );
 
@@ -395,6 +395,7 @@ CREATE INDEX IF NOT EXISTS idx_stage_prompts_workflow_id ON agx.stage_prompts US
 CREATE INDEX IF NOT EXISTS idx_task_comments_not_deleted ON agx.task_comments USING btree (task_id, created_at) WHERE (deleted_at IS NULL);
 CREATE INDEX IF NOT EXISTS idx_task_comments_task ON agx.task_comments USING btree (task_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_task_logs_task ON agx.task_logs USING btree (task_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_task_logs_node ON agx.task_logs USING btree (task_id, node_id, created_at) WHERE (node_id IS NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_task_run_history_pid ON agx.task_run_history USING btree (pid);
 CREATE INDEX IF NOT EXISTS idx_task_run_history_task_id ON agx.task_run_history USING btree (task_id);
 CREATE INDEX IF NOT EXISTS idx_task_workflow_events_task_id_created_at ON agx.task_workflow_events USING btree (task_id, created_at DESC);
@@ -536,3 +537,122 @@ ALTER TABLE agx.tasks ADD COLUMN IF NOT EXISTS artifact_path text;
 ALTER TABLE agx.tasks ADD COLUMN IF NOT EXISTS artifact_host text;
 ALTER TABLE agx.tasks ADD COLUMN IF NOT EXISTS artifact_key text;
 ALTER TABLE agx.tasks ADD COLUMN IF NOT EXISTS created_by text DEFAULT 'user'::text;
+ALTER TABLE agx.tasks ADD COLUMN IF NOT EXISTS graph_id uuid;
+
+-- ──────────────────────────────────────────────────────────────────────────────
+-- Execution graph tables (v2 DAG persistence)
+-- ──────────────────────────────────────────────────────────────────────────────
+
+CREATE OR REPLACE FUNCTION agx.increment_graph_version() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+begin
+  new.graph_version = old.graph_version + 1;
+  return new;
+end;
+$$;
+
+CREATE TABLE IF NOT EXISTS agx.execution_graphs (
+    id uuid NOT NULL PRIMARY KEY,
+    task_id uuid NOT NULL,
+    graph_version integer DEFAULT 1 NOT NULL,
+    mode text NOT NULL,
+    policy jsonb DEFAULT '{}'::jsonb NOT NULL,
+    done_criteria jsonb DEFAULT '{}'::jsonb NOT NULL,
+    execution_state text DEFAULT 'ready' NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT execution_graphs_mode_check CHECK ((mode = ANY (ARRAY['SIMPLE'::text, 'PROJECT'::text]))),
+    CONSTRAINT execution_graphs_execution_state_check CHECK ((execution_state = ANY (ARRAY['ready'::text, 'running'::text, 'paused'::text, 'stopped'::text, 'done'::text])))
+);
+
+CREATE TABLE IF NOT EXISTS agx.graph_nodes (
+    graph_id uuid NOT NULL,
+    node_id text NOT NULL,
+    type text NOT NULL,
+    status text NOT NULL,
+    config jsonb DEFAULT '{}'::jsonb NOT NULL,
+    output jsonb,
+    metrics jsonb,
+    PRIMARY KEY (graph_id, node_id),
+    CONSTRAINT graph_nodes_type_check CHECK ((type = ANY (ARRAY['work'::text, 'gate'::text, 'fork'::text, 'join'::text, 'conditional'::text, 'root'::text]))),
+    CONSTRAINT graph_nodes_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'awaiting_human'::text, 'done'::text, 'passed'::text, 'failed'::text, 'blocked'::text, 'skipped'::text, 'stopped'::text])))
+);
+
+CREATE TABLE IF NOT EXISTS agx.graph_edges (
+    graph_id uuid NOT NULL,
+    from_id text NOT NULL,
+    to_id text NOT NULL,
+    type text NOT NULL,
+    condition text,
+    data_mapping jsonb,
+    PRIMARY KEY (graph_id, from_id, to_id, type),
+    CONSTRAINT graph_edges_type_check CHECK ((type = ANY (ARRAY['hard'::text, 'soft'::text]))),
+    CONSTRAINT graph_edges_condition_check CHECK ((condition IS NULL) OR (condition = ANY (ARRAY['on_success'::text, 'on_failure'::text, 'always'::text])))
+);
+
+CREATE TABLE IF NOT EXISTS agx.graph_events (
+    graph_id uuid NOT NULL,
+    event_type text NOT NULL,
+    payload jsonb DEFAULT '{}'::jsonb NOT NULL,
+    "timestamp" timestamp with time zone DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agx.graph_migration_backups (
+    id uuid DEFAULT gen_random_uuid() NOT NULL PRIMARY KEY,
+    project_id uuid NOT NULL,
+    task_id text NOT NULL,
+    task_snapshot jsonb NOT NULL,
+    had_graph_before boolean DEFAULT false NOT NULL,
+    previous_graph_id uuid,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+-- Execution graph indexes
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_execution_graphs_task_id ON agx.execution_graphs USING btree (task_id);
+CREATE INDEX IF NOT EXISTS idx_graph_nodes_graph_id ON agx.graph_nodes USING btree (graph_id);
+CREATE INDEX IF NOT EXISTS idx_graph_edges_graph_id ON agx.graph_edges USING btree (graph_id);
+CREATE INDEX IF NOT EXISTS idx_graph_events_graph_id_timestamp ON agx.graph_events USING btree (graph_id, "timestamp");
+CREATE INDEX IF NOT EXISTS idx_tasks_graph_id ON agx.tasks USING btree (graph_id) WHERE (graph_id IS NOT NULL);
+
+-- Execution graph triggers
+
+DROP TRIGGER IF EXISTS execution_graphs_updated_at ON agx.execution_graphs;
+CREATE TRIGGER execution_graphs_updated_at BEFORE UPDATE ON agx.execution_graphs FOR EACH ROW EXECUTE FUNCTION agx.update_updated_at();
+
+DROP TRIGGER IF EXISTS trg_increment_graph_version ON agx.execution_graphs;
+CREATE TRIGGER trg_increment_graph_version BEFORE UPDATE ON agx.execution_graphs FOR EACH ROW EXECUTE FUNCTION agx.increment_graph_version();
+
+-- Execution graph foreign keys
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'execution_graphs_task_id_fkey') THEN
+    ALTER TABLE agx.execution_graphs ADD CONSTRAINT execution_graphs_task_id_fkey FOREIGN KEY (task_id) REFERENCES agx.tasks(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'graph_nodes_graph_id_fkey') THEN
+    ALTER TABLE agx.graph_nodes ADD CONSTRAINT graph_nodes_graph_id_fkey FOREIGN KEY (graph_id) REFERENCES agx.execution_graphs(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'graph_edges_graph_id_fkey') THEN
+    ALTER TABLE agx.graph_edges ADD CONSTRAINT graph_edges_graph_id_fkey FOREIGN KEY (graph_id) REFERENCES agx.execution_graphs(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'graph_events_graph_id_fkey') THEN
+    ALTER TABLE agx.graph_events ADD CONSTRAINT graph_events_graph_id_fkey FOREIGN KEY (graph_id) REFERENCES agx.execution_graphs(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'tasks_graph_id_fkey') THEN
+    ALTER TABLE agx.tasks ADD CONSTRAINT tasks_graph_id_fkey FOREIGN KEY (graph_id) REFERENCES agx.execution_graphs(id) ON DELETE SET NULL;
+  END IF;
+END $$;

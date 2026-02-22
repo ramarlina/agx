@@ -47,7 +47,7 @@
 </p>
 
 <p align="center">
-  AGX turns AI coding CLIs (Claude Code, Gemini CLI, Ollama) into autonomous agents that persist across sessions, survive crashes, and run unattended. Instead of reconstructing context from chat history, AGX stores <strong>authoritative agent state locally in PostgreSQL</strong>.
+  AGX turns AI coding CLIs (Claude Code, Codex, Gemini CLI, Ollama) into autonomous agents that persist across sessions, survive crashes, and run unattended. v2 adds execution-graph runtime + gate approvals for non-linear work, while keeping <strong>authoritative control-plane state local in PostgreSQL</strong>.
 </p>
 
 ---
@@ -72,13 +72,21 @@ AGX separates **execution state** from **execution history**:
 History is never replayed to rebuild context.
 Resuming a task is a constant-cost operation, no matter how long it has been running.
 
+v2 extends this with **task-dependent execution paths**:
+- tasks can run as execution graphs instead of a fixed linear stage sequence
+- critical nodes pause at human gates (`approve` / `reject`)
+- graph execution still preserves the same durable checkpoint model
+
 ---
 
 ## Features
 
 - **Durable, resumable execution** — Tasks survive restarts, crashes, and machine reboots. State is checkpointed after every agent iteration.
-- **Bundled dashboard (Kanban)** — Ships with the CLI. Reflects authoritative database state.
-- **Multi-provider** — Use Claude, Gemini, or Ollama depending on your needs.
+- **Task-dependent execution graph runtime (v2)** — Branch/fork/join flows for complex tasks, plus graph-aware reruns and status.
+- **Human-in-the-loop gates** — Critical nodes can pause for explicit `approve` / `reject` decisions.
+- **Interactive task chat** — Use `agx chat` to collaborate with provider-backed agents on a task thread.
+- **Bundled dashboard (Kanban)** — Ships with the CLI and reflects authoritative state.
+- **Multi-provider** — Use Claude, Codex, Gemini, or Ollama depending on your needs.
 - **Local & inspectable** — Runs entirely on your machine. Safeguards for destructive commands, task signing, and full execution logs.
 - **Project workflows** — Define custom SDLC stage prompts (Planning, Coding, QA, etc.) tailored to your repository.
 
@@ -86,7 +94,7 @@ Resuming a task is a constant-cost operation, no matter how long it has been run
 
 ## What AGX is *not*
 
-- Not a chat UI
+- Not just a chat bot
 - Not a hosted SaaS
 - Not prompt-replay–based
 - Not a black-box agent framework
@@ -121,6 +129,7 @@ Open the board, watch the agent work, stop/restart at will.
 - **PostgreSQL** — Used for durable state and task queueing. AGX can auto-start Postgres via Docker if none is running.
 - **At least one AI provider CLI:**
   - [Claude Code](https://docs.anthropic.com/claude/docs/claude-cli)
+  - [OpenAI Codex CLI](https://www.npmjs.com/package/@openai/codex)
   - [Gemini CLI](https://ai.google.dev/gemini-api/docs/cli)
   - [Ollama](https://ollama.ai/)
 
@@ -138,7 +147,10 @@ agx new "<goal>"       # Create a new task
 agx run <task_id>      # Run a specific task
 agx status <task-id-or-slug>  # Show detailed info for a single task
 agx status             # Show current queue/cloud status
-agx retry <task_id-or-slug> [--from <stage>]  # Reset + retry a task (ideation/planning/execution/verification)
+agx retry <task_id-or-slug> [--from <stage>]  # Reset + retry a task (intake/planning/execution/verification)
+agx deps <task> [--depends-on <task> ... | --clear]  # Show or update task dependencies
+agx approve <task> [--node <node-id>] [-m "feedback"] # Approve an awaiting gate
+agx reject <task> [--node <node-id>] [-m "feedback"]  # Reject an awaiting gate
 ```
 
 ### Project Management
@@ -171,11 +183,19 @@ agx daemon stop        # Stop daemon and board
 agx daemon status
 ```
 
+### Chat Sessions
+
+```bash
+agx chat codex                 # Start a new chat session (provider can be claude/codex/gemini/ollama)
+agx chat claude --task <id>    # Continue chat on an existing task
+```
+
 ### One-Shot Mode
 
 ```bash
 agx -p "Explain this error"
 agx claude -p "Refactor this function"
+agx codex -p "Propose a migration plan"
 agx gemini -p "Debug this code"
 ```
 
@@ -186,6 +206,7 @@ agx gemini -p "Debug this code"
 | Provider | Alias | Command      |
 | -------- | ----- | ------------ |
 | Claude   | `c`   | `agx claude` |
+| Codex    | `x`   | `agx codex`  |
 | Gemini   | `g`   | `agx gemini` |
 | Ollama   | `o`   | `agx ollama` |
 
@@ -194,10 +215,14 @@ agx gemini -p "Debug this code"
 ## Key Flags
 
 ```bash
--a, --autonomous    # Create task + start daemon + run until done
 -p, --prompt        # Task goal
--y, --yolo          # Skip confirmations
--P, --provider      # c | g | o
+-P, --provider      # c | x | g | o
+-m, --model         # Explicit model for provider commands
+
+# Runtime flags (for run/retry/-a, not new):
+-a, --autonomous    # Create task + start daemon + run until done
+-y, --yolo          # Skip confirmations during execution (implied by -a)
+--swarm             # Use multi-agent swarm execution mode (run path)
 ```
 
 ---
@@ -216,12 +241,13 @@ Control Plane (State & Orchestration)
 Data Plane (Execution)
 ┌──────────────┐   ┌──────────────┐   ┌────────────┐
 │ AI Provider  │◄─►│ AGX CLI      │◄─►│ AGX Daemon │
-│ Claude/Gemini│   │              │   │            │
+│ C/Codex/G/O  │   │              │   │            │
 └──────────────┘   └──────────────┘   └────────────┘
 ```
 
-* **Control Plane** — authoritative state, workflows, monitoring
+* **Control Plane** — authoritative state, workflows, queueing, monitoring
 * **Data Plane** — execution, tool calls, filesystem edits
+* **Decision Plane (v2)** — execution graph + gate transitions driven by task context
 
 ---
 
@@ -231,6 +257,7 @@ Data Plane (Execution)
 * **Database:** PostgreSQL + `pg-boss`
 * **Runtime:** Node.js (TypeScript / `tsx`)
 * **Streaming:** EventSource (CLI → board)
+* **Execution model:** Legacy stage flow + v2 execution graph runtime
 
 ---
 
@@ -256,7 +283,7 @@ AGX collects anonymous usage data to improve the tool. Here's exactly what we co
 | Node.js version | `v20.10.0` |
 | AGX version | `1.4.55` |
 | Commands run | `new`, `daemon start` |
-| Provider used | `claude`, `gemini`, `ollama` |
+| Provider used | `claude`, `codex`, `gemini`, `ollama` |
 | Task outcomes | `completed`, `failed` |
 | Timing | `duration_ms: 12345` |
 

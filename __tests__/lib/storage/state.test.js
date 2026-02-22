@@ -329,12 +329,15 @@ describe('lib/storage/state', () => {
                 reason: 'production deploy',
             });
 
+            await state.updateTaskState('my-project', 'my-task', { status: 'blocked' });
             await state.approveRequest('my-project', 'my-task', request.id);
 
             const approvals = await state.readApprovals('my-project', 'my-task');
+            const task = await state.readTaskState('my-project', 'my-task');
             expect(approvals.pending).toHaveLength(0);
             expect(approvals.approved).toHaveLength(1);
             expect(approvals.approved[0].id).toBe(request.id);
+            expect(task.status).toBe('pending');
         });
 
         it('rejectRequest moves from pending to rejected', async () => {

@@ -3,7 +3,6 @@
 const execa = require('execa');
 const fs = require('fs');
 const path = require('path');
-const esbuild = require('esbuild');
 
 const agxRoot = path.resolve(__dirname, '..');
 const cloudRoot = path.resolve(agxRoot, '..', 'agx-cloud');
@@ -29,6 +28,31 @@ function cleanAndPrepare() {
 function copyDir(from, to) {
   fs.mkdirSync(path.dirname(to), { recursive: true });
   fs.cpSync(from, to, { recursive: true });
+}
+
+function stripLocalStateDirs(rootDir) {
+  if (!fs.existsSync(rootDir)) return;
+
+  const stack = [rootDir];
+  while (stack.length) {
+    const current = stack.pop();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const entryPath = path.join(current, entry.name);
+      if (entry.name === '.agx') {
+        fs.rmSync(entryPath, { recursive: true, force: true });
+        continue;
+      }
+      stack.push(entryPath);
+    }
+  }
 }
 
 function findPackagedAppDir(rootDir) {
@@ -325,6 +349,12 @@ const dbClientPatch = {
 };
 
 const bundledRuntimePatches = [...useTasksPatches, dbClientPatch];
+const tasksRouteNoisePatch = {
+  relativePath: path.join('.next', 'server', 'app', 'api', 'tasks', 'route.js'),
+  match:
+    'let l=await (0,f.x1)(b,{project:d,status:g||void 0,search:k});return e.NextResponse.json({tasks:l})',
+  replace: `let l=await (0,f.x1)(b,{project:d,status:g||void 0,search:k});l=Array.isArray(l)?l.filter(a=>{let b=String(a?.title||"").trim();if(b)return!0;let c=String(a?.content||"").replace(/\\r/g,"").trim();if(!c)return!0;let d=c.toLowerCase();if(!d.startsWith("curl "))return!0;if(!d.includes("/api/tasks?project="))return!0;if(!d.includes("\\n  -h "))return!0;return !(d.includes("-h \\'accept: */*\\'")&&d.includes("-h \\'user-agent:"))}):l;return e.NextResponse.json({tasks:l})`,
+};
 
 function patchChunkDirectory(dirPath) {
   if (!fs.existsSync(dirPath)) return false;
@@ -357,6 +387,18 @@ function patchChunkDirectory(dirPath) {
   return patchedAny;
 }
 
+function patchBundledFile(baseDir, patch) {
+  const targetPath = path.join(baseDir, patch.relativePath);
+  if (!fs.existsSync(targetPath)) return false;
+  const content = fs.readFileSync(targetPath, 'utf8');
+  if (content.includes(patch.replace)) return false;
+  if (!content.includes(patch.match)) return false;
+  const updated = content.replace(patch.match, patch.replace);
+  if (updated === content) return false;
+  fs.writeFileSync(targetPath, updated);
+  return true;
+}
+
 function patchBundledRuntime(appDir) {
   const serverChunkDir = path.join(appDir, '.next', 'server', 'chunks');
   const staticChunkDir = path.join(appDir, '.next', 'static', 'chunks');
@@ -368,9 +410,14 @@ function patchBundledRuntime(appDir) {
   if (patchedDirs.length > 0) {
     console.log(`[agx] Patched bundled useTasks hook to refresh after mutations (${patchedDirs.join(', ')})`);
   }
+
+  if (patchBundledFile(appDir, tasksRouteNoisePatch)) {
+    console.log('[agx] Patched /api/tasks route to suppress copied curl command dumps in task lists');
+  }
 }
 
 async function bundleWorker({ appDir }) {
+  const esbuild = require('esbuild');
   const entry = path.join(cloudRoot, 'worker', 'index.ts');
   ensureExists(entry, 'Worker entrypoint');
   const workerOutDir = path.join(appDir, 'worker');
@@ -450,6 +497,7 @@ async function main() {
 
   const standaloneDest = path.join(cloudRuntimeDir, 'standalone');
   copyDir(standaloneSrc, standaloneDest);
+  stripLocalStateDirs(standaloneDest);
 
   const appDir = findPackagedAppDir(standaloneDest);
   if (!appDir) {
@@ -489,7 +537,7 @@ async function main() {
     appPkg.scripts.build = "echo 'standalone build - nothing to build'";
     appPkg.scripts.worker = 'node worker/index.js';
     appPkg.scripts['daemon:worker'] = 'node worker/index.js';
-    appPkg.scripts['daemon:temporal'] = 'node worker/index.js';
+    appPkg.scripts['daemon:orchestrator'] = 'node worker/index.js';
     fs.writeFileSync(appPkgPath, JSON.stringify(appPkg, null, 2) + '\n');
     console.log('[agx] Patched package.json scripts for standalone runtime');
   }

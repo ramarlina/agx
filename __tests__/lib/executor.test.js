@@ -103,7 +103,7 @@ describe('AGX Executor Module', () => {
 
     test('falls back to generic prompt when stage prompt is missing', () => {
       const config = resolveStageConfig({ stage: 'unknown_stage' });
-      expect(config.prompt.toLowerCase()).toContain('latest stage prompt');
+      expect(config.prompt.toLowerCase()).toContain('latest objective');
       expect(config.outputs).toEqual([]);
     });
   });

@@ -10,6 +10,20 @@ describe('buildCloudTaskTerminalPatch', () => {
       .toBe(null);
   });
 
+  test('forces progress to done when decision is done', () => {
+    expect(buildCloudTaskTerminalPatch({ decision: 'done', newStage: 'progress', nowIso: '2020-01-01T00:00:00.000Z' }))
+      .toEqual({ stage: 'done', status: 'completed', completed_at: '2020-01-01T00:00:00.000Z' });
+  });
+
+  test('forces progress to done when new stage is missing but previous stage was progress', () => {
+    expect(buildCloudTaskTerminalPatch({
+      decision: 'done',
+      newStage: null,
+      previousStage: 'progress',
+      nowIso: '2020-01-01T00:00:00.000Z',
+    })).toEqual({ stage: 'done', status: 'completed', completed_at: '2020-01-01T00:00:00.000Z' });
+  });
+
   test('marks failed when decision is failed', () => {
     expect(buildCloudTaskTerminalPatch({ decision: 'failed', newStage: 'execution', nowIso: '2020-01-01T00:00:00.000Z' }))
       .toEqual({ status: 'failed', completed_at: '2020-01-01T00:00:00.000Z' });
@@ -25,4 +39,3 @@ describe('buildCloudTaskTerminalPatch', () => {
       .toEqual({ status: 'completed', completed_at: '2020-01-01T00:00:00.000Z' });
   });
 });
-

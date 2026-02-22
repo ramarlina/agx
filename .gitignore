@@ -34,3 +34,6 @@ plan/artifacts/
 cloud-runtime/
 docs/
 templates/stack/postgres/init/001_agx_board_schema.sql
+
+planning/
+docs/

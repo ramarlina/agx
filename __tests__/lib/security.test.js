@@ -367,7 +367,7 @@ describe('AGX CLI Security Module', () => {
       test('logs rejected task', () => {
         mockFs.existsSync.mockReturnValue(true);
 
-        const task = { id: 'task-2', title: 'Rejected', stage: 'ideation' };
+        const task = { id: 'task-2', title: 'Rejected', stage: 'intake' };
         logTaskExecution(task, { action: 'reject', result: 'rejected', skipped: true, error: 'Invalid signature' });
 
         const logEntry = JSON.parse(mockFs.appendFileSync.mock.calls[0][1].replace('\n', ''));

@@ -11,6 +11,13 @@ const mockUseLearnings = jest.fn();
 const mockUseProjects = jest.fn();
 const mockUseWorkflows = jest.fn();
 const mockUseProviders = jest.fn();
+const mockRouterPush = jest.fn();
+
+jest.mock("next/navigation", () => ({
+  useSearchParams: () => new URLSearchParams(),
+  useRouter: () => ({ push: mockRouterPush }),
+  usePathname: () => "/dashboard",
+}), { virtual: true });
 
 jest.mock("@/hooks/useTasks", () => ({
   useTasks: () => mockUseTasks(),
@@ -44,6 +51,15 @@ jest.mock("@/components/TaskList", () => ({
 jest.mock("@/components/KanbanBoard", () => ({
   __esModule: true,
   default: () => <div data-testid="kanban-board" />,
+}));
+
+jest.mock("@/components/NowRunningPanel", () => ({
+  __esModule: true,
+  default: ({ tasks, onStop }: { tasks: Array<{ id: string }>; onStop?: (taskId: string) => void }) => (
+    <button type="button" onClick={() => onStop?.(tasks?.[0]?.id)} aria-label="Stop Task">
+      Stop Task
+    </button>
+  ),
 }));
 
 jest.mock("@/components/TaskDetail", () => ({
@@ -117,6 +133,7 @@ const baseProviders = { providers: [] };
 describe("Dashboard stop flow", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRouterPush.mockReset();
     mockUseTaskComments.mockReturnValue(baseTaskComments);
     mockUseLearnings.mockReturnValue(baseLearnings);
     mockUseProjects.mockReturnValue(baseProjects);

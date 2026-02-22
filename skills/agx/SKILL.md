@@ -34,6 +34,17 @@ agx status            # Current task status
 agx complete <taskId> # Mark task stage complete
 ```
 
+## Task Dependencies (ordering)
+
+```bash
+agx new "Task C" --depends-on <taskA-id> --depends-on <taskB-id>
+agx deps <task-c>                                  # Show depends_on + dependents
+agx deps <task-c> --depends-on <taskA> --depends-on <taskB>  # Set dependencies
+agx deps <task-c> --clear                          # Remove all dependencies
+```
+
+Use task UUIDs, slugs, or `agx task ls` index references.
+
 ## Monitoring
 
 ```bash
@@ -62,8 +73,10 @@ agx ollama [args]     # Ollama (alias: o)
 ## Key Flags
 
 ```bash
--a, --autonomous    # Full auto: create task + daemon + work until done
 -p, --prompt        # The prompt/goal
--y, --yolo          # Skip confirmations
 -P, --provider      # Specify provider (c|g|o)
+
+# Runtime flags (for run/retry/-a, not new):
+-a, --autonomous    # Full auto: create task + daemon + work until done
+-y, --yolo          # Skip confirmations during execution (implied by -a)
 ```
