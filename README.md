@@ -4,12 +4,12 @@
   <br>
 </h1>
 
-<h4 align="center">Local-first agent orchestrator with durable state and visual control.</h4>
+<h4 align="center">Chat with AI agents. Watch them plan. Approve before they act.</h4>
 
 <p align="center">
   <br>
   <a href="https://github.com/ramarlina/agx">
-    <img src="agx_dashboard.png" alt="AGX" width="600">
+    <img src="agx-chat-to-tasks.gif" alt="AGX" width="600">
   </a>
   <br>
   <br>
@@ -38,156 +38,97 @@
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> •
-  <a href="#why-agx-exists">Why AGX</a> •
   <a href="#features">Features</a> •
   <a href="#commands">Commands</a> •
-  <a href="#architecture">Architecture</a> •
+  <a href="#how-it-works">How It Works</a> •
   <a href="#contributing">Contributing</a> •
   <a href="#license">License</a>
 </p>
 
-<p align="center">
-  AGX turns AI coding CLIs (Claude Code, Codex, Gemini CLI, Ollama) into autonomous agents that persist across sessions, survive crashes, and run unattended. v2 adds execution-graph runtime + gate approvals for non-linear work, while keeping <strong>authoritative control-plane state local in PostgreSQL</strong>.
-</p>
+---
+
+> **TL;DR** — Drop an idea into a multi-agent chat. Let agents debate, plan, and structure the work. Push tasks to a board. Watch an execution graph run. Approve gates before anything critical happens. All local, all yours.
 
 ---
 
-## Why AGX exists
+## Quick Start
 
-Most agent tools treat "memory" as conversation history.
+```bash
+npm install -g @mndrk/agx
+cd my-project
+agx init
+```
 
-AGX treats memory as **durable state**.
+### Start a multi-agent chat
 
-Agents follow a **Wake → Work → Sleep** cycle:
+```bash
+agx chat claude            # or codex, gemini, ollama
+```
 
-1. **Wake** — Load full context from durable state (not rebuilt from history)
-2. **Work** — Execute commands, edit files, validate output
-3. **Sleep** — Checkpoint state and yield, ready to resume
+Drop an idea, @mention agents, let them plan. When ready, push tasks to the board.
 
-AGX separates **execution state** from **execution history**:
+### Run tasks autonomously
 
-- **State (hot):** current context, working set, checkpoints
-- **History (cold):** logs, artifacts, audit trail
+```bash
+agx new "Refactor the authentication middleware"
+agx daemon start
+```
 
-History is never replayed to rebuild context.
-Resuming a task is a constant-cost operation, no matter how long it has been running.
-
-v2 extends this with **task-dependent execution paths**:
-- tasks can run as execution graphs instead of a fixed linear stage sequence
-- critical nodes pause at human gates (`approve` / `reject`)
-- graph execution still preserves the same durable checkpoint model
+Open the board, watch the agent work, approve gates, stop/restart at will.
 
 ---
 
 ## Features
 
-- **Durable, resumable execution** — Tasks survive restarts, crashes, and machine reboots. State is checkpointed after every agent iteration.
-- **Task-dependent execution graph runtime (v2)** — Branch/fork/join flows for complex tasks, plus graph-aware reruns and status.
-- **Human-in-the-loop gates** — Critical nodes can pause for explicit `approve` / `reject` decisions.
-- **Interactive task chat** — Use `agx chat` to collaborate with provider-backed agents on a task thread.
-- **Bundled dashboard (Kanban)** — Ships with the CLI and reflects authoritative state.
-- **Multi-provider** — Use Claude, Codex, Gemini, or Ollama depending on your needs.
-- **Local & inspectable** — Runs entirely on your machine. Safeguards for destructive commands, task signing, and full execution logs.
-- **Project workflows** — Define custom SDLC stage prompts (Planning, Coding, QA, etc.) tailored to your repository.
+- **Multi-agent chat** — Talk to Claude, Codex, Gemini, or Ollama in the same thread. @mention agents, get multiple perspectives, steer the conversation.
+- **Execution graphs** — Tasks run as dynamic graphs, not fixed linear stages. Branch, fork, join — the graph is a map of decisions, not a to-do list.
+- **Human-in-the-loop gates** — Critical nodes pause for your explicit `approve` / `reject`. Agents do the heavy lifting; you stay in control.
+- **Durable, resumable execution** — Tasks survive restarts, crashes, and reboots. State is checkpointed, not rebuilt from history.
+- **Bundled dashboard (Kanban)** — Ships with the CLI. Chat is the thinking; board is the doing.
+- **Multi-provider** — Claude, Codex, Gemini, Ollama. Use whatever fits.
+- **Local & inspectable** — Runs entirely on your machine. Full execution logs, task signing, safeguards for destructive commands.
 
 ---
 
 ## What AGX is *not*
 
-- Not just a chat bot
+- Not just a chatbot
 - Not a hosted SaaS
-- Not prompt-replay–based
+- Not prompt-replay-based
 - Not a black-box agent framework
 
 AGX is infrastructure for running agents **locally, durably, and observably**.
 
 ---
 
-## Quick Start
-
-### Installation
-
-```bash
-npm install -g @mndrk/agx
-```
-
-### 90-second demo
-
-```bash
-cd my-project
-agx init
-agx new "Refactor the authentication middleware"
-agx daemon start
-```
-
-Open the board, watch the agent work, stop/restart at will.
-
----
-
-## Prerequisites
-
-- **PostgreSQL** — Used for durable state and task queueing. AGX can auto-start Postgres via Docker if none is running.
-- **At least one AI provider CLI:**
-  - [Claude Code](https://docs.anthropic.com/claude/docs/claude-cli)
-  - [OpenAI Codex CLI](https://www.npmjs.com/package/@openai/codex)
-  - [Gemini CLI](https://ai.google.dev/gemini-api/docs/cli)
-  - [Ollama](https://ollama.ai/)
-
-No manual database setup required.
-
----
-
 ## Commands
+
+### Chat
+
+```bash
+agx chat codex                 # New chat session
+agx chat claude --task <id>    # Continue on an existing task
+```
 
 ### Task Management
 
 ```bash
-agx init               # Initialize AGX in current directory
-agx new "<goal>"       # Create a new task
-agx run <task_id>      # Run a specific task
-agx status <task-id-or-slug>  # Show detailed info for a single task
-agx status             # Show current queue/cloud status
-agx retry <task_id-or-slug> [--from <stage>]  # Reset + retry a task (intake/planning/execution/verification)
-agx deps <task> [--depends-on <task> ... | --clear]  # Show or update task dependencies
-agx approve <task> [--node <node-id>] [-m "feedback"] # Approve an awaiting gate
-agx reject <task> [--node <node-id>] [-m "feedback"]  # Reject an awaiting gate
+agx init                                        # Initialize AGX in current directory
+agx new "<goal>"                                # Create a new task
+agx run <task_id>                               # Run a specific task
+agx status [task-id-or-slug]                    # Show status
+agx retry <task_id-or-slug> [--from <stage>]    # Reset + retry
+agx approve <task> [--node <node-id>] [-m "feedback"]  # Approve a gate
+agx reject <task> [--node <node-id>] [-m "feedback"]   # Reject a gate
+agx deps <task> [--depends-on <task> ... | --clear]    # Manage dependencies
 ```
 
-### Project Management
+### Board & Daemon
 
 ```bash
-agx project create --name "My Project" \
-  --slug my-project \
-  --description "Agent work" \
-  --ci "CI pipeline notes" \
-  --workflow 00000000-0000-0000-0000-000000000001 \
-  --metadata team=core \
-  --repo '{"name":"api","path":"/code/api"}'
-```
-
-### Board Server
-
-```bash
-agx board start
-agx board stop
-agx board status
-agx board logs
-agx board tail
-```
-
-### Daemon Mode
-
-```bash
+agx board start        # Start the dashboard
 agx daemon start       # Start background worker
 agx daemon stop        # Stop daemon and board
-agx daemon status
-```
-
-### Chat Sessions
-
-```bash
-agx chat codex                 # Start a new chat session (provider can be claude/codex/gemini/ollama)
-agx chat claude --task <id>    # Continue chat on an existing task
 ```
 
 ### One-Shot Mode
@@ -196,7 +137,6 @@ agx chat claude --task <id>    # Continue chat on an existing task
 agx -p "Explain this error"
 agx claude -p "Refactor this function"
 agx codex -p "Propose a migration plan"
-agx gemini -p "Debug this code"
 ```
 
 ---
@@ -218,46 +158,64 @@ agx gemini -p "Debug this code"
 -p, --prompt        # Task goal
 -P, --provider      # c | x | g | o
 -m, --model         # Explicit model for provider commands
-
-# Runtime flags (for run/retry/-a, not new):
 -a, --autonomous    # Create task + start daemon + run until done
 -y, --yolo          # Skip confirmations during execution (implied by -a)
---swarm             # Use multi-agent swarm execution mode (run path)
+--swarm             # Multi-agent swarm execution mode
 ```
 
 ---
 
-## Architecture
+## Prerequisites
 
-AGX uses a split-plane architecture — all local.
+- **Node.js** >= 18
+- **At least one AI provider CLI:**
+  - [Claude Code](https://docs.anthropic.com/claude/docs/claude-cli)
+  - [OpenAI Codex CLI](https://www.npmjs.com/package/@openai/codex)
+  - [Gemini CLI](https://ai.google.dev/gemini-api/docs/cli)
+  - [Ollama](https://ollama.ai/)
+
+No external database required. AGX uses SQLite locally.
+
+---
+
+## How It Works
+
+AGX treats agent memory as **durable state**, not conversation history.
+
+Agents follow a **Wake → Work → Sleep** cycle:
+
+1. **Wake** — Load full context from checkpointed state
+2. **Work** — Execute commands, edit files, validate output
+3. **Sleep** — Checkpoint state and yield, ready to resume
+
+Resuming a task is a constant-cost operation, no matter how long it has been running.
+
+### Architecture
 
 ```
-Control Plane (State & Orchestration)
 ┌──────────────┐   ┌──────────────┐   ┌────────────┐
-│ AGX Board    │◄─►│ PostgreSQL   │◄─►│ pg-boss    │
-│ (Next.js)    │   │ Durable State│   │ Task Queue │
+│ AGX Board    │◄─►│ SQLite       │◄─►│ Task Queue │
+│ (Next.js)    │   │ Durable State│   │            │
 └──────────────┘   └──────────────┘   └────────────┘
 
-Data Plane (Execution)
 ┌──────────────┐   ┌──────────────┐   ┌────────────┐
 │ AI Provider  │◄─►│ AGX CLI      │◄─►│ AGX Daemon │
 │ C/Codex/G/O  │   │              │   │            │
 └──────────────┘   └──────────────┘   └────────────┘
 ```
 
-* **Control Plane** — authoritative state, workflows, queueing, monitoring
-* **Data Plane** — execution, tool calls, filesystem edits
-* **Decision Plane (v2)** — execution graph + gate transitions driven by task context
+- **State layer** — SQLite (WAL mode), durable checkpoints, task queueing
+- **Execution layer** — CLI + daemon, provider tool calls, filesystem edits
+- **Decision layer** — Execution graph runtime + human gate transitions
 
 ---
 
 ## Tech Stack
 
 * **Frontend:** Next.js, Tailwind CSS
-* **Database:** PostgreSQL + `pg-boss`
+* **Database:** SQLite (WAL mode)
 * **Runtime:** Node.js (TypeScript / `tsx`)
 * **Streaming:** EventSource (CLI → board)
-* **Execution model:** Legacy stage flow + v2 execution graph runtime
 
 ---
 
@@ -287,27 +245,15 @@ AGX collects anonymous usage data to improve the tool. Here's exactly what we co
 | Task outcomes | `completed`, `failed` |
 | Timing | `duration_ms: 12345` |
 
-**We do NOT collect:**
-- ❌ Prompts or task descriptions
-- ❌ Code or file contents
-- ❌ API keys or secrets
-- ❌ File paths or project names
-- ❌ Any personally identifiable information
+**We do NOT collect:** prompts, code, API keys, file paths, or any PII.
 
 ### Disable telemetry
 
 ```bash
-# Via CLI
 agx telemetry off
-
-# Via environment variable
-export AGX_TELEMETRY=0
-
-# Via config file (~/.agx/config.json)
-{ "telemetry": { "enabled": false } }
+# or: export AGX_TELEMETRY=0
+# or: ~/.agx/config.json → { "telemetry": { "enabled": false } }
 ```
-
-Check status: `agx telemetry status`
 
 ---
 
@@ -318,13 +264,5 @@ MIT
 ---
 
 <p align="center">
-  <br>
-  ⭐ <strong>Star This Project</strong><br>
-  If AGX helps you build better software with AI agents, please give us a star! It helps others discover the project and motivates us to keep improving.
-</p>
-
----
-
-<p align="center">
-  <strong>Built for autonomous agents</strong> · <strong>Powered by durable state</strong> · <strong>Made with TypeScript</strong>
+  <strong>Not a chatbot. An execution engine.</strong>
 </p>

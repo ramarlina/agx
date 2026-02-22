@@ -155,18 +155,14 @@ function resolveExpireInSeconds(graph, fallbackSeconds) {
     return Math.max(1, Math.ceil(ms / 1000));
 }
 
-function createPgBoss(connectionString, options) {
-    // Lazy require so tests can run without a live Postgres connection.
-    // pg-boss still needs to be installed as a dependency for production runtime.
-    // eslint-disable-next-line global-require
-    const PgBoss = require('pg-boss');
-    return new PgBoss(connectionString, options || {});
-}
-
 class GraphRuntime {
     constructor(options = {}) {
         if (!options.store) {
             throw new Error('GraphRuntime requires a store');
+        }
+
+        if (!options.queue && !options.boss) {
+            throw new Error('GraphRuntime requires a queue adapter (pass options.queue or options.boss)');
         }
 
         this.store = options.store;
@@ -185,7 +181,8 @@ class GraphRuntime {
         this.now = typeof options.now === 'function' ? options.now : () => new Date();
         this.logger = options.logger || console;
 
-        this.boss = options.boss || createPgBoss(options.connectionString, options.pgBossOptions);
+        // Accept either `queue` (new) or `boss` (legacy/test compat) — same interface: start/stop/send/work
+        this.queue = options.queue || options.boss;
         this._workerRegistered = false;
         this._started = false;
     }
@@ -195,8 +192,8 @@ class GraphRuntime {
             return;
         }
 
-        if (typeof this.boss.start === 'function') {
-            await this.boss.start();
+        if (typeof this.queue.start === 'function') {
+            await this.queue.start();
         }
 
         await this._registerWorker();
@@ -210,8 +207,8 @@ class GraphRuntime {
             return;
         }
 
-        if (typeof this.boss.stop === 'function') {
-            await this.boss.stop();
+        if (typeof this.queue.stop === 'function') {
+            await this.queue.stop();
         }
 
         this._started = false;
@@ -241,7 +238,7 @@ class GraphRuntime {
             ? Math.max(1, options.expireInSeconds)
             : resolveExpireInSeconds(graph, this.defaultExpireInSeconds);
 
-        return this.boss.send(
+        return this.queue.send(
             this.queueName,
             { graphId },
             {
@@ -267,7 +264,7 @@ class GraphRuntime {
             await this._processTickJob(jobOrJobs);
         };
 
-        await this.boss.work(this.queueName, { batchSize: 1 }, jobHandler);
+        await this.queue.work(this.queueName, { batchSize: 1 }, jobHandler);
         this._workerRegistered = true;
     }
 

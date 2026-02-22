@@ -1,7 +1,0 @@
-{
-  "name": "agx",
-  "description": "Unified AI agent wrapper with persistent memory integration - spawn background agents that wake and continue",
-  "version": "1.4.0",
-  "author": "mndrk",
-  "repository": "https://github.com/ramarlina/agx"
-}

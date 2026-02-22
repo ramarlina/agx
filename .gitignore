@@ -3,7 +3,7 @@ node_modules/
 
 # Coverage
 coverage/
-
+.claude-plugin/
 # Build artifacts
 *.tsbuildinfo
 
