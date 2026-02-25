@@ -1,6 +1,6 @@
 {
   "name": "@mndrk/agx",
-  "version": "2.0.0-next.1",
+  "version": "2.0.0-next.22",
   "description": "Autonomous AI Agent Orchestrator for Claude, Gemini, and Ollama",
   "main": "lib/index.js",
   "exports": {
@@ -16,7 +16,8 @@
     "lib/**",
     "commands/**",
     "templates/**",
-    "cloud-runtime/**"
+    "cloud-runtime/**",
+    "scripts/postinstall.js"
   ],
   "scripts": {
     "postinstall": "node ./scripts/postinstall.js || true",

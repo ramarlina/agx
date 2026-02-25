@@ -62,7 +62,9 @@ agx init
 ### Start a multi-agent chat
 
 ```bash
-agx chat
+agx chat            # Start server + open in browser
+agx chat start      # Start server only (headless)
+agx chat stop       # Stop the chat server
 ```
 
 Drop an idea, @mention agents, let them plan. When ready, push tasks to the board.
@@ -106,15 +108,24 @@ AGX is infrastructure for running agents **locally, durably, and observably**.
 ### Chat
 
 ```bash
-agx chat codex                 # New chat session
-agx chat claude --task <id>    # Continue on an existing task
+agx chat                       # Start server + open chat in browser
+agx chat start                 # Start chat server (no browser)
+agx chat start --open          # Start chat server + open in browser
+agx chat open                  # Open chat in browser (starts server if needed)
+agx chat stop                  # Stop the chat server
+```
+
+### Setup
+
+```bash
+agx init                       # First-time setup wizard
+agx config                     # Reconfigure providers, models, backend URL
 ```
 
 ### Task Management
 
 ```bash
-agx init                                        # Initialize AGX in current directory
-agx new "<goal>"                                # Create a new task
+agx new "<goal>"                                 # Create a new task
 agx run <task_id>                               # Run a specific task
 agx status [task-id-or-slug]                    # Show status
 agx retry <task_id-or-slug> [--from <stage>]    # Reset + retry

@@ -44,13 +44,17 @@ function stripLocalStateDirs(rootDir) {
     }
 
     for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
       const entryPath = path.join(current, entry.name);
-      if (entry.name === '.agx') {
-        fs.rmSync(entryPath, { recursive: true, force: true });
-        continue;
+      if (entry.isDirectory()) {
+        if (entry.name === '.agx') {
+          fs.rmSync(entryPath, { recursive: true, force: true });
+          continue;
+        }
+        stack.push(entryPath);
+      } else if (entry.isFile() && (entry.name.endsWith('.db') || entry.name.endsWith('.db-wal') || entry.name.endsWith('.db-shm'))) {
+        // Remove local SQLite databases — these contain user data and must not be shipped.
+        fs.rmSync(entryPath, { force: true });
       }
-      stack.push(entryPath);
     }
   }
 }
@@ -540,6 +544,15 @@ async function main() {
     appPkg.scripts['daemon:orchestrator'] = 'node worker/index.js';
     fs.writeFileSync(appPkgPath, JSON.stringify(appPkg, null, 2) + '\n');
     console.log('[agx] Patched package.json scripts for standalone runtime');
+  }
+
+  // Copy better-sqlite3 into standalone node_modules so the runtime can find it.
+  // Turbopack's createRequire shim resolves from the app dir, so the module must be present there.
+  const sqliteSrc = path.join(cloudRoot, 'node_modules', 'better-sqlite3');
+  const sqliteDest = path.join(appDir, 'node_modules', 'better-sqlite3');
+  if (fs.existsSync(sqliteSrc) && !fs.existsSync(sqliteDest)) {
+    copyDir(sqliteSrc, sqliteDest);
+    console.log('[agx] Copied better-sqlite3 into standalone node_modules');
   }
 
   // Ensure the embedded worker exists even when Next standalone output does not include it.

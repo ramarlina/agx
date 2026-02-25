@@ -18,6 +18,45 @@ if (process.env.CI || process.env.AGX_SKIP_POSTINSTALL) {
   process.exit(0);
 }
 
+// Copy the platform-correct better-sqlite3 native addon into the standalone dir.
+// npm already ran prebuild-install for the top-level dep, so we just copy that binary over.
+try {
+  const agxRoot = path.join(__dirname, '..');
+  const boardModules = path.join(agxRoot, 'cloud-runtime', 'standalone');
+
+  // Walk the standalone tree to find better-sqlite3 (cross-platform, no shell commands)
+  function findDir(root, target) {
+    if (!fs.existsSync(root)) return null;
+    const stack = [root];
+    while (stack.length) {
+      const dir = stack.pop();
+      let entries;
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+      for (const e of entries) {
+        if (!e.isDirectory()) continue;
+        const full = path.join(dir, e.name);
+        if (e.name === target && dir.includes('node_modules')) return full;
+        stack.push(full);
+      }
+    }
+    return null;
+  }
+
+  const standaloneSqliteDir = findDir(boardModules, 'better-sqlite3');
+
+  // Find the agx-level better-sqlite3 (already built for this platform by npm)
+  const agxSqliteNode = path.join(agxRoot, 'node_modules', 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node');
+
+  if (standaloneSqliteDir && fs.existsSync(agxSqliteNode)) {
+    const targetNode = path.join(standaloneSqliteDir, 'build', 'Release', 'better_sqlite3.node');
+    fs.mkdirSync(path.dirname(targetNode), { recursive: true });
+    fs.copyFileSync(agxSqliteNode, targetNode);
+    console.log('  \x1b[32m✓\x1b[0m better-sqlite3 native addon installed for this platform');
+  }
+} catch (err) {
+  console.log('  \x1b[33m⚠\x1b[0m Could not install better-sqlite3 native addon:', err.message || err);
+}
+
 // Only run on Unix-like systems (cron isn't available on Windows)
 if (process.platform === 'win32') {
   process.exit(0);
