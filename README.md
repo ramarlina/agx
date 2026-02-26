@@ -1,53 +1,43 @@
-<h1 align="center">
-  <br>
-  AGX
-  <br>
-</h1>
-
-<h4 align="center">Chat with AI agents. Watch them plan. Approve before they act.</h4>
-
 <p align="center">
   <br>
-  <a href="https://github.com/ramarlina/agx">
-    <img src="agx-chat-to-tasks.gif" alt="AGX" width="600">
-  </a>
-  <br>
-  <br>
+  <img src="agx_icon.png" width="128" alt="AGX Icon">
+</p>
+
+<h1 align="center">AGX</h1>
+
+<p align="center">
+  <strong>The open-source multi-agent execution engine.</strong><br>
+  Chat with AI agents. Watch them plan. Approve before they act.<br>
+  All running locally on your machine.
 </p>
 
 <p align="center">
-  <a href="https://github.com/ramarlina/agx/stargazers">
-    <img src="https://img.shields.io/github/stars/ramarlina/agx?style=social" alt="GitHub Stars">
-  </a>
-  <a href="https://www.npmjs.com/package/@mndrk/agx">
-    <img src="https://img.shields.io/npm/v/@mndrk/agx?color=green" alt="NPM Version">
-  </a>
-  <a href="https://www.npmjs.com/package/@mndrk/agx">
-    <img src="https://img.shields.io/npm/dm/@mndrk/agx" alt="NPM Downloads">
-  </a>
-  <a href="https://github.com/ramarlina/agx/commits/main">
-    <img src="https://img.shields.io/github/last-commit/ramarlina/agx" alt="Last Commit">
-  </a>
-  <a href="LICENSE">
-    <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
-  </a>
-  <a href="https://nodejs.org">
-    <img src="https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg" alt="Node">
-  </a>
+  <a href="https://www.npmjs.com/package/@mndrk/agx"><img src="https://img.shields.io/npm/dm/@mndrk/agx?color=blue&style=flat-square" alt="NPM Downloads"></a>
+  <a href="https://www.npmjs.com/package/@mndrk/agx"><img src="https://img.shields.io/npm/v/@mndrk/agx?color=orange&style=flat-square" alt="NPM Version"></a>
+  <a href="https://github.com/ramarlina/agx/stargazers"><img src="https://img.shields.io/github/stars/ramarlina/agx?color=blue&style=flat-square" alt="GitHub Stars"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License"></a>
 </p>
 
 <p align="center">
+  <a href="https://www.npmjs.com/package/@mndrk/agx">NPM</a> •
   <a href="#quick-start">Quick Start</a> •
   <a href="#features">Features</a> •
   <a href="#commands">Commands</a> •
   <a href="#how-it-works">How It Works</a> •
-  <a href="#contributing">Contributing</a> •
-  <a href="#license">License</a>
+  <a href="#contributing">Contributing</a>
 </p>
 
 ---
 
-> **TL;DR** — Drop an idea into a multi-agent chat. Let agents debate, plan, and structure the work. Push tasks to a board. Watch an execution graph run. Approve gates before anything critical happens. All local, all yours.
+## What is AGX?
+
+AGX is a **local-first multi-agent execution engine** with durable state and human-in-the-loop gates. Think of it as a **local, free and open-source alternative to black-box agent frameworks** — drop an idea into a chat, let agents debate and plan, and run complex execution graphs entirely on your machine.
+
+<p align="center">
+  <a href="https://github.com/ramarlina/agx">
+    <img src="agx_chat.jpg" alt="AGX Demo" width="100%">
+  </a>
+</p>
 
 ---
 
