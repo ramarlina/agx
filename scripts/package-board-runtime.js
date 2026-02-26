@@ -586,8 +586,17 @@ async function main() {
       const target = path.join(appNodeModules, hashed);
       const source = path.join(appNodeModules, real);
       if (!fs.existsSync(target) && fs.existsSync(source)) {
-        fs.symlinkSync(real, target);
-        console.log(`[agx] Symlinked ${hashed} -> ${real} in standalone node_modules`);
+        // npm pack strips symlinks — create a proxy module that re-exports the real package
+        fs.mkdirSync(target, { recursive: true });
+        fs.writeFileSync(
+          path.join(target, 'index.js'),
+          `module.exports = require('${real}');\n`
+        );
+        fs.writeFileSync(
+          path.join(target, 'package.json'),
+          JSON.stringify({ name: hashed, version: '0.0.0', main: 'index.js' }) + '\n'
+        );
+        console.log(`[agx] Created proxy module ${hashed} -> ${real} in standalone node_modules`);
       }
     }
   }
