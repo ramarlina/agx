@@ -37,14 +37,43 @@ docker run --rm -v "$PWD/$TARBALL:/tmp/pkg.tgz" node:20 bash -c '
 
   for i in $(seq 1 15); do
     if node -e "require(\"http\").get(\"http://localhost:41741\",r=>{process.exit(r.statusCode<400?0:1)}).on(\"error\",()=>process.exit(1))" 2>/dev/null; then
-      echo "==> Smoke test passed"
-      kill $SERVER_PID 2>/dev/null || true
-      exit 0
+      echo "==> Server is up"
+      break
     fi
     sleep 2
+    if [ "$i" -eq 15 ]; then
+      echo "==> FAILED: Board not reachable after 30s"
+      kill $SERVER_PID 2>/dev/null || true
+      exit 1
+    fi
   done
 
-  echo "==> FAILED: Board not reachable after 30s"
+  echo "==> Testing team creation..."
+  TEAM_STATUS=$(node -e "
+    const http = require(\"http\");
+    const data = JSON.stringify({ name: \"Smoke Test Team\" });
+    const req = http.request({ hostname: \"localhost\", port: 41741, path: \"/api/teams\", method: \"POST\", headers: { \"Content-Type\": \"application/json\", \"Content-Length\": data.length } }, (res) => {
+      let body = \"\";
+      res.on(\"data\", (c) => body += c);
+      res.on(\"end\", () => {
+        console.log(res.statusCode);
+        if (res.statusCode >= 400) { console.error(\"Response:\", body); }
+      });
+    });
+    req.on(\"error\", (e) => { console.error(e); process.exit(1); });
+    req.write(data);
+    req.end();
+  " 2>&1)
+  TEAM_CODE=$(echo "$TEAM_STATUS" | head -1)
+  if [ "$TEAM_CODE" -ge 400 ] 2>/dev/null; then
+    echo "==> FAILED: Team creation returned $TEAM_CODE"
+    echo "$TEAM_STATUS"
+    kill $SERVER_PID 2>/dev/null || true
+    exit 1
+  fi
+  echo "==> Team creation passed (status $TEAM_CODE)"
+
+  echo "==> Smoke test passed"
   kill $SERVER_PID 2>/dev/null || true
-  exit 1
+  exit 0
 '
