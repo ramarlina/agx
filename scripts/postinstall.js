@@ -24,10 +24,20 @@ try {
   const agxRoot = path.join(__dirname, '..');
   const boardModules = path.join(agxRoot, 'cloud-runtime', 'standalone');
 
+  function resolveInstalledPackageDir(packageName, fromDir) {
+    try {
+      const packageJsonPath = require.resolve(`${packageName}/package.json`, { paths: [fromDir] });
+      return path.dirname(packageJsonPath);
+    } catch {
+      return null;
+    }
+  }
+
   // Walk the standalone tree to find better-sqlite3 (cross-platform, no shell commands)
-  function findDir(root, target) {
+  function findDirs(root, matcher) {
     if (!fs.existsSync(root)) return null;
     const stack = [root];
+    const matches = [];
     while (stack.length) {
       const dir = stack.pop();
       let entries;
@@ -35,23 +45,42 @@ try {
       for (const e of entries) {
         if (!e.isDirectory()) continue;
         const full = path.join(dir, e.name);
-        if (e.name === target && dir.includes('node_modules')) return full;
+        if (dir.includes('node_modules') && matcher(e.name)) {
+          matches.push(full);
+        }
         stack.push(full);
       }
     }
-    return null;
+    return matches;
   }
 
-  const standaloneSqliteDir = findDir(boardModules, 'better-sqlite3');
+  const standaloneSqliteDirs = findDirs(
+    boardModules,
+    (name) => name === 'better-sqlite3' || /^better-sqlite3-[0-9a-f]{8,}$/.test(name)
+  );
 
   // Find the agx-level better-sqlite3 (already built for this platform by npm)
-  const agxSqliteNode = path.join(agxRoot, 'node_modules', 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node');
+  const installedSqliteDir = resolveInstalledPackageDir('better-sqlite3', agxRoot);
+  const agxSqliteNode = installedSqliteDir
+    ? path.join(installedSqliteDir, 'build', 'Release', 'better_sqlite3.node')
+    : null;
 
-  if (standaloneSqliteDir && fs.existsSync(agxSqliteNode)) {
-    const targetNode = path.join(standaloneSqliteDir, 'build', 'Release', 'better_sqlite3.node');
-    fs.mkdirSync(path.dirname(targetNode), { recursive: true });
-    fs.copyFileSync(agxSqliteNode, targetNode);
+  if (Array.isArray(standaloneSqliteDirs) && standaloneSqliteDirs.length > 0 && agxSqliteNode && fs.existsSync(agxSqliteNode)) {
+    for (const sqliteDir of standaloneSqliteDirs) {
+      const targetNode = path.join(sqliteDir, 'build', 'Release', 'better_sqlite3.node');
+      fs.mkdirSync(path.dirname(targetNode), { recursive: true });
+      fs.copyFileSync(agxSqliteNode, targetNode);
+    }
     console.log('  \x1b[32m✓\x1b[0m better-sqlite3 native addon installed for this platform');
+  }
+
+  const standaloneFixScript = path.join(boardModules, 'scripts', 'fix-turbopack-externals.mjs');
+  if (fs.existsSync(standaloneFixScript)) {
+    execa.commandSync(`node "${standaloneFixScript}"`, {
+      cwd: boardModules,
+      stdio: 'pipe',
+      reject: false,
+    });
   }
 } catch (err) {
   console.log('  \x1b[33m⚠\x1b[0m Could not install better-sqlite3 native addon:', err.message || err);

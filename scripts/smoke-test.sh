@@ -19,12 +19,12 @@ docker run --rm -v "$PWD/$TARBALL:/tmp/pkg.tgz" node:20 bash -c '
   npm install /tmp/pkg.tgz 2>&1 | tail -3
 
   echo "==> Rebuilding native modules for Linux..."
-  cd node_modules/@mndrk/agx/cloud-runtime/standalone/Projects/Agents/agx-cloud
+  cd node_modules/@mndrk/agx/cloud-runtime/standalone
   npm rebuild better-sqlite3 2>&1 | tail -3
   cd /tmp/smoke
 
   echo "==> Starting board..."
-  BOARD_DIR=node_modules/@mndrk/agx/cloud-runtime/standalone/Projects/Agents/agx-cloud
+  BOARD_DIR=node_modules/@mndrk/agx/cloud-runtime/standalone
 
   export PORT=41741
   export HOSTNAME=0.0.0.0
@@ -48,11 +48,11 @@ docker run --rm -v "$PWD/$TARBALL:/tmp/pkg.tgz" node:20 bash -c '
     fi
   done
 
-  echo "==> Testing team creation..."
-  TEAM_STATUS=$(node -e "
+  echo "==> Testing project creation..."
+  PROJECT_STATUS=$(node -e "
     const http = require(\"http\");
-    const data = JSON.stringify({ name: \"Smoke Test Team\" });
-    const req = http.request({ hostname: \"localhost\", port: 41741, path: \"/api/teams\", method: \"POST\", headers: { \"Content-Type\": \"application/json\", \"Content-Length\": data.length } }, (res) => {
+    const data = JSON.stringify({ name: \"Smoke Test Project\" });
+    const req = http.request({ hostname: \"localhost\", port: 41741, path: \"/api/projects\", method: \"POST\", headers: { \"Content-Type\": \"application/json\", \"Content-Length\": data.length } }, (res) => {
       let body = \"\";
       res.on(\"data\", (c) => body += c);
       res.on(\"end\", () => {
@@ -64,14 +64,14 @@ docker run --rm -v "$PWD/$TARBALL:/tmp/pkg.tgz" node:20 bash -c '
     req.write(data);
     req.end();
   " 2>&1)
-  TEAM_CODE=$(echo "$TEAM_STATUS" | head -1)
-  if [ "$TEAM_CODE" -ge 400 ] 2>/dev/null; then
-    echo "==> FAILED: Team creation returned $TEAM_CODE"
-    echo "$TEAM_STATUS"
+  PROJECT_CODE=$(echo "$PROJECT_STATUS" | head -1)
+  if [ "$PROJECT_CODE" -ge 400 ] 2>/dev/null; then
+    echo "==> FAILED: Project creation returned $PROJECT_CODE"
+    echo "$PROJECT_STATUS"
     kill $SERVER_PID 2>/dev/null || true
     exit 1
   fi
-  echo "==> Team creation passed (status $TEAM_CODE)"
+  echo "==> Project creation passed (status $PROJECT_CODE)"
 
   echo "==> Smoke test passed"
   kill $SERVER_PID 2>/dev/null || true
