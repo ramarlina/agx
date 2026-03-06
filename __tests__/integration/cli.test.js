@@ -141,6 +141,12 @@ describe('AGX CLI Integration Tests', () => {
       expect(output).toContain('agx project');
       expect(output).toMatch(/Usage/);
     });
+
+    test('agx repo --help shows usage', () => {
+      const output = runAgx('repo --help');
+      expect(output).toContain('agx repo');
+      expect(output).toMatch(/repo add/);
+    });
   });
 
   describe('Board Commands', () => {

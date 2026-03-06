@@ -1,82 +1,129 @@
-# agx - Task Orchestrator for Autonomous AI Agents
+---
+name: agx
+description: Use when working on the AGX CLI or its cloud-backed task/project workflows. Covers task lifecycle commands, project assignment, repo attachment with local analysis, daemon/board flows, and the wake-work-sleep execution model.
+---
 
-Run AI agents that work autonomously across sessions. Uses cloud API for persistent memory and task management.
+# AGX
 
-## Core Concept: Wake-Work-Sleep Cycle
+AGX is a cloud-backed task orchestrator with a local CLI. Use this skill when changing AGX itself or when you need the exact CLI flows and mental model.
 
-Agents have NO memory between sessions. All continuity comes from the API:
+## Model
 
-```
-WAKE -> Load state from API -> WORK -> Save state to API -> SLEEP -> repeat
-```
+AGX agents are stateless between runs. Continuity comes from persisted API state:
 
-## Quick Start
+`WAKE -> load state -> WORK -> persist state -> SLEEP`
+
+Treat the CLI as a client for the cloud API plus local runtime helpers like daemon, board, and repo analysis.
+
+## Core CLI flows
 
 ```bash
-# One-shot question
+agx init
 agx -p "explain this code"
-
-# Create and run a task
 agx new "Build a REST API with auth"
-agx run <task_id>
-
-# Fully autonomous
+agx run <task-id-or-slug>
 agx -a -p "Build a REST API with auth"
 ```
 
-## Task Management
+## Tasks
 
 ```bash
-agx init              # Initialize AGX
-agx new "<goal>"      # Create task
-agx run <task_id>     # Run a specific task
-agx status            # Current task status
-agx complete <taskId> # Mark task stage complete
+agx new "<goal>"
+agx run <task-id-or-slug>
+agx status [task-id-or-slug]
+agx complete <task-id>
+agx retry <task-id-or-slug> [--from <stage>]
+agx deps <task> [--depends-on <task> ... | --clear]
+agx task ls
+agx task logs <id>
+agx task stop <id>
 ```
 
-## Task Dependencies (ordering)
+Task identifiers usually accept UUIDs, slugs, or cached `#N` references.
+
+## Projects and repos
+
+Use projects to scope task ownership and attach repo context.
 
 ```bash
-agx new "Task C" --depends-on <taskA-id> --depends-on <taskB-id>
-agx deps <task-c>                                  # Show depends_on + dependents
-agx deps <task-c> --depends-on <taskA> --depends-on <taskB>  # Set dependencies
-agx deps <task-c> --clear                          # Remove all dependencies
+agx project list
+agx project get <id-or-slug>
+agx project create --name <name>
+agx project update <id-or-slug> [flags]
+agx project assign <project> --task <task>
+agx project unassign --task <task>
+agx new "goal" --project <project-id-or-slug>
 ```
 
-Use task UUIDs, slugs, or `agx task ls` index references.
-
-## Monitoring
+Attach a repo from the current directory:
 
 ```bash
-agx task ls           # List all tasks
-agx task logs <id>    # View task logs
-agx task stop <id>    # Stop a task
-agx watch             # Watch task updates in real-time (SSE)
+agx repo add . --project <project-id-or-slug>
 ```
 
-## Daemon Mode
+What `agx repo add` does:
+
+- resolves the repo root from the supplied path
+- analyzes local signals like `package.json`, lockfiles, scripts, key config files, and `README.md`
+- generates repo notes
+- appends the repo entry to the target project through the cloud API
+
+Optional flags:
 
 ```bash
-agx daemon start      # Start daemon (polls for tasks)
-agx daemon stop       # Stop daemon
-agx daemon status     # Check status
+agx repo add . --project <project> --name <display-name>
+agx repo add . --project <project> --notes "extra notes"
+agx repo add . --project <project> --json
 ```
+
+## Daemon and board
+
+```bash
+agx board start
+agx board stop
+agx board show
+agx daemon start
+agx daemon stop
+agx daemon status
+```
+
+Use these when validating end-to-end queue execution or dashboard behavior.
 
 ## Providers
 
 ```bash
-agx claude [args]     # Claude (alias: c)
-agx gemini [args]     # Gemini (alias: g)
-agx ollama [args]     # Ollama (alias: o)
+agx claude [args]
+agx codex [args]
+agx gemini [args]
+agx ollama [args]
 ```
 
-## Key Flags
+Aliases:
+
+- `claude` -> `c`
+- `codex` -> `x`
+- `gemini` -> `g`
+- `ollama` -> `o`
+
+## Flags that matter
 
 ```bash
--p, --prompt        # The prompt/goal
--P, --provider      # Specify provider (c|g|o)
-
-# Runtime flags (for run/retry/-a, not new):
--a, --autonomous    # Full auto: create task + daemon + work until done
--y, --yolo          # Skip confirmations during execution (implied by -a)
+-p, --prompt
+-P, --provider
+-m, --model
+-a, --autonomous
+-y, --yolo
+--swarm
 ```
+
+Notes:
+
+- `-a` is the full autonomous path: create task, start daemon, and work until done.
+- `-y` skips confirmations during execution and is typically paired with autonomous runs.
+- Project-aware task creation should prefer `--project <id-or-slug>`.
+
+## When editing AGX
+
+- Keep CLI help text, README command examples, and command implementations aligned.
+- Prefer wiring new behavior through existing `cloudRequest` and project-resolution helpers instead of creating parallel API clients.
+- For project/repo mutations, preserve existing repo entries when patching `repos`.

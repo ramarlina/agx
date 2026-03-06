@@ -132,6 +132,14 @@ agx daemon start       # Start background worker
 agx daemon stop        # Stop daemon and board
 ```
 
+### Projects & Repos
+
+```bash
+agx project list                           # List projects
+agx repo add . --project my-project        # Analyze current repo and attach it to a project
+agx repo add ../service --project my-project --name API
+```
+
 ### One-Shot Mode
 
 ```bash
