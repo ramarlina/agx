@@ -1,9 +1,7 @@
 <p align="center">
   <br>
-  <img src="agx_icon.png" width="128" alt="AGX Icon">
+  <img src="agx_icon.png" width="256" alt="AGX Icon">
 </p>
-
-<h1 align="center">AGX</h1>
 
 <p align="center">
   <strong>The open-source multi-agent execution engine.</strong><br>
