@@ -42,9 +42,13 @@
   ],
   "author": "Mendrika Ramarlina",
   "license": "MIT",
+  "homepage": "https://runagx.com",
   "repository": {
     "type": "git",
     "url": "https://github.com/ramarlina/agx"
+  },
+  "bugs": {
+    "url": "https://github.com/ramarlina/agx/issues"
   },
   "dependencies": {
     "better-sqlite3": "^12.6.2",
