@@ -37,6 +37,10 @@ jobs:
         run: npm ci
         working-directory: agx
 
+      - name: Build cloud runtime
+        run: npm run board:bundle
+        working-directory: agx
+
       - name: Run tests
         run: npm test
         working-directory: agx
