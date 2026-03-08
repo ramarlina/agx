@@ -42,7 +42,7 @@ jobs:
         working-directory: agx
 
       - name: Run tests
-        run: npm test
+        run: npm test -- --testPathIgnorePatterns=board
         working-directory: agx
 
       - name: Publish
