@@ -4,7 +4,7 @@
 </p>
 
 <p align="center">
-  <strong>The open-source multi-agent execution engine.</strong><br>
+  <strong>Your AI team's command center.</strong><br>
   Chat with AI agents. Watch them plan. Approve before they act.<br>
   All running locally on your machine.
 </p>
@@ -29,7 +29,7 @@
 
 ## What is AGX?
 
-AGX is a **local-first multi-agent execution engine** with durable state and human-in-the-loop gates. Think of it as a **local, free and open-source alternative to black-box agent frameworks** — drop an idea into a chat, let agents debate and plan, and run complex execution graphs entirely on your machine.
+AGX started as a **CLI-first multi-agent execution engine** and is evolving into **your AI team's command center**. Drop an idea into a chat, let agents debate and plan, route work into execution, and approve before they act, all locally on your machine.
 
 <p align="center">
   <a href="https://github.com/ramarlina/agx">
@@ -271,5 +271,5 @@ MIT
 ---
 
 <p align="center">
-  <strong>Not a chatbot. An execution engine.</strong>
+  <strong>Not a chatbot. Your AI team's command center.</strong>
 </p>
