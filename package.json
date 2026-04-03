@@ -2,6 +2,7 @@
   "name": "@mndrk/agx",
   "version": "2.0.35",
   "description": "Autonomous AI Agent Orchestrator for Claude, Gemini, and Ollama",
+  "engines": { "node": ">=22.16.0" },
   "main": "lib/index.js",
   "exports": {
     ".": "./lib/index.js",
@@ -20,6 +21,7 @@
     "scripts/postinstall.js"
   ],
   "scripts": {
+    "preinstall": "node -e \"var v=process.versions.node.split('.').map(Number);if(v[0]<22||(v[0]===22&&v[1]<16)){console.error('agx requires Node.js >= 22.16.0 (found '+process.version+'). node:sqlite is not available on older versions.');process.exit(1)}\"",
     "postinstall": "node ./scripts/postinstall.js || true",
     "prepack": "node ./scripts/package-board-runtime.js",
     "board:bundle": "node ./scripts/package-board-runtime.js",
