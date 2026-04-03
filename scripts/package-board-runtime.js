@@ -546,61 +546,6 @@ async function main() {
     console.log('[agx] Patched package.json scripts for standalone runtime');
   }
 
-  // Copy better-sqlite3 into standalone node_modules so the runtime can find it.
-  // Turbopack's createRequire shim resolves from the app dir, so the module must be present there.
-  const sqliteSrc = path.join(cloudRoot, 'node_modules', 'better-sqlite3');
-  const sqliteDest = path.join(appDir, 'node_modules', 'better-sqlite3');
-  if (fs.existsSync(sqliteSrc) && !fs.existsSync(sqliteDest)) {
-    copyDir(sqliteSrc, sqliteDest);
-    console.log('[agx] Copied better-sqlite3 into standalone node_modules');
-  }
-
-  // Create symlinks for Turbopack-hashed external module names.
-  // Turbopack renames serverExternalPackages to <name>-<hash> in bundled output.
-  const serverDir = path.join(appDir, '.next', 'server');
-  if (fs.existsSync(serverDir)) {
-    const externals = ['better-sqlite3'];
-    const hashedRefs = new Map();
-    const scanForHashes = (dir) => {
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory() && entry.name !== 'node_modules') {
-          scanForHashes(full);
-        } else if (entry.isFile() && entry.name.endsWith('.js')) {
-          try {
-            const content = fs.readFileSync(full, 'utf8');
-            for (const pkg of externals) {
-              const re = new RegExp(`["']${pkg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}-([0-9a-f]{8,})["']`, 'g');
-              let m;
-              while ((m = re.exec(content)) !== null) {
-                hashedRefs.set(`${pkg}-${m[1]}`, pkg);
-              }
-            }
-          } catch {}
-        }
-      }
-    };
-    scanForHashes(serverDir);
-    const appNodeModules = path.join(appDir, 'node_modules');
-    for (const [hashed, real] of hashedRefs) {
-      const target = path.join(appNodeModules, hashed);
-      const source = path.join(appNodeModules, real);
-      if (!fs.existsSync(target) && fs.existsSync(source)) {
-        // npm pack strips symlinks — create a proxy module that re-exports the real package
-        fs.mkdirSync(target, { recursive: true });
-        fs.writeFileSync(
-          path.join(target, 'index.js'),
-          `module.exports = require('${real}');\n`
-        );
-        fs.writeFileSync(
-          path.join(target, 'package.json'),
-          JSON.stringify({ name: hashed, version: '0.0.0', main: 'index.js' }) + '\n'
-        );
-        console.log(`[agx] Created proxy module ${hashed} -> ${real} in standalone node_modules`);
-      }
-    }
-  }
-
   // Ensure the embedded worker exists even when Next standalone output does not include it.
   // The CLI will run it via `node worker/index.js` for bundled runtimes.
   await bundleWorker({ appDir });
