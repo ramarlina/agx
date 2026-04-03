@@ -16,7 +16,7 @@ const crypto = require('crypto');
 const path = require('path');
 const os = require('os');
 const fs = require('fs');
-const Database = require('better-sqlite3');
+const { DatabaseSync } = require('node:sqlite');
 
 // Use a temp DB for tests
 let _testDb;
@@ -27,8 +27,8 @@ jest.mock('../../../lib/storage/db', () => {
   const original = jest.requireActual('../../../lib/storage/db');
   const testDb = () => {
     if (_testDb) return _testDb;
-    _testDb = new Database(TEST_DB_PATH);
-    _testDb.pragma('journal_mode = WAL');
+    _testDb = new DatabaseSync(TEST_DB_PATH);
+    _testDb.exec('PRAGMA journal_mode = WAL');
     _testDb.exec(`
       CREATE TABLE IF NOT EXISTS agent_memory (
         id           TEXT    NOT NULL PRIMARY KEY,
