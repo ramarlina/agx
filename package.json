@@ -53,7 +53,6 @@
     "url": "https://github.com/ramarlina/agx/issues"
   },
   "dependencies": {
-    "better-sqlite3": "^12.6.2",
     "eventsource": "^4.1.0",
     "execa": "^5.1.1",
     "lucide-react": "^0.278.0",
