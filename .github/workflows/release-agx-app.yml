@@ -42,6 +42,7 @@ jobs:
 
       - name: Build app
         env:
+          GH_TOKEN: ${{ secrets.REPO_TOKEN }}
           CSC_LINK: ${{ secrets.MAC_CERT_P12 }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
