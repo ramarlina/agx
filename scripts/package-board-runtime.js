@@ -30,6 +30,18 @@ function copyDir(from, to) {
   fs.cpSync(from, to, { recursive: true });
 }
 
+// Files and directories that must never be published in the npm package.
+const STRIP_DIRS = new Set(['.agx', 'coverage', '.nyc_output']);
+const STRIP_FILES = new Set(['.linear-token.json']);
+const STRIP_EXTENSIONS = new Set(['.db', '.db-wal', '.db-shm']);
+const SECRET_PATTERNS = [
+  /lin_oauth_[a-f0-9]{40,}/,
+  /sk-[a-zA-Z0-9]{20,}/,
+  /ghp_[a-zA-Z0-9]{36,}/,
+  /gho_[a-zA-Z0-9]{36,}/,
+  /xoxb-[0-9]+-[a-zA-Z0-9]+/,
+];
+
 function stripLocalStateDirs(rootDir) {
   if (!fs.existsSync(rootDir)) return;
 
@@ -46,17 +58,60 @@ function stripLocalStateDirs(rootDir) {
     for (const entry of entries) {
       const entryPath = path.join(current, entry.name);
       if (entry.isDirectory()) {
-        if (entry.name === '.agx') {
+        if (STRIP_DIRS.has(entry.name)) {
           fs.rmSync(entryPath, { recursive: true, force: true });
           continue;
         }
         stack.push(entryPath);
-      } else if (entry.isFile() && (entry.name.endsWith('.db') || entry.name.endsWith('.db-wal') || entry.name.endsWith('.db-shm'))) {
-        // Remove local SQLite databases — these contain user data and must not be shipped.
-        fs.rmSync(entryPath, { force: true });
+      } else if (entry.isFile()) {
+        const shouldStrip =
+          STRIP_FILES.has(entry.name) ||
+          STRIP_EXTENSIONS.has(path.extname(entry.name)) ||
+          entry.name.startsWith('.env');
+        if (shouldStrip) {
+          fs.rmSync(entryPath, { force: true });
+        }
       }
     }
   }
+}
+
+function scanForSecrets(rootDir) {
+  const found = [];
+  const stack = [rootDir];
+  const jsonExtensions = new Set(['.json', '.env', '.ts', '.js', '.txt']);
+
+  while (stack.length) {
+    const current = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const entryPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules' || entry.name === '.next') continue;
+        stack.push(entryPath);
+      } else if (entry.isFile() && jsonExtensions.has(path.extname(entry.name))) {
+        let content;
+        try {
+          const stat = fs.statSync(entryPath);
+          if (stat.size > 512 * 1024) continue; // skip large files
+          content = fs.readFileSync(entryPath, 'utf8');
+        } catch {
+          continue;
+        }
+        for (const pattern of SECRET_PATTERNS) {
+          if (pattern.test(content)) {
+            found.push({ file: path.relative(rootDir, entryPath), pattern: pattern.toString() });
+          }
+        }
+      }
+    }
+  }
+  return found;
 }
 
 function findPackagedAppDir(rootDir) {
@@ -549,6 +604,17 @@ async function main() {
   // Ensure the embedded worker exists even when Next standalone output does not include it.
   // The CLI will run it via `node worker/index.js` for bundled runtimes.
   await bundleWorker({ appDir });
+
+  // Final safety check: abort if any secrets slipped through.
+  const leaked = scanForSecrets(standaloneDest);
+  if (leaked.length > 0) {
+    console.error('[agx] ABORTING: secrets detected in packaged runtime:');
+    for (const { file, pattern } of leaked) {
+      console.error(`  ${file}  (matched ${pattern})`);
+    }
+    fs.rmSync(cloudRuntimeDir, { recursive: true, force: true });
+    process.exit(1);
+  }
 
   console.log(`[agx] Embedded board runtime at ${standaloneDest}`);
 }
