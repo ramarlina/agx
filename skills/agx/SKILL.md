@@ -76,6 +76,29 @@ agx repo add . --project <project> --notes "extra notes"
 agx repo add . --project <project> --json
 ```
 
+## Scheduling
+
+Manage recurring prompt jobs that run on a cron schedule via agx-cloud.
+
+```bash
+agx schedule ls [--state active|paused|stopped] [--project <id>]
+agx schedule create "name" --cadence "every day" --prompt "do the thing"
+agx schedule create "name" --cadence "0 9 * * 1" --prompt-file ./tasks/weekly.md
+agx schedule get <id>
+agx schedule update <id> --cadence "every 2 hours" --name "new name"
+agx schedule pause <id>
+agx schedule resume <id>
+agx schedule rm <id>
+agx schedule runs <id>
+agx schedule cancel <id>
+```
+
+- `--cadence` accepts natural language ("every day", "every 2 hours") or cron expressions ("0 9 * * 1")
+- `--prompt-file` reads the prompt from a file (useful for long prompts)
+- Provider and model default to null; the runtime resolves the environment default
+- `--overlap skip|queue|allow` controls what happens when a run is still active
+- `--catch-up fire_once|replay_all|skip` controls behavior for missed runs
+
 ## Daemon and board
 
 ```bash
