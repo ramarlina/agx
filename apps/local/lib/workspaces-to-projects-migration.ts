@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { transaction } from "./sqlite-compat";
+import { pragmaAll, transaction } from "./sqlite-compat";
 import { loadParticipants } from "@/lib/participants-store";
 import { LOCAL_USER } from "@/lib/auth-mode";
 
@@ -52,6 +52,96 @@ export interface WorkspacesToProjectsMigrationResult {
     projectName: string;
     threadIds: string[];
   }>;
+}
+
+export interface WorkspaceTeamTableState {
+  legacyTeams: boolean;
+  legacyTeamAgents: boolean;
+  legacyTeamWorkspaces: boolean;
+  projectScopedTeams: boolean;
+  projectScopedTeamAgents: boolean;
+}
+
+function tableExists(db: DatabaseSync, tableName: string): boolean {
+  return Boolean(
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1").get(tableName)
+  );
+}
+
+function getTableColumnNames(db: DatabaseSync, tableName: string): Set<string> {
+  if (!tableExists(db, tableName)) return new Set();
+  const columns = pragmaAll(db, `table_info(${tableName})`) as { name: string }[];
+  return new Set(columns.map((column) => column.name));
+}
+
+function countTableRows(db: DatabaseSync, tableName: string): number {
+  if (!tableExists(db, tableName)) return 0;
+  return (db.prepare(`SELECT COUNT(*) AS n FROM ${tableName}`).get() as { n: number }).n;
+}
+
+export function getWorkspaceTeamTableState(inputDb?: DatabaseSync): WorkspaceTeamTableState {
+  if (!inputDb) {
+    throw new Error("getWorkspaceTeamTableState requires an explicit database handle");
+  }
+  const db = inputDb;
+  const teamColumns = getTableColumnNames(db, "teams");
+  const teamAgentColumns = getTableColumnNames(db, "team_agents");
+  const hasTeamWorkspaces = tableExists(db, "team_workspaces");
+
+  const projectScopedTeams =
+    teamColumns.has("project_id") &&
+    teamColumns.has("template_id") &&
+    teamColumns.has("metadata") &&
+    !teamColumns.has("user_id");
+  const legacyTeams =
+    teamColumns.has("user_id") &&
+    teamColumns.has("is_default") &&
+    !teamColumns.has("project_id");
+
+  const projectScopedTeamAgents =
+    teamAgentColumns.has("team_id") &&
+    teamAgentColumns.has("agent_id") &&
+    teamAgentColumns.has("role_key");
+  const legacyTeamAgents =
+    teamAgentColumns.has("team_id") &&
+    teamAgentColumns.has("agent_id") &&
+    teamAgentColumns.has("routing_order") &&
+    !teamAgentColumns.has("role_key");
+
+  return {
+    legacyTeams,
+    legacyTeamAgents,
+    legacyTeamWorkspaces: hasTeamWorkspaces,
+    projectScopedTeams,
+    projectScopedTeamAgents,
+  };
+}
+
+export function hasLegacyWorkspaceTeamSchema(inputDb?: DatabaseSync): boolean {
+  const state = getWorkspaceTeamTableState(inputDb);
+  return state.legacyTeams || state.legacyTeamAgents || state.legacyTeamWorkspaces;
+}
+
+function hasCompleteLegacyWorkspaceTeamSchema(state: WorkspaceTeamTableState): boolean {
+  return state.legacyTeams && state.legacyTeamAgents && state.legacyTeamWorkspaces;
+}
+
+export function getLegacyWorkspaceSourceCounts(inputDb?: DatabaseSync): {
+  teams: number;
+  teamAgents: number;
+  teamWorkspaces: number;
+} {
+  if (!inputDb) {
+    throw new Error("getLegacyWorkspaceSourceCounts requires an explicit database handle");
+  }
+  const db = inputDb;
+  const state = getWorkspaceTeamTableState(db);
+
+  return {
+    teams: state.legacyTeams ? countTableRows(db, "teams") : 0,
+    teamAgents: state.legacyTeamAgents ? countTableRows(db, "team_agents") : 0,
+    teamWorkspaces: state.legacyTeamWorkspaces ? countTableRows(db, "team_workspaces") : 0,
+  };
 }
 
 function ensureMigrationStateTable(db: DatabaseSync) {
@@ -272,11 +362,13 @@ export function migrateLegacyWorkspacesToProjects(
     projectMappings: [],
   };
 
-  const hasTeams = db
-    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'teams'")
-    .get();
-  if (!hasTeams) {
-    result.warnings.push("No legacy teams table found.");
+  const teamTableState = getWorkspaceTeamTableState(db);
+  if (!hasLegacyWorkspaceTeamSchema(db)) {
+    result.warnings.push("No legacy workspace/team tables found.");
+    return result;
+  }
+  if (!hasCompleteLegacyWorkspaceTeamSchema(teamTableState)) {
+    result.warnings.push("Legacy workspace/team schema is incomplete; refusing to auto-migrate partial tables.");
     return result;
   }
 
@@ -383,11 +475,11 @@ export function autoMigrateLegacyWorkspacesToProjects(
     throw new Error("autoMigrateLegacyWorkspacesToProjects requires an explicit database handle");
   }
   const db = inputDb;
-  const hasTeams = db
-    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'teams'")
-    .get();
-
-  if (!hasTeams) {
+  const teamTableState = getWorkspaceTeamTableState(db);
+  if (!hasLegacyWorkspaceTeamSchema(db)) {
+    return null;
+  }
+  if (!hasCompleteLegacyWorkspaceTeamSchema(teamTableState)) {
     return null;
   }
 

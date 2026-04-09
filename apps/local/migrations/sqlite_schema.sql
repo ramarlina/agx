@@ -525,6 +525,36 @@ CREATE TRIGGER IF NOT EXISTS execution_graphs_auto_update
 
 -- ── Project sub-tables (agent routing, skills, variables, memory, threads) ──
 
+CREATE TABLE IF NOT EXISTS teams (
+    id TEXT NOT NULL PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    template_id TEXT,
+    metadata JSON NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    CHECK (json_valid(metadata))
+);
+
+CREATE INDEX IF NOT EXISTS idx_teams_project_id ON teams (project_id);
+
+CREATE TABLE IF NOT EXISTS team_agents (
+    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    role_key TEXT NOT NULL,
+    routing_order INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (team_id, agent_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_team_agents_agent_id ON team_agents (agent_id);
+
+CREATE TRIGGER IF NOT EXISTS teams_updated_at
+    AFTER UPDATE ON teams
+    FOR EACH ROW
+    BEGIN
+        UPDATE teams SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE rowid = NEW.rowid;
+    END;
+
 CREATE TABLE IF NOT EXISTS project_agents (
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
