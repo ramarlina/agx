@@ -5,13 +5,13 @@ const fs = require('fs');
 const path = require('path');
 
 const agxRoot = path.resolve(__dirname, '..');
-const cloudRoot = path.resolve(agxRoot, '..', 'agx-cloud');
+const localAppRoot = path.join(agxRoot, 'apps', 'local');
 const cloudRuntimeDir = path.join(agxRoot, 'cloud-runtime');
-const standaloneSrc = path.join(cloudRoot, '.next', 'standalone');
-const staticSrc = path.join(cloudRoot, '.next', 'static');
-const publicSrc = path.join(cloudRoot, 'public');
+const standaloneSrc = path.join(localAppRoot, '.next', 'standalone');
+const staticSrc = path.join(localAppRoot, '.next', 'static');
+const publicSrc = path.join(localAppRoot, 'public');
 const stackTemplateDir = path.join(agxRoot, 'templates', 'stack');
-const postgresInitSrc = path.join(cloudRoot, 'docker', 'postgres', 'init');
+const postgresInitSrc = path.join(localAppRoot, 'docker', 'postgres', 'init');
 const postgresInitDest = path.join(stackTemplateDir, 'postgres', 'init');
 
 function ensureExists(targetPath, label) {
@@ -475,9 +475,56 @@ function patchBundledRuntime(appDir) {
   }
 }
 
+function sanitizeStandaloneServerConfig(appDir) {
+  const serverPath = path.join(appDir, 'server.js');
+  if (!fs.existsSync(serverPath)) return false;
+
+  const content = fs.readFileSync(serverPath, 'utf8');
+  const sanitized = content
+    .replace(/"outputFileTracingRoot":"[^"]+"/g, '"outputFileTracingRoot":"."')
+    .replace(/"turbopack":\{"root":"[^"]+"/g, '"turbopack":{"root":"."');
+
+  if (sanitized === content) return false;
+  fs.writeFileSync(serverPath, sanitized);
+  return true;
+}
+
+function sanitizeRequiredServerFiles(appDir) {
+  const requiredServerFilesPath = path.join(appDir, '.next', 'required-server-files.json');
+  if (!fs.existsSync(requiredServerFilesPath)) return false;
+
+  const raw = fs.readFileSync(requiredServerFilesPath, 'utf8');
+  const config = JSON.parse(raw);
+  let changed = false;
+
+  if (config?.config?.outputFileTracingRoot && config.config.outputFileTracingRoot !== '.') {
+    config.config.outputFileTracingRoot = '.';
+    changed = true;
+  }
+
+  if (config?.config?.turbopack?.root && config.config.turbopack.root !== '.') {
+    config.config.turbopack.root = '.';
+    changed = true;
+  }
+
+  if (config?.appDir && config.appDir !== '.') {
+    config.appDir = '.';
+    changed = true;
+  }
+
+  if (config?.relativeAppDir && config.relativeAppDir !== '.') {
+    config.relativeAppDir = '.';
+    changed = true;
+  }
+
+  if (!changed) return false;
+  fs.writeFileSync(requiredServerFilesPath, `${JSON.stringify(config, null, 2)}\n`);
+  return true;
+}
+
 async function bundleWorker({ appDir }) {
   const esbuild = require('esbuild');
-  const entry = path.join(cloudRoot, 'worker', 'index.ts');
+  const entry = path.join(localAppRoot, 'worker', 'index.ts');
   ensureExists(entry, 'Worker entrypoint');
   const workerOutDir = path.join(appDir, 'worker');
   fs.mkdirSync(workerOutDir, { recursive: true });
@@ -489,12 +536,12 @@ async function bundleWorker({ appDir }) {
     bundle: true,
     platform: 'node',
     format: 'cjs',
-    target: ['node18'],
+    target: ['node22'],
     sourcemap: false,
     logLevel: 'info',
     plugins: [
       {
-        name: 'agx-cloud-alias-at',
+        name: 'agx-local-alias-at',
         setup(build) {
           const tryResolve = (basePath) => {
             const candidates = [
@@ -519,7 +566,7 @@ async function bundleWorker({ appDir }) {
           };
           build.onResolve({ filter: /^@\// }, (args) => {
             const rel = args.path.slice(2); // "@/foo" -> "foo"
-            const base = path.join(cloudRoot, rel);
+            const base = path.join(localAppRoot, rel);
             const resolved = tryResolve(base);
             if (!resolved) return { errors: [{ text: `Unable to resolve alias import: ${args.path}` }] };
             return { path: resolved };
@@ -531,23 +578,23 @@ async function bundleWorker({ appDir }) {
 }
 
 async function main() {
-  ensureExists(cloudRoot, 'agx-cloud repository');
-  // Optional: keep local stack template schema in sync with agx-cloud.
+  ensureExists(localAppRoot, 'local board workspace');
+  // Optional: keep local stack template schema in sync with the local app.
   if (fs.existsSync(postgresInitSrc)) {
     fs.mkdirSync(postgresInitDest, { recursive: true });
     fs.cpSync(postgresInitSrc, postgresInitDest, { recursive: true });
   }
 
-  console.log('[agx] Building AGX Board runtime from agx-cloud...');
+  console.log('[agx] Building AGX Board runtime from apps/local...');
   // Next can leave stale route artifacts behind in `.next/` (esp. around app router + API routes).
   // Packaging should be deterministic, so always build from a clean `.next/`.
   try {
-    fs.rmSync(path.join(cloudRoot, '.next'), { recursive: true, force: true });
+    fs.rmSync(path.join(localAppRoot, '.next'), { recursive: true, force: true });
   } catch { }
   try {
-    fs.rmSync(path.join(cloudRoot, '.next', 'trace'), { force: true });
+    fs.rmSync(path.join(localAppRoot, '.next', 'trace'), { force: true });
   } catch { }
-  execa.commandSync('npm run build', { cwd: cloudRoot, stdio: 'inherit' });
+  execa.commandSync('npm run build --workspace apps/local', { cwd: agxRoot, stdio: 'inherit' });
 
   ensureExists(standaloneSrc, 'Next standalone output');
   ensureExists(staticSrc, 'Next static output');
@@ -560,7 +607,15 @@ async function main() {
 
   const appDir = findPackagedAppDir(standaloneDest);
   if (!appDir) {
-    throw new Error(`Unable to locate packaged agx-cloud app dir under ${standaloneDest}`);
+    throw new Error(`Unable to locate packaged local app dir under ${standaloneDest}`);
+  }
+
+  if (sanitizeStandaloneServerConfig(appDir)) {
+    console.log('[agx] Sanitized standalone server config paths');
+  }
+
+  if (sanitizeRequiredServerFiles(appDir)) {
+    console.log('[agx] Sanitized standalone required-server-files metadata');
   }
 
   patchBundledRuntime(appDir);
@@ -578,7 +633,7 @@ async function main() {
     copyDir(publicSrc, publicDest);
   }
 
-  const scriptsSrc = path.join(cloudRoot, 'scripts');
+  const scriptsSrc = path.join(localAppRoot, 'scripts');
   if (fs.existsSync(scriptsSrc)) {
     const scriptsDest = path.join(appDir, 'scripts');
     copyDir(scriptsSrc, scriptsDest);

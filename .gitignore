@@ -5,7 +5,15 @@ node_modules/
 coverage/
 .claude-plugin/
 # Build artifacts
+.next/
+playwright-report/
+test-results/
+.vercel/
 *.tsbuildinfo
+*.tgz
+*.db
+*.db-shm
+*.db-wal
 
 # Environment
 .env
@@ -34,6 +42,26 @@ plan/artifacts/
 cloud-runtime/
 docs/
 templates/stack/postgres/init/001_agx_board_schema.sql
+apps/local/state/automations/
+apps/desktop/.env
+apps/desktop/.env.*
+!apps/desktop/.env.example
+apps/desktop/.playwright-mcp/
+apps/desktop/node_modules/
+apps/desktop/dist/
+apps/desktop/cli-bundle/
+apps/desktop/bin/
+apps/desktop/node-runtime/
+apps/desktop/notarized-build.log
+apps/desktop/dist/notarization.json
+apps/desktop/*.cer
+apps/desktop/*.key
+apps/desktop/*.mobileprovision
+apps/desktop/*.p8
+apps/desktop/*.p12
 
 planning/
 docs/
+!apps/desktop/docs/
+!apps/desktop/docs/**
+apps/desktop/scripts/

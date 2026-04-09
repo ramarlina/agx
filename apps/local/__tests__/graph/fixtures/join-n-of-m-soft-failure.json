@@ -1,0 +1,70 @@
+{
+  "name": "join-n-of-m-soft-failure",
+  "graph": {
+    "id": "fixture-join-n-of-m",
+    "taskId": "task-fixture-3",
+    "graphVersion": 1,
+    "mode": "PROJECT",
+    "nodes": {
+      "a": {
+        "type": "work",
+        "status": "done",
+        "deps": [],
+        "title": "A",
+        "attempts": 1,
+        "maxAttempts": 2,
+        "retryPolicy": { "backoffMs": 10, "onExhaust": "fail" }
+      },
+      "b": {
+        "type": "work",
+        "status": "failed",
+        "deps": [],
+        "title": "B",
+        "attempts": 2,
+        "maxAttempts": 2,
+        "retryPolicy": { "backoffMs": 10, "onExhaust": "fail" }
+      },
+      "c": {
+        "type": "work",
+        "status": "done",
+        "deps": [],
+        "title": "C",
+        "attempts": 1,
+        "maxAttempts": 2,
+        "retryPolicy": { "backoffMs": 10, "onExhaust": "fail" }
+      },
+      "join": {
+        "type": "join",
+        "status": "pending",
+        "deps": ["a", "b", "c"],
+        "joinStrategy": "n_of_m",
+        "requiredCount": 2
+      }
+    },
+    "edges": [
+      { "from": "a", "to": "join", "type": "hard" },
+      { "from": "b", "to": "join", "type": "soft" },
+      { "from": "c", "to": "join", "type": "hard" }
+    ],
+    "policy": {
+      "replanBudgetRemaining": 3,
+      "replanBudgetInitial": 3,
+      "verifyBudgetRemaining": 5,
+      "verifyBudgetInitial": 5,
+      "maxConcurrentAutoChecks": 1,
+      "immutableRequiredGates": true,
+      "maxConcurrent": 3,
+      "priorityMode": "fifo",
+      "nodeTimeoutMs": 10000,
+      "graphTimeoutMs": 86400000
+    },
+    "doneCriteria": {
+      "allRequiredGatesPassed": true,
+      "noRunnableOrPendingWork": true
+    },
+    "versionHistory": [],
+    "runtimeEvents": [],
+    "createdAt": "2026-02-14T00:00:00.000Z",
+    "updatedAt": "2026-02-14T00:00:00.000Z"
+  }
+}

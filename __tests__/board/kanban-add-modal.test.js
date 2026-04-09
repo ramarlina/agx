@@ -2,17 +2,28 @@ const fs = require('fs');
 const path = require('path');
 
 describe('Kanban column add behavior (bundled board runtime)', () => {
-  const kanbanChunkDir = path.join(
-    process.cwd(),
-    'cloud-runtime',
-    'standalone',
-    'Projects',
-    'Agents',
-    'agx-cloud',
-    '.next',
-    'static',
-    'chunks'
-  );
+  const standaloneRoot = path.join(process.cwd(), 'cloud-runtime', 'standalone');
+  const findPackagedAppDir = (rootDir) => {
+    const stack = [rootDir];
+    while (stack.length) {
+      const current = stack.pop();
+      const serverPath = path.join(current, 'server.js');
+      const packagePath = path.join(current, 'package.json');
+      const buildIdPath = path.join(current, '.next', 'BUILD_ID');
+      if (fs.existsSync(serverPath) && fs.existsSync(packagePath) && fs.existsSync(buildIdPath)) {
+        return current;
+      }
+      for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+        if (entry.isDirectory() && entry.name !== '.git') {
+          stack.push(path.join(current, entry.name));
+        }
+      }
+    }
+    throw new Error(`Packaged app dir not found under ${rootDir}`);
+  };
+
+  const appDir = findPackagedAppDir(standaloneRoot);
+  const kanbanChunkDir = path.join(appDir, '.next', 'static', 'chunks');
   const kanbanChunk = (() => {
     const entries = fs.readdirSync(kanbanChunkDir);
     const chunk = entries.find((entry) => /^9337-.*\.js$/.test(entry));
@@ -22,19 +33,7 @@ describe('Kanban column add behavior (bundled board runtime)', () => {
     return path.join(kanbanChunkDir, chunk);
   })();
 
-  const dashboardChunkDir = path.join(
-    process.cwd(),
-    'cloud-runtime',
-    'standalone',
-    'Projects',
-    'Agents',
-    'agx-cloud',
-    '.next',
-    'static',
-    'chunks',
-    'app',
-    'dashboard'
-  );
+  const dashboardChunkDir = path.join(appDir, '.next', 'static', 'chunks', 'app', 'dashboard');
   const dashboardChunk = (() => {
     const entries = fs.readdirSync(dashboardChunkDir);
     const pageChunk = entries.find((entry) => /^page-.*\.js$/.test(entry));

@@ -1,0 +1,79 @@
+{
+  "name": "required-gate-bypass-invalid",
+  "graph": {
+    "id": "fixture-required-gate-bypass",
+    "taskId": "task-fixture-4",
+    "graphVersion": 2,
+    "mode": "PROJECT",
+    "nodes": {
+      "start": {
+        "type": "work",
+        "status": "done",
+        "deps": [],
+        "title": "Start",
+        "attempts": 1,
+        "maxAttempts": 2,
+        "retryPolicy": { "backoffMs": 10, "onExhaust": "fail" }
+      },
+      "required-gate": {
+        "type": "gate",
+        "status": "pending",
+        "deps": ["start"],
+        "gateType": "quality_gate",
+        "required": true,
+        "verificationStrategy": { "type": "auto", "checks": ["tests_pass"] }
+      },
+      "sink": {
+        "type": "work",
+        "status": "pending",
+        "deps": ["required-gate", "start"],
+        "title": "Sink",
+        "attempts": 0,
+        "maxAttempts": 2,
+        "retryPolicy": { "backoffMs": 10, "onExhaust": "fail" }
+      }
+    },
+    "edges": [
+      { "from": "start", "to": "required-gate", "type": "hard" },
+      { "from": "required-gate", "to": "sink", "type": "hard" },
+      { "from": "start", "to": "sink", "type": "hard" }
+    ],
+    "policy": {
+      "replanBudgetRemaining": 2,
+      "replanBudgetInitial": 3,
+      "verifyBudgetRemaining": 5,
+      "verifyBudgetInitial": 5,
+      "maxConcurrentAutoChecks": 1,
+      "immutableRequiredGates": true,
+      "maxConcurrent": 3,
+      "priorityMode": "fifo",
+      "nodeTimeoutMs": 10000,
+      "graphTimeoutMs": 86400000
+    },
+    "doneCriteria": {
+      "allRequiredGatesPassed": true,
+      "noRunnableOrPendingWork": true,
+      "completionSinkNodeIds": ["sink"]
+    },
+    "versionHistory": [
+      {
+        "eventType": "replan",
+        "fromVersion": 1,
+        "toVersion": 2,
+        "timestamp": "2026-02-14T01:00:00.000Z",
+        "reason": "introduced accidental bypass",
+        "triggeredBy": "agent",
+        "triggeredAtNodeId": "required-gate",
+        "changes": {
+          "addedNodes": [],
+          "removedNodes": [],
+          "rewiredDeps": ["sink"],
+          "estimateDeltas": {}
+        }
+      }
+    ],
+    "runtimeEvents": [],
+    "createdAt": "2026-02-14T00:00:00.000Z",
+    "updatedAt": "2026-02-14T01:00:00.000Z"
+  }
+}

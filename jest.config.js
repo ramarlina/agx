@@ -1,9 +1,10 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'jsdom',
+  roots: ['<rootDir>/__tests__'],
   setupFiles: ['<rootDir>/__tests__/helpers/jest-global-shims.cjs'],
   setupFilesAfterEnv: ['<rootDir>/jest.setup.ts'],
-  testMatch: ['**/__tests__/**/*.test.@(ts|tsx|js)'],
+  testMatch: ['<rootDir>/__tests__/**/*.test.@(ts|tsx|js)'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   testTimeout: 15000,
   collectCoverageFrom: [
@@ -37,7 +38,15 @@ module.exports = {
       statements: 85,
     },
   },
-  modulePathIgnorePatterns: ['<rootDir>/todo-api/'],
+  modulePathIgnorePatterns: [
+    '<rootDir>/todo-api/',
+    '<rootDir>/cloud-runtime/',
+    '<rootDir>/apps/local/.next/',
+  ],
+  testPathIgnorePatterns: [
+    '<rootDir>/apps/local/',
+    '<rootDir>/cloud-runtime/',
+  ],
   transform: {
     '^.+\\.[tj]sx?$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
   },
@@ -47,7 +56,7 @@ module.exports = {
     '^react/jsx-dev-runtime$': '<rootDir>/node_modules/react/jsx-dev-runtime.js',
     '^react-dom$': '<rootDir>/node_modules/react-dom',
     '^react-dom/client$': '<rootDir>/node_modules/react-dom/client.js',
-    '^@/(.*)$': '<rootDir>/../agx-cloud/$1',
+    '^@/(.*)$': '<rootDir>/apps/local/$1',
     '^yaml$': '<rootDir>/node_modules/yaml/dist/index.js',
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
   },

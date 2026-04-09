@@ -1,0 +1,85 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { pollSchedules, executeScheduleTick } from '@/src/graph/schedule-runner';
+import { createDispatchFunction } from '@/src/graph/function-executor';
+import { createDispatchWork } from '@/src/graph/work-dispatcher';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+/**
+ * POST /api/schedules/poll
+ *
+ * Poll all graphs with active schedules and execute due ticks.
+ * This endpoint can be called by an external scheduler/cron job.
+ *
+ * Request body (optional):
+ * - taskId: If provided, poll only that specific task's schedule
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const dispatchFunction = createDispatchFunction();
+    const dispatchWork = createDispatchWork();
+
+    if (body.taskId) {
+      // Poll a specific task
+      const result = await executeScheduleTick(body.taskId, { dispatchFunction, dispatchWork });
+
+      return NextResponse.json({
+        success: result.fired,
+        taskId: body.taskId,
+        error: result.error?.message ?? null,
+      });
+    }
+
+    // Poll all active schedules
+    const result = await pollSchedules({ dispatchFunction, dispatchWork });
+
+    return NextResponse.json({
+      success: true,
+      tickedGraphIds: result.tickedGraphIds,
+      skippedGraphIds: result.skippedGraphIds,
+      errorCount: result.errors.length,
+      errors: result.errors.length > 0
+        ? result.errors.map((e) => ({ graphId: e.graphId, message: e.error.message }))
+        : undefined,
+    });
+  } catch (error) {
+    console.error('Schedule poll error:', error);
+    return NextResponse.json(
+      { error: 'Failed to poll schedules', message: error instanceof Error ? error.message : String(error) },
+      { status: 500 },
+    );
+  }
+}
+
+/**
+ * GET /api/schedules/poll
+ *
+ * List all graphs with active schedules (for debugging/monitoring).
+ */
+export async function GET() {
+  try {
+    const { getGraphsWithActiveSchedules } = await import('@/src/graph/schedule-runner');
+    const schedules = getGraphsWithActiveSchedules();
+
+    return NextResponse.json({
+      count: schedules.length,
+      schedules: schedules.map((s) => ({
+        taskId: s.taskId,
+        graphId: s.graphId,
+        state: s.schedule.state,
+        intervalMs: s.schedule.intervalMs,
+        runCount: s.schedule.runCount,
+        lastTickAt: s.schedule.lastTickAt,
+        tickInProgress: s.schedule.tickInProgress,
+      })),
+    });
+  } catch (error) {
+    console.error('Failed to list schedules:', error);
+    return NextResponse.json(
+      { error: 'Failed to list schedules' },
+      { status: 500 },
+    );
+  }
+}

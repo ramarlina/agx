@@ -50,6 +50,7 @@ agx project list
 agx project get <id-or-slug>
 agx project create --name <name>
 agx project update <id-or-slug> [flags]
+agx project delete <id-or-slug>
 agx project assign <project> --task <task>
 agx project unassign --task <task>
 agx new "goal" --project <project-id-or-slug>

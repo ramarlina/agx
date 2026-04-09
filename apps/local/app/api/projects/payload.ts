@@ -1,0 +1,106 @@
+import type { ProjectInput, ProjectRepoInput, ProjectUpdatePayload } from "@/lib/db-adapter.interface";
+
+function toOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+function toNullableString(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  if (typeof value !== "string") return undefined;
+  return value.trim();
+}
+
+function parseMetadata(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
+function parseProjectRepos(value: unknown): ProjectRepoInput[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+
+  const repos: ProjectRepoInput[] = [];
+  value.forEach((item) => {
+    if (!item || typeof item !== "object") return;
+
+    const rawName = (item as Record<string, unknown>).name;
+    const name = typeof rawName === "string" ? rawName.trim() : "";
+    if (!name) return;
+
+    const repo: Partial<ProjectRepoInput> = { name };
+    const rawId = (item as Record<string, unknown>).id;
+    const rawPath = (item as Record<string, unknown>).path;
+    const rawGitUrl = (item as Record<string, unknown>).git_url;
+    const rawNotes = (item as Record<string, unknown>).notes;
+
+    if (typeof rawId === "string" && rawId.trim()) {
+      repo.id = rawId.trim();
+    }
+
+    if (typeof rawPath === "string" && rawPath.trim()) {
+      repo.path = rawPath.trim();
+    } else {
+      // Path is mandatory
+      return;
+    }
+
+    if (typeof rawGitUrl === "string" && rawGitUrl.trim()) {
+      repo.git_url = rawGitUrl.trim();
+    }
+
+    if (typeof rawNotes === "string") {
+      const trimmed = rawNotes.trim();
+      if (trimmed) repo.notes = trimmed;
+    }
+
+    repos.push(repo as ProjectRepoInput);
+  });
+
+  return repos;
+}
+
+export function buildProjectInput(body: Record<string, unknown>): ProjectInput {
+  return {
+    name: String(body.name ?? "").trim(),
+    description: typeof body.description === "string" ? body.description.trim() : undefined,
+    repos: parseProjectRepos(body.repos),
+  };
+}
+
+export function buildProjectUpdatePayload(body: Record<string, unknown>): ProjectUpdatePayload {
+  const payload: ProjectUpdatePayload = {};
+
+  if (typeof body.name === "string") {
+    payload.name = body.name.trim();
+  }
+  if (typeof body.slug === "string") {
+    payload.slug = body.slug.trim();
+  }
+  if (typeof body.description === "string") {
+    payload.description = body.description.trim();
+  } else if (body.description === null) {
+    payload.description = null;
+  }
+  if (body.metadata !== undefined) {
+    payload.metadata = parseMetadata(body.metadata);
+  }
+  if (typeof body.ci_cd_info === "string") {
+    payload.ci_cd_info = body.ci_cd_info.trim() || null;
+  } else if (body.ci_cd_info === null) {
+    payload.ci_cd_info = null;
+  }
+  if (typeof body.workflow_id === "string") {
+    payload.workflow_id = body.workflow_id.trim() || null;
+  } else if (body.workflow_id === null) {
+    payload.workflow_id = null;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "repos")) {
+    const normalizedRepos = parseProjectRepos(body.repos);
+    payload.repos = normalizedRepos ?? [];
+  }
+
+  return payload;
+}
