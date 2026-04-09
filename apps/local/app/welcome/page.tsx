@@ -170,19 +170,15 @@ export default function WelcomePage() {
           return;
         }
         const data = await res.json();
-        const installedIds = new Set(
-          Array.isArray(data?.providers)
-            ? data.providers
-                .filter(
-                  (provider: { id?: string }) =>
-                    provider && typeof provider.id === "string"
-                )
-                .map((provider: { id: string }) => provider.id)
-            : []
-        );
+        const providerList = Array.isArray(data?.providers)
+          ? data.providers
+          : [];
 
         const updatedClis = CLI_DEFS.map((def) => {
-          return { ...def, installed: installedIds.has(def.id) };
+          const match = providerList.find(
+            (p: { id?: string }) => p && p.id === def.id,
+          );
+          return { ...def, installed: match?.installed ?? false };
         });
 
         if (!cancelled) {
