@@ -227,14 +227,36 @@ function dispatchRun(job: PromptJob, run: PromptRun) {
   });
 }
 
+async function readPollRequestBody(req: NextRequest): Promise<{ jobId?: string }> {
+  const rawBody = await req.text();
+  if (!rawBody.trim()) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(rawBody) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      console.error('[prompt-jobs/poll] unexpected request body:', parsed);
+      return {};
+    }
+    if ('jobId' in parsed && parsed.jobId != null && typeof parsed.jobId !== 'string') {
+      console.error('[prompt-jobs/poll] unexpected request body:', parsed);
+      return {};
+    }
+    return parsed as { jobId?: string };
+  } catch (err) {
+    console.error('[prompt-jobs/poll] failed to parse request body:', err);
+    return {};
+  }
+}
+
 /**
  * POST /api/prompt-jobs/poll
  */
 export async function POST(req: NextRequest) {
   try {
     const store = getPromptJobStore();
-    let body: { jobId?: string } = {};
-    try { body = await req.json(); } catch (err) { console.error('[prompt-jobs/poll] failed to parse request body:', err); }
+    const body = await readPollRequestBody(req);
 
     if (body.jobId) {
       const job = store.getJob(body.jobId);
