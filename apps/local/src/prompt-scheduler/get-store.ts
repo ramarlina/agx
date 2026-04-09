@@ -46,6 +46,24 @@ export function getPromptJobStore(): PromptJobStore {
         }
       }
     }
+    // Run v3 migration if host_pid column doesn't exist on prompt_runs
+    const hasHostPid = db
+      .prepare("SELECT 1 FROM pragma_table_info('prompt_runs') WHERE name='host_pid'")
+      .get();
+    if (!hasHostPid) {
+      const v3Migration = readFileSync(
+        path.join(process.cwd(), 'db/sqlite/004_prompt_runs_host_pid.sql'),
+        'utf-8',
+      );
+      for (const stmt of splitSqlStatements(v3Migration)) {
+        try {
+          db.exec(stmt);
+        } catch (err: any) {
+          if (!err.message?.includes('duplicate column')) throw err;
+        }
+      }
+    }
+
     _store = new PromptJobStore(db);
   }
   return _store;

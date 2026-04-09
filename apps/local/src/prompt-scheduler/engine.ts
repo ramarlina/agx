@@ -8,6 +8,12 @@ export interface PollResult {
 }
 
 export function pollDueJobs(store: PromptJobStore, now: number = Date.now()): PollResult {
+  // Reap runs stuck in 'running' for > 30 minutes so overlap-skip doesn't block forever
+  const reaped = store.reapStaleRuns();
+  if (reaped > 0) {
+    console.log(`[prompt-jobs] reaped ${reaped} stale run(s)`);
+  }
+
   // Heal active jobs with null nextRunAt
   const allJobs = store.listJobs({ state: 'active' as any });
   for (const job of allJobs) {

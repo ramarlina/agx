@@ -21,9 +21,17 @@ function createTestDb(): DatabaseSync {
     'utf8',
   );
 
+  const schema3 = fs.readFileSync(
+    path.join(process.cwd(), 'db/sqlite/004_prompt_runs_host_pid.sql'),
+    'utf8',
+  );
+
   // Schema 1 has PRAGMA journal_mode = WAL which doesn't apply to :memory: but is safe to exec
   db.exec(schema1);
   db.exec(schema2);
+  for (const stmt of schema3.replace(/^\s*--.*$/gm, '').split(';').map(s => s.trim()).filter(Boolean)) {
+    db.exec(stmt);
+  }
 
   return db;
 }
