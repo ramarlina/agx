@@ -691,7 +691,6 @@ export async function getTasks(
   userId?: string,
   filters?: { project?: string; status?: TaskStatus; search?: string; orphan?: boolean }
 ): Promise<Task[]> {
-  console.log("getTasks called with userId:", userId);
   const db = createAdminDbClient();
 
   let query = db
