@@ -17,19 +17,19 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/@mndrk/agx">NPM</a> •
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#features">Features</a> •
-  <a href="#commands">Commands</a> •
+  <a href="#get-agx">Get AGX</a> •
+  <a href="#ui">UI</a> •
+  <a href="#desktop-app">Desktop</a> •
+  <a href="#cli">CLI</a> •
   <a href="#how-it-works">How It Works</a> •
-  <a href="#contributing">Contributing</a>
+  <a href="#development">Development</a>
 </p>
 
 ---
 
 ## What is AGX?
 
-AGX started as a **CLI-first multi-agent execution engine** and is evolving into **your AI team's command center**. Drop an idea into a chat, let agents debate and plan, route work into execution, and approve before they act, all locally on your machine.
+AGX is a **local-first command center for AI agents**. Drop an idea into a multi-agent chat, let agents debate and plan, route work onto a task board, and approve before they act. Everything runs on your machine.
 
 <p align="center">
   <a href="https://github.com/ramarlina/agx">
@@ -37,9 +37,25 @@ AGX started as a **CLI-first multi-agent execution engine** and is evolving into
   </a>
 </p>
 
+AGX ships three surfaces that work together:
+
+| Surface | What it does |
+|---------|-------------|
+| **UI** | Local web dashboard — multi-agent chat, Linear integration, task management |
+| **Desktop** | macOS app — bundles the UI, CLI, and Node runtime in one install |
+| **CLI** | Terminal interface — create tasks, run agents, manage projects, one-shot prompts |
+
+All three share the same local SQLite database. The UI is where you chat and track work; the CLI is the execution engine; the desktop app wraps both.
+
 ---
 
-## Quick Start
+## Get AGX
+
+### Desktop App (macOS)
+
+Download from [Releases](https://github.com/ramarlina/agx/releases). The desktop app bundles the UI, CLI, and a Node runtime — install and go.
+
+### CLI via npm
 
 ```bash
 npm install -g @mndrk/agx
@@ -47,61 +63,40 @@ cd my-project
 agx init
 ```
 
-### Start a multi-agent chat
-
-```bash
-agx chat            # Start server + open in browser
-agx chat start      # Start server only (headless)
-agx chat stop       # Stop the chat server
-```
-
-Drop an idea, @mention agents, let them plan. When ready, push tasks to the board.
-
-### Run tasks autonomously
-
-```bash
-agx new "Refactor the authentication middleware"
-agx daemon start
-```
-
-Open the board, watch the agent work, approve gates, stop/restart at will.
+The CLI ships with the UI built in. No separate install needed.
 
 ---
 
-## Features
+## UI
 
-- **Multi-agent chat** — Talk to Claude, Codex, Gemini, or Ollama in the same thread. @mention agents, get multiple perspectives, steer the conversation.
-- **Execution graphs** — Tasks run as dynamic graphs, not fixed linear stages. Branch, fork, join — the graph is a map of decisions, not a to-do list.
-- **Human-in-the-loop gates** — Critical nodes pause for your explicit `approve` / `reject`. Agents do the heavy lifting; you stay in control.
-- **Durable, resumable execution** — Tasks survive restarts, crashes, and reboots. State is checkpointed, not rebuilt from history.
-- **Bundled local board** — Ships with the CLI from this same repo. Chat is the thinking; board is the doing.
-- **Multi-provider** — Claude, Codex, Gemini, Ollama. Use whatever fits.
-- **Local & inspectable** — Runs entirely on your machine. Full execution logs, task signing, safeguards for destructive commands.
-
----
-
-## What AGX is *not*
-
-- Not just a chatbot
-- Not a hosted SaaS
-- Not prompt-replay-based
-- Not a black-box agent framework
-
-AGX is infrastructure for running agents **locally, durably, and observably**.
-
----
-
-## Commands
-
-### Chat
+The local web dashboard is the primary interface. It runs as a Next.js app on your machine.
 
 ```bash
-agx chat                       # Start server + open chat in browser
-agx chat start                 # Start chat server (no browser)
-agx chat start --open          # Start chat server + open in browser
-agx chat open                  # Open chat in browser (starts server if needed)
-agx chat stop                  # Stop the chat server
+agx board start        # Open the dashboard in your browser
+agx daemon start       # Start the background worker
 ```
+
+**Multi-agent chat** — Talk to Claude, Codex, Gemini, or Ollama in the same thread. @mention specific agents or let the router pick. Push conversation outcomes directly to tasks.
+
+```bash
+agx chat               # Start server + open in browser
+agx chat start         # Start server only (headless)
+agx chat stop          # Stop the chat server
+```
+
+**Linear integration** — Connect your Linear workspace to browse issues, track cycles, mention issues in chat, and route execution results back to Linear.
+
+---
+
+## Desktop App
+
+The macOS desktop app bundles the UI, CLI, and a Node runtime into a single install. Download from [Releases](https://github.com/ramarlina/agx/releases) — no npm or Node.js required.
+
+---
+
+## CLI
+
+The CLI is the execution engine and the glue between chat, board, and agents.
 
 ### Setup
 
@@ -110,7 +105,7 @@ agx init                       # First-time setup wizard
 agx config                     # Reconfigure providers, models, backend URL
 ```
 
-### Task Management
+### Tasks
 
 ```bash
 agx new "<goal>"                                 # Create a new task
@@ -122,19 +117,11 @@ agx reject <task> [--node <node-id>] [-m "feedback"]   # Reject a gate
 agx deps <task> [--depends-on <task> ... | --clear]    # Manage dependencies
 ```
 
-### Board & Daemon
-
-```bash
-agx board start        # Start the dashboard
-agx daemon start       # Start background worker
-agx daemon stop        # Stop daemon and board
-```
-
 ### Projects & Repos
 
 ```bash
 agx project list                           # List projects
-agx repo add . --project my-project        # Analyze current repo and attach it to a project
+agx repo add . --project my-project        # Analyze current repo and attach it
 agx repo add ../service --project my-project --name API
 ```
 
@@ -146,9 +133,7 @@ agx claude -p "Refactor this function"
 agx codex -p "Propose a migration plan"
 ```
 
----
-
-## Providers
+### Providers
 
 | Provider | Alias | Command      |
 | -------- | ----- | ------------ |
@@ -157,9 +142,7 @@ agx codex -p "Propose a migration plan"
 | Gemini   | `g`   | `agx gemini` |
 | Ollama   | `o`   | `agx ollama` |
 
----
-
-## Key Flags
+### Key Flags
 
 ```bash
 -p, --prompt        # Task goal
@@ -172,45 +155,13 @@ agx codex -p "Propose a migration plan"
 
 ---
 
-## Prerequisites
+## Features
 
-- **Node.js** >= 22.16.0
-- **At least one AI provider CLI:**
-  - [Claude Code](https://docs.anthropic.com/claude/docs/claude-cli)
-  - [OpenAI Codex CLI](https://www.npmjs.com/package/@openai/codex)
-  - [Gemini CLI](https://ai.google.dev/gemini-api/docs/cli)
-  - [Ollama](https://ollama.ai/)
-
-No external database required. AGX uses SQLite locally.
-
----
-
-## Repo Layout
-
-```text
-agx/
-  apps/local/   # Next.js local board that ships with the CLI
-  lib/          # CLI/runtime source
-  commands/     # CLI command implementations
-  cloud-runtime/# Packaged standalone board bundled into the npm artifact
-```
-
-The npm package is still published from the repo root as `@mndrk/agx`. The local board lives in `apps/local` and is bundled into the CLI package during `npm pack` / `npm publish`.
-
-## Local Development
-
-```bash
-npm install
-
-# Start the local board workspace directly
-npm run local:dev
-
-# Build the local board workspace
-npm run local:build
-
-# Package the standalone board runtime that ships with the CLI
-npm run board:bundle
-```
+- **Execution graphs** — Tasks run as dynamic graphs, not fixed linear stages. Branch, fork, join — the graph is a map of decisions, not a to-do list.
+- **Human-in-the-loop gates** — Critical nodes pause for your explicit `approve` / `reject`. Agents do the heavy lifting; you stay in control.
+- **Durable, resumable execution** — Tasks survive restarts, crashes, and reboots. State is checkpointed, not rebuilt from history.
+- **Multi-provider** — Claude, Codex, Gemini, Ollama. Use whatever fits.
+- **Local & inspectable** — Runs entirely on your machine. Full execution logs, task signing, safeguards for destructive commands.
 
 ---
 
@@ -230,7 +181,7 @@ Resuming a task is a constant-cost operation, no matter how long it has been run
 
 ```
 ┌──────────────┐   ┌──────────────┐   ┌────────────┐
-│ AGX Board    │◄─►│ SQLite       │◄─►│ Task Queue │
+│ Dashboard    │◄─►│ SQLite       │◄─►│ Task Queue │
 │ (Next.js)    │   │ Durable State│   │            │
 └──────────────┘   └──────────────┘   └────────────┘
 
@@ -246,9 +197,62 @@ Resuming a task is a constant-cost operation, no matter how long it has been run
 
 ---
 
-## Tech Stack
+## Prerequisites
 
-* **Frontend:** Next.js, Tailwind CSS
+- **Node.js** >= 22.16.0 (CLI install only; desktop app bundles its own runtime)
+- **At least one AI provider CLI:**
+  - [Claude Code](https://docs.anthropic.com/claude/docs/claude-cli)
+  - [OpenAI Codex CLI](https://www.npmjs.com/package/@openai/codex)
+  - [Gemini CLI](https://ai.google.dev/gemini-api/docs/cli)
+  - [Ollama](https://ollama.ai/)
+
+No external database required. AGX uses SQLite locally.
+
+---
+
+## Development
+
+This repo is an npm workspace with the following structure:
+
+```text
+agx/
+  apps/
+    local/          # Next.js dashboard + chat (ships with CLI and desktop app)
+    desktop/        # Electron macOS app (bundles dashboard, CLI, and Node runtime)
+  lib/              # CLI and runtime source
+  commands/         # CLI command implementations
+  cloud-runtime/    # Packaged standalone dashboard bundled into the npm artifact
+```
+
+The npm package (`@mndrk/agx`) is published from the repo root. `apps/local` and `apps/desktop` are private workspaces — they are not published to npm.
+
+### Getting started
+
+```bash
+npm install
+
+# Run the dashboard in development mode
+npm run local:dev
+
+# Build the dashboard
+npm run local:build
+
+# Package the standalone dashboard runtime for the CLI
+npm run board:bundle
+```
+
+### Desktop app
+
+```bash
+cd apps/desktop
+npm run dev              # Launch Electron in dev mode
+npm run build:mac        # Build the macOS .app + .dmg
+```
+
+### Tech stack
+
+* **Dashboard/Chat:** Next.js, Tailwind CSS
+* **Desktop:** Electron, electron-builder
 * **Database:** SQLite (WAL mode)
 * **Runtime:** Node.js (TypeScript / `tsx`)
 * **Streaming:** EventSource (CLI → board)
