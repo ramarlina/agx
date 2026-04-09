@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { ChatPreview } from "@/components/chat-ui/ChatPreview";
 import { updateUserPreferences } from "@/services/userPreferences";
@@ -351,6 +351,69 @@ export default function WelcomePage() {
       return updated;
     });
   }, []);
+
+  // Stable key: only re-run polling when the set of needs-auth providers changes
+  const needsAuthIds = useMemo(
+    () =>
+      clis
+        .filter((c) => deriveStatus(c) === "needs-auth")
+        .map((c) => c.id),
+    [clis],
+  );
+  const needsAuthKey = needsAuthIds.join(",");
+
+  // Poll "needs-auth" providers every 5s using recursive setTimeout
+  useEffect(() => {
+    if (readyState === "checking" || needsAuthIds.length === 0) return;
+
+    const controller = new AbortController();
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+
+    function pollProvider(id: ProviderId) {
+      if (controller.signal.aborted) return;
+      const timer = setTimeout(async () => {
+        if (controller.signal.aborted) return;
+        try {
+          const res = await fetch(`/api/providers/check/${id}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          if (controller.signal.aborted) return;
+          if (res.ok) {
+            const data = await res.json();
+            if (data.authenticated) {
+              handleVerifySuccess(id);
+              return; // stop polling this provider
+            }
+            if (!data.installed) {
+              // Provider was uninstalled — update state, stop polling
+              setClis((prev) =>
+                prev.map((c) =>
+                  c.id === id
+                    ? { ...c, installed: false, authenticated: false }
+                    : c,
+                ),
+              );
+              return;
+            }
+          }
+        } catch {
+          if (controller.signal.aborted) return;
+          // network error — continue polling
+        }
+        if (!controller.signal.aborted) pollProvider(id);
+      }, 5000);
+      timers.set(id, timer);
+    }
+
+    needsAuthIds.forEach(pollProvider);
+
+    return () => {
+      controller.abort();
+      timers.forEach((t) => clearTimeout(t));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readyState, needsAuthKey, handleVerifySuccess]);
 
   const authenticatedCount = clis.filter(
     (c) => deriveStatus(c) === "ready",
