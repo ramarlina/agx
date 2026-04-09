@@ -1,6 +1,10 @@
 import { randomUUID } from "crypto";
-import { execSync } from "child_process";
+import { execFile } from "child_process";
+import { basename } from "path";
+import { promisify } from "util";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
+
+const execFileAsync = promisify(execFile);
 
 import {
   automationRecordToPromptJob,
@@ -24,32 +28,70 @@ import type {
 } from "./types";
 
 /**
- * Check whether a process with the given PID is still running with a command
- * that matches the original command string.  Returns false if the PID doesn't
- * exist or if the running command no longer matches (PID was recycled).
+ * Extract the basename of the first token (the binary) from a command string.
+ * e.g. "/usr/local/bin/claude -p foo" → "claude"
+ *      "claude -p foo"               → "claude"
  */
-function isProcessAlive(pid: number, expectedCommand: string): boolean {
+function commandBasename(command: string): string {
+  const firstToken = command.trim().split(/\s+/)[0] ?? "";
+  return basename(firstToken);
+}
+
+/**
+ * Batch-check which PIDs are still alive and running matching commands.
+ * Runs a single `ps` call for all PIDs (async, non-blocking).
+ *
+ * Returns a Set of PIDs that are alive AND whose running command's basename
+ * matches the expected command's basename (guards against PID recycling).
+ */
+async function getAlivePids(
+  entries: Array<{ pid: number; expectedCommand: string }>,
+): Promise<Set<number>> {
+  const alive = new Set<number>();
+  if (entries.length === 0) return alive;
+
+  // Fast pre-filter: drop PIDs where the OS says the process doesn't exist
+  const candidates = entries.filter(({ pid }) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  if (candidates.length === 0) return alive;
+
+  // One batched ps call for all surviving PIDs
+  const pidList = candidates.map((c) => c.pid).join(",");
   try {
-    // First check: does the process exist at all?
-    process.kill(pid, 0);
+    const { stdout } = await execFileAsync("ps", ["-p", pidList, "-o", "pid=,command="], {
+      timeout: 5000,
+    });
+
+    // Build a map: pid → running command basename
+    const runningMap = new Map<number, string>();
+    for (const line of stdout.split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      // Format: "  1234 /usr/local/bin/claude -p ..."
+      const match = trimmed.match(/^(\d+)\s+(.+)$/);
+      if (match) {
+        runningMap.set(Number(match[1]), commandBasename(match[2]));
+      }
+    }
+
+    // Compare basenames
+    for (const { pid, expectedCommand } of candidates) {
+      const runningBasename = runningMap.get(pid);
+      if (runningBasename && runningBasename === commandBasename(expectedCommand)) {
+        alive.add(pid);
+      }
+    }
   } catch {
-    return false;
+    // ps failed entirely — treat all candidates as dead
   }
 
-  // Second check: does the command match? (guards against PID recycling)
-  try {
-    const output = execSync(`ps -p ${pid} -o command=`, {
-      encoding: 'utf-8',
-      timeout: 3000,
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    // Compare the first token (binary name) of both commands to handle
-    // argument differences while still catching PID recycling.
-    return output.startsWith(expectedCommand);
-  } catch {
-    // ps failed → process is gone
-    return false;
-  }
+  return alive;
 }
 
 interface PromptJobRow {
@@ -402,7 +444,7 @@ export class PromptJobStore {
    * For runs without a host_pid (legacy): fall back to a time-based cutoff
    * so they don't block the overlap-skip forever.
    */
-  reapStaleRuns(maxAgeMs: number = 30 * 60 * 1000): number {
+  async reapStaleRuns(maxAgeMs: number = 30 * 60 * 1000): Promise<number> {
     const runs = this.db
       .prepare(
         `SELECT id, job_id, host_pid, host_command, started_at, created_at
@@ -418,8 +460,16 @@ export class PromptJobStore {
         created_at: string;
       }>;
 
-    let reaped = 0;
     const now = Date.now();
+
+    // Batch-check all PID-tracked runs in one async ps call
+    const pidEntries = runs
+      .filter((r): r is typeof r & { host_pid: number; host_command: string } =>
+        r.host_pid != null && r.host_command != null)
+      .map((r) => ({ pid: r.host_pid, expectedCommand: r.host_command }));
+    const alivePids = await getAlivePids(pidEntries);
+
+    let reaped = 0;
 
     for (const run of runs) {
       const startedAt = run.started_at || run.created_at;
@@ -429,8 +479,7 @@ export class PromptJobStore {
       let reason: string;
 
       if (run.host_pid != null && run.host_command) {
-        // PID-aware check: is the process still running with the original command?
-        if (!isProcessAlive(run.host_pid, run.host_command)) {
+        if (!alivePids.has(run.host_pid)) {
           shouldReap = true;
           reason = `Host process (pid ${run.host_pid}) is no longer running`;
         } else {
