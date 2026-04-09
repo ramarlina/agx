@@ -1,20 +1,23 @@
 import { NextResponse } from "next/server";
 import { PROVIDER_CLIS } from "@/lib/provider-clis";
-import { commandExists } from "@/lib/shell-env";
+import { commandExists, runShellCheck } from "@/lib/shell-env";
+
+export const dynamic = "force-dynamic";
 
 // GET /api/providers
-// Returns providers available on the machine (derived from installed CLIs).
+// Returns all providers with installed and authenticated booleans.
 export async function GET() {
-  const available = PROVIDER_CLIS.filter((p) => commandExists(p.bin)).map((p) => ({
-    id: p.id,
-    label: p.label,
-  }));
+  const providers = PROVIDER_CLIS.map((p) => {
+    const installed = commandExists(p.bin);
+    const authenticated =
+      installed && p.authCheck
+        ? runShellCheck(p.authCheck.cmd, p.authCheck.timeout)
+        : false;
+    return { id: p.id, label: p.label, installed, authenticated };
+  });
 
   return NextResponse.json({
-    providers: available,
-    supportedProviders: PROVIDER_CLIS.map((provider) => ({
-      id: provider.id,
-      label: provider.label,
-    })),
+    providers,
+    supportedProviders: PROVIDER_CLIS.map((p) => ({ id: p.id, label: p.label })),
   });
 }

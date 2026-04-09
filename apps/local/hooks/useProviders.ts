@@ -23,7 +23,13 @@ export function useProviders() {
         if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`);
         const list = Array.isArray(data?.providers) ? data.providers : [];
         const normalized = list
-          .filter((p: any) => p && typeof p.id === "string" && typeof p.label === "string")
+          .filter(
+            (p: any) =>
+              p &&
+              typeof p.id === "string" &&
+              typeof p.label === "string" &&
+              p.installed !== false,
+          )
           .map((p: any) => ({ id: p.id, label: p.label }));
         if (!cancelled && normalized.length > 0) setProviders(normalized);
       } catch {
