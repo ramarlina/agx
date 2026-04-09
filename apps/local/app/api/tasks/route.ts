@@ -119,7 +119,6 @@ export async function POST(request: NextRequest) {
         .from("tasks")
         .update({ graph_id: dualWriteResult.graphId })
         .eq("id", task.id);
-      // @ts-expect-error graph_id exists on DB row but not on Task type yet
       task.graph_id = dualWriteResult.graphId;
     }
 

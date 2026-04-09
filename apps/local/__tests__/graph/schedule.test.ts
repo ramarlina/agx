@@ -23,12 +23,14 @@ function makeMinimalGraph(schedule?: GraphSchedule): ExecutionGraph {
         kind: 'bash',
         title: 'Pull status',
         command: 'curl http://localhost/api/history/status?format=compact&rootMessageId=abc',
+        metrics: { tokensUsed: 12, latencyMs: 25, retryCount: 1 },
         output: { activeProcessCount: 0 },
       },
       'idle-check': {
         type: 'conditional',
         status: 'done',
         deps: ['pull-status'],
+        metrics: { tokensUsed: 1, latencyMs: 5, retryCount: 0 },
         condition: { expression: 'input.activeProcessCount == 0', inputFrom: 'pull-status' },
         thenBranch: ['verify-and-route'],
         elseBranch: [],
@@ -132,10 +134,12 @@ describe('graph schedule', () => {
       // Function node output should be cleared
       const fn = result.graph.nodes['pull-status'];
       expect(fn.type === 'function' && fn.output).toBeUndefined();
+      expect(fn.metrics).toBeUndefined();
 
       // Conditional evaluatedTo should be cleared
       const cond = result.graph.nodes['idle-check'];
       expect(cond.type === 'conditional' && cond.evaluatedTo).toBeUndefined();
+      expect(cond.metrics).toBeUndefined();
 
       // Schedule metadata updated
       expect(result.graph.schedule!.tickInProgress).toBe(true);

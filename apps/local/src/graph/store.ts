@@ -107,6 +107,7 @@ interface ExecutionGraphRow extends QueryResultRow {
   task_id: string;
   graph_version: number;
   mode: ExecutionGraph["mode"];
+  execution_state: string | null;
   policy: string | ExecutionGraph["policy"] | null;
   done_criteria: string | ExecutionGraph["doneCriteria"] | null;
   schedule: string | ExecutionGraph["schedule"] | null;
@@ -526,7 +527,7 @@ export class GraphStore {
 
   private getGraphForTask(client: Queryable, taskId: string): ExecutionGraph | null {
     const graphResult = client.query<ExecutionGraphRow>(
-      `SELECT id, task_id, graph_version, mode, policy, done_criteria, schedule, created_at, updated_at
+      `SELECT id, task_id, graph_version, mode, execution_state, policy, done_criteria, schedule, created_at, updated_at
        FROM execution_graphs WHERE task_id = ? ORDER BY updated_at DESC LIMIT 1`,
       [taskId],
     );
@@ -580,6 +581,7 @@ export class GraphStore {
       taskId: graphRow.task_id,
       graphVersion: graphRow.graph_version,
       mode: graphRow.mode,
+      executionState: (graphRow.execution_state as ExecutionGraph["executionState"]) ?? undefined,
       nodes,
       edges,
       policy: (parseJson(graphRow.policy) ?? {}) as ExecutionGraph["policy"],

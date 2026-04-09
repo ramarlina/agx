@@ -73,9 +73,9 @@ export async function GET(
       try {
         const graph = await getGraph(id);
         const selectedNode = graph?.nodes?.[nodeId];
-        const nodeStartMs = toEpochMs((selectedNode as { startedAt?: unknown } | undefined)?.startedAt);
+        const nodeStartMs = toEpochMs(selectedNode?.startedAt);
         if (nodeStartMs !== null) {
-          const nodeEndMs = toEpochMs((selectedNode as { completedAt?: unknown } | undefined)?.completedAt)
+          const nodeEndMs = toEpochMs(selectedNode?.completedAt)
             ?? Date.now();
           const requestedTail = Number(tail ?? limit ?? 500);
           const fallbackTail = Math.max(
@@ -84,7 +84,7 @@ export async function GET(
           );
           const fallbackLogs = await db.getTaskLogs(id, { tail: fallbackTail });
           logs = fallbackLogs.filter((entry) => {
-            const createdAtMs = toEpochMs((entry as { created_at?: unknown }).created_at);
+            const createdAtMs = toEpochMs(entry.created_at);
             return createdAtMs !== null && isWithinWindow(createdAtMs, nodeStartMs, nodeEndMs);
           });
         }
@@ -123,9 +123,10 @@ export async function POST(
       return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
-    const content = (body as any)?.content;
-    const log_type = (body as any)?.log_type;
-    const node_id = (body as any)?.node_id;
+    const parsed = body as Record<string, unknown>;
+    const content = parsed?.content;
+    const log_type = parsed?.log_type;
+    const node_id = parsed?.node_id;
 
     if (typeof content !== "string" || content.trim() === "") {
       return NextResponse.json({ error: "Content is required" }, { status: 400 });
