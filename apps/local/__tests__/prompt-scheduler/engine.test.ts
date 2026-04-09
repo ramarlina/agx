@@ -74,12 +74,12 @@ describe('pollDueJobs', () => {
     delete process.env.AGX_AUTOMATIONS_DIR;
   });
 
-  it('creates runs for due jobs and advances nextRunAt', () => {
+  it('creates runs for due jobs and advances nextRunAt', async () => {
     const now = Date.now();
     const job = store.createJob(makeInput());
     setDue(store, job.id, now - 10_000);
 
-    const result = pollDueJobs(store, now);
+    const result = await pollDueJobs(store, now);
 
     expect(result.queued).toHaveLength(1);
     expect(result.skipped).toHaveLength(0);
@@ -94,7 +94,7 @@ describe('pollDueJobs', () => {
     expect(updated?.lastRunAt).toBe(now);
   });
 
-  it('skips jobs with overlap_policy=skip when a run is active', () => {
+  it('skips jobs with overlap_policy=skip when a run is active', async () => {
     const now = Date.now();
     const job = store.createJob(makeInput({ overlapPolicy: 'skip' }));
     setDue(store, job.id, now - 10_000);
@@ -103,7 +103,7 @@ describe('pollDueJobs', () => {
     const existingRun = store.createRun(job.id);
     store.updateRun(existingRun.id, { status: 'running' });
 
-    const result = pollDueJobs(store, now);
+    const result = await pollDueJobs(store, now);
 
     expect(result.queued).toHaveLength(0);
     expect(result.skipped).toHaveLength(1);
@@ -115,7 +115,7 @@ describe('pollDueJobs', () => {
     expect(updated?.nextRunAt).toBeGreaterThan(now);
   });
 
-  it('queues jobs with overlap_policy=allow even when a run is active', () => {
+  it('queues jobs with overlap_policy=allow even when a run is active', async () => {
     const now = Date.now();
     const job = store.createJob(makeInput({ overlapPolicy: 'allow' }));
     setDue(store, job.id, now - 10_000);
@@ -124,7 +124,7 @@ describe('pollDueJobs', () => {
     const existingRun = store.createRun(job.id);
     store.updateRun(existingRun.id, { status: 'running' });
 
-    const result = pollDueJobs(store, now);
+    const result = await pollDueJobs(store, now);
 
     expect(result.queued).toHaveLength(1);
     expect(result.skipped).toHaveLength(0);
@@ -136,27 +136,27 @@ describe('pollDueJobs', () => {
     expect(updated?.lastRunAt).toBe(now);
   });
 
-  it('returns empty when no jobs are due', () => {
+  it('returns empty when no jobs are due', async () => {
     const now = Date.now();
 
     // Create a job with next_run_at in the future
     const job = store.createJob(makeInput());
     store.updateJob(job.id, { nextRunAt: now + 9_999_999 });
 
-    const result = pollDueJobs(store, now);
+    const result = await pollDueJobs(store, now);
 
     expect(result.queued).toHaveLength(0);
     expect(result.skipped).toHaveLength(0);
   });
 
-  it('handles multiple due jobs in one poll', () => {
+  it('handles multiple due jobs in one poll', async () => {
     const now = Date.now();
     const jobA = store.createJob(makeInput({ name: 'Job A' }));
     const jobB = store.createJob(makeInput({ name: 'Job B' }));
     setDue(store, jobA.id, now - 20_000);
     setDue(store, jobB.id, now - 10_000);
 
-    const result = pollDueJobs(store, now);
+    const result = await pollDueJobs(store, now);
 
     expect(result.queued).toHaveLength(2);
     expect(result.skipped).toHaveLength(0);

@@ -244,7 +244,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ queued: [run], skipped: [] });
     }
 
-    const result = pollDueJobs(store);
+    const result = await pollDueJobs(store);
     for (const run of result.queued) {
       const job = store.getJob(run.jobId);
       if (!job) continue;
