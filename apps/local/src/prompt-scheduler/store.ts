@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { execFile } from "child_process";
 import { basename } from "path";
 import { promisify } from "util";
+import { PS_COMMAND_TIMEOUT_MS } from "@/lib/constants/timing";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 
 const execFileAsync = promisify(execFile);
@@ -65,7 +66,7 @@ async function getAlivePids(
   const pidList = candidates.map((c) => c.pid).join(",");
   try {
     const { stdout } = await execFileAsync("ps", ["-p", pidList, "-o", "pid=,command="], {
-      timeout: 5000,
+      timeout: PS_COMMAND_TIMEOUT_MS,
     });
 
     // Build a map: pid → running command basename

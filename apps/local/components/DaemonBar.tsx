@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { UI_POLL_DAEMON_STATUS_MS } from "@/lib/constants/timing";
 
 interface DaemonStatus {
   running: boolean;
@@ -25,7 +26,7 @@ export default function DaemonBar() {
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 10_000);
+    const interval = setInterval(fetchStatus, UI_POLL_DAEMON_STATUS_MS);
     return () => clearInterval(interval);
   }, [fetchStatus]);
 

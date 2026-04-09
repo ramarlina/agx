@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import type { FunctionNode, ExecutionGraph } from './types';
 import { dispatchInternalFunction } from './internal-function-dispatcher';
+import { BASH_FUNCTION_TIMEOUT_MS } from '@/lib/constants/timing';
 
 export interface FunctionDispatchResult {
   status: 'success' | 'failure';
@@ -42,7 +43,7 @@ export async function dispatchBashFunction(
     };
   }
 
-  const timeoutMs = node.timeoutMs ?? 30000;
+  const timeoutMs = node.timeoutMs ?? BASH_FUNCTION_TIMEOUT_MS;
 
   return new Promise((resolve) => {
     let stdout = '';

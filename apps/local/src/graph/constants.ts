@@ -1,3 +1,4 @@
+import { NODE_TIMEOUT_DEFAULT_MS, GRAPH_TIMEOUT_DEFAULT_MS } from "@/lib/constants/timing";
 import type {
   ExecutionPolicy,
   FailureNodeStatus,
@@ -22,8 +23,8 @@ export const DEFAULT_EXECUTION_POLICY: Readonly<ExecutionPolicy> = {
   immutableRequiredGates: true,
   maxConcurrent: 3,
   priorityMode: 'fifo',
-  nodeTimeoutMs: 30 * 60 * 1000,
-  graphTimeoutMs: 24 * 60 * 60 * 1000,
+  nodeTimeoutMs: NODE_TIMEOUT_DEFAULT_MS,
+  graphTimeoutMs: GRAPH_TIMEOUT_DEFAULT_MS,
 };
 
 type IsEqual<A, B> =

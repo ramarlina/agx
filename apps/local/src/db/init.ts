@@ -1,6 +1,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { pragmaGet, pragmaSet } from "@/lib/sqlite-compat";
 import { checkVersion, checkExtensions, checkFilesystem } from "./checks";
+import { DB_BUSY_TIMEOUT_MS } from "@/lib/constants/timing";
 
 export interface InitOptions {
   /** Require FTS5 extension (default: false) */
@@ -37,7 +38,7 @@ export function applyPragmas(db: DatabaseSync, opts?: InitOptions): void {
     pragmaSet(db, `synchronous = ${opts?.synchronous ?? "NORMAL"}`);
   }
   pragmaSet(db, "foreign_keys = ON");
-  pragmaSet(db, `busy_timeout = ${opts?.busyTimeout ?? 5000}`);
+  pragmaSet(db, `busy_timeout = ${opts?.busyTimeout ?? DB_BUSY_TIMEOUT_MS}`);
   pragmaSet(db, `cache_size = ${opts?.cacheSize ?? -64000}`);
 }
 

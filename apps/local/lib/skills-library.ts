@@ -36,8 +36,10 @@ export type SkillHistoryRow = {
   updated_at: number;
 };
 
-const SKILLS_CACHE_TTL = 60 * 60 * 1000;
-const SKILL_DETAIL_CACHE_TTL = 60 * 60 * 1000;
+import { SKILLS_CACHE_TTL_MS, SKILL_DETAIL_CACHE_TTL_MS, SKILL_FETCH_TIMEOUT_MS } from "./constants/timing";
+
+const SKILLS_CACHE_TTL = SKILLS_CACHE_TTL_MS;
+const SKILL_DETAIL_CACHE_TTL = SKILL_DETAIL_CACHE_TTL_MS;
 const SUPPORTED_SKILL_PROVIDERS: ChatProvider[] = ["claude", "codex", "gemini", "zai"];
 
 let cachedSkills: { loadedAt: number; data: SkillsCatalogEntry[] } | null = null;
@@ -336,7 +338,7 @@ export function installSkill(input: {
     const run = spawnSync("npx", args, {
       cwd: process.cwd(),
       encoding: "utf8",
-      timeout: 120000,
+      timeout: SKILL_FETCH_TIMEOUT_MS,
       env: { ...process.env, FORCE_COLOR: "0" },
     });
     lastStdout = String(run.stdout ?? "");
@@ -412,7 +414,7 @@ export function removeSkill(input: {
     const run = spawnSync("npx", args, {
       cwd: process.cwd(),
       encoding: "utf8",
-      timeout: 120000,
+      timeout: SKILL_FETCH_TIMEOUT_MS,
       env: { ...process.env, FORCE_COLOR: "0" },
     });
     lastStdout = String(run.stdout ?? "");

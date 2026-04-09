@@ -7,6 +7,7 @@ import os from "os";
 import { QueueAdapter, QueueOptions, WorkerOptions, Job } from "./adapter";
 import { validateSQLiteEnvironment, REQUIRED_PRAGMAS } from "../startup";
 import { WriteRateMonitor, WRITE_RATE_SAMPLE_WINDOW_MS } from "../limits";
+import { QUEUE_POLL_INTERVAL_MS } from "../constants/timing";
 import { writeDebugLog } from "../debug-log";
 
 const AGX_DATA_DIR = process.env.AGX_DATA_DIR || path.join(os.homedir(), ".agx");
@@ -159,7 +160,7 @@ export class SQLiteQueueAdapter implements QueueAdapter {
 
   private startPolling() {
     if (this.pollingInterval) return;
-    this.pollingInterval = setInterval(() => this.poll(), 1000); // 1s poll loop
+    this.pollingInterval = setInterval(() => this.poll(), QUEUE_POLL_INTERVAL_MS);
     // Periodic write-rate check (see docs/LIMITS.md)
     this.writeRateInterval = setInterval(() => this.writeMonitor.check(), WRITE_RATE_SAMPLE_WINDOW_MS);
   }

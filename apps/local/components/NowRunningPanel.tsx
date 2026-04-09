@@ -2,6 +2,7 @@
 
 import { Task } from "./TaskCard";
 import { useEffect, useState, useMemo } from "react";
+import { UI_POLL_TASK_DURATION_MS } from "@/lib/constants/timing";
 import type { AgentProcessEntry } from "@/lib/agent-process-registry";
 import FloatingPanel from "@/components/FloatingPanel";
 
@@ -53,7 +54,7 @@ export default function NowRunningPanel({
     };
 
     updateTimes();
-    const interval = setInterval(updateTimes, 60000);
+    const interval = setInterval(updateTimes, UI_POLL_TASK_DURATION_MS);
     return () => clearInterval(interval);
   }, [runningTasks]); // Re-run when tasks change
 

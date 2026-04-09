@@ -1,6 +1,13 @@
 import { spawn } from 'node:child_process';
 
 import type { CheckResult } from './types';
+import {
+  CHECK_NPM_TEST_TIMEOUT_MS,
+  CHECK_NPM_LINT_TIMEOUT_MS,
+  CHECK_NPM_COVERAGE_TIMEOUT_MS,
+  CHECK_NPM_BUILD_TIMEOUT_MS,
+  CHECK_NPM_TYPECHECK_TIMEOUT_MS,
+} from '@/lib/constants/timing';
 
 export type AutoCheckName =
   | 'tests_pass'
@@ -51,27 +58,27 @@ export interface RunChecksOptions {
 export const AUTO_CHECKS: Readonly<Record<AutoCheckName, CheckDefinition>> = {
   tests_pass: {
     command: 'npm test',
-    timeout: 5 * 60 * 1000,
+    timeout: CHECK_NPM_TEST_TIMEOUT_MS,
     required: true,
   },
   lint_clean: {
     command: 'npm run lint',
-    timeout: 60 * 1000,
+    timeout: CHECK_NPM_LINT_TIMEOUT_MS,
     required: false,
   },
   coverage_threshold: {
     command: 'npm run coverage',
-    timeout: 5 * 60 * 1000,
+    timeout: CHECK_NPM_COVERAGE_TIMEOUT_MS,
     required: true,
   },
   build_success: {
     command: 'npm run build',
-    timeout: 10 * 60 * 1000,
+    timeout: CHECK_NPM_BUILD_TIMEOUT_MS,
     required: true,
   },
   types_valid: {
     command: 'npm run typecheck',
-    timeout: 2 * 60 * 1000,
+    timeout: CHECK_NPM_TYPECHECK_TIMEOUT_MS,
     required: true,
   },
 };

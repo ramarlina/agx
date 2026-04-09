@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { UI_POLL_CHAT_CHECK_MS, UI_POLL_CHAT_ALT_MS } from "@/lib/constants/timing";
 import { useSearchParams } from "next/navigation";
 import { useGroupChat } from "@/hooks/useGroupChat";
 import { useProcessPolling } from "@/hooks/useProcessPolling";
@@ -409,7 +410,7 @@ export function ChatContainer({
     };
 
     check();
-    const interval = setInterval(check, 10_000);
+    const interval = setInterval(check, UI_POLL_CHAT_CHECK_MS);
     return () => { cancelled = true; clearInterval(interval); };
   }, [openThreadId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -430,7 +431,7 @@ export function ChatContainer({
         .catch(() => {});
     };
     check();
-    const interval = setInterval(check, 15_000);
+    const interval = setInterval(check, UI_POLL_CHAT_ALT_MS);
     return () => { cancelled = true; clearInterval(interval); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
