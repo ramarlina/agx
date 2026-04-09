@@ -52,6 +52,7 @@ export interface Task {
   workflow_run_id?: string | null;
   orchestration_status?: string | null;
   last_orchestration_update?: string | null;
+  graph_id?: string;
   created_at: string;
   updated_at: string;
 

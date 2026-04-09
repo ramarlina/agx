@@ -391,6 +391,31 @@ function runMigrations(db: DatabaseSync): void {
     }
   }
 
+  // Add 'paused' to graph_nodes status CHECK constraint
+  if (gnTables.length > 0) {
+    const gnSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='graph_nodes'").get() as { sql: string } | undefined)?.sql ?? "";
+    if (gnSql.includes("'stopped')") && !gnSql.includes("'paused'")) {
+      db.exec(`
+        CREATE TABLE graph_nodes_new2 (
+          graph_id TEXT NOT NULL REFERENCES execution_graphs(id) ON DELETE CASCADE,
+          node_id TEXT NOT NULL,
+          type TEXT NOT NULL,
+          status TEXT NOT NULL,
+          config JSON NOT NULL DEFAULT '{}',
+          output JSON,
+          metrics JSON,
+          PRIMARY KEY (graph_id, node_id),
+          CHECK (type IN ('work', 'gate', 'fork', 'join', 'conditional', 'root', 'function')),
+          CHECK (status IN ('pending', 'running', 'awaiting_human', 'done', 'passed', 'failed', 'blocked', 'skipped', 'stopped', 'paused'))
+        );
+        INSERT INTO graph_nodes_new2 SELECT * FROM graph_nodes;
+        DROP TABLE graph_nodes;
+        ALTER TABLE graph_nodes_new2 RENAME TO graph_nodes;
+        CREATE INDEX IF NOT EXISTS idx_graph_nodes_graph_id ON graph_nodes (graph_id);
+      `);
+    }
+  }
+
   backfillAgentsFromFilesystem(db);
   backfillAgentSkillsFromLegacyParticipants(db);
   ensureRuntimeArtifactsForDbAgents(db);
