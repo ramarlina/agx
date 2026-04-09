@@ -1,5 +1,6 @@
 import { DatabaseSync, backup as sqliteBackup } from "node:sqlite";
 import { pragmaAll } from "@/lib/sqlite-compat";
+import { DB_WAL_CHECKPOINT_INTERVAL_MS } from "@/lib/constants/timing";
 import fs from "fs";
 import path from "path";
 
@@ -17,7 +18,7 @@ export interface CheckpointPolicy {
   walSizeThreshold?: number;
 }
 
-const DEFAULT_PASSIVE_INTERVAL_MS = 5 * 60 * 1000;
+const DEFAULT_PASSIVE_INTERVAL_MS = DB_WAL_CHECKPOINT_INTERVAL_MS;
 const DEFAULT_WAL_SIZE_THRESHOLD = 50 * 1024 * 1024;
 const DEFAULT_MAX_BACKUPS = 10;
 

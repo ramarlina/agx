@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { WifiOff, Wifi } from "lucide-react";
+import { UI_POLL_OFFLINE_CHECK_MS, UI_RECONNECT_DELAY_MS } from "@/lib/constants/timing";
 
 interface OfflineIndicatorProps {
   /** Custom check interval in milliseconds (default: 30000) */
@@ -17,7 +18,7 @@ interface OfflineIndicatorProps {
  * Displays a subtle banner at the top of the screen.
  */
 export function OfflineIndicator({
-  checkInterval = 30000,
+  checkInterval = UI_POLL_OFFLINE_CHECK_MS,
   checkEndpoint = "/api/health",
   showReconnecting = true,
 }: OfflineIndicatorProps) {
@@ -29,7 +30,7 @@ export function OfflineIndicator({
     let checkTimer: NodeJS.Timeout;
     let reconnectAttempts = 0;
     const maxReconnectAttempts = 5;
-    const reconnectDelay = 2000;
+    const reconnectDelay = UI_RECONNECT_DELAY_MS;
 
     const checkConnection = async () => {
       try {

@@ -11,7 +11,7 @@ import type { GroupMessage } from "@/lib/types";
 
 const ACTIVE_PROCESS_STATUSES = new Set(["running", "working"]);
 const RECENT_STEER_HISTORY_LIMIT = 20;
-const STEER_DUPLICATE_WINDOW_MS = 15 * 60 * 1000;
+import { STEER_DUPLICATE_WINDOW_MS } from "@/lib/constants/timing";
 const SHIP_MODE_MAX_ROUNDS = 10;
 
 function getRootMessageId(node: FunctionNode, graph: ExecutionGraph): string {

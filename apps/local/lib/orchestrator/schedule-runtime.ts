@@ -1,9 +1,10 @@
 import { writeDebugLog } from "@/lib/debug-log";
+import { SCHEDULE_POLL_INTERVAL_MS } from "@/lib/constants/timing";
 import { createDispatchFunction } from "@/src/graph/function-executor";
 import { pollSchedules } from "@/src/graph/schedule-runner";
 import { createDispatchWork } from "@/src/graph/work-dispatcher";
 
-const DEFAULT_SCHEDULE_POLL_INTERVAL_MS = 5_000;
+const DEFAULT_SCHEDULE_POLL_INTERVAL_MS = SCHEDULE_POLL_INTERVAL_MS;
 
 let pollIntervalHandle: NodeJS.Timeout | null = null;
 let pollInFlight: Promise<void> | null = null;

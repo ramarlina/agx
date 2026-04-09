@@ -1,4 +1,5 @@
 import { spawnSync } from "child_process";
+import { SHELL_COMMAND_TIMEOUT_MS } from "./constants/timing";
 
 let cachedLoginShellPath: string | null | undefined;
 
@@ -24,7 +25,7 @@ function resolveLoginShellPath(): string | null {
     const shell = getLoginShell();
     const result = spawnSync(shell, ["-lc", "printf %s \"$PATH\""], {
       encoding: "utf8",
-      timeout: 5000,
+      timeout: SHELL_COMMAND_TIMEOUT_MS,
     });
     const resolved = result.status === 0 ? result.stdout.trim() : "";
     cachedLoginShellPath = resolved || null;
@@ -64,7 +65,7 @@ export function commandExists(bin: string): boolean {
     if (process.platform === "win32") {
       return spawnSync("where", [bin], {
         encoding: "utf8",
-        timeout: 5000,
+        timeout: SHELL_COMMAND_TIMEOUT_MS,
       }).status === 0;
     }
 
@@ -75,7 +76,7 @@ export function commandExists(bin: string): boolean {
     const shell = getLoginShell();
     return spawnSync(shell, ["-lc", `command -v ${bin} >/dev/null 2>&1`], {
       encoding: "utf8",
-      timeout: 5000,
+      timeout: SHELL_COMMAND_TIMEOUT_MS,
     }).status === 0;
   } catch {
     return false;

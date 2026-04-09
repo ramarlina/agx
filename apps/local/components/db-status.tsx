@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { UI_POLL_DB_HEALTH_MS } from "@/lib/constants/timing";
 
 interface HealthResponse {
   adapter: string;
@@ -34,7 +35,7 @@ export default function DbStatus() {
     }
 
     check();
-    const interval = setInterval(check, 30_000);
+    const interval = setInterval(check, UI_POLL_DB_HEALTH_MS);
     return () => {
       mounted = false;
       clearInterval(interval);

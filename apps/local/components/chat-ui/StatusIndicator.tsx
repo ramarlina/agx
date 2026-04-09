@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { UI_POLL_SYSTEM_STATUS_MS } from "@/lib/constants/timing";
 
 type OverallStatus = "ok" | "degraded" | "unknown";
 
@@ -40,7 +41,7 @@ export function StatusIndicator() {
 
   useEffect(() => {
     fetchStatus();
-    const interval = setInterval(fetchStatus, 30_000);
+    const interval = setInterval(fetchStatus, UI_POLL_SYSTEM_STATUS_MS);
     return () => clearInterval(interval);
   }, [fetchStatus]);
 

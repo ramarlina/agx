@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { UI_POLL_PROMPT_RUNS_MS } from "@/lib/constants/timing";
 import dynamic from "next/dynamic";
 import {
   Play,
@@ -1148,7 +1149,7 @@ function JobDetailView({
   }, [loadRuns]);
   // Auto-refresh runs
   useEffect(() => {
-    const iv = setInterval(loadRuns, 5000);
+    const iv = setInterval(loadRuns, UI_POLL_PROMPT_RUNS_MS);
     return () => clearInterval(iv);
   }, [loadRuns]);
 
