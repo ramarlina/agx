@@ -11,7 +11,7 @@ export default function VersionBadge() {
       .then((data) => {
         if (data.cliVersion) setVersion(data.cliVersion);
       })
-      .catch(() => {});
+      .catch((err) => console.warn('[VersionBadge] version fetch failed:', err));
   }, []);
 
   if (!version) return null;

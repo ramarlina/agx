@@ -58,7 +58,7 @@ export async function GET(_request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const userId = LOCAL_USER.id;
-    const body = await request.json().catch(() => null);
+    const body = await request.json().catch((err) => { console.error('[user-settings] body parse failed:', err); return null; });
     if (!isRecord(body)) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }

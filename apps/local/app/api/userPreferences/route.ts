@@ -19,7 +19,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const rawBody = await request.json().catch(() => null);
+  const rawBody = await request.json().catch((err) => { console.error('[userPreferences] body parse failed:', err); return null; });
   const payload = sanitizePartialUserPreferences(readPreferencesBody(rawBody));
 
   if (Object.keys(payload).length === 0) {

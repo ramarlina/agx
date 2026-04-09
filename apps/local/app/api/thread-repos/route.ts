@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const body = await request.json().catch(() => null);
+  const body = await request.json().catch((err) => { console.error('[thread-repos] body parse failed:', err); return null; });
   if (!body || typeof body !== "object") {
     return Response.json({ error: "invalid body" }, { status: 400 });
   }

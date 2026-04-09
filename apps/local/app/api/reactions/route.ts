@@ -16,7 +16,7 @@ interface ReactionRequestBody {
 }
 
 export async function POST(request: NextRequest) {
-  const rawBody = await request.json().catch(() => null);
+  const rawBody = await request.json().catch((err) => { console.error('[reactions] body parse failed:', err); return null; });
   const body: ReactionRequestBody =
     rawBody && typeof rawBody === "object" ? (rawBody as ReactionRequestBody) : {};
 

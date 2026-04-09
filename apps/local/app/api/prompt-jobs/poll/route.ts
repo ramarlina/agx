@@ -69,7 +69,7 @@ async function hydrateAgent(agentId: string): Promise<{
         try {
           const content = readFileSync(skillPath, 'utf-8');
           skillTexts.push(`## ${skill.file}\n${content}`);
-        } catch {}
+        } catch (err) { console.error('[prompt-jobs/poll] failed to read skill file:', err); }
       }
     }
     if (skillTexts.length > 0) skills = skillTexts.join('\n\n');
@@ -234,7 +234,7 @@ export async function POST(req: NextRequest) {
   try {
     const store = getPromptJobStore();
     let body: { jobId?: string } = {};
-    try { body = await req.json(); } catch {}
+    try { body = await req.json(); } catch (err) { console.error('[prompt-jobs/poll] failed to parse request body:', err); }
 
     if (body.jobId) {
       const job = store.getJob(body.jobId);

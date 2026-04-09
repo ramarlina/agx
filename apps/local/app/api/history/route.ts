@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const rawBody = await request.json().catch(() => null);
+  const rawBody = await request.json().catch((err) => { console.error('[history] body parse failed:', err); return null; });
   const body = rawBody && typeof rawBody === "object"
     ? (rawBody as { threadId?: unknown; messages?: unknown })
     : {};

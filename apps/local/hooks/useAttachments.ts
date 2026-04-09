@@ -161,7 +161,7 @@ export function useAttachments() {
       }
       // Delete from server if uploaded
       if (item?.serverId) {
-        fetch(`/api/upload/${item.serverId}`, { method: "DELETE" }).catch(() => {});
+        fetch(`/api/upload/${item.serverId}`, { method: "DELETE" }).catch((err) => console.warn('[useAttachments] delete attachment failed:', err));
       }
       return prev.filter((s) => s.id !== id);
     });

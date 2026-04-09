@@ -1110,7 +1110,7 @@ export function createMultiplexedStream({
         }
         await Promise.all(
           Array.from(byProcess.entries()).map(([processId, entries]) =>
-            saveLogs(processId, entries).catch(() => {})
+            saveLogs(processId, entries).catch((err) => console.error('[stream-multiplexer] saveLogs failed:', err))
           )
         );
       };
