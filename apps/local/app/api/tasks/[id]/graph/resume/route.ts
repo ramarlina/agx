@@ -10,6 +10,22 @@ interface RouteParams {
   params: Promise<{ id: string }>;
 }
 
+function resolveResumedStatus(node: {
+  type: string;
+  startedAt?: string;
+  completedAt?: string;
+  verificationResult?: unknown;
+}) {
+  const wasAwaitingHuman =
+    node.type === "gate" && Boolean(node.verificationResult) && Boolean(node.startedAt) && !node.completedAt;
+
+  if (wasAwaitingHuman) {
+    return "awaiting_human";
+  }
+
+  return node.startedAt && !node.completedAt ? "running" : "pending";
+}
+
 /**
  * POST /api/tasks/[id]/graph/resume
  *
@@ -49,9 +65,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
 
     for (const [nodeId, node] of nodesToResume) {
-      // If node was in progress (has startedAt but no completedAt), resume as running
-      // Otherwise reset to pending so it can be picked up again
-      const newStatus = (node.startedAt && !node.completedAt) ? 'running' : 'pending';
+      const newStatus = resolveResumedStatus(node);
       await db
         .from("graph_nodes")
         .update({ status: newStatus })

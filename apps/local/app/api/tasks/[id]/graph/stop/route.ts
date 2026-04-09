@@ -39,7 +39,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const db = createAdminDbClient();
 
     // Stop all running/paused nodes in graph_nodes table
-    const stoppableStatuses = ['running', 'paused', 'awaiting_human'];
+    const stoppableStatuses = ['running', 'paused'];
     const stoppableTypes = ['work', 'gate', 'join', 'conditional', 'root'];
 
     const nodeIdsToStop = Object.entries(graph.nodes)
