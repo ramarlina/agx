@@ -169,7 +169,12 @@ async function fireConditionGate(job: PromptJob, run: PromptRun) {
 
   // Gate passed — execute action prompt with full agent context
   store.updateRun(run.id, { output: `Gate: yes\nExecuting action prompt...` });
-  const actionResult = await executePrompt({ ...ctx, prompt: job.prompt, cliArgs: job.cliArgs });
+  const actionResult = await executePrompt({
+    ...ctx,
+    prompt: job.prompt,
+    cliArgs: job.cliArgs,
+    onSpawn: (pid) => { store.updateRun(run.id, { hostPid: pid }); },
+  });
 
   store.updateRun(run.id, {
     status: actionResult.status,
