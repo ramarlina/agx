@@ -345,6 +345,24 @@ CREATE TABLE IF NOT EXISTS agent_skill_bindings (
 
 -- ── Project sub-tables (agent roster, skills, variables, memory) ────────────
 
+CREATE TABLE IF NOT EXISTS teams (
+    id TEXT NOT NULL PRIMARY KEY,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    template_id TEXT,
+    metadata JSON NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+);
+
+CREATE TABLE IF NOT EXISTS team_agents (
+    team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+    agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    role_key TEXT NOT NULL,
+    routing_order INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (team_id, agent_id)
+);
+
 CREATE TABLE IF NOT EXISTS project_agents (
     project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
@@ -462,6 +480,8 @@ CREATE INDEX IF NOT EXISTS idx_learnings_user ON learnings (user_id);
 CREATE INDEX IF NOT EXISTS idx_project_repos_project ON project_repos (project_id);
 CREATE INDEX IF NOT EXISTS idx_projects_user ON projects (user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_user_slug ON projects (user_id, slug);
+CREATE INDEX IF NOT EXISTS idx_team_agents_agent_id ON team_agents (agent_id);
+CREATE INDEX IF NOT EXISTS idx_teams_project_id ON teams (project_id);
 CREATE INDEX IF NOT EXISTS idx_projects_workflow ON projects (workflow_id) WHERE workflow_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_rate_limits_lookup ON rate_limits (user_id, endpoint, window_start);
 CREATE INDEX IF NOT EXISTS idx_stage_prompts_workflow_id ON stage_prompts (workflow_id);
@@ -557,6 +577,13 @@ CREATE TRIGGER IF NOT EXISTS agents_updated_at
     FOR EACH ROW
     BEGIN
         UPDATE agents SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE rowid = NEW.rowid;
+    END;
+
+CREATE TRIGGER IF NOT EXISTS teams_updated_at
+    AFTER UPDATE ON teams
+    FOR EACH ROW
+    BEGIN
+        UPDATE teams SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE rowid = NEW.rowid;
     END;
 
 CREATE TRIGGER IF NOT EXISTS execution_graphs_auto_update

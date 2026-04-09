@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSQLiteDb } from "@/lib/sqlite-query-adapter";
 import {
+  getLegacyWorkspaceSourceCounts,
   getLegacyWorkspaceMigrationStatus,
   migrateLegacyWorkspacesToProjects,
 } from "@/lib/workspaces-to-projects-migration";
@@ -25,28 +26,9 @@ export async function GET() {
   try {
     const db = getSQLiteDb();
     const migrationStatus = getLegacyWorkspaceMigrationStatus(db);
+    const legacyCounts = getLegacyWorkspaceSourceCounts(db);
     const counts = {
-      teams: (() => {
-        try {
-          return (db.prepare("SELECT COUNT(*) AS n FROM teams").get() as { n: number }).n;
-        } catch {
-          return 0;
-        }
-      })(),
-      teamAgents: (() => {
-        try {
-          return (db.prepare("SELECT COUNT(*) AS n FROM team_agents").get() as { n: number }).n;
-        } catch {
-          return 0;
-        }
-      })(),
-      teamWorkspaces: (() => {
-        try {
-          return (db.prepare("SELECT COUNT(*) AS n FROM team_workspaces").get() as { n: number }).n;
-        } catch {
-          return 0;
-        }
-      })(),
+      ...legacyCounts,
       agents: (db.prepare("SELECT COUNT(*) AS n FROM agents").get() as { n: number }).n,
       agentSkills: (db.prepare("SELECT COUNT(*) AS n FROM agent_skills").get() as { n: number }).n,
       projects: (db.prepare("SELECT COUNT(*) AS n FROM projects").get() as { n: number }).n,

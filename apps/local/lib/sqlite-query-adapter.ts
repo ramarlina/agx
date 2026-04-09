@@ -23,7 +23,10 @@ import { LOCAL_USER } from "./auth-mode";
 import { ensureAgent, listAgents, readIdentity } from "./mesh-core/agent";
 import { loadParticipants } from "./participants-store";
 import { validateSQLiteEnvironment } from "./startup";
-import { autoMigrateLegacyWorkspacesToProjects } from "./workspaces-to-projects-migration";
+import {
+  autoMigrateLegacyWorkspacesToProjects,
+  getWorkspaceTeamTableState,
+} from "./workspaces-to-projects-migration";
 
 const AGX_DATA_DIR = process.env.AGX_DATA_DIR || path.join(os.homedir(), ".agx");
 
@@ -79,6 +82,7 @@ export function getSQLiteDb(): DatabaseSync {
 
   // Drop legacy teams tables after migration is complete
   dropLegacyTeamsTables(_db);
+  ensureProjectScopedTeamTables(_db);
 
   return _db;
 }
@@ -96,21 +100,52 @@ function initSQLiteSchema(db: DatabaseSync): void {
 // ── Runtime migrations (idempotent) ──────────────────────────────────────────
 
 function dropLegacyTeamsTables(db: DatabaseSync): void {
-  const hasTeams = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='teams'").get();
-  if (!hasTeams) return;
-
   // Only drop if auto-migration has already run
   const hasMigrations = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='app_migrations'").get();
   if (!hasMigrations) return;
   const migrated = db.prepare("SELECT 1 FROM app_migrations WHERE key = 'legacy_workspaces_to_projects_v1' LIMIT 1").get();
   if (!migrated) return;
 
+  const state = getWorkspaceTeamTableState(db);
+  const dropped: string[] = [];
+  if (state.legacyTeamWorkspaces) dropped.push("team_workspaces");
+  if (state.legacyTeamAgents) dropped.push("team_agents");
+  if (state.legacyTeams) dropped.push("teams");
+  if (dropped.length === 0) return;
+
+  db.exec(dropped.map((table) => `DROP TABLE IF EXISTS ${table};`).join("\n"));
+  console.log(`[sqlite] dropped legacy team tables: ${dropped.join(", ")}`);
+}
+
+function ensureProjectScopedTeamTables(db: DatabaseSync): void {
   db.exec(`
-    DROP TABLE IF EXISTS team_workspaces;
-    DROP TABLE IF EXISTS team_agents;
-    DROP TABLE IF EXISTS teams;
+    CREATE TABLE IF NOT EXISTS teams (
+      id TEXT NOT NULL PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      template_id TEXT,
+      metadata JSON NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_teams_project_id ON teams (project_id);
+
+    CREATE TABLE IF NOT EXISTS team_agents (
+      team_id TEXT NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+      agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+      role_key TEXT NOT NULL,
+      routing_order INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (team_id, agent_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_team_agents_agent_id ON team_agents (agent_id);
+
+    CREATE TRIGGER IF NOT EXISTS teams_updated_at
+      AFTER UPDATE ON teams
+      FOR EACH ROW
+      BEGIN
+        UPDATE teams SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE rowid = NEW.rowid;
+      END;
   `);
-  console.log("[sqlite] dropped legacy teams, team_agents, team_workspaces tables");
 }
 
 function runMigrations(db: DatabaseSync): void {
@@ -200,6 +235,8 @@ function runMigrations(db: DatabaseSync): void {
     );
     CREATE INDEX IF NOT EXISTS idx_agent_skill_bindings_agent ON agent_skill_bindings (agent_id, created_at);
   `);
+
+  ensureProjectScopedTeamTables(db);
 
   // Create project_agents table
   db.exec(`
