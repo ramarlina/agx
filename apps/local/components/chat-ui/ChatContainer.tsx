@@ -133,7 +133,7 @@ async function fetchLatestThreadKnowledgeRun(rootMessageId: string): Promise<Thr
   if (!response.ok) {
     throw new Error("Failed to load thread knowledge run");
   }
-  const payload = await response.json().catch(() => null);
+  const payload = await response.json().catch((err) => { console.warn('[ChatContainer] failed to parse thread knowledge response:', err); return null; });
   return payload?.run ?? null;
 }
 
@@ -299,7 +299,7 @@ export function ChatContainer({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ signal: "cancel", reason: "Stopped from chat UI" }),
-    }).catch(() => {});
+    }).catch((err) => console.warn('[ChatContainer] cancel chat run failed:', err));
   }, []);
 
   // Wrap stop functions to immediately refresh polling state
@@ -406,7 +406,7 @@ export function ChatContainer({
             return prev;
           });
         })
-        .catch(() => {});
+        .catch((err) => console.warn('[ChatContainer] check auto-mode status failed:', err));
     };
 
     check();
@@ -428,7 +428,7 @@ export function ChatContainer({
             return next;
           });
         })
-        .catch(() => {});
+        .catch((err) => console.warn('[ChatContainer] fetch schedules failed:', err));
     };
     check();
     const interval = setInterval(check, UI_POLL_CHAT_ALT_MS);
@@ -488,7 +488,7 @@ export function ChatContainer({
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ threadId: activeThreadId, messageId: msgId, draft }),
-            }).catch(() => { });
+            }).catch((err) => console.warn('[ChatContainer] persist task draft failed:', err));
           }
         }
       }
@@ -658,7 +658,7 @@ export function ChatContainer({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rootMessageId: openThreadId, scopes }),
       });
-      const payload = await response.json().catch(() => null);
+      const payload = await response.json().catch((err) => { console.warn('[ChatContainer] failed to parse knowledge extraction response:', err); return null; });
       if (!response.ok) {
         throw new Error(typeof payload?.error === "string" ? payload.error : "Request failed");
       }
@@ -887,7 +887,7 @@ export function ChatContainer({
             offset: "0",
           });
           const response = await fetch(`/api/search?${params.toString()}`);
-          const payload = await response.json().catch(() => null);
+          const payload = await response.json().catch((err) => { console.warn('[ChatContainer] failed to parse search response:', err); return null; });
 
           if (cancelled) return;
 
@@ -951,7 +951,7 @@ export function ChatContainer({
           setTaskDraftsRaw({});
         }
       })
-      .catch(() => setTaskDraftsRaw({}));
+      .catch((err) => { console.warn('[ChatContainer] load task drafts failed:', err); setTaskDraftsRaw({}); });
   }, [activeThreadId, loadHistory]);
 
   useEffect(() => {
@@ -1496,7 +1496,7 @@ export function ChatContainer({
           setSelectedRepoIds(new Set(data.repoIds));
         }
       })
-      .catch(() => {});
+      .catch((err) => console.warn('[ChatContainer] load thread repos failed:', err));
   }, [openThreadId]);
 
   const handleRepoSelectionChange = useCallback(
@@ -1507,7 +1507,7 @@ export function ChatContainer({
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ rootMessageId: openThreadId, repoIds: [...next] }),
-        }).catch(() => {});
+        }).catch((err) => console.warn('[ChatContainer] save thread repos failed:', err));
       }
     },
     [openThreadId]

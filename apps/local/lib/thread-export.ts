@@ -89,7 +89,7 @@ async function cleanupOldExports() {
       const stats = await fs.stat(filePath);
       
       if (now - stats.mtimeMs > CLEANUP_AGE_MS) {
-        await fs.unlink(filePath).catch(() => {});
+        await fs.unlink(filePath).catch((err) => console.error('[thread-export] failed to delete old export:', err));
       }
     }
   } catch (err) {

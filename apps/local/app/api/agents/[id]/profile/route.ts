@@ -57,7 +57,7 @@ export async function GET(
   let identity: Record<string, unknown> = {};
   const identityPath = join(agentDir, "identity.json");
   if (existsSync(identityPath)) {
-    try { identity = JSON.parse(readFileSync(identityPath, "utf-8")); } catch {}
+    try { identity = JSON.parse(readFileSync(identityPath, "utf-8")); } catch (err) { console.error('[agent-profile] failed to load identity.json:', err); }
   }
 
   // Read self.md (the evolving bio)

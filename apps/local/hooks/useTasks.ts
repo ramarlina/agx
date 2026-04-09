@@ -207,7 +207,7 @@ export function useTasks(options: UseTasksOptions = {}) {
     if (!response.ok) {
       let data: any = null;
       if (typeof (response as any).json === "function") {
-        data = await response.json().catch(() => null);
+        data = await response.json().catch((err) => { console.warn('[useTasks] failed to parse response:', err); return null; });
       }
       throw new Error(
         data?.error ||
@@ -297,7 +297,7 @@ export function useTasks(options: UseTasksOptions = {}) {
 
   const fetchTask = useCallback(async (taskId: string): Promise<Task> => {
     const response = await fetch(`/api/tasks/${taskId}`);
-    const data = await response.json().catch(() => null);
+    const data = await response.json().catch((err) => { console.warn('[useTasks] failed to parse response:', err); return null; });
 
     if (!response.ok) {
       throw new Error(data?.error || "Failed to fetch task details");

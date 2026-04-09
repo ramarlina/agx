@@ -240,7 +240,7 @@ export function useProjectsWithAgents() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ threadId: tid }),
-        }).catch(() => {});
+        }).catch((err) => console.warn('[useProjects] link thread failed:', err));
       }
 
       const result: ProjectWithAgents = {

@@ -537,7 +537,7 @@ function CreateJobModal({
     fetch("/api/prompt-jobs/agents")
       .then((r) => r.json())
       .then((d) => setAgents(d.agents ?? []))
-      .catch(() => {});
+      .catch((err) => console.warn('[PromptJobBoard] fetch agents failed:', err));
   }, []);
   const [cliArgs, setCliArgs] = useState(editingJob?.cliArgs ?? "");
   const [cadence, setCadence] = useState(editingJob?.cadence ?? "");
@@ -799,7 +799,7 @@ function RunChatPanel({
         );
         setProjectAgentIds(ids);
       })
-      .catch(() => {});
+      .catch((err) => console.warn('[PromptJobBoard] fetch project agents failed:', err));
   }, [job.projectId]);
 
   // Build Participant[] from only the project's agents
@@ -878,7 +878,7 @@ function RunChatPanel({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ threadId, messages: [rootMsg] }),
-        }).catch(() => {});
+        }).catch((err) => console.warn('[PromptJobBoard] save root message failed:', err));
       }
     });
   }, [loadHistory, threadId, rootMessageId, run, job.agentId]);
@@ -1421,7 +1421,7 @@ export default function PromptJobBoard({
         for (const a of d.agents ?? []) map[a.id] = a;
         setAgentMap(map);
       })
-      .catch(() => {});
+      .catch((err) => console.warn('[PromptJobBoard] fetch agent map failed:', err));
   }, []);
 
   const showToast = (message: string) => {

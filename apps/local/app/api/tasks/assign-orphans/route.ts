@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await request.json().catch(() => null);
+    const body = await request.json().catch((err) => { console.error('[assign-orphans] body parse failed:', err); return null; });
     const projectId = typeof body?.project_id === "string" ? body.project_id.trim() : "";
     if (!projectId) {
       return NextResponse.json({ error: "project_id is required" }, { status: 400 });

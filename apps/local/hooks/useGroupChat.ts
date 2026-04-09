@@ -152,7 +152,7 @@ export function useGroupChat(threadId: string | null) {
             routing,
           }),
         });
-        const payload = await response.json().catch(() => null) as { chatRunId?: string } | null;
+        const payload = await response.json().catch((err) => { console.warn('[useGroupChat] failed to parse run response:', err); return null; }) as { chatRunId?: string } | null;
         if (response.ok && payload?.chatRunId) {
           setChatRuns((prev) => [
             {
@@ -205,7 +205,7 @@ export function useGroupChat(threadId: string | null) {
       return;
     }
 
-    await fetch(`/api/logs?${buildLogsQuery(activeThreadId)}`, { method: "DELETE" }).catch(() => {});
+    await fetch(`/api/logs?${buildLogsQuery(activeThreadId)}`, { method: "DELETE" }).catch((err) => console.warn('[useGroupChat] delete logs failed:', err));
 
     if (threadIdRef.current !== activeThreadId) {
       return;
