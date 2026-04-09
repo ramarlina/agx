@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { execSync } from "child_process";
 import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 
 import {
@@ -21,6 +22,35 @@ import type {
   RunStatus,
   UpdatePromptJobInput,
 } from "./types";
+
+/**
+ * Check whether a process with the given PID is still running with a command
+ * that matches the original command string.  Returns false if the PID doesn't
+ * exist or if the running command no longer matches (PID was recycled).
+ */
+function isProcessAlive(pid: number, expectedCommand: string): boolean {
+  try {
+    // First check: does the process exist at all?
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+
+  // Second check: does the command match? (guards against PID recycling)
+  try {
+    const output = execSync(`ps -p ${pid} -o command=`, {
+      encoding: 'utf-8',
+      timeout: 3000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    // Compare the first token (binary name) of both commands to handle
+    // argument differences while still catching PID recycling.
+    return output.startsWith(expectedCommand);
+  } catch {
+    // ps failed → process is gone
+    return false;
+  }
+}
 
 interface PromptJobRow {
   id: string;
@@ -58,6 +88,8 @@ interface PromptRunRow {
   started_at: string | null;
   finished_at: string | null;
   cancelled_at: string | null;
+  host_pid: number | null;
+  host_command: string | null;
   created_at: string;
 }
 
@@ -99,6 +131,8 @@ function rowToRun(row: PromptRunRow): PromptRun {
     startedAt: row.started_at,
     finishedAt: row.finished_at,
     cancelledAt: row.cancelled_at,
+    hostPid: row.host_pid,
+    hostCommand: row.host_command,
     createdAt: row.created_at,
   };
 }
@@ -323,6 +357,8 @@ export class PromptJobStore {
       startedAt: "started_at",
       finishedAt: "finished_at",
       cancelledAt: "cancelled_at",
+      hostPid: "host_pid",
+      hostCommand: "host_command",
     };
 
     const setClauses: string[] = [];
@@ -354,6 +390,78 @@ export class PromptJobStore {
       .prepare("SELECT id FROM prompt_runs WHERE job_id = ? AND status IN ('queued', 'running') LIMIT 1")
       .get(jobId);
     return row !== undefined;
+  }
+
+  /**
+   * Reap runs whose host process is no longer alive.
+   *
+   * For runs that recorded a host_pid + host_command: check whether the PID
+   * is still running with the same command.  If not, the process crashed or
+   * was killed and the run will never complete — mark it failed.
+   *
+   * For runs without a host_pid (legacy): fall back to a time-based cutoff
+   * so they don't block the overlap-skip forever.
+   */
+  reapStaleRuns(maxAgeMs: number = 30 * 60 * 1000): number {
+    const runs = this.db
+      .prepare(
+        `SELECT id, job_id, host_pid, host_command, started_at, created_at
+         FROM prompt_runs
+         WHERE status IN ('queued', 'running')`,
+      )
+      .all() as unknown as Array<{
+        id: string;
+        job_id: string;
+        host_pid: number | null;
+        host_command: string | null;
+        started_at: string | null;
+        created_at: string;
+      }>;
+
+    let reaped = 0;
+    const now = Date.now();
+
+    for (const run of runs) {
+      const startedAt = run.started_at || run.created_at;
+      const ageMs = now - new Date(startedAt).getTime();
+
+      let shouldReap = false;
+      let reason: string;
+
+      if (run.host_pid != null && run.host_command) {
+        // PID-aware check: is the process still running with the original command?
+        if (!isProcessAlive(run.host_pid, run.host_command)) {
+          shouldReap = true;
+          reason = `Host process (pid ${run.host_pid}) is no longer running`;
+        } else {
+          reason = '';
+        }
+      } else {
+        // Legacy run without PID tracking — fall back to time-based cutoff
+        if (ageMs > maxAgeMs) {
+          shouldReap = true;
+          reason = `No host PID recorded; stuck for ${Math.round(ageMs / 60000)} minutes`;
+        } else {
+          reason = '';
+        }
+      }
+
+      if (shouldReap) {
+        this.db
+          .prepare(
+            `UPDATE prompt_runs
+             SET status = 'failed',
+                 error = ?,
+                 duration_ms = ?,
+                 finished_at = ?
+             WHERE id = ?`,
+          )
+          .run(`Reaped: ${reason!}`, ageMs, new Date().toISOString(), run.id);
+        reaped++;
+      }
+    }
+
+    return reaped;
   }
 
   isRunCancelled(runId: string): boolean {

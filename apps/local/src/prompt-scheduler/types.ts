@@ -39,6 +39,8 @@ export interface PromptRun {
   startedAt: string | null;
   finishedAt: string | null;
   cancelledAt: string | null;
+  hostPid: number | null;
+  hostCommand: string | null;
   createdAt: string;
 }
 

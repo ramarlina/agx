@@ -21,9 +21,17 @@ function createTestDb(): DatabaseSync {
     path.join(process.cwd(), 'db/sqlite/002_prompt_scheduler_schema.sql'),
     'utf8',
   );
+  const schema3 = fs.readFileSync(
+    path.join(process.cwd(), 'db/sqlite/004_prompt_runs_host_pid.sql'),
+    'utf8',
+  );
 
   db.exec(schema1);
   db.exec(schema2);
+  // schema3 uses ALTER TABLE — run each statement individually
+  for (const stmt of schema3.replace(/^\s*--.*$/gm, '').split(';').map(s => s.trim()).filter(Boolean)) {
+    db.exec(stmt);
+  }
 
   return db;
 }

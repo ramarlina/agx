@@ -6,10 +6,21 @@ import { getPromptJobStore } from '@/src/prompt-scheduler/get-store';
 import { pollDueJobs } from '@/src/prompt-scheduler/engine';
 import { getAgent, getAgentSkills } from '@/lib/db';
 import { LOCAL_USER } from '@/lib/auth-mode';
-import { runCliResponse } from '@/lib/cli-runner';
+import { runCliResponse, buildCliAttempts } from '@/lib/cli-runner';
 import type { ChatProvider } from '@/lib/types';
 import { computeNextRun } from '@/src/prompt-scheduler/cron';
 import type { PromptJob, PromptRun } from '@/src/prompt-scheduler/types';
+
+/** Build a short command string for process identification (used by stale-run reaper). */
+function buildHostCommand(provider: ChatProvider, model: string | null): string {
+  const attempts = buildCliAttempts({ provider, model, prompt: '', systemPrompt: undefined });
+  if (attempts.length > 0) {
+    const { command, args } = attempts[0];
+    // Store enough of the command to identify it — the binary + first few args
+    return `${command} ${args.slice(0, 3).join(' ')}`;
+  }
+  return provider;
+}
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -102,6 +113,7 @@ async function executePrompt(opts: {
   self?: string;
   skills?: string;
   cliArgs?: string;
+  onSpawn?: (pid: number) => void;
 }): Promise<{ output: string; error: string; durationMs: number; status: 'success' | 'failed' }> {
   const startMs = Date.now();
   let output = '';
@@ -117,6 +129,7 @@ async function executePrompt(opts: {
       skills: opts.skills,
       passthroughArgs: opts.cliArgs ? opts.cliArgs.split(/\s+/).filter(Boolean) : undefined,
       onDelta: (chunk) => { output += chunk; },
+      onSpawn: opts.onSpawn,
     });
     // On success, don't report stderr as error — it's just CLI debug output
     return { output, error: '', durationMs: Date.now() - startMs, status: 'success' };
@@ -131,9 +144,15 @@ async function fireConditionGate(job: PromptJob, run: PromptRun) {
   const ctx = await resolveJobContext(job);
   const gatePrompt = `You are a condition gate. Your job is to determine whether the following condition expression evaluates to "yes" (pass) or "no" (fail).\n\nRules:\n- If the condition is a boolean literal or expression (e.g. "true", "return True", "1 == 1"), evaluate it as code and respond based on its result.\n- If the condition is a natural-language statement, judge whether it holds.\n- If the condition is an instruction (e.g. "say yes", "always pass"), follow it.\n- Respond with ONLY "yes" or "no" (lowercase, nothing else).\n\nCondition: ${job.condition}`;
 
-  store.updateRun(run.id, { status: 'running', startedAt: new Date().toISOString() });
+  const hostCommand = buildHostCommand(ctx.provider, ctx.model);
+  store.updateRun(run.id, { status: 'running', startedAt: new Date().toISOString(), hostCommand });
 
-  const gateResult = await executePrompt({ ...ctx, prompt: gatePrompt, cliArgs: job.cliArgs });
+  const gateResult = await executePrompt({
+    ...ctx,
+    prompt: gatePrompt,
+    cliArgs: job.cliArgs,
+    onSpawn: (pid) => { store.updateRun(run.id, { hostPid: pid }); },
+  });
   const answer = gateResult.output.trim().toLowerCase();
   const passed = /\byes\b/.test(answer);
 
@@ -167,8 +186,14 @@ async function fireRun(job: PromptJob, run: PromptRun) {
   const store = getPromptJobStore();
   const ctx = await resolveJobContext(job);
 
-  store.updateRun(run.id, { status: 'running', startedAt: new Date().toISOString() });
-  const result = await executePrompt({ ...ctx, prompt: job.prompt, cliArgs: job.cliArgs });
+  const hostCommand = buildHostCommand(ctx.provider, ctx.model);
+  store.updateRun(run.id, { status: 'running', startedAt: new Date().toISOString(), hostCommand });
+  const result = await executePrompt({
+    ...ctx,
+    prompt: job.prompt,
+    cliArgs: job.cliArgs,
+    onSpawn: (pid) => { store.updateRun(run.id, { hostPid: pid }); },
+  });
 
   store.updateRun(run.id, {
     status: result.status,
