@@ -47,6 +47,18 @@ export function buildSpawnEnv(
   };
 }
 
+export function runShellCheck(cmd: string, timeout = 10_000): boolean {
+  try {
+    const shell = getLoginShell();
+    return spawnSync(shell, ["-lc", cmd], {
+      encoding: "utf8",
+      timeout,
+    }).status === 0;
+  } catch {
+    return false;
+  }
+}
+
 export function commandExists(bin: string): boolean {
   try {
     if (process.platform === "win32") {
