@@ -13,6 +13,7 @@ import {
   ExternalLink,
   Terminal,
   AlertCircle,
+  Loader2,
 } from "lucide-react";
 
 interface CliInfo {
@@ -24,9 +25,20 @@ interface CliInfo {
   installNote?: string;
   recommended?: boolean;
   installed: boolean | null; // null = still checking
+  authenticated: boolean | null;
+  authCmd?: { cmd: string; description: string };
 }
 
-const CLI_DEFS: Omit<CliInfo, "installed">[] = PROVIDER_CLIS.map((provider) => ({
+type ProviderStatus = "checking" | "not-installed" | "needs-auth" | "ready";
+
+function deriveStatus(cli: CliInfo): ProviderStatus {
+  if (cli.installed === null) return "checking";
+  if (!cli.installed) return "not-installed";
+  if (!cli.authenticated && cli.authCmd) return "needs-auth";
+  return "ready";
+}
+
+const CLI_DEFS: Omit<CliInfo, "installed" | "authenticated">[] = PROVIDER_CLIS.map((provider) => ({
   id: provider.id,
   name: provider.label,
   description: provider.description,
@@ -34,6 +46,7 @@ const CLI_DEFS: Omit<CliInfo, "installed">[] = PROVIDER_CLIS.map((provider) => (
   docsUrl: provider.docsUrl,
   installNote: provider.installNote,
   recommended: provider.recommended,
+  authCmd: provider.authCmd,
 }));
 
 type ReadyState = "checking" | "ready" | "needs-setup" | "error";
@@ -64,23 +77,65 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function CliRow({ cli }: { cli: CliInfo }) {
-  const [expanded, setExpanded] = useState(false);
+function CliRow({
+  cli,
+  onVerify,
+}: {
+  cli: CliInfo;
+  onVerify?: (id: ProviderId) => void;
+}) {
+  const status = deriveStatus(cli);
+  const [expanded, setExpanded] = useState(status === "needs-auth");
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const isExpandable = status === "not-installed" || status === "needs-auth";
+
+  const handleVerify = useCallback(async () => {
+    setVerifying(true);
+    setVerifyError(null);
+    try {
+      const res = await fetch(`/api/providers/check/${cli.id}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        setVerifyError("Check failed");
+        return;
+      }
+      const data = await res.json();
+      if (data.authenticated) {
+        onVerify?.(cli.id);
+      } else {
+        setVerifyError("Not authenticated yet");
+      }
+    } catch {
+      setVerifyError("Check failed");
+    } finally {
+      setVerifying(false);
+    }
+  }, [cli.id, onVerify]);
 
   return (
     <div className="border border-[var(--card-border)] rounded-lg overflow-hidden">
       <button
         type="button"
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[var(--item-hover-bg)] transition-colors text-left"
+        onClick={() => isExpandable && setExpanded(!expanded)}
+        className={`w-full flex items-center gap-3 px-4 py-3 transition-colors text-left ${
+          isExpandable
+            ? "hover:bg-[var(--item-hover-bg)] cursor-pointer"
+            : "cursor-default"
+        }`}
       >
         {/* Status indicator */}
         <div className="shrink-0">
-          {cli.installed === null ? (
+          {status === "checking" ? (
             <Circle className="w-4 h-4 text-[var(--muted-foreground)] animate-pulse" />
-          ) : cli.installed ? (
+          ) : status === "ready" ? (
             <div className="w-5 h-5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center">
               <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+            </div>
+          ) : status === "needs-auth" ? (
+            <div className="w-5 h-5 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center">
+              <Circle className="w-3 h-3 text-amber-600 dark:text-amber-400" />
             </div>
           ) : (
             <Circle className="w-4 h-4 text-[var(--muted-foreground)]" />
@@ -93,14 +148,19 @@ function CliRow({ cli }: { cli: CliInfo }) {
             <span className="text-[14px] font-semibold text-[var(--foreground)]">
               {cli.name}
             </span>
-            {cli.recommended && !cli.installed && (
+            {cli.recommended && status === "not-installed" && (
               <span className="text-[11px] font-medium text-[var(--foreground)] bg-[var(--secondary)] px-1.5 py-0.5 rounded">
                 Recommended
               </span>
             )}
-            {cli.installed && (
+            {status === "ready" && (
               <span className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-1.5 py-0.5 rounded">
-                Installed
+                Ready
+              </span>
+            )}
+            {status === "needs-auth" && (
+              <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-1.5 py-0.5 rounded">
+                Needs auth
               </span>
             )}
           </div>
@@ -109,8 +169,8 @@ function CliRow({ cli }: { cli: CliInfo }) {
           </p>
         </div>
 
-        {/* Expand arrow (only if not installed) */}
-        {!cli.installed && (
+        {/* Expand arrow */}
+        {isExpandable && (
           <ChevronDown
             className={`w-4 h-4 text-[var(--muted-foreground)] transition-transform ${
               expanded ? "rotate-180" : ""
@@ -119,8 +179,8 @@ function CliRow({ cli }: { cli: CliInfo }) {
         )}
       </button>
 
-      {/* Expanded install instructions */}
-      {expanded && !cli.installed && (
+      {/* Expanded: install instructions (not installed) */}
+      {expanded && status === "not-installed" && (
         <div className="px-4 pb-3 border-t border-[var(--card-border)]">
           <div className="mt-3 flex items-center gap-2 bg-[var(--secondary)] rounded-md px-3 py-2 font-mono text-[13px] text-[var(--foreground)]">
             <Terminal className="w-3.5 h-3.5 text-[var(--muted-foreground)] shrink-0" />
@@ -145,6 +205,40 @@ function CliRow({ cli }: { cli: CliInfo }) {
           ) : null}
         </div>
       )}
+
+      {/* Expanded: auth instructions (needs auth) */}
+      {expanded && status === "needs-auth" && cli.authCmd && (
+        <div className="px-4 pb-3 border-t border-[var(--card-border)]">
+          <p className="mt-3 text-[12px] text-[var(--muted-foreground)]">
+            {cli.authCmd.description}
+          </p>
+          <div className="mt-2 flex items-center gap-2 bg-[var(--secondary)] rounded-md px-3 py-2 font-mono text-[13px] text-[var(--foreground)]">
+            <Terminal className="w-3.5 h-3.5 text-[var(--muted-foreground)] shrink-0" />
+            <code className="flex-1 overflow-x-auto whitespace-nowrap">
+              {cli.authCmd.cmd}
+            </code>
+            <CopyButton text={cli.authCmd.cmd} />
+          </div>
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleVerify}
+              disabled={verifying}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium rounded-md bg-[var(--foreground)] text-[var(--background)] hover:opacity-90 transition-colors disabled:opacity-60"
+            >
+              {verifying && (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              )}
+              {verifying ? "Checking..." : "Verify"}
+            </button>
+            {verifyError && (
+              <span className="text-[12px] text-amber-600 dark:text-amber-400">
+                {verifyError}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -153,7 +247,7 @@ export default function WelcomePage() {
   const router = useRouter();
   const [readyState, setReadyState] = useState<ReadyState>("checking");
   const [clis, setClis] = useState<CliInfo[]>(
-    CLI_DEFS.map((def) => ({ ...def, installed: null }))
+    CLI_DEFS.map((def) => ({ ...def, installed: null, authenticated: null }))
   );
   const [showSetup, setShowSetup] = useState(false);
   const [launching, setLaunching] = useState(false);
@@ -178,14 +272,26 @@ export default function WelcomePage() {
           const match = providerList.find(
             (p: { id?: string }) => p && p.id === def.id,
           );
-          return { ...def, installed: match?.installed ?? false };
+          return {
+            ...def,
+            installed: match?.installed ?? false,
+            authenticated: match?.authenticated ?? false,
+          };
         });
 
         if (!cancelled) {
           setClis(updatedClis);
-          const hasAny = updatedClis.some((c) => c.installed);
-          if (hasAny) {
+          const anyAuthenticated = updatedClis.some(
+            (c) => deriveStatus(c) === "ready",
+          );
+          const anyInstalled = updatedClis.some((c) => c.installed);
+          if (anyAuthenticated) {
             if (!cancelled) setReadyState("ready");
+          } else if (anyInstalled) {
+            if (!cancelled) {
+              setReadyState("needs-setup");
+              setShowSetup(true);
+            }
           } else {
             if (!cancelled) {
               setReadyState("needs-setup");
@@ -235,7 +341,20 @@ export default function WelcomePage() {
     }
   }, [router]);
 
-  const installedCount = clis.filter((c) => c.installed).length;
+  const handleVerifySuccess = useCallback((id: ProviderId) => {
+    setClis((prev) => {
+      const updated = prev.map((c) =>
+        c.id === id ? { ...c, authenticated: true } : c,
+      );
+      const anyReady = updated.some((c) => deriveStatus(c) === "ready");
+      if (anyReady) setReadyState("ready");
+      return updated;
+    });
+  }, []);
+
+  const authenticatedCount = clis.filter(
+    (c) => deriveStatus(c) === "ready",
+  ).length;
   const totalCount = clis.length;
   const recommendedCli =
     clis.find((cli) => cli.recommended) ?? clis[0] ?? null;
@@ -272,7 +391,7 @@ export default function WelcomePage() {
               className="text-[13px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors flex items-center gap-1"
             >
               <span className="text-emerald-600">
-                {installedCount}/{totalCount} providers
+                {authenticatedCount}/{totalCount} providers ready
               </span>
               <ChevronDown
                 className={`w-3.5 h-3.5 transition-transform ${
@@ -291,12 +410,25 @@ export default function WelcomePage() {
 
         {readyState === "needs-setup" && (
           <div className="text-center">
-            <p className="text-[14px] font-medium text-amber-600 dark:text-amber-400">
-              No providers found
-            </p>
-            <p className="text-[13px] text-[var(--muted-foreground)] mt-1">
-              Start with Claude Code, then come back to launch AGX
-            </p>
+            {clis.some((c) => c.installed) ? (
+              <>
+                <p className="text-[14px] font-medium text-amber-600 dark:text-amber-400">
+                  Authenticate a provider to continue
+                </p>
+                <p className="text-[13px] text-[var(--muted-foreground)] mt-1">
+                  Run the auth command below, then click Verify
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-[14px] font-medium text-amber-600 dark:text-amber-400">
+                  No providers found
+                </p>
+                <p className="text-[13px] text-[var(--muted-foreground)] mt-1">
+                  Start with Claude Code, then come back to launch AGX
+                </p>
+              </>
+            )}
           </div>
         )}
 
@@ -323,7 +455,7 @@ export default function WelcomePage() {
                 Provider CLIs
               </h2>
               <p className="mt-1 text-[12px] text-[var(--muted-foreground)]">
-                Install one provider to finish setup. Claude Code is the best first path.
+                Install and authenticate a provider to finish setup. Claude Code is the best first path.
               </p>
             </div>
             <div className="space-y-2">
@@ -345,7 +477,7 @@ export default function WelcomePage() {
                   </p>
                 </div>
               ) : null}
-              {recommendedCli ? <CliRow key={recommendedCli.id} cli={recommendedCli} /> : null}
+              {recommendedCli ? <CliRow key={recommendedCli.id} cli={recommendedCli} onVerify={handleVerifySuccess} /> : null}
             </div>
             {alternativeClis.length > 0 ? (
               <div className="mt-4">
@@ -354,7 +486,7 @@ export default function WelcomePage() {
                 </h3>
                 <div className="space-y-2">
                   {alternativeClis.map((cli) => (
-                    <CliRow key={cli.id} cli={cli} />
+                    <CliRow key={cli.id} cli={cli} onVerify={handleVerifySuccess} />
                   ))}
                 </div>
               </div>
