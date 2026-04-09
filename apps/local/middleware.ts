@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { getAllowedOrigins } from "./lib/app-config";
 
 // Rate limit store (in-memory for edge runtime)
 // In production, use Redis or the database check
@@ -13,6 +14,14 @@ const RATE_LIMITS: Record<string, { maxRequests: number; windowMs: number }> = {
   "/api/queue": { maxRequests: 60, windowMs: 60000 }, // 60/min (daemon polling)
   default: { maxRequests: 100, windowMs: 60000 }, // 100/min default
 };
+
+// CORS allowed origins (computed once at module load)
+const configuredOrigins = getAllowedOrigins();
+const extraOrigins = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+const allowedOrigins = [...new Set([...configuredOrigins, ...extraOrigins])];
 
 // Content Security Policy
 const BOARD_CONNECT = process.env.NEXT_PUBLIC_AGX_BOARD_URL || "http://localhost:3333";
@@ -75,13 +84,8 @@ export function middleware(request: NextRequest) {
     return response;
   }
 
-  // CORS: allow local dev origins
+  // CORS: check origin against configured allowed origins
   const origin = request.headers.get("origin") || "";
-  const allowedOrigins = [
-    "http://localhost:31000",
-    "http://localhost:3000",
-    "http://localhost:3333",
-  ];
   const corsOrigin = allowedOrigins.includes(origin) ? origin : "";
 
   // Handle CORS preflight
