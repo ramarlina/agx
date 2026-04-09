@@ -51,6 +51,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         startedAt: undefined,
         completedAt: undefined,
         actualMinutes: undefined,
+        metrics: undefined,
       };
 
       if (resetNode.type === 'work') {
@@ -66,8 +67,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         resetNode.verificationResult = undefined;
       }
 
+      if (resetNode.type === 'conditional') {
+        resetNode.evaluatedTo = undefined;
+      }
+
       // Split node into storage columns (same logic as store.ts splitNodeForStorage)
-      const { type: _type, status, metrics: _metrics, output, ...config } = resetNode as GraphNode & { output?: Record<string, unknown> };
+      const { type: _type, status, metrics, output, ...config } = resetNode as GraphNode & { output?: Record<string, unknown> };
 
       await db
         .from("graph_nodes")
@@ -75,6 +80,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           status,
           config: JSON.stringify(config),
           output: output ? JSON.stringify(output) : null,
+          metrics: metrics ? JSON.stringify(metrics) : null,
         })
         .eq("graph_id", graph.id)
         .eq("node_id", nodeId);

@@ -202,6 +202,111 @@ describe("task graph lifecycle routes", () => {
     ).toBe(false);
   });
 
+  test("restart clears persisted metrics and conditional branch outcomes", async () => {
+    mockGetGraph.mockReturnValue(
+      buildGraph({
+        executionState: "done",
+        graphVersion: 4,
+        nodes: {
+          "work-1": {
+            type: "work",
+            status: "done",
+            deps: [],
+            title: "Work node",
+            attempts: 2,
+            maxAttempts: 3,
+            retryPolicy: { backoffMs: 1000, onExhaust: "escalate" },
+            startedAt: "2026-02-21T08:00:00.000Z",
+            completedAt: "2026-02-21T08:02:00.000Z",
+            actualMinutes: 2,
+            metrics: { tokensUsed: 42, latencyMs: 1200, retryCount: 2 },
+            output: { summary: "done" },
+          },
+          "conditional-1": {
+            type: "conditional",
+            status: "done",
+            deps: ["work-1"],
+            startedAt: "2026-02-21T08:02:00.000Z",
+            completedAt: "2026-02-21T08:03:00.000Z",
+            actualMinutes: 1,
+            metrics: { tokensUsed: 8, latencyMs: 20, retryCount: 0 },
+            condition: { expression: "input.ok", inputFrom: "work-1" },
+            thenBranch: ["gate-1"],
+            elseBranch: [],
+            evaluatedTo: "then",
+          },
+        },
+      }),
+    );
+
+    const { POST } = await import("@/app/api/tasks/[id]/graph/restart/route");
+    const response = await POST(
+      new NextRequest(`http://localhost/api/tasks/${TASK_ID}/graph/restart`, { method: "POST" }),
+      { params: Promise.resolve({ id: TASK_ID }) },
+    );
+
+    expect(response.status).toBe(200);
+
+    const workReset = updateCalls.find(
+      (call) => call.table === "graph_nodes" && call.filters.node_id === "work-1",
+    );
+    expect(workReset?.payload).toMatchObject({
+      status: "pending",
+      output: null,
+      metrics: null,
+    });
+    const workConfig = JSON.parse(String(workReset?.payload.config)) as Record<string, unknown>;
+    expect(workConfig).toMatchObject({
+      deps: [],
+      title: "Work node",
+      attempts: 0,
+      maxAttempts: 3,
+      retryPolicy: { backoffMs: 1000, onExhaust: "escalate" },
+    });
+    expect(workConfig).not.toHaveProperty("startedAt");
+    expect(workConfig).not.toHaveProperty("completedAt");
+    expect(workConfig).not.toHaveProperty("actualMinutes");
+
+    const conditionalReset = updateCalls.find(
+      (call) => call.table === "graph_nodes" && call.filters.node_id === "conditional-1",
+    );
+    expect(conditionalReset?.payload).toMatchObject({
+      status: "pending",
+      output: null,
+      metrics: null,
+    });
+    const conditionalConfig = JSON.parse(
+      String(conditionalReset?.payload.config),
+    ) as Record<string, unknown>;
+    expect(conditionalConfig).toMatchObject({
+      deps: ["work-1"],
+      condition: { expression: "input.ok", inputFrom: "work-1" },
+      thenBranch: ["gate-1"],
+      elseBranch: [],
+    });
+    expect(conditionalConfig).not.toHaveProperty("evaluatedTo");
+    expect(conditionalConfig).not.toHaveProperty("startedAt");
+    expect(conditionalConfig).not.toHaveProperty("completedAt");
+    expect(conditionalConfig).not.toHaveProperty("actualMinutes");
+
+    expect(updateCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "execution_graphs",
+          payload: { execution_state: "running", graph_version: 5 },
+          filters: { id: "graph-1" },
+        }),
+      ]),
+    );
+    expect(mockSyncTaskProgressForGraphExecution).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskId: TASK_ID,
+        userId: "local-user-1",
+        status: "queued",
+      }),
+    );
+  });
+
   test.each(["paused", "stopped"] as const)(
     "resume restores %s human gates to awaiting_human",
     async (executionState) => {
