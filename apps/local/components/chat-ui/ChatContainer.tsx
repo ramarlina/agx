@@ -299,7 +299,7 @@ export function ChatContainer({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ signal: "cancel", reason: "Stopped from chat UI" }),
-    }).catch(() => {});
+    }).catch((err) => console.error("[chat] failed to cancel chat run:", err));
   }, []);
 
   // Wrap stop functions to immediately refresh polling state
@@ -406,7 +406,7 @@ export function ChatContainer({
             return prev;
           });
         })
-        .catch(() => {});
+        .catch((err) => console.error("[chat] failed to check schedule status:", err));
     };
 
     check();
@@ -428,7 +428,7 @@ export function ChatContainer({
             return next;
           });
         })
-        .catch(() => {});
+        .catch((err) => console.error("[chat] failed to hydrate auto-mode threads:", err));
     };
     check();
     const interval = setInterval(check, UI_POLL_CHAT_ALT_MS);
@@ -1496,7 +1496,7 @@ export function ChatContainer({
           setSelectedRepoIds(new Set(data.repoIds));
         }
       })
-      .catch(() => {});
+      .catch((err) => console.error("[chat] failed to load thread repo selections:", err));
   }, [openThreadId]);
 
   const handleRepoSelectionChange = useCallback(
@@ -1507,7 +1507,7 @@ export function ChatContainer({
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ rootMessageId: openThreadId, repoIds: [...next] }),
-        }).catch(() => {});
+        }).catch((err) => console.error("[chat] failed to save thread repo selections:", err));
       }
     },
     [openThreadId]

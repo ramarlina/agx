@@ -205,7 +205,7 @@ export function useGroupChat(threadId: string | null) {
       return;
     }
 
-    await fetch(`/api/logs?${buildLogsQuery(activeThreadId)}`, { method: "DELETE" }).catch(() => {});
+    await fetch(`/api/logs?${buildLogsQuery(activeThreadId)}`, { method: "DELETE" }).catch((err) => console.error("[group-chat] failed to delete logs:", err));
 
     if (threadIdRef.current !== activeThreadId) {
       return;

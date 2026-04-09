@@ -993,7 +993,7 @@ Resolved memory entries: ${executionProvenance.memory.map((entry) => `${entry.so
 
     if (count % REFLECTION_CADENCE === 0) {
       // Fire and forget — serialized per agent to avoid self/journal races
-      enqueueReflection(p).catch(() => {});
+      enqueueReflection(p).catch((err) => console.error("[reflection] enqueueReflection failed:", err));
     }
   }
 
@@ -1110,7 +1110,7 @@ export function createMultiplexedStream({
         }
         await Promise.all(
           Array.from(byProcess.entries()).map(([processId, entries]) =>
-            saveLogs(processId, entries).catch(() => {})
+            saveLogs(processId, entries).catch((err) => console.error(`[logs] saveLogs failed for process ${processId}:`, err))
           )
         );
       };

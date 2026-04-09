@@ -12,7 +12,7 @@ let gcRan = false;
 export async function POST(request: NextRequest) {
   if (!gcRan) {
     gcRan = true;
-    gcOrphanedAttachments().catch(() => {});
+    gcOrphanedAttachments().catch((err) => console.error("[upload] gcOrphanedAttachments failed:", err));
   }
 
   const formData = await request.formData().catch(() => null);
