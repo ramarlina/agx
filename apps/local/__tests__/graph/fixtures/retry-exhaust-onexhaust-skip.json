@@ -1,0 +1,41 @@
+{
+  "name": "retry-exhaust-onexhaust-skip",
+  "graph": {
+    "id": "fixture-retry-skip",
+    "taskId": "task-fixture-7",
+    "graphVersion": 1,
+    "mode": "PROJECT",
+    "nodes": {
+      "retry-work": {
+        "type": "work",
+        "status": "pending",
+        "deps": [],
+        "title": "Retry Work",
+        "attempts": 0,
+        "maxAttempts": 2,
+        "retryPolicy": { "backoffMs": 1, "onExhaust": "skip" }
+      }
+    },
+    "edges": [],
+    "policy": {
+      "replanBudgetRemaining": 3,
+      "replanBudgetInitial": 3,
+      "verifyBudgetRemaining": 5,
+      "verifyBudgetInitial": 5,
+      "maxConcurrentAutoChecks": 1,
+      "immutableRequiredGates": true,
+      "maxConcurrent": 3,
+      "priorityMode": "fifo",
+      "nodeTimeoutMs": 10000,
+      "graphTimeoutMs": 86400000
+    },
+    "doneCriteria": {
+      "allRequiredGatesPassed": true,
+      "noRunnableOrPendingWork": true
+    },
+    "versionHistory": [],
+    "runtimeEvents": [],
+    "createdAt": "2026-02-14T00:00:00.000Z",
+    "updatedAt": "2026-02-14T00:00:00.000Z"
+  }
+}

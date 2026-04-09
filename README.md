@@ -74,7 +74,7 @@ Open the board, watch the agent work, approve gates, stop/restart at will.
 - **Execution graphs** — Tasks run as dynamic graphs, not fixed linear stages. Branch, fork, join — the graph is a map of decisions, not a to-do list.
 - **Human-in-the-loop gates** — Critical nodes pause for your explicit `approve` / `reject`. Agents do the heavy lifting; you stay in control.
 - **Durable, resumable execution** — Tasks survive restarts, crashes, and reboots. State is checkpointed, not rebuilt from history.
-- **Bundled dashboard (Kanban)** — Ships with the CLI. Chat is the thinking; board is the doing.
+- **Bundled local board** — Ships with the CLI from this same repo. Chat is the thinking; board is the doing.
 - **Multi-provider** — Claude, Codex, Gemini, Ollama. Use whatever fits.
 - **Local & inspectable** — Runs entirely on your machine. Full execution logs, task signing, safeguards for destructive commands.
 
@@ -174,7 +174,7 @@ agx codex -p "Propose a migration plan"
 
 ## Prerequisites
 
-- **Node.js** >= 18
+- **Node.js** >= 22.16.0
 - **At least one AI provider CLI:**
   - [Claude Code](https://docs.anthropic.com/claude/docs/claude-cli)
   - [OpenAI Codex CLI](https://www.npmjs.com/package/@openai/codex)
@@ -182,6 +182,35 @@ agx codex -p "Propose a migration plan"
   - [Ollama](https://ollama.ai/)
 
 No external database required. AGX uses SQLite locally.
+
+---
+
+## Repo Layout
+
+```text
+agx/
+  apps/local/   # Next.js local board that ships with the CLI
+  lib/          # CLI/runtime source
+  commands/     # CLI command implementations
+  cloud-runtime/# Packaged standalone board bundled into the npm artifact
+```
+
+The npm package is still published from the repo root as `@mndrk/agx`. The local board lives in `apps/local` and is bundled into the CLI package during `npm pack` / `npm publish`.
+
+## Local Development
+
+```bash
+npm install
+
+# Start the local board workspace directly
+npm run local:dev
+
+# Build the local board workspace
+npm run local:build
+
+# Package the standalone board runtime that ships with the CLI
+npm run board:bundle
+```
 
 ---
 
@@ -245,7 +274,7 @@ AGX collects anonymous usage data to improve the tool. Here's exactly what we co
 | Data | Example |
 |------|---------|
 | OS & architecture | `darwin`, `arm64` |
-| Node.js version | `v20.10.0` |
+| Node.js version | `v22.16.0` |
 | AGX version | `1.4.55` |
 | Commands run | `new`, `daemon start` |
 | Provider used | `claude`, `codex`, `gemini`, `ollama` |

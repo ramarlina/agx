@@ -1,0 +1,270 @@
+/* ─── Composer mention pills ─────────────────────────────────────────────── */
+
+.composer-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  vertical-align: baseline;
+  border: 1px solid;
+  user-select: none;
+  cursor: default;
+}
+
+/* Participant — sequential (@Name) */
+.composer-pill--participant {
+  background-color: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+
+/* Participant — parallel (@@Name) */
+.composer-pill--participant-parallel {
+  background-color: #f5f3ff;
+  border-color: #ddd6fe;
+  color: #7c3aed;
+}
+
+/* Project mention (@Project) */
+.composer-pill--project {
+  background-color: #ecfeff;
+  border-color: #a5f3fc;
+  color: #0e7490;
+}
+
+/* File mention (@/path) */
+.composer-pill--file {
+  background-color: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #15803d;
+}
+
+/* Thread/discussion mention (#title) */
+.composer-pill--thread {
+  background-color: #fffbeb;
+  border-color: #fde68a;
+  color: #b45309;
+}
+
+/* Linear issue mention (@ABC-123) */
+.composer-pill--linear-issue {
+  background-color: #fff7ed;
+  border-color: #fdba74;
+  color: #c2410c;
+}
+
+/* ─── Dark mode pill overrides ─────────────────────────────────────────────── */
+
+.dark .composer-pill--participant {
+  background-color: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: #93bbfd;
+}
+
+.dark .composer-pill--participant-parallel {
+  background-color: rgba(124, 58, 237, 0.15);
+  border-color: rgba(124, 58, 237, 0.3);
+  color: #c4b5fd;
+}
+
+.dark .composer-pill--project {
+  background-color: rgba(14, 116, 144, 0.15);
+  border-color: rgba(14, 116, 144, 0.3);
+  color: #67e8f9;
+}
+
+.dark .composer-pill--file {
+  background-color: rgba(21, 128, 61, 0.15);
+  border-color: rgba(21, 128, 61, 0.3);
+  color: #86efac;
+}
+
+.dark .composer-pill--thread {
+  background-color: rgba(180, 83, 9, 0.15);
+  border-color: rgba(180, 83, 9, 0.3);
+  color: #fcd34d;
+}
+
+.dark .composer-pill--linear-issue {
+  background-color: rgba(194, 65, 12, 0.16);
+  border-color: rgba(249, 115, 22, 0.3);
+  color: #fdba74;
+}
+
+/* ─── Tiptap editor container styling ────────────────────────────────────── */
+
+.composer-editor .tiptap {
+  outline: none;
+  min-height: 40px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 10px 8px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.composer-editor .tiptap p {
+  margin: 0;
+}
+
+/* ─── Ship Mode animations ──────────────────────────────────────────────── */
+
+@keyframes shipBgSweep {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+@keyframes shipSpeedLine {
+  0% { transform: translateX(0); opacity: 0; }
+  20% { opacity: 1; }
+  100% { transform: translateX(-120%); opacity: 0; }
+}
+
+@keyframes shipRocketShake {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  25% { transform: translate(0.5px, -0.5px) rotate(-1deg); }
+  50% { transform: translate(-0.5px, 0.5px) rotate(0.5deg); }
+  75% { transform: translate(0.5px, 0px) rotate(-0.5deg); }
+}
+
+@keyframes shipPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* ─── Repo select dropdown ─────────────────────────────────────────────── */
+
+.composer-repo-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  border: 1px solid var(--app-shell-border);
+  background-color: transparent;
+  color: var(--app-shell-muted);
+  transition: all 0.15s ease;
+}
+
+.composer-repo-select-trigger:hover {
+  border-color: var(--app-shell-border-strong);
+  color: var(--foreground);
+  background-color: var(--app-shell-subtle);
+}
+
+.composer-repo-dropdown {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  min-width: 180px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--app-shell-elevated);
+  border: 1px solid var(--app-shell-border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-md, 0 4px 6px -1px rgba(0,0,0,.1));
+  padding: 4px;
+  z-index: 50;
+}
+
+.composer-repo-dropdown__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--foreground);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.1s ease;
+}
+
+.composer-repo-dropdown__item:hover {
+  background-color: var(--app-shell-subtle);
+}
+
+.composer-repo-dropdown__item--selected {
+  color: #047857;
+}
+
+.dark .composer-repo-dropdown__item--selected {
+  color: #6ee7b7;
+}
+
+/* ─── Repo selected pills ─────────────────────────────────────────────── */
+
+.composer-repo-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 6px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
+  background-color: #ecfdf5;
+  border: 1px solid #6ee7b7;
+  color: #047857;
+  max-width: none;
+}
+
+.composer-repo-pill__name {
+  overflow: visible;
+  text-overflow: unset;
+  white-space: nowrap;
+}
+
+.composer-repo-pill--overflow {
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  cursor: default;
+}
+
+.dark .composer-repo-pill {
+  background-color: rgba(5, 150, 105, 0.15);
+  border-color: rgba(5, 150, 105, 0.35);
+  color: #6ee7b7;
+}
+
+.composer-repo-pill__remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin-left: 2px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.1s ease;
+  border-radius: 9999px;
+}
+
+.composer-repo-pill__remove:hover {
+  opacity: 1;
+}
+
+.composer-editor .tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--app-shell-muted, #94a3b8);
+  pointer-events: none;
+  height: 0;
+}

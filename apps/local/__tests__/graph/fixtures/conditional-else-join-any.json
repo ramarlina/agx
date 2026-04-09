@@ -1,0 +1,83 @@
+{
+  "name": "conditional-else-join-any",
+  "graph": {
+    "id": "fixture-conditional-else",
+    "taskId": "task-fixture-2",
+    "graphVersion": 1,
+    "mode": "PROJECT",
+    "nodes": {
+      "start": {
+        "type": "work",
+        "status": "done",
+        "deps": [],
+        "title": "Start",
+        "attempts": 1,
+        "maxAttempts": 2,
+        "retryPolicy": { "backoffMs": 10, "onExhaust": "fail" },
+        "output": { "path": "else" }
+      },
+      "cond": {
+        "type": "conditional",
+        "status": "pending",
+        "deps": ["start"],
+        "condition": {
+          "expression": "ctx.input.path == 'then'",
+          "inputFrom": "start"
+        },
+        "thenBranch": ["then-work"],
+        "elseBranch": ["else-work"]
+      },
+      "then-work": {
+        "type": "work",
+        "status": "pending",
+        "deps": ["cond"],
+        "title": "Then Branch",
+        "attempts": 0,
+        "maxAttempts": 2,
+        "retryPolicy": { "backoffMs": 10, "onExhaust": "fail" }
+      },
+      "else-work": {
+        "type": "work",
+        "status": "done",
+        "deps": ["cond"],
+        "title": "Else Branch",
+        "attempts": 1,
+        "maxAttempts": 2,
+        "retryPolicy": { "backoffMs": 10, "onExhaust": "fail" }
+      },
+      "join": {
+        "type": "join",
+        "status": "pending",
+        "deps": ["then-work", "else-work"],
+        "joinStrategy": "any"
+      }
+    },
+    "edges": [
+      { "from": "start", "to": "cond", "type": "hard" },
+      { "from": "cond", "to": "then-work", "type": "hard" },
+      { "from": "cond", "to": "else-work", "type": "hard" },
+      { "from": "then-work", "to": "join", "type": "hard" },
+      { "from": "else-work", "to": "join", "type": "hard" }
+    ],
+    "policy": {
+      "replanBudgetRemaining": 3,
+      "replanBudgetInitial": 3,
+      "verifyBudgetRemaining": 5,
+      "verifyBudgetInitial": 5,
+      "maxConcurrentAutoChecks": 1,
+      "immutableRequiredGates": true,
+      "maxConcurrent": 3,
+      "priorityMode": "fifo",
+      "nodeTimeoutMs": 10000,
+      "graphTimeoutMs": 86400000
+    },
+    "doneCriteria": {
+      "allRequiredGatesPassed": true,
+      "noRunnableOrPendingWork": true
+    },
+    "versionHistory": [],
+    "runtimeEvents": [],
+    "createdAt": "2026-02-14T00:00:00.000Z",
+    "updatedAt": "2026-02-14T00:00:00.000Z"
+  }
+}

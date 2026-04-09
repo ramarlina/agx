@@ -17,28 +17,25 @@ jobs:
         with:
           path: agx
 
-      - name: Clone agx-cloud
-        uses: actions/checkout@v4
-        with:
-          repository: ramarlina/agx-cloud
-          path: agx-cloud
-          token: ${{ secrets.REPO_TOKEN }}
-
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
-
-      - name: Install agx-cloud dependencies
-        run: npm ci
-        working-directory: agx-cloud
 
       - name: Install agx dependencies
         run: npm ci
         working-directory: agx
 
-      - name: Build cloud runtime
+      - name: Build local app workspace
+        run: npm run local:build
+        working-directory: agx
+
+      - name: Bundle board runtime
         run: npm run board:bundle
+        working-directory: agx
+
+      - name: Smoke check bundled board
+        run: test -n "$(find cloud-runtime/standalone -name server.js -print -quit)"
         working-directory: agx
 
       - name: Run tests

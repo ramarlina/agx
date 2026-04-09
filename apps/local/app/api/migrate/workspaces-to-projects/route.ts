@@ -1,0 +1,67 @@
+import { NextResponse } from "next/server";
+import { getSQLiteDb } from "@/lib/sqlite-query-adapter";
+import {
+  getLegacyWorkspaceMigrationStatus,
+  migrateLegacyWorkspacesToProjects,
+} from "@/lib/workspaces-to-projects-migration";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function POST() {
+  try {
+    const result = migrateLegacyWorkspacesToProjects(getSQLiteDb());
+    return NextResponse.json({ message: "Workspace to project migration complete", result });
+  } catch (error) {
+    console.error("Workspace migration error:", error);
+    return NextResponse.json(
+      { error: "Migration failed", details: String(error) },
+      { status: 500 }
+    );
+  }
+}
+
+export async function GET() {
+  try {
+    const db = getSQLiteDb();
+    const migrationStatus = getLegacyWorkspaceMigrationStatus(db);
+    const counts = {
+      teams: (() => {
+        try {
+          return (db.prepare("SELECT COUNT(*) AS n FROM teams").get() as { n: number }).n;
+        } catch {
+          return 0;
+        }
+      })(),
+      teamAgents: (() => {
+        try {
+          return (db.prepare("SELECT COUNT(*) AS n FROM team_agents").get() as { n: number }).n;
+        } catch {
+          return 0;
+        }
+      })(),
+      teamWorkspaces: (() => {
+        try {
+          return (db.prepare("SELECT COUNT(*) AS n FROM team_workspaces").get() as { n: number }).n;
+        } catch {
+          return 0;
+        }
+      })(),
+      agents: (db.prepare("SELECT COUNT(*) AS n FROM agents").get() as { n: number }).n,
+      agentSkills: (db.prepare("SELECT COUNT(*) AS n FROM agent_skills").get() as { n: number }).n,
+      projects: (db.prepare("SELECT COUNT(*) AS n FROM projects").get() as { n: number }).n,
+      projectAgents: (db.prepare("SELECT COUNT(*) AS n FROM project_agents").get() as { n: number }).n,
+      projectThreads: (db.prepare("SELECT COUNT(*) AS n FROM project_threads").get() as { n: number }).n,
+      projectSkills: (db.prepare("SELECT COUNT(*) AS n FROM project_skills").get() as { n: number }).n,
+      projectVariables: (db.prepare("SELECT COUNT(*) AS n FROM project_variables").get() as { n: number }).n,
+    };
+
+    return NextResponse.json({
+      ...counts,
+      migrated: counts.agents > 0 && counts.projectAgents > 0,
+      autoMigration: migrationStatus,
+    });
+  } catch (error) {
+    return NextResponse.json({ error: String(error) }, { status: 500 });
+  }
+}

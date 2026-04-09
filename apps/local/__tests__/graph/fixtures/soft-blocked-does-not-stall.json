@@ -1,0 +1,62 @@
+{
+  "name": "soft-blocked-does-not-stall",
+  "graph": {
+    "id": "fixture-soft-blocked",
+    "taskId": "task-fixture-5",
+    "graphVersion": 1,
+    "mode": "PROJECT",
+    "nodes": {
+      "mainline": {
+        "type": "work",
+        "status": "done",
+        "deps": [],
+        "title": "Mainline",
+        "attempts": 1,
+        "maxAttempts": 2,
+        "retryPolicy": { "backoffMs": 10, "onExhaust": "fail" }
+      },
+      "optional": {
+        "type": "work",
+        "status": "blocked",
+        "deps": [],
+        "title": "Optional",
+        "attempts": 1,
+        "maxAttempts": 1,
+        "retryPolicy": { "backoffMs": 10, "onExhaust": "escalate" }
+      },
+      "downstream": {
+        "type": "work",
+        "status": "pending",
+        "deps": ["mainline", "optional"],
+        "title": "Downstream",
+        "attempts": 0,
+        "maxAttempts": 2,
+        "retryPolicy": { "backoffMs": 10, "onExhaust": "fail" }
+      }
+    },
+    "edges": [
+      { "from": "mainline", "to": "downstream", "type": "hard" },
+      { "from": "optional", "to": "downstream", "type": "soft" }
+    ],
+    "policy": {
+      "replanBudgetRemaining": 3,
+      "replanBudgetInitial": 3,
+      "verifyBudgetRemaining": 5,
+      "verifyBudgetInitial": 5,
+      "maxConcurrentAutoChecks": 1,
+      "immutableRequiredGates": true,
+      "maxConcurrent": 3,
+      "priorityMode": "fifo",
+      "nodeTimeoutMs": 10000,
+      "graphTimeoutMs": 86400000
+    },
+    "doneCriteria": {
+      "allRequiredGatesPassed": true,
+      "noRunnableOrPendingWork": true
+    },
+    "versionHistory": [],
+    "runtimeEvents": [],
+    "createdAt": "2026-02-14T00:00:00.000Z",
+    "updatedAt": "2026-02-14T00:00:00.000Z"
+  }
+}

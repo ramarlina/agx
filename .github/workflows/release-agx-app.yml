@@ -11,34 +11,13 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          path: agx
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Clone agx-app
-        uses: actions/checkout@v4
-        with:
-          repository: ramarlina/agx-app
-          path: agx-app
-          token: ${{ secrets.REPO_TOKEN }}
-
-      - name: Clone agx-cloud
-        uses: actions/checkout@v4
-        with:
-          repository: ramarlina/agx-cloud
-          path: agx-cloud
-          token: ${{ secrets.REPO_TOKEN }}
-
-      - name: Install agx-cloud dependencies
+      - name: Install dependencies
         run: npm ci
-        working-directory: agx-cloud
-
-      - name: Install agx-app dependencies
-        run: npm ci
-        working-directory: agx-app
 
       - name: Build app
         env:
@@ -48,27 +27,26 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npm run build:mac
-        working-directory: agx-app
+        run: npm run build:mac --workspace apps/desktop
 
       - name: Upload DMG
         uses: actions/upload-artifact@v4
         with:
           name: agx-mac-dmg
-          path: agx-app/dist/*.dmg
+          path: apps/desktop/dist/*.dmg
 
       - name: Upload ZIP
         uses: actions/upload-artifact@v4
         with:
           name: agx-mac-zip
-          path: agx-app/dist/*.zip
+          path: apps/desktop/dist/*.zip
 
       - name: Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            agx-app/dist/*.dmg
-            agx-app/dist/*.zip
+            apps/desktop/dist/*.dmg
+            apps/desktop/dist/*.zip
           draft: true
           generate_release_notes: true

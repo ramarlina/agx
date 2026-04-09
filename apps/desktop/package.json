@@ -1,0 +1,132 @@
+{
+  "name": "@mndrk/agx-desktop",
+  "version": "0.1.10",
+  "private": true,
+  "description": "Desktop app for agx — bundles the dashboard, server, and CLI",
+  "author": "Mendrika Ramarlina",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "build:icon": "node scripts/generate-icon.js",
+    "build:next": "npm --prefix ../.. run local:build && node scripts/fix-standalone.js",
+    "build:cli": "node scripts/bundle-cli.js",
+    "build:node": "node scripts/bundle-node.js",
+    "build": "npm run build:icon && npm run build:next && npm run build:cli && npm run build:node && electron-builder && node scripts/post-pack.js",
+    "build:mac": "npm run build:icon && npm run build:next && npm run build:cli && npm run build:node && node -e \"require('dotenv').config();const{execSync}=require('child_process');execSync('electron-builder --mac',{stdio:'inherit',env:{...process.env}})\" && node scripts/post-pack.js",
+    "notarize:mac:submit": "node scripts/notarize-mac.js submit",
+    "notarize:mac:wait": "node scripts/notarize-mac.js wait",
+    "notarize:mac": "npm run notarize:mac:submit && npm run notarize:mac:wait",
+    "pack": "npm run build:icon && npm run build:next && npm run build:cli && npm run build:node && electron-builder --dir && node scripts/post-pack.js",
+    "release": "node scripts/print-release-cmd.js",
+    "release:prep": "npm run build:mac && node scripts/print-release-cmd.js",
+    "release:prep:notarized": "npm run build:mac && npm run notarize:mac && node scripts/print-release-cmd.js"
+  },
+  "dependencies": {
+    "electron-is-dev": "^3.0.1",
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "electron": "^35.0.1",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.agx.desktop",
+    "productName": "AGX",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../local/.next/standalone",
+        "to": "server",
+        "filter": [
+          "**/*",
+          "!node_modules"
+        ]
+      },
+      {
+        "from": "../local/.next/standalone/node_modules",
+        "to": "server/node_modules",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "../local/.next/static",
+        "to": "server/.next/static",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "cli-bundle/",
+        "to": "cli",
+        "filter": [
+          "**/*",
+          "!node_modules"
+        ]
+      },
+      {
+        "from": "cli-bundle/node_modules",
+        "to": "cli/node_modules",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "bin",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "node-runtime",
+        "to": "node-runtime",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "icon": "assets/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "darkModeSupport": true,
+      "notarize": false,
+      "hardenedRuntime": true,
+      "entitlements": "entitlements.plist",
+      "entitlementsInherit": "entitlements.plist"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ramarlina",
+        "repo": "agx"
+      }
+    ],
+    "dmg": {
+      "title": "AGX",
+      "icon": "assets/icon.icns",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
+  }
+}
