@@ -61,7 +61,7 @@ interface WorkspaceSidebarProps {
   onUpdateParticipant?: (participant: Participant) => Promise<unknown>;
   onSelectProject?: (projectId: string) => void;
   activeProjectId?: string | null;
-  activeProjectView?: "objectives" | "thread" | "knowledge" | "automations" | "linear" | null;
+  activeProjectView?: "overview" | "objectives" | "thread" | "knowledge" | "automations" | "linear" | null;
   onAddTeam?: (projectId: string) => void;
 }
 
@@ -465,6 +465,7 @@ export function WorkspaceSidebar({
               project.thread_ids?.[0] ??
               projectThreads[0]?.id ??
               null;
+            const isActiveProjectOverview = isActiveProject && activeProjectView === "overview";
             const isActiveProjectObjectives = isActiveProject && activeProjectView === "objectives";
             const isActiveProjectThread = isActiveProject && activeProjectView === "thread" && primaryProjectThreadId === activeThreadId;
             const isActiveProjectAutomations = isActiveProject && activeProjectView === "automations";
@@ -513,10 +514,22 @@ export function WorkspaceSidebar({
                 </div>
                 {projectIsExpanded && (
                   <div className="ml-4 my-1 flex flex-col gap-0.5 border-l border-[var(--app-shell-border)] pl-3">
-                    {/* Objectives */}
+                    {/* Overview */}
                     <div className="workspace-sidebar__workspace-item">
                       <Link
                         href={`/projects/${project.slug}`}
+                        className={`workspace-sidebar__nav-item ${isActiveProjectOverview ? "workspace-sidebar__nav-item--active" : ""}`}
+                        aria-current={isActiveProjectOverview ? "page" : undefined}
+                      >
+                        <Folder size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                        <span className="workspace-sidebar__workspace-title text-xs">Overview</span>
+                      </Link>
+                    </div>
+
+                    {/* Objectives */}
+                    <div className="workspace-sidebar__workspace-item">
+                      <Link
+                        href={`/projects/${project.slug}/objectives`}
                         className={`workspace-sidebar__nav-item ${isActiveProjectObjectives ? "workspace-sidebar__nav-item--active" : ""}`}
                         aria-current={isActiveProjectObjectives ? "page" : undefined}
                       >
