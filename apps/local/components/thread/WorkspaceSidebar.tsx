@@ -490,8 +490,14 @@ export function WorkspaceSidebar({
                         <ChevronRight size={14} className="flex-shrink-0" />
                       )}
                     </button>
-                    <Folder size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                    <span className="workspace-sidebar__workspace-title">{project.name}</span>
+                    <Link
+                      href={`/projects/${project.slug}`}
+                      className="flex items-center gap-1.5 min-w-0 flex-1"
+                      onClick={(e) => { e.stopPropagation(); }}
+                    >
+                      <Folder size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                      <span className="workspace-sidebar__workspace-title">{project.name}</span>
+                    </Link>
                   </div>
                   <div className="workspace-sidebar__workspace-actions">
                     <Link
