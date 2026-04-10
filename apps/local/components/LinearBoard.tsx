@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Check, ChevronDown, Clock, ExternalLink, FileText, Link2, Play, Plus, RefreshCw, Search, Settings, User } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, Clock, ExternalLink, FileText, Link2, Play, Plus, RefreshCw, Search, Settings, User } from "lucide-react";
 import { useLinearIssues, type LinearIssue } from "@/hooks/useLinearIssues";
 import { useLinearConnection } from "@/hooks/useLinearConnection";
 import { useLinearRuns, type LinearRun } from "@/hooks/useLinearRuns";
@@ -1198,6 +1198,9 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
   const [cycles, setCycles] = useState<CycleOption[]>([]);
   const [selectedCycleId, setSelectedCycleId] = useState("");
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
+  const [sortBy, setSortBy] = useState<"activity" | "identifier" | "status" | "created">("activity");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [hasActivity, setHasActivity] = useState(false);
   const [selectedIssue, setSelectedIssue] = useState<LinearIssue | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [updatingIssueId, setUpdatingIssueId] = useState<string | null>(null);
@@ -1234,6 +1237,9 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
     setSelectedStatuses(storedFilters.statuses);
     setSelectedWorkspaceId(storedFilters.teamId);
     setSelectedCycleId(storedFilters.cycleId);
+    setSortBy(storedFilters.sortBy);
+    setSortDir(storedFilters.sortDir);
+    setHasActivity(storedFilters.hasActivity);
   }, [projectSlug]);
 
   useEffect(() => {
@@ -1248,8 +1254,11 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
       statuses: selectedStatuses,
       teamId: selectedWorkspaceId,
       cycleId: selectedCycleId,
+      sortBy,
+      sortDir,
+      hasActivity,
     });
-  }, [projectSlug, search, selectedAssigneeIds, selectedStatuses, selectedWorkspaceId, selectedCycleId]);
+  }, [projectSlug, search, selectedAssigneeIds, selectedStatuses, selectedWorkspaceId, selectedCycleId, sortBy, sortDir, hasActivity]);
 
   // Fetch filter options when connected
   useEffect(() => {
@@ -1342,8 +1351,11 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
       assigneeIds: selectedAssigneeIds.length > 0 ? selectedAssigneeIds : undefined,
       teamId: selectedWorkspaceId || undefined,
       cycleId: selectedCycleId || undefined,
+      sortBy,
+      sortDir,
+      hasActivity: hasActivity || undefined,
     }),
-    [debouncedSearch, selectedAssigneeIds, selectedCycleId, selectedStatuses, selectedWorkspaceId, statuses.length]
+    [debouncedSearch, selectedAssigneeIds, selectedCycleId, selectedStatuses, selectedWorkspaceId, statuses.length, sortBy, sortDir, hasActivity]
   );
 
   const {
