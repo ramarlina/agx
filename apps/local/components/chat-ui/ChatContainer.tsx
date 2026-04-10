@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { UI_POLL_CHAT_CHECK_MS, UI_POLL_CHAT_ALT_MS } from "@/lib/constants/timing";
 import { useSearchParams } from "next/navigation";
 import { useGroupChat } from "@/hooks/useGroupChat";
@@ -1674,7 +1675,72 @@ export function ChatContainer({
     </button>
   );
 
-  const mainToolbar = (
+  const searchBar = (
+    <div className="relative group/search min-w-0 flex-1">
+      <Search
+        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--app-shell-soft-text)] transition-colors group-focus-within/search:text-[var(--primary)]"
+        strokeWidth={2}
+      />
+      <input
+        ref={searchInputRef}
+        type="text"
+        value={searchQuery}
+        onChange={(e) => setSearchQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") clearSearch();
+        }}
+        placeholder="Search messages…"
+        className={`w-full rounded-xl border border-[var(--app-shell-border)] bg-[var(--app-shell-elevated)] pl-9 pr-16 text-sm font-medium text-[var(--foreground)] outline-none placeholder:text-[var(--app-shell-soft-text)] transition-all hover:border-[var(--app-shell-border-strong)] focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--ring)] ${projectSlug ? "h-7 text-xs" : "h-9"}`}
+      />
+      {normalizedSearchQuery ? (
+        <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-2">
+          <span className="text-[11px] font-bold text-[var(--muted-foreground)]">
+            {searchLoading ? "…" : searchTotal}
+          </span>
+          <button
+            type="button"
+            onClick={clearSearch}
+            className="text-[10px] font-bold text-[var(--app-shell-soft-text)] transition-colors hover:text-[var(--app-shell-muted)]"
+          >
+            ✕
+          </button>
+        </div>
+      ) : (
+        <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-[var(--app-shell-border)] bg-[var(--app-shell-subtle)] px-1.5 py-0.5 font-sans text-[10px] font-bold text-[var(--app-shell-soft-text)]">⌘K</kbd>
+      )}
+    </div>
+  );
+
+  const [topbarTarget, setTopbarTarget] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!projectSlug) return;
+    const el = document.getElementById("topbar-center");
+    setTopbarTarget(el);
+  }, [projectSlug]);
+
+  const topbarSearchPortal = projectSlug && topbarTarget ? createPortal(
+    <div className="flex items-center gap-2 w-full">
+      {searchBar}
+      {openThreadId && (
+        <button
+          type="button"
+          onClick={() => setLogsOpen(!logsOpen)}
+          aria-label={logsOpen ? "Hide logs" : `Show logs${logs.length > 0 ? ` (${logs.length})` : ""}`}
+          aria-pressed={logsOpen}
+          title={logsOpen ? "Hide logs" : `Show logs${logs.length > 0 ? ` (${logs.length})` : ""}`}
+          className={`inline-flex h-7 w-7 items-center justify-center rounded-lg border transition-all shrink-0 ${logsOpen
+            ? "border-[var(--app-shell-border-strong)] bg-[var(--app-shell-subtle)] text-[var(--foreground)]"
+            : "border-[var(--app-shell-border)] bg-[var(--app-shell-elevated)] text-[var(--app-shell-muted)] hover:bg-[var(--app-shell-subtle)] hover:text-[var(--foreground)]"
+            }`}
+        >
+          <SquareTerminal className="h-3.5 w-3.5" strokeWidth={1.75} />
+        </button>
+      )}
+    </div>,
+    topbarTarget
+  ) : null;
+
+  const mainToolbar = projectSlug ? null : (
     <div
       className="desktop-titlebar border-b border-[var(--app-shell-border)] bg-[var(--app-shell-surface)] px-4 py-2.5 backdrop-blur-xl md:px-6"
     >
@@ -1694,39 +1760,7 @@ export function ChatContainer({
         </div>
         <div className="flex flex-1 justify-center min-w-0">
           <div className="flex w-full max-w-2xl items-center gap-2">
-            <div className="relative group/search min-w-0 flex-1">
-              <Search
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--app-shell-soft-text)] transition-colors group-focus-within/search:text-[var(--primary)]"
-                strokeWidth={2}
-              />
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") clearSearch();
-                }}
-                placeholder="Search messages…"
-                className="h-9 w-full rounded-xl border border-[var(--app-shell-border)] bg-[var(--app-shell-elevated)] pl-9 pr-16 text-sm font-medium text-[var(--foreground)] outline-none placeholder:text-[var(--app-shell-soft-text)] transition-all hover:border-[var(--app-shell-border-strong)] focus:border-[var(--primary)] focus:ring-2 focus:ring-[var(--ring)]"
-              />
-              {normalizedSearchQuery ? (
-                <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-2">
-                  <span className="text-[11px] font-bold text-[var(--muted-foreground)]">
-                    {searchLoading ? "…" : searchTotal}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={clearSearch}
-                    className="text-[10px] font-bold text-[var(--app-shell-soft-text)] transition-colors hover:text-[var(--app-shell-muted)]"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ) : (
-                <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-[var(--app-shell-border)] bg-[var(--app-shell-subtle)] px-1.5 py-0.5 font-sans text-[10px] font-bold text-[var(--app-shell-soft-text)]">⌘K</kbd>
-              )}
-            </div>
+            {searchBar}
             <div className="flex items-center gap-2 flex-shrink-0">
               {renderThemeToggleButton()}
               <StatusIndicator />
@@ -1753,7 +1787,8 @@ export function ChatContainer({
   );
 
   return (
-    <div className="flex h-screen bg-[var(--app-shell-bg)] text-[var(--foreground)]">
+    <div className={`flex ${projectSlug ? "h-full" : "h-screen"} bg-[var(--app-shell-bg)] text-[var(--foreground)]`}>
+      {topbarSearchPortal}
         {showSidebar ? (
           <WorkspaceSidebar
             threads={threads}
@@ -1860,8 +1895,8 @@ export function ChatContainer({
                           )}
                           <span className="hidden sm:inline">{isKnowledgeExtractionRunning ? "Learning..." : "Learn from discussion"}</span>
                         </button>
-                        {renderThemeToggleButton()}
-                        <StatusIndicator />
+                        {!projectSlug && renderThemeToggleButton()}
+                        {!projectSlug && <StatusIndicator />}
                         <button
                           type="button"
                           onClick={() => setLogsOpen(!logsOpen)}

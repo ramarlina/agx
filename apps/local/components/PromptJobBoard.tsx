@@ -1182,15 +1182,10 @@ export default function PromptJobBoard({
 
       <div className="px-6 md:px-10 pt-6 pb-0">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight mb-1">
-              Scheduled Tasks
-            </h1>
-            <p className="text-sm text-[var(--muted-foreground)]">
-              {counts.active} active job{counts.active !== 1 ? "s" : ""}{" "}
-              &middot; {jobs.length} total
-            </p>
-          </div>
+          <p className="text-sm text-[var(--muted-foreground)]">
+            {counts.active} active job{counts.active !== 1 ? "s" : ""}{" "}
+            &middot; {jobs.length} total
+          </p>
           <div className="flex items-center gap-2">
             <button
               onClick={() => refresh()}

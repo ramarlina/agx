@@ -3,6 +3,8 @@
 import { Suspense, use, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
+import { Sun, Moon } from "lucide-react";
+import { StatusIndicator } from "@/components/chat-ui/StatusIndicator";
 import { WorkspaceSidebar } from "@/components/thread/WorkspaceSidebar";
 import { useProjectsWithAgents } from "@/hooks/useProjects";
 import { useThreadState } from "@/hooks/useThreadState";
@@ -13,6 +15,8 @@ import {
 } from "@/state/uiSettings";
 import { loadWorkspaceWidth, persistWorkspaceWidth } from "@/state/windowState";
 import "@/styles/workspaceSidebar.css";
+
+const THEME_STORAGE_KEY = "agx-theme";
 
 function ProjectLayoutContent({
   children,
@@ -47,11 +51,25 @@ function ProjectLayoutContent({
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(368);
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") return "light";
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "dark" || stored === "light") return stored;
+    return document.documentElement.classList.contains("dark") ? "dark" : "light";
+  });
 
   useEffect(() => {
     setSidebarVisible(loadWorkspaceSidebarVisible());
     setSidebarWidth(loadWorkspaceWidth() || 368);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const isDark = theme === "dark";
+    document.documentElement.classList.toggle("dark", isDark);
+    document.documentElement.style.colorScheme = theme;
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme]);
 
   useEffect(() => {
     void fetch("/api/participants")
@@ -68,13 +86,15 @@ function ProjectLayoutContent({
     const match = pathname.match(/\/projects\/[^/]+\/thread\/([^/]+)/);
     return match?.[1] ? decodeURIComponent(match[1]) : currentProject?.thread_ids[0] ?? null;
   }, [currentProject?.thread_ids, pathname]);
-  const activeProjectView = useMemo<"overview" | "objectives" | "thread" | "knowledge" | "automations" | "linear">(
+  const activeProjectView = useMemo<"overview" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "settings">(
     () => {
       if (pathname.includes("/linear")) return "linear";
       if (pathname.includes("/automations")) return "automations";
       if (pathname.includes("/thread/")) return "thread";
       if (pathname.includes("/knowledge")) return "knowledge";
       if (pathname.includes("/objectives")) return "objectives";
+      if (pathname.includes("/teams")) return "teams";
+      if (pathname.includes("/settings")) return "settings";
       return "overview";
     },
     [pathname]
@@ -163,6 +183,48 @@ function ProjectLayoutContent({
         }}
       />
       <div className="flex-1 min-h-0 flex flex-col min-w-0 h-full overflow-hidden">
+        <div className="flex items-center px-4 py-2 border-b border-[var(--app-shell-border)] bg-[var(--background)] shrink-0">
+          {/* Left: breadcrumb */}
+          <div className="flex items-center gap-1.5 min-w-0 flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => router.push(`/projects/${slug}`)}
+              className={`text-xs transition-colors ${activeProjectView === "overview" ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
+            >
+              {currentProject.name}
+            </button>
+            {activeProjectView !== "overview" && (
+              <>
+                <span className="text-xs text-[var(--muted-foreground)]">/</span>
+                <span className="text-xs text-[var(--foreground)]">{{ objectives: "Objectives", teams: "Teams", linear: "Linear", automations: "Scheduled Tasks", thread: "Chat", knowledge: "Knowledge", settings: "Settings" }[activeProjectView] ?? activeProjectView}</span>
+              </>
+            )}
+          </div>
+
+          {/* Center: portal target for chat search, or page title for other views */}
+          <div className="flex-1 flex justify-center min-w-0 px-4">
+            <div id="topbar-center" className="w-full max-w-xl" />
+            {activeProjectView !== "overview" && activeProjectView !== "thread" && (
+              <span className="text-sm font-medium text-[var(--foreground)]">
+                {{ objectives: "Objectives", teams: "Teams", linear: "Linear", automations: "Scheduled Tasks", knowledge: "Knowledge", settings: "Settings" }[activeProjectView] ?? ""}
+              </span>
+            )}
+          </div>
+
+          {/* Right: status + theme */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <StatusIndicator />
+            <button
+              type="button"
+              onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+              aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+              title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] hover:bg-[var(--app-shell-subtle)]"
+            >
+              {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+        </div>
         {children}
       </div>
     </div>
