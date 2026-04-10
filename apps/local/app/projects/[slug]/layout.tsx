@@ -165,6 +165,19 @@ function ProjectLayoutContent({
         }}
       />
       <div className="flex-1 min-h-0 flex flex-col min-w-0 h-full overflow-hidden">
+        {activeProjectView !== "overview" && (
+          <div className="flex items-center gap-1.5 px-4 py-2 border-b border-[var(--app-shell-border)] bg-[var(--background)] shrink-0">
+            <button
+              type="button"
+              onClick={() => router.push(`/projects/${slug}`)}
+              className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+            >
+              {currentProject.name}
+            </button>
+            <span className="text-xs text-[var(--muted-foreground)]">/</span>
+            <span className="text-xs text-[var(--foreground)] capitalize">{activeProjectView}</span>
+          </div>
+        )}
         {children}
       </div>
     </div>

@@ -476,7 +476,7 @@ export function WorkspaceSidebar({
             return (
               <div key={project.id}>
                 <div className="workspace-sidebar__workspace-item group">
-                  <div className="workspace-sidebar__nav-item workspace-sidebar__workspace-nav-item">
+                  <div className={`workspace-sidebar__nav-item workspace-sidebar__workspace-nav-item ${isActiveProjectOverview ? "workspace-sidebar__nav-item--active" : ""}`}>
                     <button
                       type="button"
                       className="inline-flex items-center justify-center rounded-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
