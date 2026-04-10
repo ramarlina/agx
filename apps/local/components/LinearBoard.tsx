@@ -1785,6 +1785,37 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
                 onChange={setSelectedCycleId}
               />
             ) : null}
+            <FilterSelect
+              label="Sort"
+              value={sortBy}
+              options={[
+                { value: "activity", label: "Activity" },
+                { value: "identifier", label: "Ticket ID" },
+                { value: "status", label: "Status" },
+                { value: "created", label: "Created" },
+              ]}
+              activeClasses="border-sky-500/30 bg-sky-500/10 text-sky-400"
+              onChange={(value) => setSortBy(value as typeof sortBy)}
+            />
+            <button
+              type="button"
+              className="rounded-full border border-[var(--card-border)] p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card-bg)] hover:text-[var(--foreground)]"
+              title={sortDir === "desc" ? "Descending" : "Ascending"}
+              onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
+            >
+              {sortDir === "desc" ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
+            </button>
+            <button
+              type="button"
+              className={`flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
+                hasActivity
+                  ? "border-orange-500/30 bg-orange-500/10 text-orange-400"
+                  : "border-[var(--card-border)] text-[var(--muted-foreground)] hover:bg-[var(--card-bg)]"
+              }`}
+              onClick={() => setHasActivity((v) => !v)}
+            >
+              My activity
+            </button>
           </div>
         </div>
 
