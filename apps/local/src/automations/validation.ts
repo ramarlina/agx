@@ -175,6 +175,11 @@ function normalizeExecution(value: unknown): AutomationExecution | undefined {
     execution.cancelCheckSec = cancelCheckSec;
   }
 
+  const condition = asTrimmedString(raw.condition);
+  if (condition) {
+    execution.condition = condition;
+  }
+
   const maxRuns = asPositiveInteger(raw.maxRuns);
   if (maxRuns !== undefined) {
     execution.maxRuns = maxRuns;

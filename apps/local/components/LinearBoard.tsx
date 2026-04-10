@@ -105,6 +105,8 @@ function openLinearIssueTab(issueUrl: string): void {
   opened?.focus();
 }
 
+type RunDisplayTone = LinearRun["status"] | "ready";
+
 function formatRunStatus(status: LinearRun["status"]): string {
   switch (status) {
     case "queued":
@@ -122,6 +124,38 @@ function formatRunStatus(status: LinearRun["status"]): string {
   }
 }
 
+function getRunDisplayState(run: LinearRun): {
+  label: string;
+  tone: RunDisplayTone;
+} {
+  if (run.mode === "chat") {
+    switch (run.status) {
+      case "queued":
+        return { label: "starting", tone: "queued" };
+      case "running":
+        return { label: "thinking", tone: "running" };
+      case "success":
+        return { label: "ready", tone: "ready" };
+      case "failed":
+        return { label: "error", tone: "failed" };
+      case "cancelled":
+        return { label: "stopped", tone: "cancelled" };
+      default:
+        return { label: formatRunStatus(run.status), tone: run.status };
+    }
+  }
+
+  return { label: formatRunStatus(run.status), tone: run.status };
+}
+
+function getRunTitle(run: LinearRun): string {
+  const title = run.sessionTitle?.trim();
+  if (title) {
+    return title;
+  }
+  return run.mode === "scripted" ? "Scripted session" : "Chat session";
+}
+
 const STATUS_LABELS: Record<string, string> = {
   "In Progress": "In Prog",
   "In Review": "Review",
@@ -131,20 +165,31 @@ const STATUS_LABELS: Record<string, string> = {
   Cancelled: "Cancl.",
 };
 
-const STATUS_BADGE_STYLES: Record<LinearRun["status"], string> = {
+const STATUS_BADGE_STYLES: Record<RunDisplayTone, string> = {
   queued: "bg-amber-500/10 border-amber-500/20 text-amber-400",
   running: "bg-yellow-500/10 border-yellow-500/20 text-yellow-400",
+  ready: "bg-sky-500/10 border-sky-500/20 text-sky-400",
   success: "bg-emerald-500/10 border-emerald-500/20 text-emerald-400",
   failed: "bg-red-500/10 border-red-500/20 text-red-400",
   cancelled: "bg-zinc-500/10 border-zinc-500/20 text-zinc-400",
 };
 
-const STATUS_DOT_COLORS: Record<LinearRun["status"], string> = {
+const STATUS_DOT_COLORS: Record<RunDisplayTone, string> = {
   queued: "bg-amber-400",
   running: "bg-yellow-400",
+  ready: "bg-sky-400",
   success: "bg-emerald-400",
   failed: "bg-red-400",
   cancelled: "bg-zinc-400",
+};
+
+const STATUS_TEXT_COLORS: Record<RunDisplayTone, string> = {
+  queued: "text-amber-500",
+  running: "text-yellow-500",
+  ready: "text-sky-500",
+  success: "text-green-500",
+  failed: "text-red-500",
+  cancelled: "text-[var(--muted-foreground)]",
 };
 
 const NEW_SESSION_PANEL_ID = "__new-session__";
@@ -160,6 +205,7 @@ interface FilterSelectProps {
   options: FilterOption[];
   activeClasses: string;
   onChange: (value: string) => void;
+  disabled?: boolean;
 }
 
 interface FilterPopdownProps extends FilterSelectProps {
@@ -175,19 +221,27 @@ interface MultiFilterPopdownProps {
   emptyLabel?: string;
 }
 
-function FilterSelect({ label, value, options, activeClasses, onChange }: FilterSelectProps) {
+function FilterSelect({
+  label,
+  value,
+  options,
+  activeClasses,
+  onChange,
+  disabled = false,
+}: FilterSelectProps) {
   const isActive = value.trim().length > 0;
 
   return (
     <div className="relative">
       <select
         aria-label={label}
-        className={`max-w-[160px] appearance-none rounded-full border bg-transparent px-2.5 py-0.5 pr-6 text-[11px] font-medium outline-none transition-colors ${
+        className={`max-w-[160px] appearance-none rounded-full border bg-transparent px-2.5 py-0.5 pr-6 text-[11px] font-medium outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
           isActive
             ? activeClasses
             : "border-[var(--card-border)] text-[var(--muted-foreground)] hover:bg-[var(--card-bg)]"
         }`}
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
       >
         {options.map((option) => (
@@ -199,6 +253,48 @@ function FilterSelect({ label, value, options, activeClasses, onChange }: Filter
       <ChevronDown
         size={12}
         className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-current"
+      />
+    </div>
+  );
+}
+
+function IssueStatusSelect({
+  status,
+  options,
+  onChange,
+  disabled = false,
+  updating = false,
+}: {
+  status: string;
+  options: FilterOption[];
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  updating?: boolean;
+}) {
+  return (
+    <div className="relative">
+      <select
+        aria-label="Ticket status"
+        className="max-w-[160px] appearance-none rounded-md border border-[var(--card-border)] bg-[var(--card-bg)] px-2.5 py-1 pr-8 text-xs font-medium text-[var(--foreground)] outline-none transition-colors hover:border-[var(--muted-foreground)] disabled:cursor-not-allowed disabled:opacity-60"
+        value={status}
+        disabled={disabled || updating}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {options.map((option) => (
+          <option key={`ticket-status-${option.value}`} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      {updating ? (
+        <RefreshCw
+          size={12}
+          className="pointer-events-none absolute right-6 top-1/2 -translate-y-1/2 animate-spin text-[var(--muted-foreground)]"
+        />
+      ) : null}
+      <ChevronDown
+        size={12}
+        className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
       />
     </div>
   );
@@ -455,6 +551,9 @@ function TicketChatStarter({
   participants,
   projectId,
   projectSlug,
+  issueStatusOptions,
+  issueStatusUpdating,
+  onIssueStatusChange,
   activeSessionScriptLabel,
   onOpenSessionScripts,
   onStartScriptedSession,
@@ -466,6 +565,9 @@ function TicketChatStarter({
   participants: Participant[];
   projectId?: string;
   projectSlug?: string;
+  issueStatusOptions: FilterOption[];
+  issueStatusUpdating: boolean;
+  onIssueStatusChange: (issue: LinearIssue, status: string) => void;
   activeSessionScriptLabel: string;
   onOpenSessionScripts: () => void;
   onStartScriptedSession: (event: React.MouseEvent<HTMLButtonElement>) => void;
@@ -479,6 +581,7 @@ function TicketChatStarter({
     issueAssignee: string | null;
     agentId: string;
     agentName: string;
+    mode: LinearRun["mode"];
   }) => Promise<LinearRun>;
   updateRun: (id: string, input: {
     rootMessageId?: string | null;
@@ -554,6 +657,7 @@ function TicketChatStarter({
           issueAssignee: issue.assignee ?? null,
           agentId: agent.id,
           agentName: agent.name,
+          mode: "chat",
         });
 
         const response = await fetch("/api/chat", {
@@ -609,9 +713,13 @@ function TicketChatStarter({
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <span className="rounded-md border border-[var(--card-border)] px-2 py-0.5 text-xs text-[var(--muted-foreground)]">
-            {issue.status}
-          </span>
+          <IssueStatusSelect
+            status={issue.status}
+            options={issueStatusOptions}
+            disabled={issueStatusOptions.length === 0}
+            updating={issueStatusUpdating}
+            onChange={(status) => onIssueStatusChange(issue, status)}
+          />
           <button
             type="button"
             className="flex items-center gap-1 rounded-md border border-[var(--card-border)] px-2 py-1 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card-bg)] hover:text-[var(--foreground)]"
@@ -703,12 +811,21 @@ function TicketChatStarter({
 }
 
 function ThreadMessageList({
+  issue,
   run,
   participants,
+  issueStatusOptions,
+  issueStatusUpdating,
+  onIssueStatusChange,
 }: {
+  issue: LinearIssue;
   run: LinearRun;
   participants: Participant[];
+  issueStatusOptions: FilterOption[];
+  issueStatusUpdating: boolean;
+  onIssueStatusChange: (issue: LinearIssue, status: string) => void;
 }) {
+  const runDisplay = getRunDisplayState(run);
   const { messages, setMessages, sendMessage, loadHistory, stop } = useGroupChat(
     run.threadId
   );
@@ -777,21 +894,28 @@ function ThreadMessageList({
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--card-border)] px-6">
         <div className="flex min-w-0 items-center gap-3">
           <span className="shrink-0 font-mono text-sm text-[var(--muted-foreground)]">
-            {run.issueIdentifier}
+            {issue.identifier}
           </span>
           <div className="h-1 w-1 shrink-0 rounded-full bg-[var(--card-border)]" />
           <span className="truncate text-sm font-medium text-[var(--foreground)]">
-            {run.issueTitle ?? ""}
+            {getRunTitle(run)}
           </span>
         </div>
 
         <div className="flex shrink-0 items-center gap-4">
+          <IssueStatusSelect
+            status={issue.status}
+            options={issueStatusOptions}
+            disabled={issueStatusOptions.length === 0}
+            updating={issueStatusUpdating}
+            onChange={(status) => onIssueStatusChange(issue, status)}
+          />
           <div
-            className={`flex items-center gap-2 rounded-md border px-2.5 py-1 ${STATUS_BADGE_STYLES[run.status]}`}
+            className={`flex items-center gap-2 rounded-md border px-2.5 py-1 ${STATUS_BADGE_STYLES[runDisplay.tone]}`}
           >
-            <div className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT_COLORS[run.status]}`} />
+            <div className={`h-1.5 w-1.5 rounded-full ${STATUS_DOT_COLORS[runDisplay.tone]}`} />
             <span className="text-xs font-semibold uppercase tracking-wider">
-              {formatRunStatus(run.status)}
+              {runDisplay.label}
             </span>
           </div>
 
@@ -1007,12 +1131,12 @@ function TicketRow({
       <span className="shrink-0 text-xs text-[var(--muted-foreground)]">
         {shortStatus}
       </span>
-      <div className={`flex shrink-0 items-center gap-0.5 ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+      <div className="flex shrink-0 items-center gap-1">
         <button
           type="button"
-          className={`flex h-6 w-6 items-center justify-center rounded text-[var(--muted-foreground)] transition-all hover:bg-zinc-700 hover:text-[var(--foreground)] ${
-            issue.url ? "" : "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[var(--muted-foreground)]"
-          }`}
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)] transition-all hover:bg-zinc-700 hover:text-[var(--foreground)] ${
+            selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          } ${issue.url ? "" : "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[var(--muted-foreground)]"}`}
           onClick={(event) => {
             void handleCopyUrl(event);
           }}
@@ -1024,9 +1148,9 @@ function TicketRow({
         </button>
         <button
           type="button"
-          className={`flex h-6 w-6 items-center justify-center rounded text-[var(--muted-foreground)] transition-all hover:bg-zinc-700 hover:text-[var(--foreground)] ${
-            issue.url ? "" : "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[var(--muted-foreground)]"
-          }`}
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)] transition-all hover:bg-zinc-700 hover:text-[var(--foreground)] ${
+            selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+          } ${issue.url ? "" : "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[var(--muted-foreground)]"}`}
           onClick={handleOpenIssue}
           title={issue.url ? "Open this Linear ticket in a new tab" : "This ticket does not have a Linear URL"}
           aria-label={issue.url ? "Open this Linear ticket in a new tab" : "This ticket does not have a Linear URL"}
@@ -1076,6 +1200,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
   const [selectedIssue, setSelectedIssue] = useState<LinearIssue | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [updatingIssueId, setUpdatingIssueId] = useState<string | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [pickerIssue, setPickerIssue] = useState<LinearIssue | null>(null);
   const [pickerAnchor, setPickerAnchor] = useState<{ top: number; left: number } | null>(null);
@@ -1227,6 +1352,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
     hasMore,
     loadMore,
     refresh: refreshIssues,
+    updateIssue,
   } = useLinearIssues(filters, connected, { projectSlug });
   const {
     runs,
@@ -1255,6 +1381,17 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
     () => statuses.map((status) => ({ value: status, label: status })),
     [statuses]
   );
+  const issueStatusOptions = useMemo<FilterOption[]>(
+    () =>
+      Array.from(
+        new Set(
+          [selectedIssue?.status ?? "", ...statuses]
+            .map((status) => status.trim())
+            .filter(Boolean)
+        )
+      ).map((status) => ({ value: status, label: status })),
+    [selectedIssue?.status, statuses]
+  );
   const workspaceOptions = useMemo<FilterOption[]>(
     () => [{ value: "", label: "Workspace" }, ...workspaces.map((workspace) => ({ value: workspace.id, label: workspace.name }))],
     [workspaces]
@@ -1273,6 +1410,44 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
   const showCycleFilter = cycleOptions.length > 1;
   const showWorkspaceFilter = workspaceOptions.length > 2;
   const activeSessionScriptLabel = activeScript?.name ?? "AGX default";
+
+  const handleIssueStatusChange = useCallback(
+    async (issue: LinearIssue, status: string) => {
+      const nextStatus = status.trim();
+      if (!nextStatus || nextStatus === issue.status) {
+        return;
+      }
+
+      setUpdatingIssueId(issue.id);
+      try {
+        const response = await fetch(`/api/linear/issues/${encodeURIComponent(issue.id)}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: nextStatus }),
+        });
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: string;
+          issue?: LinearIssue;
+        };
+
+        if (!response.ok || !payload.issue) {
+          throw new Error(payload.error || "Failed to update ticket status");
+        }
+
+        const updatedIssue = payload.issue;
+        updateIssue(updatedIssue);
+        setSelectedIssue((current) => (current?.id === updatedIssue.id ? updatedIssue : current));
+        await refreshIssues();
+      } catch (error) {
+        if (error instanceof Error) {
+          window.alert(error.message);
+        }
+      } finally {
+        setUpdatingIssueId((current) => (current === issue.id ? null : current));
+      }
+    },
+    [refreshIssues, updateIssue]
+  );
 
   useEffect(() => {
     if (issues.length === 0) {
@@ -1411,6 +1586,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
           issueAssignee: issue.assignee,
           agentId: agent.id,
           agentName: agent.name,
+          mode: "scripted",
         });
         setSelectedRunId(createdRun.id);
 
@@ -1699,13 +1875,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
                 </div>
               ) : (
                 runs.map((run) => {
-                  const statusColors: Record<LinearRun["status"], string> = {
-                    queued: "text-amber-500",
-                    running: "text-yellow-500",
-                    success: "text-green-500",
-                    failed: "text-red-500",
-                    cancelled: "text-[var(--muted-foreground)]",
-                  };
+                  const runDisplay = getRunDisplayState(run);
 
                   return (
                     <button
@@ -1719,15 +1889,20 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
                       onClick={() => setSelectedRunId(run.id)}
                     >
                       <div className="flex items-center justify-between gap-1">
-                        <span className={`font-medium ${statusColors[run.status]}`}>
-                          {formatRunStatus(run.status)}
+                        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-[var(--foreground)]">
+                          {getRunTitle(run)}
                         </span>
                         <span className="text-[10px] text-[var(--muted-foreground)]">
                           {formatRunTime(run.startedAt)}
                         </span>
                       </div>
-                      <div className="mt-0.5 truncate text-[10px] text-[var(--muted-foreground)]">
-                        {run.agentName}
+                      <div className="mt-0.5 flex items-center gap-1.5 text-[10px]">
+                        <span className={`font-medium ${STATUS_TEXT_COLORS[runDisplay.tone]}`}>
+                          {runDisplay.label}
+                        </span>
+                        <span className="truncate text-[var(--muted-foreground)]">
+                          {run.agentName}
+                        </span>
                       </div>
                       {run.durationMs != null ? (
                         <div className="text-[10px] text-[var(--muted-foreground)]">
@@ -1747,7 +1922,22 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {selectedRun ? (
-          <ThreadMessageList run={selectedRun} participants={participants} />
+          <ThreadMessageList
+            issue={selectedIssue ?? {
+              id: selectedRun.issueId,
+              identifier: selectedRun.issueIdentifier,
+              title: selectedRun.issueTitle,
+              url: null,
+              status: selectedRun.issueStatus,
+              assignee: selectedRun.issueAssignee,
+              updatedAt: selectedRun.updatedAt,
+            }}
+            run={selectedRun}
+            participants={participants}
+            issueStatusOptions={issueStatusOptions}
+            issueStatusUpdating={updatingIssueId === selectedRun.issueId}
+            onIssueStatusChange={handleIssueStatusChange}
+          />
         ) : !selectedIssue ? (
           <div className="flex h-full items-center justify-center text-xs text-[var(--muted-foreground)]">
             Select a ticket from the list.
@@ -1763,6 +1953,9 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
             participants={participants}
             projectId={projectId}
             projectSlug={projectSlug}
+            issueStatusOptions={issueStatusOptions}
+            issueStatusUpdating={updatingIssueId === selectedIssue.id}
+            onIssueStatusChange={handleIssueStatusChange}
             activeSessionScriptLabel={activeSessionScriptLabel}
             onOpenSessionScripts={() => setShowRunScripts(true)}
             onStartScriptedSession={(event) => handleStartScriptedSession(selectedIssue, event)}

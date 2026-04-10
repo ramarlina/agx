@@ -262,8 +262,9 @@ describe("ProjectObjectivesWorkspace", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: /^Not set$/i }));
 
     expect(within(dialog).queryByText("Hourly Schedule")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Condition")).not.toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: /Condition mode/i })).not.toBeInTheDocument();
-    expect(within(dialog).getByText("Set a schedule first to enable a condition.")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Set a schedule first to enable a condition.")).not.toBeInTheDocument();
   });
 
   test("closes the wake schedule modal on cancel", () => {

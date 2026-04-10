@@ -25,6 +25,8 @@ export type LinearRunStatus =
   | "failed"
   | "cancelled";
 
+export type LinearRunMode = "chat" | "scripted";
+
 interface LinearRunRow {
   id: string;
   project_id: string | null;
@@ -39,6 +41,7 @@ interface LinearRunRow {
   chat_run_id: string | null;
   agent_id: string;
   agent_name: string;
+  mode: LinearRunMode;
   status: LinearRunStatus;
   error: string | null;
   created_at: number;
@@ -51,6 +54,7 @@ interface JoinedLinearRunRow extends LinearRunRow {
   chat_created_at: number | null;
   chat_updated_at: number | null;
   chat_completed_at: number | null;
+  root_content: string | null;
 }
 
 export interface LinearRunRecord {
@@ -67,6 +71,8 @@ export interface LinearRunRecord {
   chatRunId: string | null;
   agentId: string;
   agentName: string;
+  mode: LinearRunMode;
+  sessionTitle: string | null;
   status: LinearRunStatus;
   durationMs: number | null;
   lastError: string | null;
@@ -82,6 +88,27 @@ function toOptionalString(value: string | null | undefined): string | null {
 
 function toIso(timestampMs: number | null): string | null {
   return typeof timestampMs === "number" ? new Date(timestampMs).toISOString() : null;
+}
+
+function normalizeMode(value: string | null | undefined): LinearRunMode {
+  return value === "scripted" ? "scripted" : "chat";
+}
+
+function toSessionTitle(content: string | null | undefined): string | null {
+  const normalized = String(content ?? "")
+    .replace(/\[reaction\s+[^\]]*\]/gi, "")
+    .replace(/\[agx:[^\]]*\]/g, "")
+    .replace(/\[checkpoint\]/g, "")
+    .replace(/\[criteria:\s*[^\]]*\]/g, "")
+    .replace(/\[done\]/g, "")
+    .replace(/\[blocked[^\]]*\]/g, "")
+    .replace(/^\[SKIP\]$/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) {
+    return null;
+  }
+  return normalized.length > 72 ? `${normalized.slice(0, 69).trimEnd()}...` : normalized;
 }
 
 function mapChatStatus(
@@ -124,6 +151,9 @@ function mapRow(row: JoinedLinearRunRow): LinearRunRecord {
     chatRunId: row.chat_run_id,
     agentId: row.agent_id,
     agentName: row.agent_name,
+    mode: normalizeMode(row.mode),
+    sessionTitle:
+      normalizeMode(row.mode) === "chat" ? toSessionTitle(row.root_content) : null,
     status,
     durationMs:
       completedAtMs != null ? Math.max(completedAtMs - startedAtMs, 0) : null,
@@ -158,6 +188,20 @@ async function withLinearRunDatabase<T>(run: (db: DatabaseSync) => T): Promise<T
         updated_at INTEGER NOT NULL,
         completed_at INTEGER
       );
+      CREATE TABLE IF NOT EXISTS messages (
+        thread_id TEXT NOT NULL,
+        id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        participant_id TEXT,
+        content TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        root_message_id TEXT,
+        parent_message_id TEXT,
+        depth INTEGER NOT NULL DEFAULT 0,
+        thread_status TEXT,
+        outcome_note TEXT,
+        PRIMARY KEY (thread_id, id)
+      );
       CREATE TABLE IF NOT EXISTS linear_runs (
         id TEXT PRIMARY KEY,
         project_id TEXT,
@@ -172,6 +216,7 @@ async function withLinearRunDatabase<T>(run: (db: DatabaseSync) => T): Promise<T
         chat_run_id TEXT,
         agent_id TEXT NOT NULL,
         agent_name TEXT NOT NULL,
+        mode TEXT NOT NULL DEFAULT 'chat',
         status TEXT NOT NULL DEFAULT 'queued',
         error TEXT,
         created_at INTEGER NOT NULL,
@@ -185,6 +230,14 @@ async function withLinearRunDatabase<T>(run: (db: DatabaseSync) => T): Promise<T
         ON linear_runs (chat_run_id)
         WHERE chat_run_id IS NOT NULL;
     `);
+
+    const linearRunColumns = db
+      .prepare("PRAGMA table_info(linear_runs)")
+      .all() as Array<{ name: string }>;
+    if (!linearRunColumns.some((column) => column.name === "mode")) {
+      db.exec("ALTER TABLE linear_runs ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat';");
+    }
+
     return run(db);
   } finally {
     db.close();
@@ -203,18 +256,20 @@ export async function createLinearRun(input: {
   threadId?: string;
   agentId: string;
   agentName: string;
+  mode?: LinearRunMode;
 }): Promise<LinearRunRecord> {
   const now = Date.now();
   const id = toOptionalString(input.id) ?? crypto.randomUUID();
   const threadId = toOptionalString(input.threadId) ?? `linear-run:${id}`;
+  const mode = normalizeMode(input.mode);
 
   return withLinearRunDatabase((db) => {
     db.prepare(
       `INSERT INTO linear_runs (
         id, project_id, project_slug, issue_id, issue_identifier, issue_title,
         issue_status, issue_assignee, thread_id, root_message_id, chat_run_id,
-        agent_id, agent_name, status, error, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, 'queued', NULL, ?, ?)`
+        agent_id, agent_name, mode, status, error, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, 'queued', NULL, ?, ?)`
     ).run(
       id,
       toOptionalString(input.projectId ?? null),
@@ -227,6 +282,7 @@ export async function createLinearRun(input: {
       threadId,
       input.agentId.trim(),
       input.agentName.trim(),
+      mode,
       now,
       now
     );
@@ -239,9 +295,11 @@ export async function createLinearRun(input: {
           cr.last_error AS chat_last_error,
           cr.created_at AS chat_created_at,
           cr.updated_at AS chat_updated_at,
-          cr.completed_at AS chat_completed_at
+          cr.completed_at AS chat_completed_at,
+          msg.content AS root_content
          FROM linear_runs lr
          LEFT JOIN chat_runs cr ON cr.id = lr.chat_run_id
+         LEFT JOIN messages msg ON msg.thread_id = lr.thread_id AND msg.id = lr.root_message_id
          WHERE lr.id = ?
          LIMIT 1`
       )
@@ -297,9 +355,11 @@ export async function updateLinearRun(input: {
           cr.last_error AS chat_last_error,
           cr.created_at AS chat_created_at,
           cr.updated_at AS chat_updated_at,
-          cr.completed_at AS chat_completed_at
+          cr.completed_at AS chat_completed_at,
+          msg.content AS root_content
          FROM linear_runs lr
          LEFT JOIN chat_runs cr ON cr.id = lr.chat_run_id
+         LEFT JOIN messages msg ON msg.thread_id = lr.thread_id AND msg.id = lr.root_message_id
          WHERE lr.id = ?
          LIMIT 1`
       )
@@ -319,9 +379,11 @@ export async function getLinearRun(id: string): Promise<LinearRunRecord | null> 
           cr.last_error AS chat_last_error,
           cr.created_at AS chat_created_at,
           cr.updated_at AS chat_updated_at,
-          cr.completed_at AS chat_completed_at
+          cr.completed_at AS chat_completed_at,
+          msg.content AS root_content
          FROM linear_runs lr
          LEFT JOIN chat_runs cr ON cr.id = lr.chat_run_id
+         LEFT JOIN messages msg ON msg.thread_id = lr.thread_id AND msg.id = lr.root_message_id
          WHERE lr.id = ?
          LIMIT 1`
       )
@@ -360,9 +422,11 @@ export async function listLinearRuns(input: {
           cr.last_error AS chat_last_error,
           cr.created_at AS chat_created_at,
           cr.updated_at AS chat_updated_at,
-          cr.completed_at AS chat_completed_at
+          cr.completed_at AS chat_completed_at,
+          msg.content AS root_content
          FROM linear_runs lr
          LEFT JOIN chat_runs cr ON cr.id = lr.chat_run_id
+         LEFT JOIN messages msg ON msg.thread_id = lr.thread_id AND msg.id = lr.root_message_id
          WHERE ${clauses.join(" AND ")}
          ORDER BY lr.created_at DESC
          LIMIT ?`
@@ -370,5 +434,31 @@ export async function listLinearRuns(input: {
       .all(...params) as unknown as JoinedLinearRunRow[];
 
     return rows.map(mapRow);
+  });
+}
+
+export async function getIssueActivityMap(
+  projectId?: string | null
+): Promise<Map<string, string>> {
+  return withLinearRunDatabase((db) => {
+    const hasProject = projectId?.trim();
+    const sql = hasProject
+      ? `SELECT issue_id, MAX(created_at) AS last_activity_at
+         FROM linear_runs
+         WHERE project_id = ?
+         GROUP BY issue_id`
+      : `SELECT issue_id, MAX(created_at) AS last_activity_at
+         FROM linear_runs
+         GROUP BY issue_id`;
+
+    const rows = hasProject
+      ? (db.prepare(sql).all(projectId!.trim()) as unknown as Array<{ issue_id: string; last_activity_at: number }>)
+      : (db.prepare(sql).all() as unknown as Array<{ issue_id: string; last_activity_at: number }>);
+
+    const map = new Map<string, string>();
+    for (const row of rows) {
+      map.set(row.issue_id, new Date(row.last_activity_at).toISOString());
+    }
+    return map;
   });
 }

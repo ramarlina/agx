@@ -166,7 +166,7 @@ export default function RichTextEditor({
     editable,
     editorProps: {
       attributes: {
-        class: "prose prose-sm max-w-none focus:outline-none min-h-[100px] text-[var(--foreground)]",
+        class: "prose prose-sm max-w-none focus:outline-none min-h-[100px] px-4 py-3 text-[var(--foreground)]",
       },
     },
     onUpdate: ({ editor }) => {
@@ -195,6 +195,7 @@ export default function RichTextEditor({
         .rich-text-editor .ProseMirror {
           min-height: 100px;
           outline: none;
+          box-sizing: border-box;
         }
         .rich-text-editor .ProseMirror p {
           margin-bottom: 0.75em;

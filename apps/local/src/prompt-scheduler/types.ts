@@ -19,9 +19,7 @@ export interface PromptJob {
   overlapPolicy: OverlapPolicy;
   catchUpPolicy: CatchUpPolicy;
   cancelCheckSec: number;
-  triggerType: TriggerType;
   condition: string;
-  checkEveryMs: number;
   nextRunAt: number | null;
   lastRunAt: number | null;
   lastOutcome: RunStatus | null;
@@ -57,6 +55,7 @@ export interface CreatePromptJobInput {
   overlapPolicy?: OverlapPolicy;
   catchUpPolicy?: CatchUpPolicy;
   cancelCheckSec?: number;
+  // Legacy compatibility only. New callers should always send cadence.
   triggerType?: TriggerType;
   condition?: string;
   checkEveryMs?: number;
@@ -76,6 +75,7 @@ export interface UpdatePromptJobInput {
   overlapPolicy?: OverlapPolicy;
   catchUpPolicy?: CatchUpPolicy;
   cancelCheckSec?: number;
+  // Legacy compatibility only. New callers should always send cadence.
   triggerType?: TriggerType;
   condition?: string;
   checkEveryMs?: number;

@@ -1,10 +1,13 @@
 import type { GraphSchedule } from "@/src/graph/types";
 import type { PromptJob } from "@/src/prompt-scheduler/types";
+import {
+  formatIntervalCadence,
+  normalizeLegacyConditionSchedule,
+} from "@/src/prompt-scheduler/cron";
 
 import {
   DEFAULT_CANCEL_CHECK_SEC,
   DEFAULT_CATCH_UP_POLICY,
-  DEFAULT_CONDITION_CHECK_EVERY_MS,
   DEFAULT_GRAPH_INTERVAL_MS,
   DEFAULT_OVERLAP_POLICY,
   type AutomationDefinition,
@@ -16,19 +19,6 @@ import {
 import { initializeAutomationRuntimeState } from "./state";
 import { getExecutionWithDefaults, resolvePromptFromDefinition } from "./validation";
 
-function formatIntervalCadence(intervalMs: number): string {
-  if (intervalMs < 60_000) {
-    return `Every ${Math.max(1, Math.round(intervalMs / 1000))} seconds`;
-  }
-  if (intervalMs < 3_600_000) {
-    return `Every ${Math.max(1, Math.round(intervalMs / 60_000))} minutes`;
-  }
-  if (intervalMs < 86_400_000) {
-    return `Every ${Math.max(1, Math.round(intervalMs / 3_600_000))} hours`;
-  }
-  return `Every ${Math.max(1, Math.round(intervalMs / 86_400_000))} days`;
-}
-
 export function automationRecordToPromptJob(record: AutomationRecord): PromptJob {
   if (record.definition.target.type !== "prompt_job") {
     throw new Error(`Automation ${record.definition.id} is not a prompt-job automation.`);
@@ -37,6 +27,9 @@ export function automationRecordToPromptJob(record: AutomationRecord): PromptJob
   const trigger = record.definition.trigger;
   const execution = getExecutionWithDefaults(record.definition);
   const prompt = resolvePromptFromDefinition(record.definition) ?? "";
+  const legacySchedule = trigger.type === "condition"
+    ? normalizeLegacyConditionSchedule(trigger.checkEveryMs)
+    : null;
 
   return {
     id: record.definition.id,
@@ -47,17 +40,17 @@ export function automationRecordToPromptJob(record: AutomationRecord): PromptJob
     provider: record.definition.target.provider ?? "claude",
     model: record.definition.target.model ?? "",
     cliArgs: record.definition.target.cliArgs ?? "",
-    cronExpr: trigger.type === "scheduled" ? trigger.cronExpr ?? "" : "",
+    cronExpr: trigger.type === "scheduled"
+      ? trigger.cronExpr ?? ""
+      : legacySchedule?.cronExpr ?? "",
     cadence: trigger.type === "scheduled"
       ? trigger.cadence ?? trigger.cronExpr ?? ""
-      : formatIntervalCadence(trigger.checkEveryMs),
+      : legacySchedule?.cadence ?? formatIntervalCadence(trigger.checkEveryMs),
     state: record.definition.state,
     overlapPolicy: execution.overlapPolicy,
     catchUpPolicy: execution.catchUpPolicy,
     cancelCheckSec: execution.cancelCheckSec,
-    triggerType: trigger.type,
-    condition: trigger.type === "condition" ? trigger.condition : "",
-    checkEveryMs: trigger.type === "condition" ? trigger.checkEveryMs : DEFAULT_CONDITION_CHECK_EVERY_MS,
+    condition: execution.condition ?? (trigger.type === "condition" ? trigger.condition : ""),
     nextRunAt: record.runtimeState.nextRunAt ?? null,
     lastRunAt: record.runtimeState.lastRunAt ?? null,
     lastOutcome: (record.runtimeState.lastOutcome ?? null) as PromptJob["lastOutcome"],
@@ -72,21 +65,16 @@ export function promptJobToAutomationDefinition(job: LegacyPromptJobLike): Autom
     name: job.name,
     ...(job.projectId ? { projectId: job.projectId } : {}),
     state: job.state,
-    trigger: job.triggerType === "condition"
-      ? {
-        type: "condition",
-        condition: job.condition,
-        checkEveryMs: job.checkEveryMs,
-      }
-      : {
-        type: "scheduled",
-        ...(job.cadence ? { cadence: job.cadence } : {}),
-        ...(job.cronExpr ? { cronExpr: job.cronExpr } : {}),
-      },
+    trigger: {
+      type: "scheduled",
+      ...(job.cadence ? { cadence: job.cadence } : {}),
+      ...(job.cronExpr ? { cronExpr: job.cronExpr } : {}),
+    },
     execution: {
       overlapPolicy: job.overlapPolicy,
       catchUpPolicy: job.catchUpPolicy,
       cancelCheckSec: job.cancelCheckSec,
+      ...(job.condition ? { condition: job.condition } : {}),
     },
     target: {
       type: "prompt_job",

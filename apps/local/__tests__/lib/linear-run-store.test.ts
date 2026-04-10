@@ -30,7 +30,7 @@ describe("linear-run-store", () => {
     const { createLinearRun, updateLinearRun, listLinearRuns } = await import(
       "@/lib/linear-run-store"
     );
-    const { createChatRun, updateChatRun } = await import("@/lib/history-store");
+    const { createChatRun, saveMessages, updateChatRun } = await import("@/lib/history-store");
 
     const linearRun = await createLinearRun({
       projectId: "project-1",
@@ -42,6 +42,7 @@ describe("linear-run-store", () => {
       issueAssignee: "Mina",
       agentId: "agent-1",
       agentName: "Codex",
+      mode: "scripted",
     });
 
     const chatRun = await createChatRun({
@@ -59,6 +60,19 @@ describe("linear-run-store", () => {
       chatRunId: chatRun.id,
       rootMessageId: "root-msg-1",
     });
+
+    await saveMessages(linearRun.threadId, [
+      {
+        id: "root-msg-1",
+        role: "user",
+        participantId: null,
+        content: "Follow up on the Linear run flow and make the session title readable in the UI",
+        timestamp: Date.now(),
+        rootMessageId: null,
+        parentMessageId: null,
+        depth: 0,
+      },
+    ]);
 
     await updateChatRun({
       id: chatRun.id,
@@ -79,6 +93,8 @@ describe("linear-run-store", () => {
         chatRunId: "chat-run-1",
         rootMessageId: "root-msg-1",
         agentName: "Codex",
+        mode: "scripted",
+        sessionTitle: null,
         status: "success",
         durationMs: 1500,
       })
@@ -110,8 +126,57 @@ describe("linear-run-store", () => {
     expect(stored).toEqual(
       expect.objectContaining({
         id: linearRun.id,
+        mode: "chat",
+        sessionTitle: null,
         status: "failed",
         lastError: "No active agents configured for this project",
+      })
+    );
+  });
+
+  test("derives a chat session title from the root user message", async () => {
+    const { createLinearRun, updateLinearRun, getLinearRun } = await import(
+      "@/lib/linear-run-store"
+    );
+    const { saveMessages } = await import("@/lib/history-store");
+
+    const linearRun = await createLinearRun({
+      issueId: "issue-3",
+      issueIdentifier: "ENG-123",
+      issueTitle: "Improve session list labels",
+      issueStatus: "Todo",
+      agentId: "agent-3",
+      agentName: "Planner",
+      mode: "chat",
+    });
+
+    await saveMessages(linearRun.threadId, [
+      {
+        id: "root-msg-3",
+        role: "user",
+        participantId: null,
+        content: "Make the chat session title come from the first message instead of the status badge text.",
+        timestamp: Date.now(),
+        rootMessageId: null,
+        parentMessageId: null,
+        depth: 0,
+      },
+    ]);
+
+    await updateLinearRun({
+      id: linearRun.id,
+      rootMessageId: "root-msg-3",
+    });
+
+    const stored = await getLinearRun(linearRun.id);
+
+    expect(stored).toEqual(
+      expect.objectContaining({
+        id: linearRun.id,
+        mode: "chat",
+        sessionTitle: expect.stringMatching(
+          /^Make the chat session title come from the first message/
+        ),
       })
     );
   });

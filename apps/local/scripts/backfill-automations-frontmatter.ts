@@ -1,5 +1,6 @@
 import { getSQLiteDb } from "@/lib/sqlite-query-adapter";
 import type { GraphSchedule } from "@/src/graph/types";
+import { normalizeLegacyConditionSchedule } from "@/src/prompt-scheduler/cron";
 import type { PromptJob, RunStatus } from "@/src/prompt-scheduler/types";
 import {
   AutomationRepository,
@@ -45,6 +46,10 @@ interface GraphAutomationRow {
 }
 
 function rowToPromptJob(row: PromptJobRow): PromptJob {
+  const legacySchedule = row.trigger_type === "condition"
+    ? normalizeLegacyConditionSchedule(row.check_every_ms || 300000)
+    : null;
+
   return {
     id: row.id,
     name: row.name,
@@ -54,15 +59,13 @@ function rowToPromptJob(row: PromptJobRow): PromptJob {
     provider: row.provider || row.cli || "claude",
     model: row.model || "",
     cliArgs: row.cli_args || "",
-    cronExpr: row.cron_expr,
-    cadence: row.cadence,
+    cronExpr: row.cron_expr || legacySchedule?.cronExpr || "",
+    cadence: row.cadence || legacySchedule?.cadence || row.cron_expr || "",
     state: row.state as PromptJob["state"],
     overlapPolicy: row.overlap_policy as PromptJob["overlapPolicy"],
     catchUpPolicy: row.catch_up_policy as PromptJob["catchUpPolicy"],
     cancelCheckSec: row.cancel_check_sec,
-    triggerType: row.trigger_type as PromptJob["triggerType"],
     condition: row.condition || "",
-    checkEveryMs: row.check_every_ms || 300000,
     nextRunAt: row.next_run_at,
     lastRunAt: row.last_run_at,
     lastOutcome: row.last_outcome as RunStatus | null,

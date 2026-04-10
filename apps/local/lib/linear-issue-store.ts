@@ -16,6 +16,7 @@ interface LinearIssueRow {
   identifier: string;
   title: string;
   description: string | null;
+  labels_json: string | null;
   url: string | null;
   status: string;
   assignee_id: string | null;
@@ -43,6 +44,7 @@ export interface CachedLinearIssueRecord {
   identifier: string;
   title: string;
   description: string | null;
+  labels?: string[];
   url: string | null;
   status: string;
   assigneeId: string | null;
@@ -64,6 +66,7 @@ export interface CachedLinearIssueInput {
   identifier: string;
   title: string;
   description?: string | null;
+  labels?: string[];
   url?: string | null;
   status: string;
   assigneeId?: string | null;
@@ -117,6 +120,36 @@ function toOptionalNumber(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function normalizeLabels(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+        .filter(Boolean)
+    )
+  );
+}
+
+function serializeLabels(value: string[] | undefined): string {
+  return JSON.stringify(normalizeLabels(value ?? []));
+}
+
+function parseLabels(value: string | null): string[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    return normalizeLabels(JSON.parse(value));
+  } catch {
+    return [];
+  }
+}
+
 function toIso(timestampMs: number): string {
   return new Date(timestampMs).toISOString();
 }
@@ -127,6 +160,7 @@ function mapRow(row: LinearIssueRow): CachedLinearIssueRecord {
     identifier: row.identifier,
     title: row.title,
     description: row.description,
+    labels: parseLabels(row.labels_json),
     url: row.url,
     status: row.status,
     assigneeId: row.assignee_id,
@@ -156,6 +190,15 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
 }
 
+function ensureColumn(db: DatabaseSync, table: string, column: string, sql: string): void {
+  const columns = db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all() as Array<{ name?: string }>;
+  if (!columns.some((entry) => entry.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${sql}`);
+  }
+}
+
 async function withLinearIssueDatabase<T>(run: (db: DatabaseSync) => T): Promise<T> {
   await fs.mkdir(LINEAR_DIR, { recursive: true });
   const db = new DatabaseSync(DB_PATH);
@@ -167,6 +210,7 @@ async function withLinearIssueDatabase<T>(run: (db: DatabaseSync) => T): Promise
         identifier TEXT NOT NULL,
         title TEXT NOT NULL,
         description TEXT,
+        labels_json TEXT NOT NULL DEFAULT '[]',
         url TEXT,
         status TEXT NOT NULL,
         assignee_id TEXT,
@@ -194,6 +238,7 @@ async function withLinearIssueDatabase<T>(run: (db: DatabaseSync) => T): Promise
         issue_count INTEGER NOT NULL
       );
     `);
+    ensureColumn(db, "linear_issues", "labels_json", "labels_json TEXT NOT NULL DEFAULT '[]'");
     return run(db);
   } finally {
     db.close();
@@ -213,15 +258,16 @@ export async function replaceCachedLinearIssues(input: {
     try {
       const upsert = db.prepare(`
         INSERT INTO linear_issues (
-          issue_id, identifier, title, description, url, status,
+          issue_id, identifier, title, description, labels_json, url, status,
           assignee_id, assignee_name, assignee_email, is_assigned_to_me,
           team_id, team_name, team_key, cycle_id, cycle_name, cycle_number,
           updated_at, pulled_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(issue_id) DO UPDATE SET
           identifier = excluded.identifier,
           title = excluded.title,
           description = excluded.description,
+          labels_json = excluded.labels_json,
           url = excluded.url,
           status = excluded.status,
           assignee_id = excluded.assignee_id,
@@ -244,6 +290,7 @@ export async function replaceCachedLinearIssues(input: {
           issue.identifier.trim(),
           issue.title.trim(),
           toOptionalString(issue.description ?? null),
+          serializeLabels(issue.labels),
           toOptionalString(issue.url ?? null),
           issue.status.trim(),
           toOptionalString(issue.assigneeId ?? null),
@@ -427,6 +474,31 @@ export async function listCachedLinearIssueStatuses(): Promise<string[]> {
     return rows
       .map((row) => row.status.trim())
       .filter(Boolean);
+  });
+}
+
+export async function updateCachedLinearIssueStatus(input: {
+  issueId: string;
+  status: string;
+  updatedAt: string;
+  pulledAtMs?: number;
+}): Promise<void> {
+  const issueId = input.issueId.trim();
+  const status = input.status.trim();
+  const updatedAt = input.updatedAt.trim();
+
+  if (!issueId || !status || !updatedAt) {
+    return;
+  }
+
+  const pulledAtMs = input.pulledAtMs ?? Date.now();
+
+  return withLinearIssueDatabase((db) => {
+    db.prepare(
+      `UPDATE linear_issues
+       SET status = ?, updated_at = ?, pulled_at = ?
+       WHERE issue_id = ?`
+    ).run(status, updatedAt, pulledAtMs, issueId);
   });
 }
 

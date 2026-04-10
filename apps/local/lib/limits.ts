@@ -5,7 +5,10 @@
  * Do not raise them without an architecture review.
  */
 
-import { WRITE_RATE_WARNING_COOLDOWN_MS } from "./constants/timing";
+import {
+  WRITE_RATE_SAMPLE_WINDOW_MS,
+  WRITE_RATE_WARNING_COOLDOWN_MS,
+} from "./constants/timing";
 
 /** Maximum concurrent workers per coordinator */
 export const MAX_WORKERS = Number(process.env.AGX_MAX_WORKERS) || 10;
@@ -17,7 +20,7 @@ export const WRITE_QPS_WARNING_THRESHOLD = 40;
 export const WRITE_QPS_CEILING = 50;
 
 /** Sampling window for write-rate monitoring (ms) */
-export { WRITE_RATE_SAMPLE_WINDOW_MS } from "./constants/timing";
+export { WRITE_RATE_SAMPLE_WINDOW_MS };
 
 /**
  * Validate worker count against MAX_WORKERS.

@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createLinearRun, listLinearRuns } from "@/lib/linear-run-store";
+import {
+  createLinearRun,
+  listLinearRuns,
+  type LinearRunMode,
+} from "@/lib/linear-run-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,10 +18,15 @@ interface CreateLinearRunBody {
   issueAssignee?: unknown;
   agentId?: unknown;
   agentName?: unknown;
+  mode?: unknown;
 }
 
 function toOptionalString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function toMode(value: unknown): LinearRunMode {
+  return value === "scripted" ? "scripted" : "chat";
 }
 
 export async function GET(request: NextRequest) {
@@ -75,6 +84,7 @@ export async function POST(request: NextRequest) {
       issueAssignee: toOptionalString(body.issueAssignee),
       agentId,
       agentName,
+      mode: toMode(body.mode),
     });
 
     return NextResponse.json({ run }, { status: 201 });

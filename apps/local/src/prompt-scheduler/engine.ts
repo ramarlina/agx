@@ -1,6 +1,6 @@
 import type { PromptJob, PromptRun } from './types';
 import type { PromptJobStore } from './store';
-import { computeNextRun } from './cron';
+import { computeNextRun, parseCadence } from './cron';
 
 export interface PollResult {
   queued: PromptRun[];
@@ -17,8 +17,10 @@ export async function pollDueJobs(store: PromptJobStore, now: number = Date.now(
   // Heal active jobs with null nextRunAt
   const allJobs = store.listJobs({ state: 'active' as any });
   for (const job of allJobs) {
-    if (job.nextRunAt === null && job.cronExpr) {
-      const nextRunAt = computeNextRunAt(job, now);
+    if (job.nextRunAt === null) {
+      const cronExpr = job.cronExpr || parseCadence(job.cadence)?.cronExpr || '';
+      if (!cronExpr) continue;
+      const nextRunAt = computeNextRunAt({ cronExpr }, now);
       if (nextRunAt) store.updateJob(job.id, { nextRunAt });
     }
   }
@@ -66,16 +68,12 @@ export async function pollDueJobs(store: PromptJobStore, now: number = Date.now(
 }
 
 /** Compute next run based on trigger type */
-function computeNextRunAt(job: { triggerType: string; checkEveryMs: number; cronExpr: string }, now: number): number | null {
-  if (job.triggerType === 'condition') {
-    return now + job.checkEveryMs;
-  }
+function computeNextRunAt(job: { cronExpr: string }, now: number): number | null {
   return computeNextRun(job.cronExpr, now);
 }
 
 /** Count how many cron occurrences were missed between lastRunAt/nextRunAt and now */
 function countMissedOccurrences(job: PromptJob, now: number): number {
-  if (job.triggerType === 'condition') return 1;
   if (!job.nextRunAt) return 1;
 
   let count = 0;

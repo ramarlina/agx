@@ -9,6 +9,8 @@ import { getLinearBoardFiltersStorageKey } from "@/state/linearBoardFilters";
 const mockUseLinearConnection = jest.fn();
 const mockUseLinearIssues = jest.fn();
 const mockUseLinearRuns = jest.fn();
+const mockUseGroupChat = jest.fn();
+const mockUseProcessPolling = jest.fn();
 
 jest.mock("next/dynamic", () => () => {
   return function MockDynamicComponent() {
@@ -32,11 +34,22 @@ jest.mock("@/hooks/useLinearRuns", () => ({
   useLinearRuns: (...args: unknown[]) => mockUseLinearRuns(...args),
 }));
 
+jest.mock("@/hooks/useGroupChat", () => ({
+  useGroupChat: (...args: unknown[]) => mockUseGroupChat(...args),
+}));
+
+jest.mock("@/hooks/useProcessPolling", () => ({
+  useProcessPolling: (...args: unknown[]) => mockUseProcessPolling(...args),
+}));
+
 describe("LinearBoard", () => {
   const originalClipboard = navigator.clipboard;
   const originalIntersectionObserver = global.IntersectionObserver;
   const originalFetch = global.fetch;
+  const originalWindowOpen = window.open;
   const writeText = jest.fn().mockResolvedValue(undefined);
+  const focusLinearWindow = jest.fn();
+  const mockWindowOpen = jest.fn();
 
   function createFetchResponse(body: unknown, ok = true) {
     return Promise.resolve({
@@ -60,11 +73,26 @@ describe("LinearBoard", () => {
     participants?: Array<{ id: string; name: string; color?: string; title?: string }>;
     projectAgentIds?: string[];
   } = {}) {
-    global.fetch = jest.fn((input: RequestInfo | URL) => {
+    global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
 
       if (url === "/api/linear/options?projectSlug=agx" || url === "/api/linear/options") {
         return createFetchResponse({ assignees, statuses, teams, cycles });
+      }
+
+       if (url === "/api/linear/issues/issue-1" && init?.method === "PATCH") {
+        const body = typeof init.body === "string" ? JSON.parse(init.body) : {};
+        return createFetchResponse({
+          issue: {
+            id: "issue-1",
+            identifier: "AGX-101",
+            title: "Add copy link action",
+            url: "https://linear.app/agx/issue/AGX-101/add-copy-link-action",
+            status: body.status ?? "Todo",
+            assignee: null,
+            updatedAt: "2026-04-09T00:00:00.000Z",
+          },
+        });
       }
 
       if (url === "/api/participants") {
@@ -88,6 +116,14 @@ describe("LinearBoard", () => {
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText },
+    });
+
+    mockWindowOpen.mockReset();
+    focusLinearWindow.mockReset();
+    mockWindowOpen.mockReturnValue({ focus: focusLinearWindow });
+    Object.defineProperty(window, "open", {
+      configurable: true,
+      value: mockWindowOpen,
     });
 
     global.IntersectionObserver = class {
@@ -131,6 +167,7 @@ describe("LinearBoard", () => {
       hasMore: false,
       loadMore: jest.fn(),
       refresh: jest.fn(),
+      updateIssue: jest.fn(),
     });
 
     mockUseLinearRuns.mockReturnValue({
@@ -138,6 +175,21 @@ describe("LinearBoard", () => {
       loading: false,
       createRun: jest.fn(),
       updateRun: jest.fn(),
+    });
+
+    mockUseGroupChat.mockReturnValue({
+      messages: [],
+      setMessages: jest.fn(),
+      sendMessage: jest.fn(),
+      loadHistory: jest.fn().mockResolvedValue(undefined),
+      stop: jest.fn(),
+      chatRuns: [],
+    });
+
+    mockUseProcessPolling.mockReturnValue({
+      processes: [],
+      streaming: {},
+      chatRuns: [],
     });
 
     mockBoardFetch();
@@ -150,6 +202,10 @@ describe("LinearBoard", () => {
     });
     global.fetch = originalFetch;
     global.IntersectionObserver = originalIntersectionObserver;
+    Object.defineProperty(window, "open", {
+      configurable: true,
+      value: originalWindowOpen,
+    });
   });
 
   test("copies the selected issue URL from the ticket list", async () => {
@@ -295,6 +351,7 @@ describe("LinearBoard", () => {
       hasMore: false,
       loadMore: jest.fn(),
       refresh,
+      updateIssue: jest.fn(),
     });
 
     render(<LinearBoard projectId="project-1" projectSlug="agx" />);
@@ -329,5 +386,125 @@ describe("LinearBoard", () => {
 
     expect(await screen.findByText("Start a new session for this ticket")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start scripted session" })).toBeInTheDocument();
+  });
+
+  test("opens the selected ticket in a new browser tab from the row action", async () => {
+    mockBoardFetch({
+      participants: [{ id: "agent-1", name: "Builder" }],
+      projectAgentIds: ["agent-1"],
+    });
+
+    render(<LinearBoard projectId="project-1" projectSlug="agx" />);
+
+    const popoutButton = await screen.findByRole("button", {
+      name: "Open this Linear ticket in a new tab",
+    });
+
+    expect(popoutButton).toHaveAttribute(
+      "title",
+      "Open this Linear ticket in a new tab"
+    );
+
+    fireEvent.click(popoutButton);
+
+    expect(mockWindowOpen).toHaveBeenCalledWith(
+      "https://linear.app/agx/issue/AGX-101/add-copy-link-action",
+      "_blank",
+      "noopener,noreferrer"
+    );
+    expect(focusLinearWindow).toHaveBeenCalledTimes(1);
+  });
+
+  test("labels plain chat sessions as ready instead of success", async () => {
+    mockUseLinearRuns.mockReturnValue({
+      runs: [
+        {
+          id: "run-1",
+          projectId: "project-1",
+          projectSlug: "agx",
+          issueId: "issue-1",
+          issueIdentifier: "AGX-101",
+          issueTitle: "Add copy link action",
+          issueStatus: "Todo",
+          issueAssignee: null,
+          threadId: "thread-1",
+          rootMessageId: "root-1",
+          chatRunId: "chat-run-1",
+          agentId: "agent-1",
+          agentName: "Builder",
+          mode: "chat",
+          sessionTitle: "Investigate the copy-link bug in the ticket sidebar",
+          status: "success",
+          durationMs: 256600,
+          lastError: null,
+          startedAt: "2026-04-09T09:48:00.000Z",
+          updatedAt: "2026-04-09T09:52:16.600Z",
+          completedAt: "2026-04-09T09:52:16.600Z",
+        },
+      ] as LinearRun[],
+      loading: false,
+      createRun: jest.fn(),
+      updateRun: jest.fn(),
+    });
+
+    render(<LinearBoard projectId="project-1" projectSlug="agx" />);
+
+    expect(
+      await screen.findAllByText("Investigate the copy-link bug in the ticket sidebar")
+    ).toHaveLength(2);
+    await screen.findAllByText("ready");
+    expect(screen.queryByText("success")).not.toBeInTheDocument();
+  });
+
+  test("updates the selected ticket status through the clickable status control", async () => {
+    const refresh = jest.fn().mockResolvedValue(undefined);
+    const updateIssue = jest.fn();
+
+    mockUseLinearIssues.mockReturnValue({
+      issues: [
+        {
+          id: "issue-1",
+          identifier: "AGX-101",
+          title: "Add copy link action",
+          url: "https://linear.app/agx/issue/AGX-101/add-copy-link-action",
+          status: "Todo",
+          assignee: null,
+          updatedAt: "2026-04-07T00:00:00.000Z",
+        },
+      ],
+      loading: false,
+      hasMore: false,
+      loadMore: jest.fn(),
+      refresh,
+      updateIssue,
+    });
+
+    mockBoardFetch({
+      participants: [{ id: "agent-1", name: "Builder" }],
+      projectAgentIds: ["agent-1"],
+    });
+
+    render(<LinearBoard projectId="project-1" projectSlug="agx" />);
+
+    fireEvent.change(await screen.findByRole("combobox", { name: "Ticket status" }), {
+      target: { value: "In Progress" },
+    });
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/linear/issues/issue-1",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ status: "In Progress" }),
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(updateIssue).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "issue-1", status: "In Progress" })
+      );
+      expect(refresh).toHaveBeenCalledTimes(1);
+    });
   });
 });

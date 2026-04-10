@@ -18,7 +18,7 @@ jest.mock("next/link", () => {
 });
 
 describe("WorkspaceSidebar", () => {
-  test("does not render board or knowledge project links", () => {
+  test("renders objectives project links, but not knowledge", () => {
     const project: ProjectWithAgents = {
       id: "project-1",
       name: "Alpha",
@@ -47,13 +47,11 @@ describe("WorkspaceSidebar", () => {
         visible
         projects={[project]}
         activeProjectId={project.id}
-        activeProjectView="board"
+        activeProjectView="objectives"
       />
     );
 
-    fireEvent.click(screen.getByLabelText("Expand Alpha"));
-
-    expect(screen.queryByRole("link", { name: "Board" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Objectives" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Knowledge" })).not.toBeInTheDocument();
   });
 
@@ -87,11 +85,10 @@ describe("WorkspaceSidebar", () => {
         visible
         projects={[project]}
         activeProjectId={project.id}
-        activeProjectView="board"
+        activeProjectView="objectives"
       />
     );
 
-    fireEvent.click(screen.getByLabelText("Expand Alpha"));
     fireEvent.click(screen.getByRole("button", { name: "Chat" }));
 
     expect(onSelectThread).toHaveBeenCalledWith("server-thread-1");
@@ -143,11 +140,10 @@ describe("WorkspaceSidebar", () => {
         visible
         projects={[project]}
         activeProjectId={project.id}
-        activeProjectView="board"
+        activeProjectView="objectives"
       />
     );
 
-    fireEvent.click(screen.getByLabelText("Expand Alpha"));
     fireEvent.click(screen.getByRole("button", { name: "Chat" }));
 
     expect(onSelectThread).toHaveBeenCalledWith("z-thread");
