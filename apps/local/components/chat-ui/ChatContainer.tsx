@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { UI_POLL_CHAT_CHECK_MS, UI_POLL_CHAT_ALT_MS } from "@/lib/constants/timing";
 import { useSearchParams } from "next/navigation";
 import { useGroupChat } from "@/hooks/useGroupChat";
@@ -1710,30 +1711,36 @@ export function ChatContainer({
     </div>
   );
 
-  const mainToolbar = projectSlug ? (
-    <div className="px-4 py-1.5 flex items-center gap-2">
-      <div className="flex flex-1 justify-center min-w-0">
-        <div className="flex w-full max-w-2xl items-center gap-2">
-          {searchBar}
-          {openThreadId && (
-            <button
-              type="button"
-              onClick={() => setLogsOpen(!logsOpen)}
-              aria-label={logsOpen ? "Hide logs" : `Show logs${logs.length > 0 ? ` (${logs.length})` : ""}`}
-              aria-pressed={logsOpen}
-              title={logsOpen ? "Hide logs" : `Show logs${logs.length > 0 ? ` (${logs.length})` : ""}`}
-              className={`inline-flex h-7 w-7 items-center justify-center rounded-lg border transition-all ${logsOpen
-                ? "border-[var(--app-shell-border-strong)] bg-[var(--app-shell-subtle)] text-[var(--foreground)]"
-                : "border-[var(--app-shell-border)] bg-[var(--app-shell-elevated)] text-[var(--app-shell-muted)] hover:bg-[var(--app-shell-subtle)] hover:text-[var(--foreground)]"
-                }`}
-            >
-              <SquareTerminal className="h-3.5 w-3.5" strokeWidth={1.75} />
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  ) : (
+  const [topbarTarget, setTopbarTarget] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!projectSlug) return;
+    const el = document.getElementById("topbar-center");
+    setTopbarTarget(el);
+  }, [projectSlug]);
+
+  const topbarSearchPortal = projectSlug && topbarTarget ? createPortal(
+    <div className="flex items-center gap-2 w-full">
+      {searchBar}
+      {openThreadId && (
+        <button
+          type="button"
+          onClick={() => setLogsOpen(!logsOpen)}
+          aria-label={logsOpen ? "Hide logs" : `Show logs${logs.length > 0 ? ` (${logs.length})` : ""}`}
+          aria-pressed={logsOpen}
+          title={logsOpen ? "Hide logs" : `Show logs${logs.length > 0 ? ` (${logs.length})` : ""}`}
+          className={`inline-flex h-7 w-7 items-center justify-center rounded-lg border transition-all shrink-0 ${logsOpen
+            ? "border-[var(--app-shell-border-strong)] bg-[var(--app-shell-subtle)] text-[var(--foreground)]"
+            : "border-[var(--app-shell-border)] bg-[var(--app-shell-elevated)] text-[var(--app-shell-muted)] hover:bg-[var(--app-shell-subtle)] hover:text-[var(--foreground)]"
+            }`}
+        >
+          <SquareTerminal className="h-3.5 w-3.5" strokeWidth={1.75} />
+        </button>
+      )}
+    </div>,
+    topbarTarget
+  ) : null;
+
+  const mainToolbar = projectSlug ? null : (
     <div
       className="desktop-titlebar border-b border-[var(--app-shell-border)] bg-[var(--app-shell-surface)] px-4 py-2.5 backdrop-blur-xl md:px-6"
     >
@@ -1780,7 +1787,8 @@ export function ChatContainer({
   );
 
   return (
-    <div className="flex h-screen bg-[var(--app-shell-bg)] text-[var(--foreground)]">
+    <div className={`flex ${projectSlug ? "h-full" : "h-screen"} bg-[var(--app-shell-bg)] text-[var(--foreground)]`}>
+      {topbarSearchPortal}
         {showSidebar ? (
           <WorkspaceSidebar
             threads={threads}

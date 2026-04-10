@@ -201,8 +201,9 @@ function ProjectLayoutContent({
             )}
           </div>
 
-          {/* Center: page title for non-chat/non-overview views */}
-          <div className="flex-1 flex justify-center min-w-0">
+          {/* Center: portal target for chat search, or page title for other views */}
+          <div className="flex-1 flex justify-center min-w-0 px-4">
+            <div id="topbar-center" className="w-full max-w-xl" />
             {activeProjectView !== "overview" && activeProjectView !== "thread" && (
               <span className="text-sm font-medium text-[var(--foreground)]">
                 {{ objectives: "Objectives", teams: "Teams", linear: "Linear", automations: "Scheduled Tasks", knowledge: "Knowledge", settings: "Settings" }[activeProjectView] ?? ""}
