@@ -11,16 +11,46 @@ interface DaemonStatus {
   startedAt: string | null;
 }
 
+async function readDaemonError(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  try {
+    const data = await response.json();
+    if (data && typeof data.error === "string") {
+      return data.error;
+    }
+  } catch {}
+
+  return fallback;
+}
+
 export default function DaemonBar() {
   const [status, setStatus] = useState<DaemonStatus | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchStatus = useCallback(async () => {
     try {
-      const res = await fetch("/api/daemon");
-      if (res.ok) setStatus(await res.json());
+      const res = await fetch("/api/daemon", { cache: "no-store" });
+      if (!res.ok) {
+        setStatus(null);
+        setError(
+          await readDaemonError(
+            res,
+            res.status === 401 || res.status === 403
+              ? "Daemon control is not available from this caller."
+              : `Could not load daemon status (${res.status}).`,
+          ),
+        );
+        return;
+      }
+
+      setStatus(await res.json());
+      setError(null);
     } catch {
-      // silent
+      setStatus(null);
+      setError("Could not load daemon status.");
     }
   }, []);
 
@@ -34,17 +64,37 @@ export default function DaemonBar() {
     setLoading(true);
     try {
       if (status?.running) {
-        await fetch("/api/daemon", {
+        const res = await fetch("/api/daemon", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "stop" }),
         });
+        if (!res.ok) {
+          setError(
+            await readDaemonError(
+              res,
+              `Could not update daemon state (${res.status}).`,
+            ),
+          );
+          setStatus(null);
+          return;
+        }
       } else {
-        await fetch("/api/daemon", {
+        const res = await fetch("/api/daemon", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ workers: 1 }),
         });
+        if (!res.ok) {
+          setError(
+            await readDaemonError(
+              res,
+              `Could not update daemon state (${res.status}).`,
+            ),
+          );
+          setStatus(null);
+          return;
+        }
       }
       await fetchStatus();
     } finally {
@@ -58,18 +108,32 @@ export default function DaemonBar() {
     if (next === status.targetWorkers) return;
     setLoading(true);
     try {
-      await fetch("/api/daemon", {
+      const res = await fetch("/api/daemon", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workers: next }),
       });
+      if (!res.ok) {
+        setError(
+          await readDaemonError(
+            res,
+            `Could not update daemon state (${res.status}).`,
+          ),
+        );
+        setStatus(null);
+        return;
+      }
       await fetchStatus();
     } finally {
       setLoading(false);
     }
   };
 
-  if (!status) return null;
+  if (!status) {
+    return error ? (
+      <div className="py-2 text-xs text-amber-600">{error}</div>
+    ) : null;
+  }
 
   const running = status.running;
 
@@ -123,6 +187,8 @@ export default function DaemonBar() {
           )}
         </>
       )}
+
+      {error ? <span className="text-amber-600">{error}</span> : null}
     </div>
   );
 }

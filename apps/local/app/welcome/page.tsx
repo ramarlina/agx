@@ -313,21 +313,6 @@ export default function WelcomePage() {
     setLaunchError(null);
     try {
       await updateUserPreferences({ hasCompletedFirstRun: true });
-      const daemonRes = await fetch("/api/daemon");
-      if (!daemonRes.ok) {
-        throw new Error(`Could not read daemon status (${daemonRes.status})`);
-      }
-      const daemonData = await daemonRes.json();
-      if (!daemonData.running) {
-        const startRes = await fetch("/api/daemon", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ workers: 1 }),
-        });
-        if (!startRes.ok) {
-          throw new Error(`Could not start AGX (${startRes.status})`);
-        }
-      }
       router.push("/");
     } catch (e) {
       console.error("Failed to finalize onboarding", e);
