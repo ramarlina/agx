@@ -7,9 +7,14 @@ import {
   createAgent,
   setAgentSkills,
 } from "@/lib/db";
-import { getTeamTemplate, getAgentPresetBindings } from "@/lib/team-catalog";
+import {
+  getTeamTemplate,
+  getTemplateVariant,
+  getAgentPreset,
+  getAgentPresetBindings,
+} from "@/lib/team-catalog";
 import { LOCAL_USER } from "@/lib/auth-mode";
-import type { TeamTemplateId } from "@/lib/team-catalog";
+import type { TeamTemplateId, AgentPresetId, AgentPreset } from "@/lib/team-catalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,51 +41,91 @@ export async function GET(_request: NextRequest, context: RouteContext) {
   }
 }
 
-/** POST /api/projects/[id]/teams — create a team (optionally from template) */
+async function provisionAgent(preset: AgentPreset, teamId: string, order: number) {
+  const agent = await createAgent(LOCAL_USER.id, {
+    name: preset.name,
+    title: preset.title,
+    style: preset.style,
+    voice: preset.identity,
+  });
+
+  const bindings = getAgentPresetBindings(preset);
+  if (bindings.length > 0) {
+    await setAgentSkills(
+      agent.id,
+      bindings.map((b) => ({
+        file: `${b.repo}/${b.skillId}`,
+        ...(b.condition ? { condition: b.condition } : {}),
+      })),
+    );
+  }
+
+  await addTeamAgent(teamId, agent.id, preset.id, order);
+  return agent;
+}
+
+/**
+ * POST /api/projects/[id]/teams — create a team
+ *
+ * Body options:
+ *   { templateId, variantId?, name? }         — from template/variant
+ *   { templateId, agents: AgentPresetId[] }   — template with custom preset selection
+ *   { name }                                  — empty custom team
+ */
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const { id: projectId } = await context.params;
     const body = await request.json().catch(() => ({}));
 
     const templateId = typeof body.templateId === "string" ? body.templateId.trim() : undefined;
+    const variantId = typeof body.variantId === "string" ? body.variantId.trim() : undefined;
+    const customAgents: string[] | undefined = Array.isArray(body.agents) ? body.agents : undefined;
     const name = typeof body.name === "string" ? body.name.trim() : undefined;
 
-    // If templateId provided, expand from catalog
-    if (templateId) {
+    if (templateId && templateId !== "__custom__") {
       const template = getTeamTemplate(templateId as TeamTemplateId);
       if (!template) {
         return NextResponse.json({ error: `Unknown template: ${templateId}` }, { status: 400 });
       }
 
-      const teamName = name || template.name;
-      const team = await createTeam(projectId, teamName, templateId, {
+      // Determine which presets to use: custom list > variant > template default
+      let presets: AgentPreset[];
+      let teamName: string;
+      let metadata: Record<string, unknown> = {
         icon: template.icon,
         description: template.description,
-      });
+      };
 
-      // Create agents from template presets and wire them to the team
-      for (let i = 0; i < template.agents.length; i++) {
-        const preset = template.agents[i];
-        const agent = await createAgent(LOCAL_USER.id, {
-          name: preset.name,
-          title: preset.title,
-          style: preset.style,
-          voice: preset.identity,
-        });
-
-        // Attach skill bindings from profile + extraSkills
-        const bindings = getAgentPresetBindings(preset);
-        if (bindings.length > 0) {
-          await setAgentSkills(
-            agent.id,
-            bindings.map((b) => ({
-              file: `${b.repo}/${b.skillId}`,
-              ...(b.condition ? { condition: b.condition } : {}),
-            })),
-          );
+      if (customAgents) {
+        // Custom selection of presets from the registry
+        presets = [];
+        for (const presetId of customAgents) {
+          const p = getAgentPreset(presetId as AgentPresetId);
+          if (!p) {
+            return NextResponse.json({ error: `Unknown preset: ${presetId}` }, { status: 400 });
+          }
+          presets.push(p);
         }
+        teamName = name || template.name;
+        metadata.variantId = "custom";
+      } else if (variantId) {
+        const variant = getTemplateVariant(templateId as TeamTemplateId, variantId);
+        if (!variant) {
+          return NextResponse.json({ error: `Unknown variant: ${variantId}` }, { status: 400 });
+        }
+        presets = variant.agents;
+        teamName = name || variant.name;
+        metadata.variantId = variantId;
+        metadata.description = variant.description;
+      } else {
+        presets = template.agents;
+        teamName = name || template.name;
+      }
 
-        await addTeamAgent(team.id, agent.id, preset.roleKey, i);
+      const team = await createTeam(projectId, teamName, templateId, metadata);
+
+      for (let i = 0; i < presets.length; i++) {
+        await provisionAgent(presets[i], team.id, i);
       }
 
       const agents = await getTeamAgents(team.id);

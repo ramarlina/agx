@@ -1,33 +1,21 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { listTeamTemplates, type TeamTemplate } from "@/lib/team-catalog";
 import {
-  Hammer,
-  ClipboardList,
-  Layers,
-  Megaphone,
-  Database,
-  Palette,
-  Server,
-  Shield,
-  FlaskConical,
+  listTeamTemplates,
+  listAgentPresets,
+  type AgentPresetId,
+} from "@/lib/team-catalog";
+import SearchCombo, { type ComboOption } from "@/components/SearchCombo";
+import {
+  Plus,
+  Search,
   Users,
   Loader2,
   AlertTriangle,
+  Check,
+  X,
 } from "lucide-react";
-
-const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
-  layers: Layers,
-  hammer: Hammer,
-  "clipboard-list": ClipboardList,
-  megaphone: Megaphone,
-  database: Database,
-  palette: Palette,
-  server: Server,
-  shield: Shield,
-  "flask-conical": FlaskConical,
-};
 
 interface UnassignedAgentSummary {
   id: string;
@@ -48,33 +36,117 @@ export default function ReplaceAgentsModal({
   onReplaced,
 }: ReplaceAgentsModalProps) {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
+  const [selectedPresetIds, setSelectedPresetIds] = useState<Set<AgentPresetId>>(new Set());
+  const [teamName, setTeamName] = useState("");
+  const [roleSearch, setRoleSearch] = useState("");
   const [replacing, setReplacing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const templates = useMemo(() => listTeamTemplates(), []);
+  const allPresets = useMemo(() => listAgentPresets(), []);
+
+  const selectedTemplate = useMemo(
+    () => templates.find((t) => t.id === selectedTemplateId) ?? null,
+    [templates, selectedTemplateId],
+  );
+
+  const templateOptions: ComboOption[] = useMemo(
+    () => templates.map((t) => ({
+      id: t.id,
+      label: t.name,
+      description: t.description,
+      meta: t.variants ? `${t.variants.length} specializations` : `${t.agents.length} roles`,
+    })),
+    [templates],
+  );
+
+  const variantOptions: ComboOption[] = useMemo(() => {
+    if (!selectedTemplate?.variants) return [];
+    return selectedTemplate.variants.map((v) => ({
+      id: v.id,
+      label: v.name,
+      description: v.description,
+      meta: `${v.agents.length} roles`,
+    }));
+  }, [selectedTemplate]);
+
+  const selectedPresets = useMemo(
+    () => allPresets.filter((p) => selectedPresetIds.has(p.id)),
+    [allPresets, selectedPresetIds],
+  );
+
+  const availablePresets = useMemo(() => {
+    const q = roleSearch.toLowerCase();
+    return allPresets.filter(
+      (p) =>
+        !selectedPresetIds.has(p.id) &&
+        (!q || p.name.toLowerCase().includes(q) || p.id.includes(q) || p.skillProfileId.includes(q)),
+    );
+  }, [allPresets, selectedPresetIds, roleSearch]);
+
+  function handleTemplateChange(id: string) {
+    setSelectedTemplateId(id);
+    setSelectedVariantId(null);
+    const t = templates.find((t) => t.id === id);
+    if (t) {
+      setTeamName(t.name);
+      if (!t.variants) {
+        setSelectedPresetIds(new Set(t.agents.map((a) => a.id)));
+      } else {
+        setSelectedPresetIds(new Set());
+      }
+    }
+  }
+
+  function handleVariantChange(id: string) {
+    setSelectedVariantId(id);
+    const v = selectedTemplate?.variants?.find((v) => v.id === id);
+    if (v) {
+      setTeamName(v.name);
+      setSelectedPresetIds(new Set(v.agents.map((a) => a.id)));
+    }
+  }
+
+  function togglePreset(id: AgentPresetId) {
+    setSelectedPresetIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const hasVariants = !!selectedTemplate?.variants;
+  const isConfigured = selectedPresetIds.size > 0;
 
   async function handleReplace() {
-    if (!selectedTemplateId) return;
+    if (!isConfigured || !selectedTemplateId) return;
 
     setReplacing(true);
     setError(null);
 
     try {
-      // 1. Delete each unassigned agent from the project
       await Promise.all(
         unassignedAgents.map((agent) =>
           fetch(
             `/api/projects/${projectId}/agents?agentId=${encodeURIComponent(agent.id)}`,
-            { method: "DELETE" }
-          )
-        )
+            { method: "DELETE" },
+          ),
+        ),
       );
 
-      // 2. Create new team from template
+      const body: Record<string, unknown> = {
+        templateId: selectedTemplateId,
+        name: teamName.trim() || selectedTemplate?.name,
+        agents: [...selectedPresetIds],
+      };
+      if (selectedVariantId) body.variantId = selectedVariantId;
+
       const teamRes = await fetch(`/api/projects/${projectId}/teams`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ templateId: selectedTemplateId }),
+        body: JSON.stringify(body),
       });
 
       if (!teamRes.ok) {
@@ -91,51 +163,43 @@ export default function ReplaceAgentsModal({
   }
 
   return (
-    <div
-      className="modal-backdrop p-2 sm:p-4 z-50 overflow-y-auto flex items-center justify-center"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div className="modal-content w-full max-w-3xl mx-2 sm:mx-auto bg-[var(--card-bg)] rounded-3xl border border-[var(--card-border)] shadow-2xl animate-scale-in flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex justify-end" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+
+      <div
+        className="relative w-full max-w-xl flex flex-col h-full border-l"
+        style={{ background: "var(--card-bg)", borderColor: "var(--border)" }}
+      >
         {/* Header */}
-        <div className="px-4 py-4 sm:px-8 sm:py-6 border-b border-[var(--card-border)] flex items-center justify-between flex-shrink-0">
+        <div className="px-6 py-5 border-b flex items-center justify-between flex-shrink-0" style={{ borderColor: "var(--border)" }}>
           <div>
-            <h2 className="text-xl font-bold">Replace Unassigned Agents</h2>
+            <h2 className="text-lg font-bold">Replace Unassigned Agents</h2>
             <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
               Remove unassigned agents and create a new team from a template.
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-xl hover:bg-[var(--muted)]/50 transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-[var(--muted)]/50 transition-colors">
+            <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-6">
+        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
           {error && (
-            <div className="p-4 rounded-xl bg-[var(--destructive-muted)] border border-[var(--destructive)]/20 text-sm text-[var(--destructive)]">
+            <div className="p-3 rounded-xl bg-[var(--destructive-muted)] border border-[var(--destructive)]/20 text-sm text-[var(--destructive)]">
               {error}
             </div>
           )}
 
           {/* Warning */}
-          <div className="p-4 rounded-2xl bg-red-500/5 border border-red-500/20">
+          <div className="p-3.5 rounded-xl bg-red-500/5" style={{ border: "1px solid rgba(239,68,68,0.2)" }}>
             <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+              <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-red-400 mb-2">
-                  The following agents will be removed from this project:
-                </p>
+                <p className="text-sm font-medium text-red-400 mb-1.5">These agents will be removed:</p>
                 <div className="flex flex-wrap gap-1.5">
                   {unassignedAgents.map((agent) => (
-                    <span
-                      key={agent.id}
-                      className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-lg bg-red-500/10 text-red-300 border border-red-500/20"
-                    >
+                    <span key={agent.id} className="text-xs px-2 py-0.5 rounded-lg bg-red-500/10 text-red-300 border border-red-500/20">
                       {agent.name}
                     </span>
                   ))}
@@ -144,73 +208,129 @@ export default function ReplaceAgentsModal({
             </div>
           </div>
 
-          {/* Template picker grid */}
+          {/* Team name */}
           <div>
-            <label className="block text-sm font-medium mb-2">
-              Choose a replacement team
-            </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {templates.map((template) => {
-                const IconComponent = ICON_MAP[template.icon] || Users;
-                const isSelected = selectedTemplateId === template.id;
-
-                return (
-                  <button
-                    key={template.id}
-                    onClick={() => setSelectedTemplateId(template.id)}
-                    disabled={replacing}
-                    className={`
-                      text-left p-4 rounded-2xl border transition-all
-                      ${
-                        isSelected
-                          ? "border-red-500/50 bg-red-500/5 ring-1 ring-red-500/30"
-                          : replacing
-                            ? "border-[var(--card-border)] bg-[var(--muted)]/10 cursor-wait"
-                            : "border-[var(--card-border)] hover:border-[var(--primary)]/50 hover:bg-[var(--muted)]/30 cursor-pointer"
-                      }
-                    `}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div
-                        className={`
-                          w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0
-                          ${isSelected ? "bg-red-500/10" : "bg-[var(--primary)]/10"}
-                        `}
-                      >
-                        <IconComponent
-                          className={`w-5 h-5 ${isSelected ? "text-red-400" : "text-[var(--primary)]"}`}
-                        />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-sm">{template.name}</span>
-                          {isSelected && (
-                            <span className="text-[10px] font-medium uppercase tracking-wider text-red-400">
-                              Selected
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-xs text-[var(--muted-foreground)] mt-0.5 line-clamp-2">
-                          {template.description}
-                        </p>
-                        <div className="flex items-center gap-1 mt-2 text-[11px] text-[var(--muted-foreground)]">
-                          <Users className="w-3 h-3" />
-                          <span>
-                            {template.agents.length} agent
-                            {template.agents.length !== 1 ? "s" : ""}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
+            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Replacement team name</label>
+            <input
+              value={teamName}
+              onChange={(e) => setTeamName(e.target.value)}
+              placeholder="e.g. Engineering"
+              className="input w-full text-sm"
+              disabled={replacing}
+            />
           </div>
+
+          {/* Template dropdown */}
+          <div>
+            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Template</label>
+            <SearchCombo
+              options={templateOptions}
+              value={selectedTemplateId}
+              onChange={handleTemplateChange}
+              placeholder="Select a team template..."
+              disabled={replacing}
+            />
+          </div>
+
+          {/* Variant dropdown */}
+          {hasVariants && (
+            <div>
+              <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Specialization</label>
+              <SearchCombo
+                options={variantOptions}
+                value={selectedVariantId}
+                onChange={handleVariantChange}
+                placeholder="Select a specialization..."
+                disabled={replacing}
+              />
+            </div>
+          )}
+
+          {/* Selected roles */}
+          {isConfigured && (
+            <div>
+              <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-2">
+                Roles ({selectedPresets.length})
+              </label>
+              <div className="space-y-1.5">
+                {selectedPresets.map((preset) => (
+                  <div
+                    key={preset.id}
+                    className="flex items-center justify-between py-2 px-3 rounded-xl"
+                    style={{ background: "var(--muted)", border: "1px solid var(--border)" }}
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 bg-emerald-500/15">
+                        <Check className="w-3 h-3 text-emerald-400" />
+                      </div>
+                      <span className="text-sm font-medium truncate">{preset.name}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: "var(--card-bg)", color: "var(--muted-foreground)" }}>
+                        {preset.skillProfileId}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => togglePreset(preset.id)}
+                      disabled={replacing}
+                      className="p-1.5 rounded-lg hover:bg-red-500/15 text-[var(--muted-foreground)] hover:text-red-400 transition-colors"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Add more roles */}
+          {selectedTemplateId && (
+            <div>
+              <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Add roles</label>
+              <div className="relative mb-3">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                <input
+                  value={roleSearch}
+                  onChange={(e) => setRoleSearch(e.target.value)}
+                  placeholder="Search all roles..."
+                  className="input w-full text-sm"
+                  style={{ paddingLeft: "2.25rem" }}
+                  disabled={replacing}
+                />
+                {roleSearch && (
+                  <button
+                    onClick={() => setRoleSearch("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2 max-h-44 overflow-y-auto">
+                {availablePresets.map((preset) => (
+                  <button
+                    key={preset.id}
+                    onClick={() => togglePreset(preset.id)}
+                    disabled={replacing}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors"
+                    style={{ background: "var(--muted)", border: "1px solid var(--border)", color: "var(--muted-foreground)" }}
+                    onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--primary)"; e.currentTarget.style.color = "var(--primary)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--muted-foreground)"; }}
+                  >
+                    <Plus className="w-3 h-3" />
+                    {preset.name}
+                  </button>
+                ))}
+                {availablePresets.length === 0 && (
+                  <span className="text-xs text-[var(--muted-foreground)] py-2">
+                    {roleSearch ? "No matching roles" : "All roles selected"}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-4 sm:px-8 sm:py-6 border-t border-[var(--card-border)] flex items-center justify-end gap-3 flex-shrink-0">
+        <div className="px-6 py-4 border-t flex items-center justify-end gap-3 flex-shrink-0" style={{ borderColor: "var(--border)" }}>
           <button
             onClick={onClose}
             disabled={replacing}
@@ -220,7 +340,7 @@ export default function ReplaceAgentsModal({
           </button>
           <button
             onClick={handleReplace}
-            disabled={!selectedTemplateId || replacing}
+            disabled={!isConfigured || !selectedTemplateId || replacing}
             className="px-5 py-2 rounded-xl text-sm font-medium min-w-[120px] flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {replacing ? (
@@ -228,7 +348,7 @@ export default function ReplaceAgentsModal({
             ) : (
               <>
                 <AlertTriangle className="w-4 h-4" />
-                Replace All
+                Replace ({selectedPresetIds.size})
               </>
             )}
           </button>

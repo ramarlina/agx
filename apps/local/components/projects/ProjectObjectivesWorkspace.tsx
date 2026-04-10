@@ -49,8 +49,10 @@ interface ObjectiveEditorDraft {
   summary: string;
   cadence: string;
   condition: string;
-  progress: number;
-  status: ProjectObjectiveHealth;
+}
+
+interface ObjectiveTeamDraft {
+  teamId: string;
 }
 
 interface ProjectTeamSummary {
@@ -118,10 +120,6 @@ function formatDateTime(value: string): string {
   });
 }
 
-function clampProgress(progress: number): number {
-  return Math.max(0, Math.min(100, Math.round(progress)));
-}
-
 function sortTasks(tasks: ProjectObjectiveManualTask[]): ProjectObjectiveManualTask[] {
   const rank: Record<ProjectObjectiveTaskStatus, number> = {
     in_progress: 0,
@@ -142,8 +140,6 @@ function buildEmptyObjectiveDraft(): ObjectiveEditorDraft {
     summary: "",
     cadence: "",
     condition: "",
-    progress: 0,
-    status: "on_track",
   };
 }
 
@@ -155,8 +151,6 @@ function buildObjectiveDraft(objective: ProjectObjective): ObjectiveEditorDraft 
     summary: objective.summary,
     cadence: objective.cadence,
     condition: objective.condition,
-    progress: objective.progress,
-    status: objective.status,
   };
 }
 
@@ -407,12 +401,12 @@ export function ProjectObjectivesOverview({
     }
     const teamId = objectiveEditor.teamId.trim();
     if (!teamId) {
-      setSaveError("Team owner is required.");
+      setSaveError("Team is required.");
       return;
     }
     const assignedObjective = findObjectiveAssignedToTeam(workspace, teamId);
     if (assignedObjective) {
-      setSaveError(`Team owner is already assigned to "${assignedObjective.title}".`);
+      setSaveError(`Team is already assigned to "${assignedObjective.title}".`);
       return;
     }
 
@@ -423,8 +417,6 @@ export function ProjectObjectivesOverview({
       summary: objectiveEditor.summary,
       cadence: objectiveEditor.cadence,
       condition: objectiveEditor.condition,
-      progress: objectiveEditor.progress,
-      status: objectiveEditor.status,
       now,
     });
 
@@ -538,6 +530,7 @@ export function ProjectObjectiveDetail({
   );
   const teamName = objective ? getTeamName(teams, objective.teamId) : null;
   const [objectiveEditor, setObjectiveEditor] = useState<ObjectiveEditorDraft | null>(null);
+  const [teamEditor, setTeamEditor] = useState<ObjectiveTeamDraft | null>(null);
   const [wakeEditor, setWakeEditor] = useState<ObjectiveEditorDraft | null>(null);
   const [taskEditor, setTaskEditor] = useState<ManualTaskDraft | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -567,31 +560,40 @@ export function ProjectObjectiveDetail({
       setSaveError("Objective statement is required.");
       return;
     }
-    const teamId = objectiveEditor.teamId.trim();
-    if (!teamId) {
-      setSaveError("Team owner is required.");
-      return;
-    }
-    const assignedObjective = findObjectiveAssignedToTeam(workspace, teamId, objective.id);
-    if (assignedObjective) {
-      setSaveError(`Team owner is already assigned to "${assignedObjective.title}".`);
-      return;
-    }
 
     const nextObjective = {
       ...objective,
       title,
-      teamId,
       summary: objectiveEditor.summary.trim(),
-      cadence: objectiveEditor.cadence.trim(),
-      condition: objectiveEditor.condition.trim(),
-      progress: clampProgress(objectiveEditor.progress),
-      status: objectiveEditor.status,
       updatedAt: new Date().toISOString(),
     };
 
     await runPersist(upsertProjectObjective(workspace, nextObjective));
     setObjectiveEditor(null);
+  };
+
+  const handleTeamSave = async () => {
+    if (!teamEditor || !objective) return;
+
+    const teamId = teamEditor.teamId.trim();
+    if (!teamId) {
+      setSaveError("Team is required.");
+      return;
+    }
+    const assignedObjective = findObjectiveAssignedToTeam(workspace, teamId, objective.id);
+    if (assignedObjective) {
+      setSaveError(`Team is already assigned to "${assignedObjective.title}".`);
+      return;
+    }
+
+    const nextObjective = {
+      ...objective,
+      teamId,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await runPersist(upsertProjectObjective(workspace, nextObjective));
+    setTeamEditor(null);
   };
 
   const handleWakeSave = async () => {
@@ -800,6 +802,7 @@ export function ProjectObjectiveDetail({
             <button
               type="button"
               onClick={() => setObjectiveEditor(buildObjectiveDraft(objective))}
+              aria-label={`Edit objective ${objective.title}`}
               className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card-bg)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--card-hover-border)]"
             >
               <Pencil className="h-4 w-4" />
@@ -824,18 +827,18 @@ export function ProjectObjectiveDetail({
           <section className="rounded-[28px] border border-[var(--border)] bg-[var(--card-bg)] p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold">Team owner</p>
+                <p className="text-sm font-semibold">Team</p>
                 <p className="mt-1 text-sm text-[var(--muted-foreground)]">
                   Each objective is owned by a single team, and each team can own only one objective.
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setObjectiveEditor(buildObjectiveDraft(objective))}
-                className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--card-hover-border)]"
+                onClick={() => setTeamEditor({ teamId: objective.teamId })}
+                aria-label={`Edit team for ${objective.title}`}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-[var(--border)] bg-[rgba(15,23,42,0.28)] text-[var(--foreground)] transition-colors hover:border-[var(--card-hover-border)]"
               >
                 <Pencil className="h-4 w-4" />
-                Edit team
               </button>
             </div>
 
@@ -846,7 +849,7 @@ export function ProjectObjectiveDetail({
               <p className="mt-1 text-sm text-[var(--muted-foreground)]">
                 {teamName
                   ? "This team is currently responsible for the objective."
-                  : "The selected team no longer exists. Pick a new team owner."}
+                  : "The selected team no longer exists. Pick a new team."}
               </p>
             </div>
           </section>
@@ -976,11 +979,21 @@ export function ProjectObjectiveDetail({
         <ObjectiveEditorModal
           mode="edit"
           draft={objectiveEditor}
-          teams={availableTeams}
           isSaving={isSaving}
           onChange={setObjectiveEditor}
           onClose={() => setObjectiveEditor(null)}
           onSave={() => void handleObjectiveSave()}
+        />
+      ) : null}
+
+      {teamEditor ? (
+        <ObjectiveTeamModal
+          draft={teamEditor}
+          teams={availableTeams}
+          isSaving={isSaving}
+          onChange={setTeamEditor}
+          onClose={() => setTeamEditor(null)}
+          onSave={() => void handleTeamSave()}
         />
       ) : null}
 
@@ -1022,7 +1035,7 @@ function EmptyState({ label }: { label: string }) {
 function ObjectiveEditorModal({
   mode,
   draft,
-  teams,
+  teams = [],
   isSaving,
   onChange,
   onClose,
@@ -1030,7 +1043,7 @@ function ObjectiveEditorModal({
 }: {
   mode: "create" | "edit";
   draft: ObjectiveEditorDraft;
-  teams: ProjectTeamSummary[];
+  teams?: ProjectTeamSummary[];
   isSaving: boolean;
   onChange: (draft: ObjectiveEditorDraft) => void;
   onClose: () => void;
@@ -1067,25 +1080,6 @@ function ObjectiveEditorModal({
           </div>
 
           <div>
-            <FieldLabel label="Team owner" />
-            <select
-              value={draft.teamId}
-              onChange={(event) => onChange({ ...draft, teamId: event.target.value })}
-              className="w-full rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.55)] px-3 py-3 text-sm text-[var(--foreground)] outline-none transition-colors focus:border-sky-500/50"
-            >
-              <option value="">Select a team</option>
-              {teams.map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.name}
-                </option>
-              ))}
-            </select>
-            <p className="mt-2 text-xs text-[var(--muted-foreground)]">
-              Teams can only own one objective at a time.
-            </p>
-          </div>
-
-          <div>
             <FieldLabel label="Notes" />
             <textarea
               value={draft.summary}
@@ -1095,58 +1089,24 @@ function ObjectiveEditorModal({
             />
           </div>
 
-          {mode === "edit" ? (
-            <div className="space-y-4">
-              <div>
-                <ScheduleConditionPicker
-                  value={{ cadence: draft.cadence, condition: draft.condition }}
-                  onChange={(nextValue) =>
-                    onChange({
-                      ...draft,
-                      cadence: nextValue.cadence,
-                      condition: nextValue.condition,
-                    })
-                  }
-                  allowEmptySchedule
-                  scheduleLabel="Schedule"
-                  conditionLabel="Condition"
-                  conditionHelpText="Use a condition when agents should only work on this objective in specific circumstances."
-                />
-              </div>
-              <div className="grid gap-4 md:grid-cols-[1fr_180px]">
-                <div>
-                  <FieldLabel label={`Progress (${draft.progress}%)`} />
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={draft.progress}
-                    onChange={(event) =>
-                      onChange({ ...draft, progress: Number(event.target.value) })
-                    }
-                    className="mt-3 w-full accent-sky-400"
-                  />
-                </div>
-
-                <div>
-                  <FieldLabel label="Health" />
-                  <select
-                    value={draft.status}
-                    onChange={(event) =>
-                      onChange({
-                        ...draft,
-                        status: event.target.value as ProjectObjectiveHealth,
-                      })
-                    }
-                    className="w-full rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.55)] px-3 py-3 text-sm text-[var(--foreground)] outline-none transition-colors focus:border-sky-500/50"
-                  >
-                    <option value="on_track">On track</option>
-                    <option value="at_risk">At risk</option>
-                    <option value="off_track">Off track</option>
-                    <option value="done">Done</option>
-                  </select>
-                </div>
-              </div>
+          {mode === "create" ? (
+            <div>
+              <FieldLabel label="Team" />
+              <select
+                value={draft.teamId}
+                onChange={(event) => onChange({ ...draft, teamId: event.target.value })}
+                className="w-full rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.55)] px-3 py-3 text-sm text-[var(--foreground)] outline-none transition-colors focus:border-sky-500/50"
+              >
+                <option value="">Select a team</option>
+                {teams.map((team) => (
+                  <option key={team.id} value={team.id}>
+                    {team.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+                Teams can only own one objective at a time.
+              </p>
             </div>
           ) : null}
         </div>
@@ -1166,6 +1126,79 @@ function ObjectiveEditorModal({
             className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-100 transition-colors hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSaving ? "Saving..." : mode === "edit" ? "Save objective" : "Create objective"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ObjectiveTeamModal({
+  draft,
+  teams,
+  isSaving,
+  onChange,
+  onClose,
+  onSave,
+}: {
+  draft: ObjectiveTeamDraft;
+  teams: ProjectTeamSummary[];
+  isSaving: boolean;
+  onChange: (draft: ObjectiveTeamDraft) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Edit team"
+        className="w-full max-w-2xl overflow-hidden rounded-[32px] border border-[var(--border)] bg-[rgba(6,10,16,0.96)] shadow-2xl"
+      >
+        <div className="border-b border-[var(--border)] px-5 py-4">
+          <h3 className="text-lg font-semibold text-[var(--foreground)]">Edit team</h3>
+          <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+            Pick the single team responsible for this objective.
+          </p>
+        </div>
+
+        <div className="space-y-4 px-5 py-5">
+          <div>
+            <FieldLabel label="Team" />
+            <select
+              value={draft.teamId}
+              onChange={(event) => onChange({ teamId: event.target.value })}
+              className="w-full rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.55)] px-3 py-3 text-sm text-[var(--foreground)] outline-none transition-colors focus:border-sky-500/50"
+            >
+              <option value="">Select a team</option>
+              {teams.map((team) => (
+                <option key={team.id} value={team.id}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+              Teams can only own one objective at a time.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] px-5 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={isSaving}
+            className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-100 transition-colors hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isSaving ? "Saving..." : "Save team"}
           </button>
         </div>
       </div>

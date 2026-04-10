@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
   Loader2,
@@ -8,10 +9,7 @@ import {
   Settings,
   Users,
 } from "lucide-react";
-import TeamPickerModal from "@/components/TeamPickerModal";
 import TeamDetailView from "@/components/TeamDetailView";
-import AdoptAgentsModal from "@/components/projects/AdoptAgentsModal";
-import ReplaceAgentsModal from "@/components/projects/ReplaceAgentsModal";
 
 interface TeamAgent {
   team_id: string;
@@ -40,15 +38,12 @@ interface TeamsViewProps {
 }
 
 export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewProps) {
+  const router = useRouter();
   const [teams, setTeams] = useState<Team[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showTeamPicker, setShowTeamPicker] = useState(false);
   const [manageTeamId, setManageTeamId] = useState<string | null>(null);
-  const [showAdopt, setShowAdopt] = useState(false);
-  const [showReplace, setShowReplace] = useState(false);
-  const [unassignedDetails, setUnassignedDetails] = useState<Array<{ id: string; name: string; style: string; skills: Array<{ file: string }> }>>([]);
 
   const fetchTeams = useCallback(async () => {
     setLoading(true);
@@ -87,24 +82,9 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
     return participantMap.get(agentId) || agentId.slice(0, 8);
   }
 
-  const fetchUnassignedDetails = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/projects/${projectId}/agents/unassigned`);
-      if (res.ok) {
-        const data = await res.json();
-        setUnassignedDetails(data.agents ?? []);
-      }
-    } catch { /* silent */ }
-  }, [projectId]);
-
   // Compute unassigned agents
   const assignedAgentIds = new Set(teams.flatMap((t) => t.agents.map((a) => a.agent_id)));
   const unassignedAgents = projectAgents.filter((a) => !assignedAgentIds.has(a.agent_id));
-
-  // Existing template IDs for the picker
-  const existingTemplateIds = teams
-    .map((t) => t.template_id)
-    .filter((id): id is string => !!id);
 
   // --- Loading ---
   if (loading) {
@@ -137,7 +117,7 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
       {/* Header */}
       <div className="flex items-center justify-end">
         <button
-          onClick={() => setShowTeamPicker(true)}
+          onClick={() => router.push(`/projects/${projectSlug}/teams/new`)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
         >
           <Plus className="w-4 h-4" />
@@ -254,13 +234,13 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
           <div className="flex items-center gap-2 pt-1">
             <button
               className="text-xs px-3 py-1 rounded-lg border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
-              onClick={() => { fetchUnassignedDetails(); setShowAdopt(true); }}
+              onClick={() => router.push(`/projects/${projectSlug}/teams/adopt`)}
             >
               Adopt into team
             </button>
             <button
               className="text-xs px-3 py-1 rounded-lg border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
-              onClick={() => { fetchUnassignedDetails(); setShowReplace(true); }}
+              onClick={() => router.push(`/projects/${projectSlug}/teams/replace`)}
             >
               Replace with preset
             </button>
@@ -268,35 +248,6 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
         </div>
       )}
 
-      {/* Team Picker Modal */}
-      {showTeamPicker && (
-        <TeamPickerModal
-          projectId={projectId}
-          existingTeamTemplateIds={existingTemplateIds}
-          onClose={() => setShowTeamPicker(false)}
-          onTeamCreated={fetchTeams}
-        />
-      )}
-
-      {/* Adopt Modal */}
-      {showAdopt && (
-        <AdoptAgentsModal
-          projectId={projectId}
-          unassignedAgents={unassignedDetails}
-          onClose={() => setShowAdopt(false)}
-          onAdopted={() => { setShowAdopt(false); fetchTeams(); }}
-        />
-      )}
-
-      {/* Replace Modal */}
-      {showReplace && (
-        <ReplaceAgentsModal
-          projectId={projectId}
-          unassignedAgents={unassignedDetails.map((a) => ({ id: a.id, name: a.name }))}
-          onClose={() => setShowReplace(false)}
-          onReplaced={() => { setShowReplace(false); fetchTeams(); }}
-        />
-      )}
     </div>
   );
 }

@@ -171,12 +171,54 @@ describe("ProjectObjectivesWorkspace", () => {
     const dialog = screen.getByRole("dialog", { name: /New objective/i });
 
     expect(within(dialog).getByText("Objective statement")).toBeInTheDocument();
-    expect(within(dialog).getByText("Team owner")).toBeInTheDocument();
+    expect(within(dialog).getByText("Team")).toBeInTheDocument();
     expect(within(dialog).getByText("Notes")).toBeInTheDocument();
     expect(within(dialog).queryByText("Cadence")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("Health")).not.toBeInTheDocument();
     expect(within(dialog).queryByText(/Progress \(/i)).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /Create objective/i })).toBeInTheDocument();
+  });
+
+  test("keeps objective editing free of progress and health controls", async () => {
+    render(
+      <ProjectObjectiveDetail
+        projectSlug="alpha"
+        objectiveId="objective_growth"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Edit objective Get 50 visitors daily/i })
+    );
+
+    const dialog = screen.getByRole("dialog", { name: /Edit objective/i });
+    expect(within(dialog).getByText("Objective statement")).toBeInTheDocument();
+    expect(within(dialog).getByText("Notes")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Team")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Schedule")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Health")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/Progress \(/i)).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /Save objective/i })).toBeInTheDocument();
+  });
+
+  test("opens a dedicated team editor", async () => {
+    render(
+      <ProjectObjectiveDetail
+        projectSlug="alpha"
+        objectiveId="objective_growth"
+      />
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Edit team for Get 50 visitors daily/i })
+    );
+
+    const dialog = screen.getByRole("dialog", { name: /Edit team/i });
+    expect(within(dialog).getByText("Team")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Objective statement")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Notes")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("Schedule")).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /Save team/i })).toBeInTheDocument();
   });
 
   test("lets you delete an objective from the detail view", async () => {
@@ -221,9 +263,12 @@ describe("ProjectObjectivesWorkspace", () => {
     expect(
       screen.getByText("How often agents should wake up and work on it?")
     ).toBeInTheDocument();
-    expect(screen.getByText("Team owner")).toBeInTheDocument();
+    expect(screen.getByText("Team")).toBeInTheDocument();
     await screen.findByText("Growth");
     expect(screen.getByText("Every weekday morning")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Edit team for Get 50 visitors daily/i })
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Edit cadence for Get 50 visitors daily/i })
     ).toBeInTheDocument();
@@ -244,7 +289,7 @@ describe("ProjectObjectivesWorkspace", () => {
     ).toBeInTheDocument();
   });
 
-  test("saves a team owner when creating an objective", async () => {
+  test("saves a team when creating an objective", async () => {
     render(<ProjectObjectivesOverview projectSlug="alpha" />);
 
     fireEvent.click(screen.getByRole("button", { name: /New objective/i }));

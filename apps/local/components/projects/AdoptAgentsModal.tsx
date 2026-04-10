@@ -3,11 +3,13 @@
 import { useState, useMemo } from "react";
 import {
   listTeamTemplates,
+  listAgentPresets,
   getAgentPresetBindings,
-  type TeamTemplate,
   type AgentPreset,
+  type AgentPresetId,
 } from "@/lib/team-catalog";
-import { Users, Loader2, Check, AlertCircle, ChevronDown } from "lucide-react";
+import SearchCombo, { type ComboOption } from "@/components/SearchCombo";
+import { Users, Loader2, Check, AlertCircle, X } from "lucide-react";
 
 interface UnassignedAgent {
   id: string;
@@ -19,9 +21,8 @@ interface UnassignedAgent {
 interface AgentRoleMatch {
   agent: UnassignedAgent;
   matchedPreset: AgentPreset | null;
-  overlap: string[]; // skill files the agent has that the preset expects
-  missing: string[]; // skill files the preset expects but the agent lacks
-  manualRoleKey: string | null; // user override
+  overlap: string[];
+  missing: string[];
 }
 
 interface AdoptAgentsModalProps {
@@ -74,46 +75,102 @@ export default function AdoptAgentsModal({
 }: AdoptAgentsModalProps) {
   const [teamName, setTeamName] = useState("");
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+  const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [backfillSkills, setBackfillSkills] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [manualRoles, setManualRoles] = useState<Record<string, string | null>>({});
+  const [manualPresets, setManualPresets] = useState<Record<string, string | null>>({});
 
   const templates = useMemo(() => listTeamTemplates(), []);
+  const allPresets = useMemo(() => listAgentPresets(), []);
+
   const selectedTemplate = useMemo(
     () => templates.find((t) => t.id === selectedTemplateId) ?? null,
-    [templates, selectedTemplateId]
+    [templates, selectedTemplateId],
   );
 
+  const selectedVariant = useMemo(() => {
+    if (!selectedTemplate?.variants || !selectedVariantId) return null;
+    return selectedTemplate.variants.find((v) => v.id === selectedVariantId) ?? null;
+  }, [selectedTemplate, selectedVariantId]);
+
+  // Effective presets from template selection
+  const templatePresets = useMemo(() => {
+    if (selectedVariant) return selectedVariant.agents;
+    if (selectedTemplate) return selectedTemplate.agents;
+    return [];
+  }, [selectedTemplate, selectedVariant]);
+
+  const templateOptions: ComboOption[] = useMemo(
+    () => templates.map((t) => ({
+      id: t.id,
+      label: t.name,
+      description: t.description,
+      meta: t.variants ? `${t.variants.length} specializations` : `${t.agents.length} roles`,
+    })),
+    [templates],
+  );
+
+  const variantOptions: ComboOption[] = useMemo(() => {
+    if (!selectedTemplate?.variants) return [];
+    return selectedTemplate.variants.map((v) => ({
+      id: v.id,
+      label: v.name,
+      description: v.description,
+      meta: `${v.agents.length} roles`,
+    }));
+  }, [selectedTemplate]);
+
+  // Role options for per-agent assignment
+  const roleOptions: ComboOption[] = useMemo(() => {
+    const presets = templatePresets.length > 0 ? templatePresets : allPresets;
+    return [
+      { id: "__auto__", label: "Auto", description: "Best match based on skills" },
+      ...presets.map((p) => ({
+        id: p.id,
+        label: p.name,
+        meta: p.skillProfileId,
+      })),
+    ];
+  }, [templatePresets, allPresets]);
+
   const matches: AgentRoleMatch[] = useMemo(() => {
-    if (!selectedTemplate) {
+    if (templatePresets.length === 0) {
       return unassignedAgents.map((agent) => ({
         agent,
         matchedPreset: null,
         overlap: [],
         missing: [],
-        manualRoleKey: manualRoles[agent.id] ?? null,
       }));
     }
 
     return unassignedAgents.map((agent) => {
-      const manualKey = manualRoles[agent.id];
-      if (manualKey) {
-        const preset = selectedTemplate.agents.find((a) => a.roleKey === manualKey) ?? null;
+      const manualKey = manualPresets[agent.id];
+      if (manualKey && manualKey !== "__auto__") {
+        const preset = templatePresets.find((a) => a.id === manualKey) ?? allPresets.find((a) => a.id === manualKey) ?? null;
         if (preset) {
           const agentFiles = agent.skills.map((s) => s.file);
           const { overlap, missing } = computeSkillOverlap(agentFiles, preset);
-          return { agent, matchedPreset: preset, overlap, missing, manualRoleKey: manualKey };
+          return { agent, matchedPreset: preset, overlap, missing };
         }
       }
 
-      const { preset, overlap, missing } = bestMatch(agent, selectedTemplate.agents);
-      return { agent, matchedPreset: preset, overlap, missing, manualRoleKey: null };
+      const { preset, overlap, missing } = bestMatch(agent, templatePresets);
+      return { agent, matchedPreset: preset, overlap, missing };
     });
-  }, [unassignedAgents, selectedTemplate, manualRoles]);
+  }, [unassignedAgents, templatePresets, manualPresets, allPresets]);
 
-  function setManualRole(agentId: string, roleKey: string | null) {
-    setManualRoles((prev) => ({ ...prev, [agentId]: roleKey }));
+  function handleTemplateChange(id: string) {
+    setSelectedTemplateId(id);
+    setSelectedVariantId(null);
+    setManualPresets({});
+    const t = templates.find((t) => t.id === id);
+    if (t && !teamName) setTeamName(t.name);
+  }
+
+  function handleVariantChange(id: string) {
+    setSelectedVariantId(id);
+    setManualPresets({});
   }
 
   async function handleCreate() {
@@ -124,10 +181,6 @@ export default function AdoptAgentsModal({
     setError(null);
 
     try {
-      // 1. Create the team
-      const body: Record<string, string> = { name };
-      if (selectedTemplateId) body.templateId = "__custom__";
-
       const teamRes = await fetch(`/api/projects/${projectId}/teams`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -141,22 +194,16 @@ export default function AdoptAgentsModal({
 
       const { team } = await teamRes.json();
 
-      // 2. Add each agent to the team
       for (const match of matches) {
-        const roleKey =
-          match.manualRoleKey ??
-          match.matchedPreset?.roleKey ??
-          "member";
-
+        const role = match.matchedPreset?.id ?? "member";
         await fetch(`/api/projects/${projectId}/teams/${team.id}/agents`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ agentId: match.agent.id, roleKey }),
+          body: JSON.stringify({ agentId: match.agent.id, roleKey: role }),
         });
       }
 
-      // 3. Backfill missing skills if requested
-      if (backfillSkills && selectedTemplate) {
+      if (backfillSkills) {
         for (const match of matches) {
           if (match.missing.length > 0 && match.matchedPreset) {
             const bindings = getAgentPresetBindings(match.matchedPreset);
@@ -170,12 +217,10 @@ export default function AdoptAgentsModal({
 
             if (skillsToAdd.length > 0) {
               const existingSkills = match.agent.skills.map((s) => ({ file: s.file }));
-              const merged = [...existingSkills, ...skillsToAdd];
-
               await fetch(`/api/agents/${match.agent.id}/skills`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ skills: merged }),
+                body: JSON.stringify({ skills: [...existingSkills, ...skillsToAdd] }),
               });
             }
           }
@@ -190,42 +235,41 @@ export default function AdoptAgentsModal({
     }
   }
 
+  const hasVariants = !!selectedTemplate?.variants;
+
   return (
-    <div
-      className="modal-backdrop p-2 sm:p-4 z-50 overflow-y-auto flex items-center justify-center"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div className="modal-content w-full max-w-3xl mx-2 sm:mx-auto bg-[var(--card-bg)] rounded-3xl border border-[var(--card-border)] shadow-2xl animate-scale-in flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex justify-end" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+
+      <div
+        className="relative w-full max-w-xl flex flex-col h-full border-l"
+        style={{ background: "var(--card-bg)", borderColor: "var(--border)" }}
+      >
         {/* Header */}
-        <div className="px-4 py-4 sm:px-8 sm:py-6 border-b border-[var(--card-border)] flex items-center justify-between flex-shrink-0">
+        <div className="px-6 py-5 border-b flex items-center justify-between flex-shrink-0" style={{ borderColor: "var(--border)" }}>
           <div>
-            <h2 className="text-xl font-bold">Adopt Unassigned Agents</h2>
+            <h2 className="text-lg font-bold">Adopt Unassigned Agents</h2>
             <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
               Group {unassignedAgents.length} unassigned agent
               {unassignedAgents.length !== 1 ? "s" : ""} into a team.
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-xl hover:bg-[var(--muted)]/50 transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-[var(--muted)]/50 transition-colors">
+            <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-8 space-y-6">
+        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-5">
           {error && (
-            <div className="p-4 rounded-xl bg-[var(--destructive-muted)] border border-[var(--destructive)]/20 text-sm text-[var(--destructive)]">
+            <div className="p-3 rounded-xl bg-[var(--destructive-muted)] border border-[var(--destructive)]/20 text-sm text-[var(--destructive)]">
               {error}
             </div>
           )}
 
           {/* Team name */}
           <div>
-            <label className="block text-sm font-medium mb-1.5">Team Name</label>
+            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Team name</label>
             <input
               value={teamName}
               onChange={(e) => setTeamName(e.target.value)}
@@ -236,100 +280,73 @@ export default function AdoptAgentsModal({
             />
           </div>
 
-          {/* Template selector */}
+          {/* Template dropdown */}
           <div>
-            <label className="block text-sm font-medium mb-1.5">
-              Template <span className="text-[var(--muted-foreground)] font-normal">(optional)</span>
+            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">
+              Template <span className="text-[var(--muted-foreground)]">(optional — for role matching)</span>
             </label>
-            <div className="relative">
-              <select
-                value={selectedTemplateId ?? ""}
-                onChange={(e) => setSelectedTemplateId(e.target.value || null)}
-                disabled={creating}
-                className="appearance-none w-full bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl text-sm pl-3 pr-8 py-2 cursor-pointer focus:border-[var(--primary)] focus:outline-none transition-colors"
-              >
-                <option value="">None</option>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--muted-foreground)]" />
-            </div>
+            <SearchCombo
+              options={templateOptions}
+              value={selectedTemplateId}
+              onChange={handleTemplateChange}
+              placeholder="Select a template..."
+              disabled={creating}
+            />
           </div>
 
-          {/* Agent-role matching table */}
-          {selectedTemplate && (
+          {/* Variant dropdown */}
+          {hasVariants && (
             <div>
-              <label className="block text-sm font-medium mb-2">Role Matching</label>
-              <div className="space-y-2">
+              <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Specialization</label>
+              <SearchCombo
+                options={variantOptions}
+                value={selectedVariantId}
+                onChange={handleVariantChange}
+                placeholder="Select a specialization..."
+                disabled={creating}
+              />
+            </div>
+          )}
+
+          {/* Agent-role matching */}
+          {templatePresets.length > 0 && (
+            <div>
+              <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-2">
+                Role matching
+              </label>
+              <div className="space-y-1.5">
                 {matches.map((match) => (
                   <div
                     key={match.agent.id}
-                    className="p-3 rounded-2xl border border-[var(--card-border)] bg-[var(--muted)]/10"
+                    className="p-2.5 rounded-xl"
+                    style={{ background: "var(--muted)", border: "1px solid var(--border)" }}
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2 min-w-0">
                         <Users className="w-4 h-4 text-[var(--muted-foreground)] flex-shrink-0" />
-                        <span className="text-sm font-medium truncate">
-                          {match.agent.name}
-                        </span>
+                        <span className="text-sm font-medium truncate">{match.agent.name}</span>
                       </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {match.matchedPreset ? (
-                          <span className="text-xs font-medium text-[var(--primary)] bg-[var(--primary)]/10 px-2 py-0.5 rounded-lg">
-                            {match.matchedPreset.name}
-                          </span>
-                        ) : (
-                          <span className="text-xs text-[var(--muted-foreground)]">No match</span>
-                        )}
-                        {/* Role picker dropdown */}
-                        <div className="relative">
-                          <select
-                            value={
-                              match.manualRoleKey ??
-                              match.matchedPreset?.roleKey ??
-                              ""
-                            }
-                            onChange={(e) =>
-                              setManualRole(
-                                match.agent.id,
-                                e.target.value || null
-                              )
-                            }
-                            disabled={creating}
-                            className="appearance-none bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg text-xs pl-2 pr-6 py-1 cursor-pointer"
-                          >
-                            <option value="">Auto</option>
-                            {selectedTemplate.agents.map((preset) => (
-                              <option key={preset.roleKey} value={preset.roleKey}>
-                                {preset.name}
-                              </option>
-                            ))}
-                          </select>
-                          <ChevronDown className="w-3 h-3 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--muted-foreground)]" />
-                        </div>
+                      <div className="flex-shrink-0 w-48">
+                        <SearchCombo
+                          options={roleOptions}
+                          value={manualPresets[match.agent.id] ?? match.matchedPreset?.id ?? "__auto__"}
+                          onChange={(id) => setManualPresets((prev) => ({ ...prev, [match.agent.id]: id === "__auto__" ? null : id }))}
+                          placeholder="Select role..."
+                          disabled={creating}
+                        />
                       </div>
                     </div>
 
-                    {/* Skill overlap details */}
                     {match.matchedPreset && (
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {match.overlap.map((file) => (
-                          <span
-                            key={file}
-                            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                          >
+                          <span key={file} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                             <Check className="w-2.5 h-2.5" />
                             {file.split("/").pop()}
                           </span>
                         ))}
                         {match.missing.map((file) => (
-                          <span
-                            key={file}
-                            className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
-                          >
+                          <span key={file} className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
                             <AlertCircle className="w-2.5 h-2.5" />
                             {file.split("/").pop()}
                           </span>
@@ -343,14 +360,15 @@ export default function AdoptAgentsModal({
           )}
 
           {/* Backfill checkbox */}
-          {selectedTemplate && matches.some((m) => m.missing.length > 0) && (
-            <label className="flex items-center gap-2 cursor-pointer">
+          {matches.some((m) => m.missing.length > 0) && (
+            <label className="flex items-center gap-2.5 cursor-pointer py-1">
               <input
                 type="checkbox"
                 checked={backfillSkills}
                 onChange={(e) => setBackfillSkills(e.target.checked)}
                 disabled={creating}
-                className="rounded border-[var(--card-border)]"
+                className="rounded"
+                style={{ borderColor: "var(--border)" }}
               />
               <span className="text-sm">Add missing skills from template</span>
             </label>
@@ -358,7 +376,7 @@ export default function AdoptAgentsModal({
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-4 sm:px-8 sm:py-6 border-t border-[var(--card-border)] flex items-center justify-end gap-3 flex-shrink-0">
+        <div className="px-6 py-4 border-t flex items-center justify-end gap-3 flex-shrink-0" style={{ borderColor: "var(--border)" }}>
           <button
             onClick={onClose}
             disabled={creating}
@@ -376,7 +394,7 @@ export default function AdoptAgentsModal({
             ) : (
               <>
                 <Users className="w-4 h-4" />
-                Create Team
+                Adopt ({unassignedAgents.length})
               </>
             )}
           </button>
