@@ -3,10 +3,9 @@
 import { useState, useMemo } from "react";
 import {
   listTeamTemplates,
-  getSkillProfileBindings,
+  getAgentPresetBindings,
   type TeamTemplate,
   type AgentPreset,
-  type SkillProfileId,
 } from "@/lib/team-catalog";
 import { Users, Loader2, Check, AlertCircle, ChevronDown } from "lucide-react";
 
@@ -34,9 +33,9 @@ interface AdoptAgentsModalProps {
 
 function computeSkillOverlap(
   agentSkillFiles: string[],
-  profileId: SkillProfileId
+  preset: AgentPreset
 ): { overlap: string[]; missing: string[] } {
-  const bindings = getSkillProfileBindings(profileId);
+  const bindings = getAgentPresetBindings(preset);
   const expectedFiles = bindings.map((b) => `${b.repo}/${b.skillId}`);
   const agentSet = new Set(agentSkillFiles);
   const overlap = expectedFiles.filter((f) => agentSet.has(f));
@@ -57,7 +56,7 @@ function bestMatch(
   let bestScore = -1;
 
   for (const preset of presets) {
-    const { overlap, missing } = computeSkillOverlap(agentFiles, preset.skillProfileId);
+    const { overlap, missing } = computeSkillOverlap(agentFiles, preset);
     if (overlap.length > bestScore) {
       bestScore = overlap.length;
       best = { preset, overlap, missing };
@@ -103,7 +102,7 @@ export default function AdoptAgentsModal({
         const preset = selectedTemplate.agents.find((a) => a.roleKey === manualKey) ?? null;
         if (preset) {
           const agentFiles = agent.skills.map((s) => s.file);
-          const { overlap, missing } = computeSkillOverlap(agentFiles, preset.skillProfileId);
+          const { overlap, missing } = computeSkillOverlap(agentFiles, preset);
           return { agent, matchedPreset: preset, overlap, missing, manualRoleKey: manualKey };
         }
       }
@@ -160,7 +159,7 @@ export default function AdoptAgentsModal({
       if (backfillSkills && selectedTemplate) {
         for (const match of matches) {
           if (match.missing.length > 0 && match.matchedPreset) {
-            const bindings = getSkillProfileBindings(match.matchedPreset.skillProfileId);
+            const bindings = getAgentPresetBindings(match.matchedPreset);
             const missingSet = new Set(match.missing);
             const skillsToAdd = bindings
               .filter((b) => missingSet.has(`${b.repo}/${b.skillId}`))
