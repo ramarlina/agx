@@ -49,6 +49,8 @@ export type {
   SkillProvenance,
   MemoryProvenance,
   ExecutionProvenance,
+  Team,
+  TeamAgent,
 } from "./db";
 
 import type {
@@ -81,6 +83,8 @@ import type {
   ProjectVariable,
   ProjectMemory,
   ProjectThread,
+  Team,
+  TeamAgent,
 } from "./db";
 
 // ── Transaction abstraction ─────────────────────────────────────────────────
@@ -336,6 +340,24 @@ export interface DbAdapter {
   removeProjectAgent(projectId: string, agentId: string): Promise<void>;
 
   reorderProjectAgents(projectId: string, orderedAgentIds: string[]): Promise<ProjectAgent[]>;
+
+  // ── Teams ──────────────────────────────────────────────────────────────
+
+  getTeams(projectId: string): Promise<Team[]>;
+
+  getTeam(teamId: string): Promise<Team | null>;
+
+  createTeam(projectId: string, name: string, templateId?: string, metadata?: Record<string, unknown>): Promise<Team>;
+
+  updateTeam(teamId: string, updates: { name?: string; metadata?: Record<string, unknown> }): Promise<Team | null>;
+
+  deleteTeam(teamId: string): Promise<void>;
+
+  getTeamAgents(teamId: string): Promise<TeamAgent[]>;
+
+  addTeamAgent(teamId: string, agentId: string, roleKey: string, routingOrder?: number): Promise<TeamAgent>;
+
+  removeTeamAgent(teamId: string, agentId: string): Promise<void>;
 
   // ── Project Skills ─────────────────────────────────────────────────────
 

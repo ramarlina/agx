@@ -18,6 +18,8 @@ import {
   X,
   ExternalLink,
   Settings,
+  Target,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
 import type { Thread } from "@/lib/storage";
@@ -59,7 +61,8 @@ interface WorkspaceSidebarProps {
   onUpdateParticipant?: (participant: Participant) => Promise<unknown>;
   onSelectProject?: (projectId: string) => void;
   activeProjectId?: string | null;
-  activeProjectView?: "board" | "thread" | "knowledge" | "automations" | "linear" | null;
+  activeProjectView?: "overview" | "objectives" | "thread" | "knowledge" | "automations" | "linear" | null;
+  onAddTeam?: (projectId: string) => void;
 }
 
 export function WorkspaceSidebar({
@@ -94,6 +97,7 @@ export function WorkspaceSidebar({
   activeProjectView = null,
   width,
   onWidthChange,
+  onAddTeam,
 }: WorkspaceSidebarProps) {
   const resizing = useRef(false);
   const lastX = useRef(0);
@@ -153,6 +157,38 @@ export function WorkspaceSidebar({
     isSaving: boolean;
     error: string | null;
   } | null>(null);
+
+  // Team grouping state
+  interface TeamAgent { team_id: string; agent_id: string; role_key: string; routing_order: number }
+  interface TeamWithAgents { id: string; name: string; template_id?: string; metadata?: Record<string, unknown>; agents: TeamAgent[] }
+  const [teamsByProject, setTeamsByProject] = useState<Record<string, TeamWithAgents[]>>({});
+  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
+  const [teamsFetchedFor, setTeamsFetchedFor] = useState<Set<string>>(new Set());
+
+  // Fetch teams when a project section is expanded
+  useEffect(() => {
+    Array.from(expandedProjects).forEach((projectId) => {
+      if (teamsFetchedFor.has(projectId)) return;
+      setTeamsFetchedFor((prev) => new Set(prev).add(projectId));
+      void (async () => {
+        try {
+          const res = await fetch(`/api/projects/${projectId}/teams`);
+          if (!res.ok) return;
+          const data = await res.json();
+          setTeamsByProject((prev) => ({ ...prev, [projectId]: data.teams ?? [] }));
+        } catch { /* silent */ }
+      })();
+    });
+  }, [expandedProjects, teamsFetchedFor]);
+
+  const toggleTeamExpanded = (teamId: string) => {
+    setExpandedTeams((prev) => {
+      const next = new Set(prev);
+      if (next.has(teamId)) next.delete(teamId);
+      else next.add(teamId);
+      return next;
+    });
+  };
 
   // Agent drag-to-reorder state
   const [dragState, setDragState] = useState<{ projectId: string; agentId: string; overIndex: number } | null>(null);
@@ -429,6 +465,8 @@ export function WorkspaceSidebar({
               project.thread_ids?.[0] ??
               projectThreads[0]?.id ??
               null;
+            const isActiveProjectOverview = isActiveProject && activeProjectView === "overview";
+            const isActiveProjectObjectives = isActiveProject && activeProjectView === "objectives";
             const isActiveProjectThread = isActiveProject && activeProjectView === "thread" && primaryProjectThreadId === activeThreadId;
             const isActiveProjectAutomations = isActiveProject && activeProjectView === "automations";
             const isActiveProjectLinear = isActiveProject && activeProjectView === "linear";
@@ -476,6 +514,30 @@ export function WorkspaceSidebar({
                 </div>
                 {projectIsExpanded && (
                   <div className="ml-4 my-1 flex flex-col gap-0.5 border-l border-[var(--app-shell-border)] pl-3">
+                    {/* Overview */}
+                    <div className="workspace-sidebar__workspace-item">
+                      <Link
+                        href={`/projects/${project.slug}`}
+                        className={`workspace-sidebar__nav-item ${isActiveProjectOverview ? "workspace-sidebar__nav-item--active" : ""}`}
+                        aria-current={isActiveProjectOverview ? "page" : undefined}
+                      >
+                        <Folder size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                        <span className="workspace-sidebar__workspace-title text-xs">Overview</span>
+                      </Link>
+                    </div>
+
+                    {/* Objectives */}
+                    <div className="workspace-sidebar__workspace-item">
+                      <Link
+                        href={`/projects/${project.slug}/objectives`}
+                        className={`workspace-sidebar__nav-item ${isActiveProjectObjectives ? "workspace-sidebar__nav-item--active" : ""}`}
+                        aria-current={isActiveProjectObjectives ? "page" : undefined}
+                      >
+                        <Target size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                        <span className="workspace-sidebar__workspace-title text-xs">Objectives</span>
+                      </Link>
+                    </div>
+
                     {/* Linear */}
                     <div className="workspace-sidebar__workspace-item group/linear flex items-center">
                       <Link
@@ -642,74 +704,171 @@ export function WorkspaceSidebar({
                         )}
                         </div>
                       </div>
-                      {project.agents.length > 0 ? (
-                        <>
-                          {project.agents.map((projectAgent, agentIndex) => {
-                            const agent = participants.find((participant) => participant.id === projectAgent.agent_id);
-                            const isDragging = dragState?.projectId === project.id && dragState?.agentId === projectAgent.agent_id;
-                            const isDragOver = dragState?.projectId === project.id && dragState?.overIndex === agentIndex && !isDragging;
-                            return (
-                              <div
-                                key={projectAgent.agent_id}
-                                draggable
-                                onDragStart={(e) => {
-                                  e.dataTransfer.effectAllowed = "move";
-                                  setDragState({ projectId: project.id, agentId: projectAgent.agent_id, overIndex: agentIndex });
-                                }}
-                                onDragOver={(e) => {
-                                  e.preventDefault();
-                                  if (dragState && dragState.projectId === project.id) {
-                                    setDragState((prev) => prev ? { ...prev, overIndex: agentIndex } : null);
+                      {(() => {
+                        const projectTeams = teamsByProject[project.id];
+                        const hasTeams = projectTeams && projectTeams.length > 0;
+
+                        // Helper: render a single agent row (reused across grouped and flat views)
+                        const renderAgentRow = (projectAgent: { agent_id: string }, agentIndex: number, showDragHandle: boolean) => {
+                          const agent = participants.find((participant) => participant.id === projectAgent.agent_id);
+                          const isDragging = dragState?.projectId === project.id && dragState?.agentId === projectAgent.agent_id;
+                          const isDragOver = dragState?.projectId === project.id && dragState?.overIndex === agentIndex && !isDragging;
+                          return (
+                            <div
+                              key={projectAgent.agent_id}
+                              draggable
+                              onDragStart={(e) => {
+                                e.dataTransfer.effectAllowed = "move";
+                                setDragState({ projectId: project.id, agentId: projectAgent.agent_id, overIndex: agentIndex });
+                              }}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                if (dragState && dragState.projectId === project.id) {
+                                  setDragState((prev) => prev ? { ...prev, overIndex: agentIndex } : null);
+                                }
+                              }}
+                              onDragEnd={() => {
+                                if (dragState && dragState.projectId === project.id && onReorderProjectAgents) {
+                                  const currentIds = project.agents.map((a) => a.agent_id);
+                                  const fromIndex = currentIds.indexOf(dragState.agentId);
+                                  const toIndex = dragState.overIndex;
+                                  if (fromIndex !== -1 && fromIndex !== toIndex) {
+                                    const reordered = [...currentIds];
+                                    const [moved] = reordered.splice(fromIndex, 1);
+                                    reordered.splice(toIndex, 0, moved);
+                                    void onReorderProjectAgents(project.id, reordered);
                                   }
-                                }}
-                                onDragEnd={() => {
-                                  if (dragState && dragState.projectId === project.id && onReorderProjectAgents) {
-                                    const currentIds = project.agents.map((a) => a.agent_id);
-                                    const fromIndex = currentIds.indexOf(dragState.agentId);
-                                    const toIndex = dragState.overIndex;
-                                    if (fromIndex !== -1 && fromIndex !== toIndex) {
-                                      const reordered = [...currentIds];
-                                      const [moved] = reordered.splice(fromIndex, 1);
-                                      reordered.splice(toIndex, 0, moved);
-                                      void onReorderProjectAgents(project.id, reordered);
-                                    }
-                                  }
-                                  setDragState(null);
-                                }}
-                                className={`group/agent flex items-center ${isDragOver ? "border-t-2 border-[var(--border)]" : "border-t-2 border-transparent"} ${isDragging ? "opacity-40" : ""}`}
+                                }
+                                setDragState(null);
+                              }}
+                              className={`group/agent flex items-center ${isDragOver ? "border-t-2 border-[var(--border)]" : "border-t-2 border-transparent"} ${isDragging ? "opacity-40" : ""}`}
+                            >
+                              <button
+                                type="button"
+                                className="workspace-sidebar__nav-item flex-1 min-w-0 !py-1"
+                                onClick={() => setAgentDetailId(projectAgent.agent_id)}
                               >
+                                {showDragHandle && (
+                                  <span className={`cursor-grab text-[var(--muted-foreground)] hover:text-[var(--muted-foreground)] flex-shrink-0 mr-0.5 transition-opacity ${agentIndex === 0 ? "opacity-100" : "opacity-0 group-hover/agent:opacity-100"}`} title="Drag to reorder">&#x2807;</span>
+                                )}
+                                <img
+                                  src={agentAvatarUrl(projectAgent.agent_id, 16, agent?.color)}
+                                  alt=""
+                                  className="w-4 h-4 rounded-full flex-shrink-0"
+                                />
+                                <span className="workspace-sidebar__workspace-title text-xs truncate">
+                                  {agent?.name ?? projectAgent.agent_id}
+                                </span>
+                                {!hasTeams && agentIndex === 0 && (
+                                  <span className="ml-auto text-[9px] text-[var(--muted-foreground)] font-medium flex-shrink-0" title="Default responder (top agent responds first)">DEFAULT</span>
+                                )}
+                              </button>
+                            </div>
+                          );
+                        };
+
+                        if (project.agents.length === 0 && !hasTeams) {
+                          return (
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-1 px-3 py-1 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                              onClick={() => handleAddAgentToProject(project.id)}
+                            >
+                              <Plus size={10} />
+                              <span>Add agents</span>
+                            </button>
+                          );
+                        }
+
+                        if (!hasTeams) {
+                          // Flat list (backward compatible — no teams)
+                          return (
+                            <>
+                              {project.agents.map((projectAgent, agentIndex) =>
+                                renderAgentRow(projectAgent, agentIndex, true)
+                              )}
+                            </>
+                          );
+                        }
+
+                        // Team-grouped view
+                        const teamAgentIds = new Set(projectTeams.flatMap((t) => t.agents.map((a) => a.agent_id)));
+                        const unassignedAgents = project.agents.filter((a) => !teamAgentIds.has(a.agent_id));
+
+                        return (
+                          <>
+                            {projectTeams.map((team) => {
+                              const isTeamExpanded = expandedTeams.has(team.id);
+                              // Only show agents that are also in the project roster
+                              const projectAgentIds = new Set(project.agents.map((a) => a.agent_id));
+                              const teamMemberAgents = team.agents
+                                .filter((ta) => projectAgentIds.has(ta.agent_id))
+                                .map((ta) => ({ agent_id: ta.agent_id }));
+
+                              return (
+                                <div key={team.id}>
+                                  <button
+                                    type="button"
+                                    className="group/team-header flex w-full items-center gap-1.5 px-3 py-1 text-left transition-colors hover:bg-[var(--app-shell-subtle)]"
+                                    onClick={() => toggleTeamExpanded(team.id)}
+                                  >
+                                    {isTeamExpanded ? (
+                                      <ChevronDown size={10} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                                    ) : (
+                                      <ChevronRight size={10} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                                    )}
+                                    <Users size={11} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                                    <span className="text-[11px] font-medium text-[var(--muted-foreground)] truncate">{team.name}</span>
+                                    <span className="ml-auto text-[9px] text-[var(--muted-foreground)]">{teamMemberAgents.length}</span>
+                                  </button>
+                                  {isTeamExpanded && (
+                                    <div className="ml-3">
+                                      {teamMemberAgents.length > 0 ? (
+                                        teamMemberAgents.map((ta, idx) => renderAgentRow(ta, idx, false))
+                                      ) : (
+                                        <p className="px-3 py-1 text-[10px] text-[var(--muted-foreground)]">No agents</p>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            {unassignedAgents.length > 0 && (
+                              <div>
                                 <button
                                   type="button"
-                                  className="workspace-sidebar__nav-item flex-1 min-w-0 !py-1"
-                                  onClick={() => setAgentDetailId(projectAgent.agent_id)}
+                                  className="group/team-header flex w-full items-center gap-1.5 px-3 py-1 text-left transition-colors hover:bg-[var(--app-shell-subtle)]"
+                                  onClick={() => toggleTeamExpanded(`__unassigned__${project.id}`)}
                                 >
-                                  <span className={`cursor-grab text-[var(--muted-foreground)] hover:text-[var(--muted-foreground)] flex-shrink-0 mr-0.5 transition-opacity ${agentIndex === 0 ? "opacity-100" : "opacity-0 group-hover/agent:opacity-100"}`} title="Drag to reorder">⠿</span>
-                                  <img
-                                    src={agentAvatarUrl(projectAgent.agent_id, 16, agent?.color)}
-                                    alt=""
-                                    className="w-4 h-4 rounded-full flex-shrink-0"
-                                  />
-                                  <span className="workspace-sidebar__workspace-title text-xs truncate">
-                                    {agent?.name ?? projectAgent.agent_id}
-                                  </span>
-                                  {agentIndex === 0 && (
-                                    <span className="ml-auto text-[9px] text-[var(--muted-foreground)] font-medium flex-shrink-0" title="Default responder (top agent responds first)">DEFAULT</span>
+                                  {expandedTeams.has(`__unassigned__${project.id}`) ? (
+                                    <ChevronDown size={10} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                                  ) : (
+                                    <ChevronRight size={10} className="flex-shrink-0 text-[var(--muted-foreground)]" />
                                   )}
+                                  <Users size={11} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                                  <span className="text-[11px] font-medium text-[var(--muted-foreground)] truncate">Unassigned</span>
+                                  <span className="ml-auto text-[9px] text-[var(--muted-foreground)]">{unassignedAgents.length}</span>
                                 </button>
+                                {expandedTeams.has(`__unassigned__${project.id}`) && (
+                                  <div className="ml-3">
+                                    {unassignedAgents.map((pa, idx) => renderAgentRow(pa, idx, true))}
+                                  </div>
+                                )}
                               </div>
-                            );
-                          })}
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          className="inline-flex items-center gap-1 px-3 py-1 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-                          onClick={() => handleAddAgentToProject(project.id)}
-                        >
-                          <Plus size={10} />
-                          <span>Add agents</span>
-                        </button>
-                      )}
+                            )}
+                            {onAddTeam && (
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-1 px-3 py-1 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                                onClick={() => onAddTeam(project.id)}
+                              >
+                                <Plus size={10} />
+                                <span>Add Team</span>
+                              </button>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}

@@ -508,6 +508,40 @@ export class SQLiteAdapter implements DbAdapter {
     return db.reorderProjectAgents(projectId, orderedAgentIds);
   }
 
+  // ── Teams ──────────────────────────────────────────────────────────────
+
+  getTeams(projectId: string) {
+    return db.getTeams(projectId);
+  }
+
+  getTeam(teamId: string) {
+    return db.getTeam(teamId);
+  }
+
+  createTeam(projectId: string, name: string, templateId?: string, metadata?: Record<string, unknown>) {
+    return withErrorTranslation(() => db.createTeam(projectId, name, templateId, metadata));
+  }
+
+  updateTeam(teamId: string, updates: { name?: string; metadata?: Record<string, unknown> }) {
+    return db.updateTeam(teamId, updates);
+  }
+
+  deleteTeam(teamId: string) {
+    return db.deleteTeam(teamId);
+  }
+
+  getTeamAgents(teamId: string) {
+    return db.getTeamAgents(teamId);
+  }
+
+  addTeamAgent(teamId: string, agentId: string, roleKey: string, routingOrder?: number) {
+    return withErrorTranslation(() => db.addTeamAgent(teamId, agentId, roleKey, routingOrder));
+  }
+
+  removeTeamAgent(teamId: string, agentId: string) {
+    return db.removeTeamAgent(teamId, agentId);
+  }
+
   // ── Project Skills ──────────────────────────────────────────────────────
 
   getProjectSkills(projectId: string): Promise<ProjectSkill[]> {
