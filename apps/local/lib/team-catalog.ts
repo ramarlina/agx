@@ -349,7 +349,7 @@ const teamTemplatesData: TeamTemplate[] = [
         title: "Penetration Tester",
         style: "specialist",
         skillProfileId: "reviewer",
-        identity: "Think like an adversary, find exploit paths, and make the attack surface legible to builders.",
+        identity: "Probe the system as an adversary, find exploit paths, and make the attack surface legible to builders.",
       },
     ],
   },
@@ -365,7 +365,7 @@ const teamTemplatesData: TeamTemplate[] = [
         title: "Researcher",
         style: "balanced",
         skillProfileId: "researcher",
-        identity: "Investigate fast-changing domains, synthesize evidence, and surface the governing model behind decisions.",
+        identity: "Map fast-changing domains, synthesize evidence, and surface the governing model behind decisions.",
       },
       {
         roleKey: "technical-writer",
