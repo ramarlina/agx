@@ -5,6 +5,7 @@ import { listTeamTemplates, type TeamTemplate } from "@/lib/team-catalog";
 import {
   Hammer,
   ClipboardList,
+  Layers,
   Megaphone,
   Database,
   Palette,
@@ -17,6 +18,7 @@ import {
 } from "lucide-react";
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+  layers: Layers,
   hammer: Hammer,
   "clipboard-list": ClipboardList,
   megaphone: Megaphone,

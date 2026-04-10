@@ -5,8 +5,9 @@ import {
   createTeam,
   addTeamAgent,
   createAgent,
+  setAgentSkills,
 } from "@/lib/db";
-import { getTeamTemplate } from "@/lib/team-catalog";
+import { getTeamTemplate, getAgentPresetBindings } from "@/lib/team-catalog";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import type { TeamTemplateId } from "@/lib/team-catalog";
 
@@ -66,6 +67,19 @@ export async function POST(request: NextRequest, context: RouteContext) {
           style: preset.style,
           voice: preset.identity,
         });
+
+        // Attach skill bindings from profile + extraSkills
+        const bindings = getAgentPresetBindings(preset);
+        if (bindings.length > 0) {
+          await setAgentSkills(
+            agent.id,
+            bindings.map((b) => ({
+              file: `${b.repo}/${b.skillId}`,
+              ...(b.condition ? { condition: b.condition } : {}),
+            })),
+          );
+        }
+
         await addTeamAgent(team.id, agent.id, preset.roleKey, i);
       }
 

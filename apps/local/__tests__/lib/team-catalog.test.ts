@@ -65,7 +65,7 @@ describe("team catalog", () => {
     expect(listTeamTemplates()).toHaveLength(9);
   });
 
-  test("senior builder profile preserves multi-repo bindings with explicit activation hints", () => {
+  test("senior-builder profile has no framework-specific bindings", () => {
     const bindings = getSkillProfileBindings("senior-builder");
 
     expect(bindings).toEqual(
@@ -74,17 +74,52 @@ describe("team catalog", () => {
           repo: SKILL_REPOS.superpowers,
           skillId: "test-driven-development",
         }),
-        expect.objectContaining({
-          repo: SKILL_REPOS.nextSkills,
-          skillId: "api-routes",
-          condition: expect.any(String),
-        }),
-        expect.objectContaining({
-          repo: SKILL_REPOS.nextSkills,
-          skillId: "react-server-components",
-          condition: expect.any(String),
-        }),
       ]),
     );
+    expect(bindings.every((b) => b.repo === SKILL_REPOS.superpowers)).toBe(true);
+  });
+
+  test("web-facing agents carry Next.js extraSkills via getAgentPresetBindings", () => {
+    const eng = getTeamTemplate("engineering")!;
+    const frontend = eng.agents.find((a) => a.roleKey === "frontend-engineer")!;
+    const backend = eng.agents.find((a) => a.roleKey === "backend-engineer")!;
+
+    const frontendBindings = getAgentPresetBindings(frontend);
+    const backendBindings = getAgentPresetBindings(backend);
+
+    // Frontend gets Next.js skills
+    expect(frontendBindings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ repo: SKILL_REPOS.nextSkills, skillId: "api-routes" }),
+        expect.objectContaining({ repo: SKILL_REPOS.nextSkills, skillId: "react-server-components" }),
+      ]),
+    );
+
+    // Backend does not
+    expect(backendBindings.some((b) => b.repo === SKILL_REPOS.nextSkills)).toBe(false);
+  });
+
+  test("extraSkills on cloned templates do not leak mutations", () => {
+    const t1 = getTeamTemplate("engineering")!;
+    const t2 = getTeamTemplate("engineering")!;
+    const fe1 = t1.agents.find((a) => a.roleKey === "frontend-engineer")!;
+    const fe2 = t2.agents.find((a) => a.roleKey === "frontend-engineer")!;
+
+    fe1.extraSkills![0].skillId = "mutated";
+    expect(fe2.extraSkills![0].skillId).not.toBe("mutated");
+  });
+
+  test("researcher profile includes systematic-debugging unlike planner", () => {
+    const researcher = getSkillProfileBindings("researcher");
+    const planner = getSkillProfileBindings("planner");
+
+    expect(researcher.some((b) => b.skillId === "systematic-debugging")).toBe(true);
+    expect(planner.some((b) => b.skillId === "systematic-debugging")).toBe(false);
+  });
+
+  test("security-engineer uses senior-builder profile to implement fixes", () => {
+    const sec = getTeamTemplate("security")!;
+    const engineer = sec.agents.find((a) => a.roleKey === "security-engineer")!;
+    expect(engineer.skillProfileId).toBe("senior-builder");
   });
 });
