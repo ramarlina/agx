@@ -175,7 +175,7 @@ function ProjectLayoutContent({
               {currentProject.name}
             </button>
             <span className="text-xs text-[var(--muted-foreground)]">/</span>
-            <span className="text-xs text-[var(--foreground)] capitalize">{activeProjectView}</span>
+            <span className="text-xs text-[var(--foreground)]">{{ objectives: "Objectives", teams: "Teams", linear: "Linear", automations: "Scheduled Tasks", thread: "Chat", knowledge: "Knowledge", settings: "Settings" }[activeProjectView] ?? activeProjectView}</span>
           </div>
         )}
         {children}
