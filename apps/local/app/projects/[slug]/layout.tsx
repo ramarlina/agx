@@ -68,13 +68,15 @@ function ProjectLayoutContent({
     const match = pathname.match(/\/projects\/[^/]+\/thread\/([^/]+)/);
     return match?.[1] ? decodeURIComponent(match[1]) : currentProject?.thread_ids[0] ?? null;
   }, [currentProject?.thread_ids, pathname]);
-  const activeProjectView = useMemo<"overview" | "objectives" | "thread" | "knowledge" | "automations" | "linear">(
+  const activeProjectView = useMemo<"overview" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "settings">(
     () => {
       if (pathname.includes("/linear")) return "linear";
       if (pathname.includes("/automations")) return "automations";
       if (pathname.includes("/thread/")) return "thread";
       if (pathname.includes("/knowledge")) return "knowledge";
       if (pathname.includes("/objectives")) return "objectives";
+      if (pathname.includes("/teams")) return "teams";
+      if (pathname.includes("/settings")) return "settings";
       return "overview";
     },
     [pathname]

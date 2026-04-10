@@ -61,7 +61,7 @@ interface WorkspaceSidebarProps {
   onUpdateParticipant?: (participant: Participant) => Promise<unknown>;
   onSelectProject?: (projectId: string) => void;
   activeProjectId?: string | null;
-  activeProjectView?: "overview" | "objectives" | "thread" | "knowledge" | "automations" | "linear" | null;
+  activeProjectView?: "overview" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "settings" | null;
   onAddTeam?: (projectId: string) => void;
 }
 
@@ -467,9 +467,11 @@ export function WorkspaceSidebar({
               null;
             const isActiveProjectOverview = isActiveProject && activeProjectView === "overview";
             const isActiveProjectObjectives = isActiveProject && activeProjectView === "objectives";
+            const isActiveProjectTeams = isActiveProject && activeProjectView === "teams";
             const isActiveProjectThread = isActiveProject && activeProjectView === "thread" && primaryProjectThreadId === activeThreadId;
             const isActiveProjectAutomations = isActiveProject && activeProjectView === "automations";
             const isActiveProjectLinear = isActiveProject && activeProjectView === "linear";
+            const isActiveProjectSettings = isActiveProject && activeProjectView === "settings";
 
             return (
               <div key={project.id}>
@@ -569,6 +571,18 @@ export function WorkspaceSidebar({
                       </Link>
                     </div>
 
+                    {/* Teams */}
+                    <div className="workspace-sidebar__workspace-item">
+                      <Link
+                        href={`/projects/${project.slug}/teams`}
+                        className={`workspace-sidebar__nav-item ${isActiveProjectTeams ? "workspace-sidebar__nav-item--active" : ""}`}
+                        aria-current={isActiveProjectTeams ? "page" : undefined}
+                      >
+                        <Users size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                        <span className="workspace-sidebar__workspace-title text-xs">Teams</span>
+                      </Link>
+                    </div>
+
                     {/* Chat */}
                     <div className="workspace-sidebar__workspace-item">
                       {primaryProjectThreadId ? (
@@ -592,283 +606,17 @@ export function WorkspaceSidebar({
                         </button>
                       )}
                     </div>
-                    <div className="pt-1">
-                      <div className="group/repos-header flex items-center justify-between px-3 py-1">
-                        <p className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase tracking-wide">Folders</p>
-                        <div className="flex items-center gap-1">
-                          <Link
-                            href="/folders"
-                            className="workspace-sidebar__action opacity-0 transition-opacity group-hover/repos-header:opacity-100 text-[var(--muted-foreground)] hover:text-white"
-                            aria-label="Manage folders"
-                            title="Manage folders"
-                          >
-                            <Settings size={12} />
-                          </Link>
-                        <button
-                          type="button"
-                          className="workspace-sidebar__action opacity-0 transition-opacity group-hover/repos-header:opacity-100 text-[var(--muted-foreground)] hover:text-white"
-                          onClick={() => setRepoDetail({
-                            projectId: project.id,
-                            projectName: project.name,
-                            repoId: null,
-                            name: "",
-                            path: "",
-                            gitUrl: "",
-                            notes: "",
-                            generatedKnowledge: [],
-                            isLoadingKnowledge: false,
-                            isSaving: false,
-                            error: null,
-                          })}
-                          aria-label="Add folder"
-                          title="Add folder"
-                        >
-                          <Plus size={12} />
-                        </button>
-                        </div>
-                      </div>
-                      {project.repos.length > 0 ? (
-                        project.repos.map((repo) => (
-                          <div key={`${project.id}:${repo.name}:${repo.path ?? ""}`} className="workspace-sidebar__workspace-item group/repo flex items-center">
-                            <button
-                              type="button"
-                              className="workspace-sidebar__nav-item min-w-0 flex-1 text-left"
-                              onClick={() => setRepoDetail({
-                                projectId: project.id,
-                                projectName: project.name,
-                                repoId: repo.id,
-                                name: repo.name,
-                                path: repo.path || "",
-                                gitUrl: repo.git_url || "",
-                                notes: repo.notes || "",
-                                generatedKnowledge: [],
-                                isLoadingKnowledge: true,
-                                isSaving: false,
-                                error: null,
-                              })}
-                            >
-                              <FolderGit2 size={12} className="flex-shrink-0 text-[var(--muted-foreground)] ml-2" />
-                              <span className="workspace-sidebar__workspace-title text-xs truncate">
-                                {repo.name}
-                              </span>
-                            </button>
-                            <button
-                              type="button"
-                              className="workspace-sidebar__action opacity-0 group-hover/repo:opacity-100 transition-opacity flex-shrink-0 text-[var(--muted-foreground)] hover:text-red-400"
-                              onClick={async (e) => {
-                                e.stopPropagation();
-                                const nextRepos = project.repos
-                                  .filter((r) => r.id !== repo.id)
-                                  .map((r) => ({
-                                    id: r.id,
-                                    name: r.name,
-                                    path: r.path,
-                                    git_url: r.git_url,
-                                    notes: r.notes,
-                                  }));
-                                await onUpdateProject?.(project.id, { repos: nextRepos });
-                              }}
-                              aria-label="Delete folder"
-                              title="Delete folder"
-                            >
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="px-3 py-1 text-[11px] text-[var(--muted-foreground)]">No folders</p>
-                      )}
-                    </div>
-                    <div className="pt-1">
-                      <div className="group/agents-header flex items-center justify-between px-3 py-1">
-                        <p className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase tracking-wide">Agents</p>
-                        <div className="flex items-center gap-1">
-                          <Link
-                            href="/agents"
-                            className="workspace-sidebar__action opacity-0 transition-opacity group-hover/agents-header:opacity-100 text-[var(--muted-foreground)] hover:text-white"
-                            aria-label="Manage agents"
-                            title="Manage agents"
-                          >
-                            <Settings size={12} />
-                          </Link>
-                        {project.agents.length > 0 && (
-                          <button
-                            type="button"
-                            className="workspace-sidebar__action opacity-0 transition-opacity group-hover/agents-header:opacity-100 text-[var(--muted-foreground)] hover:text-white"
-                            onClick={() => handleAddAgentToProject(project.id)}
-                            aria-label="Add agents"
-                            title="Add agents"
-                          >
-                            <Plus size={12} />
-                          </button>
-                        )}
-                        </div>
-                      </div>
-                      {(() => {
-                        const projectTeams = teamsByProject[project.id];
-                        const hasTeams = projectTeams && projectTeams.length > 0;
 
-                        // Helper: render a single agent row (reused across grouped and flat views)
-                        const renderAgentRow = (projectAgent: { agent_id: string }, agentIndex: number, showDragHandle: boolean) => {
-                          const agent = participants.find((participant) => participant.id === projectAgent.agent_id);
-                          const isDragging = dragState?.projectId === project.id && dragState?.agentId === projectAgent.agent_id;
-                          const isDragOver = dragState?.projectId === project.id && dragState?.overIndex === agentIndex && !isDragging;
-                          return (
-                            <div
-                              key={projectAgent.agent_id}
-                              draggable
-                              onDragStart={(e) => {
-                                e.dataTransfer.effectAllowed = "move";
-                                setDragState({ projectId: project.id, agentId: projectAgent.agent_id, overIndex: agentIndex });
-                              }}
-                              onDragOver={(e) => {
-                                e.preventDefault();
-                                if (dragState && dragState.projectId === project.id) {
-                                  setDragState((prev) => prev ? { ...prev, overIndex: agentIndex } : null);
-                                }
-                              }}
-                              onDragEnd={() => {
-                                if (dragState && dragState.projectId === project.id && onReorderProjectAgents) {
-                                  const currentIds = project.agents.map((a) => a.agent_id);
-                                  const fromIndex = currentIds.indexOf(dragState.agentId);
-                                  const toIndex = dragState.overIndex;
-                                  if (fromIndex !== -1 && fromIndex !== toIndex) {
-                                    const reordered = [...currentIds];
-                                    const [moved] = reordered.splice(fromIndex, 1);
-                                    reordered.splice(toIndex, 0, moved);
-                                    void onReorderProjectAgents(project.id, reordered);
-                                  }
-                                }
-                                setDragState(null);
-                              }}
-                              className={`group/agent flex items-center ${isDragOver ? "border-t-2 border-[var(--border)]" : "border-t-2 border-transparent"} ${isDragging ? "opacity-40" : ""}`}
-                            >
-                              <button
-                                type="button"
-                                className="workspace-sidebar__nav-item flex-1 min-w-0 !py-1"
-                                onClick={() => setAgentDetailId(projectAgent.agent_id)}
-                              >
-                                {showDragHandle && (
-                                  <span className={`cursor-grab text-[var(--muted-foreground)] hover:text-[var(--muted-foreground)] flex-shrink-0 mr-0.5 transition-opacity ${agentIndex === 0 ? "opacity-100" : "opacity-0 group-hover/agent:opacity-100"}`} title="Drag to reorder">&#x2807;</span>
-                                )}
-                                <img
-                                  src={agentAvatarUrl(projectAgent.agent_id, 16, agent?.color)}
-                                  alt=""
-                                  className="w-4 h-4 rounded-full flex-shrink-0"
-                                />
-                                <span className="workspace-sidebar__workspace-title text-xs truncate">
-                                  {agent?.name ?? projectAgent.agent_id}
-                                </span>
-                                {!hasTeams && agentIndex === 0 && (
-                                  <span className="ml-auto text-[9px] text-[var(--muted-foreground)] font-medium flex-shrink-0" title="Default responder (top agent responds first)">DEFAULT</span>
-                                )}
-                              </button>
-                            </div>
-                          );
-                        };
-
-                        if (project.agents.length === 0 && !hasTeams) {
-                          return (
-                            <button
-                              type="button"
-                              className="inline-flex items-center gap-1 px-3 py-1 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-                              onClick={() => handleAddAgentToProject(project.id)}
-                            >
-                              <Plus size={10} />
-                              <span>Add agents</span>
-                            </button>
-                          );
-                        }
-
-                        if (!hasTeams) {
-                          // Flat list (backward compatible — no teams)
-                          return (
-                            <>
-                              {project.agents.map((projectAgent, agentIndex) =>
-                                renderAgentRow(projectAgent, agentIndex, true)
-                              )}
-                            </>
-                          );
-                        }
-
-                        // Team-grouped view
-                        const teamAgentIds = new Set(projectTeams.flatMap((t) => t.agents.map((a) => a.agent_id)));
-                        const unassignedAgents = project.agents.filter((a) => !teamAgentIds.has(a.agent_id));
-
-                        return (
-                          <>
-                            {projectTeams.map((team) => {
-                              const isTeamExpanded = expandedTeams.has(team.id);
-                              // Only show agents that are also in the project roster
-                              const projectAgentIds = new Set(project.agents.map((a) => a.agent_id));
-                              const teamMemberAgents = team.agents
-                                .filter((ta) => projectAgentIds.has(ta.agent_id))
-                                .map((ta) => ({ agent_id: ta.agent_id }));
-
-                              return (
-                                <div key={team.id}>
-                                  <button
-                                    type="button"
-                                    className="group/team-header flex w-full items-center gap-1.5 px-3 py-1 text-left transition-colors hover:bg-[var(--app-shell-subtle)]"
-                                    onClick={() => toggleTeamExpanded(team.id)}
-                                  >
-                                    {isTeamExpanded ? (
-                                      <ChevronDown size={10} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                                    ) : (
-                                      <ChevronRight size={10} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                                    )}
-                                    <Users size={11} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                                    <span className="text-[11px] font-medium text-[var(--muted-foreground)] truncate">{team.name}</span>
-                                    <span className="ml-auto text-[9px] text-[var(--muted-foreground)]">{teamMemberAgents.length}</span>
-                                  </button>
-                                  {isTeamExpanded && (
-                                    <div className="ml-3">
-                                      {teamMemberAgents.length > 0 ? (
-                                        teamMemberAgents.map((ta, idx) => renderAgentRow(ta, idx, false))
-                                      ) : (
-                                        <p className="px-3 py-1 text-[10px] text-[var(--muted-foreground)]">No agents</p>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                            {unassignedAgents.length > 0 && (
-                              <div>
-                                <button
-                                  type="button"
-                                  className="group/team-header flex w-full items-center gap-1.5 px-3 py-1 text-left transition-colors hover:bg-[var(--app-shell-subtle)]"
-                                  onClick={() => toggleTeamExpanded(`__unassigned__${project.id}`)}
-                                >
-                                  {expandedTeams.has(`__unassigned__${project.id}`) ? (
-                                    <ChevronDown size={10} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                                  ) : (
-                                    <ChevronRight size={10} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                                  )}
-                                  <Users size={11} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                                  <span className="text-[11px] font-medium text-[var(--muted-foreground)] truncate">Unassigned</span>
-                                  <span className="ml-auto text-[9px] text-[var(--muted-foreground)]">{unassignedAgents.length}</span>
-                                </button>
-                                {expandedTeams.has(`__unassigned__${project.id}`) && (
-                                  <div className="ml-3">
-                                    {unassignedAgents.map((pa, idx) => renderAgentRow(pa, idx, true))}
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                            {onAddTeam && (
-                              <button
-                                type="button"
-                                className="inline-flex items-center gap-1 px-3 py-1 text-[11px] font-medium text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-                                onClick={() => onAddTeam(project.id)}
-                              >
-                                <Plus size={10} />
-                                <span>Add Team</span>
-                              </button>
-                            )}
-                          </>
-                        );
-                      })()}
+                    {/* Settings */}
+                    <div className="workspace-sidebar__workspace-item">
+                      <Link
+                        href={`/projects/${project.slug}/settings`}
+                        className={`workspace-sidebar__nav-item ${isActiveProjectSettings ? "workspace-sidebar__nav-item--active" : ""}`}
+                        aria-current={isActiveProjectSettings ? "page" : undefined}
+                      >
+                        <Settings size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                        <span className="workspace-sidebar__workspace-title text-xs">Settings</span>
+                      </Link>
                     </div>
                   </div>
                 )}
