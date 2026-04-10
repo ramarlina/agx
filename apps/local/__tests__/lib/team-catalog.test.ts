@@ -3,6 +3,7 @@
  */
 
 import {
+  getAgentPresetBindings,
   getSkillProfile,
   getSkillProfileBindings,
   getTeamTemplate,
