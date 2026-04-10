@@ -4,6 +4,7 @@ import {
   listLinearIssueSummaries,
 } from "@/lib/linear-issues";
 import { getLinearClient } from "@/lib/linear-client";
+import { getIssueActivityMap } from "@/lib/linear-run-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,12 +40,22 @@ export async function GET(req: NextRequest) {
   const assignedToMe = params.get("assignedToMe") === "true";
   const refresh = params.get("refresh") === "true";
   const limit = Number(params.get("limit") ?? "50");
+  const sortBy = (params.get("sortBy") ?? "").trim() as "activity" | "identifier" | "status" | "created" | "";
+  const sortDir = (params.get("sortDir") ?? "").trim() as "asc" | "desc" | "";
+  const hasActivity = params.get("hasActivity") === "true";
 
   try {
     const pullResult = await ensureLinearIssueCache({
       refresh,
       projectSlug,
     });
+
+    // Fetch activity map when needed for sorting or filtering
+    let activityMap: Map<string, string> | undefined;
+    if (sortBy === "activity" || hasActivity) {
+      activityMap = await getIssueActivityMap();
+    }
+
     const data = await listLinearIssueSummaries({
       statuses,
       search,
@@ -54,6 +65,10 @@ export async function GET(req: NextRequest) {
       cycleId,
       cursor,
       limit,
+      sortBy: sortBy || undefined,
+      sortDir: sortDir || undefined,
+      hasActivity,
+      activityMap,
     });
 
     if (!data.syncState.lastPulledAt && !pullResult && !getLinearClient()) {
