@@ -4,6 +4,7 @@ import { Suspense, use, useCallback, useEffect, useMemo, useState } from "react"
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { Sun, Moon } from "lucide-react";
+import { StatusIndicator } from "@/components/chat-ui/StatusIndicator";
 import { WorkspaceSidebar } from "@/components/thread/WorkspaceSidebar";
 import { useProjectsWithAgents } from "@/hooks/useProjects";
 import { useThreadState } from "@/hooks/useThreadState";
@@ -182,8 +183,9 @@ function ProjectLayoutContent({
         }}
       />
       <div className="flex-1 min-h-0 flex flex-col min-w-0 h-full overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--app-shell-border)] bg-[var(--background)] shrink-0">
-          <div className="flex items-center gap-1.5">
+        <div className="flex items-center px-4 py-2 border-b border-[var(--app-shell-border)] bg-[var(--background)] shrink-0">
+          {/* Left: breadcrumb */}
+          <div className="flex items-center gap-1.5 min-w-0 flex-shrink-0">
             <button
               type="button"
               onClick={() => router.push(`/projects/${slug}`)}
@@ -198,15 +200,29 @@ function ProjectLayoutContent({
               </>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
-            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-            title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] hover:bg-[var(--app-shell-subtle)]"
-          >
-            {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
-          </button>
+
+          {/* Center: page title for non-chat/non-overview views */}
+          <div className="flex-1 flex justify-center min-w-0">
+            {activeProjectView !== "overview" && activeProjectView !== "thread" && (
+              <span className="text-sm font-medium text-[var(--foreground)]">
+                {{ objectives: "Objectives", teams: "Teams", linear: "Linear", automations: "Scheduled Tasks", knowledge: "Knowledge", settings: "Settings" }[activeProjectView] ?? ""}
+              </span>
+            )}
+          </div>
+
+          {/* Right: status + theme */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <StatusIndicator />
+            <button
+              type="button"
+              onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+              aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+              title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] hover:bg-[var(--app-shell-subtle)]"
+            >
+              {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            </button>
+          </div>
         </div>
         {children}
       </div>

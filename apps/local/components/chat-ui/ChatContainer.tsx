@@ -1674,7 +1674,7 @@ export function ChatContainer({
     </button>
   );
 
-  const mainToolbar = (
+  const mainToolbar = projectSlug ? null : (
     <div
       className="desktop-titlebar border-b border-[var(--app-shell-border)] bg-[var(--app-shell-surface)] px-4 py-2.5 backdrop-blur-xl md:px-6"
     >
@@ -1728,8 +1728,8 @@ export function ChatContainer({
               )}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
-              {renderThemeToggleButton()}
-              <StatusIndicator />
+              {!projectSlug && renderThemeToggleButton()}
+              {!projectSlug && <StatusIndicator />}
               {openThreadId && (
                 <button
                   type="button"
@@ -1860,8 +1860,8 @@ export function ChatContainer({
                           )}
                           <span className="hidden sm:inline">{isKnowledgeExtractionRunning ? "Learning..." : "Learn from discussion"}</span>
                         </button>
-                        {renderThemeToggleButton()}
-                        <StatusIndicator />
+                        {!projectSlug && renderThemeToggleButton()}
+                        {!projectSlug && <StatusIndicator />}
                         <button
                           type="button"
                           onClick={() => setLogsOpen(!logsOpen)}
