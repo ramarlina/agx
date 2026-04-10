@@ -109,7 +109,7 @@ export default function ProjectCard({ project, onEdit, onDelete, onClick, onMana
       <div>
         <div className="flex items-center justify-between">
           <span className="text-[12px] uppercase tracking-wider text-[var(--muted-foreground)]">
-            Repositories
+            Folders
           </span>
           <span className="text-[12px] text-[var(--muted-foreground)]">
             {hasRepos ? `${project.repos.length} connected` : "Unlinked"}
@@ -117,7 +117,7 @@ export default function ProjectCard({ project, onEdit, onDelete, onClick, onMana
         </div>
 
         {!hasRepos ? (
-          <p className="mt-3 text-[12px] text-[var(--muted-foreground)]">No repositories added yet.</p>
+          <p className="mt-3 text-[12px] text-[var(--muted-foreground)]">No folders added yet.</p>
         ) : (
           <div className="mt-3 space-y-2">
             {project.repos.slice(0, 2).map((repo) => (

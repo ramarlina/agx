@@ -242,38 +242,21 @@ export default function AdoptAgentsModal({
             <label className="block text-sm font-medium mb-1.5">
               Template <span className="text-[var(--muted-foreground)] font-normal">(optional)</span>
             </label>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setSelectedTemplateId(null)}
+            <div className="relative">
+              <select
+                value={selectedTemplateId ?? ""}
+                onChange={(e) => setSelectedTemplateId(e.target.value || null)}
                 disabled={creating}
-                className={`
-                  px-3 py-1.5 rounded-xl text-xs font-medium border transition-all
-                  ${
-                    !selectedTemplateId
-                      ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]"
-                      : "border-[var(--card-border)] hover:border-[var(--primary)]/50 text-[var(--muted-foreground)]"
-                  }
-                `}
+                className="appearance-none w-full bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl text-sm pl-3 pr-8 py-2 cursor-pointer focus:border-[var(--primary)] focus:outline-none transition-colors"
               >
-                None
-              </button>
-              {templates.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setSelectedTemplateId(t.id)}
-                  disabled={creating}
-                  className={`
-                    px-3 py-1.5 rounded-xl text-xs font-medium border transition-all
-                    ${
-                      selectedTemplateId === t.id
-                        ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]"
-                        : "border-[var(--card-border)] hover:border-[var(--primary)]/50 text-[var(--muted-foreground)]"
-                    }
-                  `}
-                >
-                  {t.name}
-                </button>
-              ))}
+                <option value="">None</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--muted-foreground)]" />
             </div>
           </div>
 

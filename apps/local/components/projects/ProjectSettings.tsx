@@ -195,13 +195,13 @@ export function ProjectSettings({ project, onUpdate, onDelete }: ProjectSettings
           </label>
         </section>
 
-        {/* Section 2: Repositories */}
+        {/* Section 2: Folders */}
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 space-y-4">
           <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
             <div className="flex items-center gap-2">
               <FolderGit2 className="w-4 h-4 text-zinc-400" />
               <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-400">
-                Repositories
+                Folders
               </h2>
             </div>
             <div className="flex items-center gap-3">
@@ -213,13 +213,13 @@ export function ProjectSettings({ project, onUpdate, onDelete }: ProjectSettings
                 className="text-xs font-semibold text-blue-400 hover:text-blue-300 flex items-center gap-1"
               >
                 <Plus className="w-3 h-3" />
-                Add Repository
+                Add Folder
               </button>
             </div>
           </div>
 
           {(project.repos ?? []).length === 0 && !addingRepo && (
-            <p className="text-sm text-zinc-500">No repositories linked to this project.</p>
+            <p className="text-sm text-zinc-500">No folders linked to this project.</p>
           )}
 
           <div className="space-y-2">
@@ -253,7 +253,7 @@ export function ProjectSettings({ project, onUpdate, onDelete }: ProjectSettings
                 value={newRepoName}
                 onChange={(e) => setNewRepoName(e.target.value)}
                 className="input w-full text-sm"
-                placeholder="Repository name"
+                placeholder="Folder name"
                 autoFocus
               />
               <input
@@ -329,7 +329,7 @@ export function ProjectSettings({ project, onUpdate, onDelete }: ProjectSettings
           </div>
 
           <p className="text-sm text-zinc-400">
-            Deleting this project will remove all associated data including repositories, agent assignments, and threads.
+            Deleting this project will remove all associated data including folders, agent assignments, and threads.
           </p>
 
           {!confirmDelete ? (

@@ -12,7 +12,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useProjects } from "@/hooks/useProjects";
+import { useProjects, type ProjectRepoInput } from "@/hooks/useProjects";
 import { useProjectSkills } from "@/hooks/useProjectResources";
 
 type KnowledgeTab = "project" | "repos";
@@ -45,7 +45,7 @@ function mapKnowledgeNoteToSystemNote(note: {
 export default function ProjectKnowledgePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
 
-  const { projects } = useProjects();
+  const { projects, updateProject } = useProjects();
   const currentProject = projects.find((project) => project.slug === slug);
   const projectId = currentProject?.id ?? null;
 
@@ -58,6 +58,13 @@ export default function ProjectKnowledgePage({ params }: { params: Promise<{ slu
   const [newKnowledgeCondition, setNewKnowledgeCondition] = useState("");
   const [projectSystemNote, setProjectSystemNote] = useState<SystemNote | null>(null);
   const [repoSystemNotes, setRepoSystemNotes] = useState<Record<string, SystemNote | null>>({});
+  const [isAddingFolder, setIsAddingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderPath, setNewFolderPath] = useState("");
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editingFolderName, setEditingFolderName] = useState("");
+  const [editingFolderPath, setEditingFolderPath] = useState("");
+  const [folderStatus, setFolderStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,6 +137,81 @@ export default function ProjectKnowledgePage({ params }: { params: Promise<{ slu
     );
   });
 
+  const setFolderFeedback = (message: string) => {
+    setFolderStatus(message);
+    window.setTimeout(() => setFolderStatus(null), 2500);
+  };
+
+  const toRepoInputs = () =>
+    (currentProject?.repos ?? []).map((repo) => ({
+      id: repo.id,
+      name: repo.name,
+      path: repo.path,
+      git_url: repo.git_url,
+      notes: repo.notes,
+    })) satisfies ProjectRepoInput[];
+
+  const handleAddFolder = async () => {
+    const name = newFolderName.trim();
+    const path = newFolderPath.trim();
+    if (!currentProject || !name || !path) return;
+
+    try {
+      await updateProject(currentProject.id, {
+        repos: [...toRepoInputs(), { name, path }],
+      });
+      setIsAddingFolder(false);
+      setNewFolderName("");
+      setNewFolderPath("");
+      setFolderFeedback("Folder added");
+    } catch {
+      setFolderFeedback("Failed to add folder");
+    }
+  };
+
+  const handleDeleteFolder = async (repoId: string) => {
+    if (!currentProject) return;
+    try {
+      await updateProject(currentProject.id, {
+        repos: toRepoInputs().filter((repo) => repo.id !== repoId),
+      });
+      if (editingFolderId === repoId) {
+        setEditingFolderId(null);
+        setEditingFolderName("");
+        setEditingFolderPath("");
+      }
+      setFolderFeedback("Folder deleted");
+    } catch {
+      setFolderFeedback("Failed to delete folder");
+    }
+  };
+
+  const startEditingFolder = (repo: NonNullable<typeof currentProject>["repos"][number]) => {
+    setEditingFolderId(repo.id);
+    setEditingFolderName(repo.name);
+    setEditingFolderPath(repo.path ?? "");
+  };
+
+  const handleSaveFolder = async (repoId: string) => {
+    const name = editingFolderName.trim();
+    const path = editingFolderPath.trim();
+    if (!currentProject || !name || !path) return;
+
+    try {
+      await updateProject(currentProject.id, {
+        repos: toRepoInputs().map((repo) =>
+          repo.id === repoId ? { ...repo, name, path } : repo
+        ),
+      });
+      setEditingFolderId(null);
+      setEditingFolderName("");
+      setEditingFolderPath("");
+      setFolderFeedback("Folder updated");
+    } catch {
+      setFolderFeedback("Failed to update folder");
+    }
+  };
+
   if (!currentProject) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -172,7 +254,7 @@ export default function ProjectKnowledgePage({ params }: { params: Promise<{ slu
             active={activeTab === "repos"}
             onClick={() => setActiveTab("repos")}
             icon={<FolderGit2 size={14} />}
-            label="Repositories"
+            label="Folders"
           />
         </div>
       </div>
@@ -187,12 +269,168 @@ export default function ProjectKnowledgePage({ params }: { params: Promise<{ slu
                 </h3>
                 <div className="grid grid-cols-2 gap-3">
                   <StatCard label="References" value={filteredSkills.length} sub="File-backed" />
-                  <StatCard label="Repos" value={currentProject.repos.length} sub="Attached folders" />
+                  <StatCard label="Folders" value={currentProject.repos.length} sub="Attached folders" />
                 </div>
                 <div className="mt-3">
                   <StatCard label="System Note" value={projectSystemNote?.content ? 1 : 0} sub="Living doc" />
                 </div>
               </div>
+
+              <section className="rounded-2xl border border-[var(--border)] bg-[var(--card-bg)] p-5 shadow-[var(--shadow-sm)]">
+                <div className="mb-4 flex items-start justify-between gap-3">
+                  <div>
+                    <h2 className="flex items-center gap-2 text-sm font-semibold text-[var(--foreground)]">
+                      <FolderGit2 size={16} className="text-[var(--primary)]" />
+                      Folders
+                    </h2>
+                    <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                      Add, edit, or remove project folders from the overview.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddingFolder((value) => !value);
+                      setEditingFolderId(null);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add
+                  </button>
+                </div>
+
+                {folderStatus ? (
+                  <p className="mb-3 text-xs text-[var(--muted-foreground)]">{folderStatus}</p>
+                ) : null}
+
+                {isAddingFolder ? (
+                  <div className="mb-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)] p-3">
+                    <div className="space-y-2">
+                      <input
+                        type="text"
+                        value={newFolderName}
+                        onChange={(event) => setNewFolderName(event.target.value)}
+                        className="w-full rounded-lg border border-[var(--border)] bg-[var(--card-bg)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                        placeholder="Folder name"
+                      />
+                      <input
+                        type="text"
+                        value={newFolderPath}
+                        onChange={(event) => setNewFolderPath(event.target.value)}
+                        className="w-full rounded-lg border border-[var(--border)] bg-[var(--card-bg)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                        placeholder="Local path"
+                      />
+                    </div>
+                    <div className="mt-3 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleAddFolder()}
+                        disabled={!newFolderName.trim() || !newFolderPath.trim()}
+                        className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-semibold text-[var(--primary-foreground)] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAddingFolder(false);
+                          setNewFolderName("");
+                          setNewFolderPath("");
+                        }}
+                        className="rounded-lg px-3 py-1.5 text-xs text-[var(--muted-foreground)] hover:bg-[var(--secondary)]"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+
+                {(currentProject.repos ?? []).length === 0 ? (
+                  <p className="text-sm text-[var(--muted-foreground)]">No folders linked yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {currentProject.repos.map((repo) => {
+                      const isEditing = editingFolderId === repo.id;
+                      return (
+                        <div
+                          key={repo.id}
+                          className="rounded-xl border border-[var(--border)] bg-[var(--secondary)] p-3"
+                        >
+                          {isEditing ? (
+                            <>
+                              <div className="space-y-2">
+                                <input
+                                  type="text"
+                                  value={editingFolderName}
+                                  onChange={(event) => setEditingFolderName(event.target.value)}
+                                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--card-bg)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                                  placeholder="Folder name"
+                                />
+                                <input
+                                  type="text"
+                                  value={editingFolderPath}
+                                  onChange={(event) => setEditingFolderPath(event.target.value)}
+                                  className="w-full rounded-lg border border-[var(--border)] bg-[var(--card-bg)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                                  placeholder="Local path"
+                                />
+                              </div>
+                              <div className="mt-3 flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void handleSaveFolder(repo.id)}
+                                  disabled={!editingFolderName.trim() || !editingFolderPath.trim()}
+                                  className="rounded-lg bg-[var(--primary)] px-3 py-1.5 text-xs font-semibold text-[var(--primary-foreground)] disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingFolderId(null);
+                                    setEditingFolderName("");
+                                    setEditingFolderPath("");
+                                  }}
+                                  className="rounded-lg px-3 py-1.5 text-xs text-[var(--muted-foreground)] hover:bg-[var(--card-bg)]"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-[var(--foreground)]">{repo.name}</p>
+                                <p className="truncate text-xs text-[var(--muted-foreground)]">
+                                  {repo.path || repo.git_url || "No path set"}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => startEditingFolder(repo)}
+                                  className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card-bg)] hover:text-[var(--foreground)]"
+                                  aria-label={`Edit ${repo.name}`}
+                                >
+                                  <SquarePen className="h-3.5 w-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeleteFolder(repo.id)}
+                                  className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card-bg)] hover:text-red-500"
+                                  aria-label={`Delete ${repo.name}`}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
             </div>
 
             <div className="col-span-12 lg:col-span-8 space-y-4">
@@ -328,7 +566,7 @@ export default function ProjectKnowledgePage({ params }: { params: Promise<{ slu
               <div className="rounded-2xl border border-dashed border-[var(--border)] px-6 py-12 text-center">
                 <FolderGit2 size={32} className="mx-auto mb-3 text-[var(--app-shell-soft-text)]" />
                 <p className="text-sm text-[var(--muted-foreground)]">
-                  {currentProject.repos.length === 0 ? "This project has no repos attached yet." : "No matching repositories."}
+                  {currentProject.repos.length === 0 ? "This project has no folders attached yet." : "No matching folders."}
                 </p>
               </div>
             ) : (
