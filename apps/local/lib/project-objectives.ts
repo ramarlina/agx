@@ -18,6 +18,7 @@ export interface ProjectObjectiveManualTask {
 export interface ProjectObjective {
   id: string;
   title: string;
+  teamId: string;
   summary: string;
   cadence: string;
   condition: string;
@@ -61,6 +62,7 @@ export interface ProjectObjectiveWorkspaceState {
 interface CreateProjectObjectiveInput {
   id?: string;
   title: string;
+  teamId: string;
   summary?: string;
   cadence?: string;
   condition?: string;
@@ -196,6 +198,7 @@ function normalizeObjective(raw: unknown): ProjectObjective | null {
   return {
     id: readString(raw.id, createId("objective")),
     title: readString(raw.title, "Untitled objective"),
+    teamId: readString(raw.teamId ?? raw.team_id ?? raw.ownerTeamId),
     summary: readString(raw.summary),
     cadence: readString(raw.cadence),
     condition: readString(raw.condition),
@@ -385,6 +388,7 @@ export function createProjectObjective(
   return {
     id: input.id ?? createId("objective"),
     title: input.title.trim(),
+    teamId: input.teamId.trim(),
     summary: input.summary?.trim() ?? "",
     cadence: input.cadence?.trim() ?? "",
     condition: input.condition?.trim() ?? "",

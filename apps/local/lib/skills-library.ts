@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import type { ChatProvider, SkillBinding } from "./types";
@@ -10,6 +11,7 @@ export type SkillsCatalogEntry = {
   skillId: string;
   repo: string;
   installs: number;
+  catalogSource?: "skills.sh" | "github";
 };
 
 export type SkillDetail = {
@@ -36,14 +38,78 @@ export type SkillHistoryRow = {
   updated_at: number;
 };
 
+type SkillCommandResult = {
+  ok: boolean;
+  command: string;
+  stdout: string;
+  stderr: string;
+  results: Array<{ provider: ChatProvider; ok: boolean; agent: string }>;
+  error?: string;
+};
+
 import { SKILLS_CACHE_TTL_MS, SKILL_DETAIL_CACHE_TTL_MS, SKILL_FETCH_TIMEOUT_MS } from "./constants/timing";
 
 const SKILLS_CACHE_TTL = SKILLS_CACHE_TTL_MS;
 const SKILL_DETAIL_CACHE_TTL = SKILL_DETAIL_CACHE_TTL_MS;
 const SUPPORTED_SKILL_PROVIDERS: ChatProvider[] = ["claude", "codex", "gemini", "zai"];
 
+type CustomGitHubSkill = SkillsCatalogEntry & {
+  catalogSource: "github";
+  github: {
+    owner: string;
+    repo: string;
+    ref: string;
+    path: string;
+  };
+  detail: SkillDetail;
+};
+
+const CUSTOM_CATALOG_SKILLS: CustomGitHubSkill[] = [
+  {
+    rank: 0,
+    name: "Research",
+    skillId: "research",
+    repo: "mvanhorn/last30days-skill",
+    installs: 0,
+    catalogSource: "github",
+    github: {
+      owner: "mvanhorn",
+      repo: "last30days-skill",
+      ref: "main",
+      path: ".",
+    },
+    detail: {
+      title: "Research",
+      description: "Multi-source recent research across Reddit, X, YouTube, TikTok, Instagram, Hacker News, Polymarket, and the web.",
+      whenToUse: [
+        "Use when you need recency-heavy research instead of evergreen web answers.",
+        "Use when you want to compare what different communities are saying across multiple platforms.",
+        "Use when you need a reusable research workflow with citations, summaries, and source planning.",
+        "Expect additional setup for keys and platform access, especially for ScrapeCreators-backed sources.",
+      ],
+      weeklyInstalls: "",
+      firstSeen: "",
+      installCommand: "GitHub import: mvanhorn/last30days-skill -> .agents/skills/research",
+    },
+  },
+];
+
 let cachedSkills: { loadedAt: number; data: SkillsCatalogEntry[] } | null = null;
 const skillDetailCache = new Map<string, { loadedAt: number; data: SkillDetail }>();
+
+function skillCatalogKey(repo: string, skillId: string): string {
+  return `${repo.trim().toLowerCase()}::${skillId.trim().toLowerCase()}`;
+}
+
+function findCustomCatalogSkill(repo: string, skillId: string): CustomGitHubSkill | null {
+  const key = skillCatalogKey(repo, skillId);
+  return CUSTOM_CATALOG_SKILLS.find((entry) => skillCatalogKey(entry.repo, entry.skillId) === key) ?? null;
+}
+
+function findCustomCatalogSkillById(skillId: string): CustomGitHubSkill | null {
+  const normalizedSkillId = skillId.trim().toLowerCase();
+  return CUSTOM_CATALOG_SKILLS.find((entry) => entry.skillId.trim().toLowerCase() === normalizedSkillId) ?? null;
+}
 
 function collapseWhitespace(input: string): string {
   return input.replace(/\s+/g, " ").trim();
@@ -141,12 +207,24 @@ export async function fetchSkillsCatalog(): Promise<SkillsCatalogEntry[]> {
 
   try {
     const response = await fetch("https://skills.sh");
-    if (!response.ok) return [];
+    if (!response.ok) {
+      const fallback = CUSTOM_CATALOG_SKILLS.map((entry, index) => ({ ...entry, rank: index + 1 }));
+      cachedSkills = { loadedAt: Date.now(), data: fallback };
+      return fallback;
+    }
     const html = await response.text();
     const anchor = html.indexOf("initialSkills");
-    if (anchor === -1) return [];
+    if (anchor === -1) {
+      const fallback = CUSTOM_CATALOG_SKILLS.map((entry, index) => ({ ...entry, rank: index + 1 }));
+      cachedSkills = { loadedAt: Date.now(), data: fallback };
+      return fallback;
+    }
     const bracketStart = html.indexOf(":[", anchor);
-    if (bracketStart === -1) return [];
+    if (bracketStart === -1) {
+      const fallback = CUSTOM_CATALOG_SKILLS.map((entry, index) => ({ ...entry, rank: index + 1 }));
+      cachedSkills = { loadedAt: Date.now(), data: fallback };
+      return fallback;
+    }
     const arrStart = bracketStart + 1;
 
     let depth = 0;
@@ -162,18 +240,30 @@ export async function fetchSkillsCatalog(): Promise<SkillsCatalogEntry[]> {
 
     const raw = html.slice(arrStart, arrEnd).replace(/\\"/g, '"');
     const items = JSON.parse(raw) as Array<{ source?: string; skillId?: string; name?: string; installs?: number }>;
-    const skills = items.map((obj, index) => ({
-      rank: index + 1,
+    const remoteSkills = items.map((obj) => ({
+      rank: 0,
       name: obj.name ?? obj.skillId ?? "",
       skillId: obj.skillId ?? obj.name ?? "",
       repo: obj.source ?? "",
       installs: typeof obj.installs === "number" ? obj.installs : 0,
+      catalogSource: "skills.sh" as const,
     }));
 
-    cachedSkills = { loadedAt: Date.now(), data: skills };
-    return skills;
+    const merged: SkillsCatalogEntry[] = [];
+    const seen = new Set<string>();
+    for (const skill of [...CUSTOM_CATALOG_SKILLS, ...remoteSkills]) {
+      const key = skillCatalogKey(skill.repo, skill.skillId);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push({ ...skill, rank: merged.length + 1 });
+    }
+
+    cachedSkills = { loadedAt: Date.now(), data: merged };
+    return merged;
   } catch {
-    return [];
+    const fallback = CUSTOM_CATALOG_SKILLS.map((entry, index) => ({ ...entry, rank: index + 1 }));
+    cachedSkills = { loadedAt: Date.now(), data: fallback };
+    return fallback;
   }
 }
 
@@ -182,6 +272,12 @@ export async function fetchSkillDetail(source: string, skillId: string): Promise
   const cached = skillDetailCache.get(cacheKey);
   if (cached && Date.now() - cached.loadedAt < SKILL_DETAIL_CACHE_TTL) {
     return cached.data;
+  }
+
+  const customSkill = findCustomCatalogSkill(source, skillId);
+  if (customSkill) {
+    skillDetailCache.set(cacheKey, { loadedAt: Date.now(), data: customSkill.detail });
+    return customSkill.detail;
   }
 
   try {
@@ -298,21 +394,236 @@ export function listAvailableSkills(provider?: string): Array<{
     }>;
 }
 
+function recordInstallHistoryForProviders(input: {
+  providers: ChatProvider[];
+  repo: string;
+  skillId: string;
+  skillLabel: string;
+  ok: boolean;
+  command: string;
+  error: string | null;
+  startedAt: number;
+}): Array<{ provider: ChatProvider; ok: boolean; agent: string }> {
+  const completedAt = Date.now();
+  const results: Array<{ provider: ChatProvider; ok: boolean; agent: string }> = [];
+  for (const provider of input.providers) {
+    const agent = skillAgentName(provider) ?? "unknown";
+    results.push({ provider, ok: input.ok, agent });
+    recordSkillHistory({
+      provider,
+      repo: input.repo,
+      skill_id: input.skillId,
+      skill_label: input.skillLabel,
+      status: input.ok ? "succeeded" : "failed",
+      command: input.command,
+      error: input.error,
+      run_started_at: input.startedAt,
+      run_completed_at: completedAt,
+      created_at: input.startedAt,
+      updated_at: completedAt,
+    });
+  }
+  return results;
+}
+
+function installCustomCatalogSkill(skill: CustomGitHubSkill, providers: ChatProvider[]): SkillCommandResult {
+  const startedAt = Date.now();
+  const repoUrl = `https://github.com/${skill.github.owner}/${skill.github.repo}.git`;
+  const displayCommand = `git clone --depth 1 --branch ${skill.github.ref} ${repoUrl} <tmp>/repo`;
+  let stdout = "";
+  let stderr = "";
+  let tempRoot = "";
+
+  try {
+    const destinationDir = path.dirname(installedSkillPath(skill.skillId));
+    if (fs.existsSync(destinationDir)) {
+      const error = `Destination already exists: ${destinationDir}`;
+      const results = recordInstallHistoryForProviders({
+        providers,
+        repo: skill.repo,
+        skillId: skill.skillId,
+        skillLabel: skill.name,
+        ok: false,
+        command: displayCommand,
+        error,
+        startedAt,
+      });
+      return { ok: false, command: displayCommand, stdout, stderr, results, error };
+    }
+
+    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "agx-skill-"));
+    const cloneDir = path.join(tempRoot, "repo");
+    const cloneRun = spawnSync("git", ["clone", "--depth", "1", "--branch", skill.github.ref, repoUrl, cloneDir], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      timeout: SKILL_FETCH_TIMEOUT_MS,
+      env: { ...process.env, FORCE_COLOR: "0" },
+    });
+
+    stdout = String(cloneRun.stdout ?? "");
+    stderr = String(cloneRun.stderr ?? "");
+    if (cloneRun.status !== 0) {
+      const error = collapseWhitespace(stderr || stdout) || "Git clone failed";
+      const results = recordInstallHistoryForProviders({
+        providers,
+        repo: skill.repo,
+        skillId: skill.skillId,
+        skillLabel: skill.name,
+        ok: false,
+        command: displayCommand,
+        error,
+        startedAt,
+      });
+      return { ok: false, command: displayCommand, stdout, stderr, results, error };
+    }
+
+    const cloneRoot = path.resolve(cloneDir);
+    const sourceDir = path.resolve(cloneDir, skill.github.path || ".");
+    if (sourceDir !== cloneRoot && !sourceDir.startsWith(`${cloneRoot}${path.sep}`)) {
+      const error = "GitHub skill path resolved outside the cloned repository";
+      const results = recordInstallHistoryForProviders({
+        providers,
+        repo: skill.repo,
+        skillId: skill.skillId,
+        skillLabel: skill.name,
+        ok: false,
+        command: displayCommand,
+        error,
+        startedAt,
+      });
+      return { ok: false, command: displayCommand, stdout, stderr, results, error };
+    }
+
+    if (!fs.existsSync(sourceDir) || !fs.statSync(sourceDir).isDirectory()) {
+      const error = `Skill directory not found in repository: ${skill.github.path || "."}`;
+      const results = recordInstallHistoryForProviders({
+        providers,
+        repo: skill.repo,
+        skillId: skill.skillId,
+        skillLabel: skill.name,
+        ok: false,
+        command: displayCommand,
+        error,
+        startedAt,
+      });
+      return { ok: false, command: displayCommand, stdout, stderr, results, error };
+    }
+
+    if (!fs.existsSync(path.join(sourceDir, "SKILL.md"))) {
+      const error = `SKILL.md not found in repository path: ${skill.github.path || "."}`;
+      const results = recordInstallHistoryForProviders({
+        providers,
+        repo: skill.repo,
+        skillId: skill.skillId,
+        skillLabel: skill.name,
+        ok: false,
+        command: displayCommand,
+        error,
+        startedAt,
+      });
+      return { ok: false, command: displayCommand, stdout, stderr, results, error };
+    }
+
+    fs.mkdirSync(path.dirname(destinationDir), { recursive: true });
+    fs.cpSync(sourceDir, destinationDir, {
+      recursive: true,
+      force: false,
+      errorOnExist: true,
+      filter: (src) => path.basename(src) !== ".git",
+    });
+
+    const results = recordInstallHistoryForProviders({
+      providers,
+      repo: skill.repo,
+      skillId: skill.skillId,
+      skillLabel: skill.name,
+      ok: true,
+      command: displayCommand,
+      error: null,
+      startedAt,
+    });
+    return {
+      ok: true,
+      command: displayCommand,
+      stdout: stdout || `Installed ${skill.name} from ${repoUrl}`,
+      stderr,
+      results,
+    };
+  } catch (error) {
+    const message = collapseWhitespace(error instanceof Error ? error.message : String(error)) || "Installation failed";
+    const results = recordInstallHistoryForProviders({
+      providers,
+      repo: skill.repo,
+      skillId: skill.skillId,
+      skillLabel: skill.name,
+      ok: false,
+      command: displayCommand,
+      error: message,
+      startedAt,
+    });
+    return { ok: false, command: displayCommand, stdout, stderr, results, error: message };
+  } finally {
+    if (tempRoot && fs.existsSync(tempRoot)) {
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  }
+}
+
+function removeCustomCatalogSkill(skill: CustomGitHubSkill, providers: ChatProvider[]): SkillCommandResult {
+  const startedAt = Date.now();
+  const destinationDir = path.dirname(installedSkillPath(skill.skillId));
+  const displayCommand = `rm -rf .agents/skills/${skill.skillId}`;
+
+  try {
+    if (fs.existsSync(destinationDir)) {
+      fs.rmSync(destinationDir, { recursive: true, force: true });
+    }
+    const results = recordInstallHistoryForProviders({
+      providers,
+      repo: skill.repo,
+      skillId: skill.skillId,
+      skillLabel: skill.name,
+      ok: true,
+      command: displayCommand,
+      error: null,
+      startedAt,
+    });
+    return {
+      ok: true,
+      command: displayCommand,
+      stdout: fs.existsSync(destinationDir) ? "" : `Removed ${skill.skillId}`,
+      stderr: "",
+      results,
+    };
+  } catch (error) {
+    const message = collapseWhitespace(error instanceof Error ? error.message : String(error)) || "Removal failed";
+    const results = recordInstallHistoryForProviders({
+      providers,
+      repo: skill.repo,
+      skillId: skill.skillId,
+      skillLabel: skill.name,
+      ok: false,
+      command: displayCommand,
+      error: message,
+      startedAt,
+    });
+    return { ok: false, command: displayCommand, stdout: "", stderr: "", results, error: message };
+  }
+}
+
 export function installSkill(input: {
   repo: string;
   skillId: string;
   providers: ChatProvider[];
-}): {
-  ok: boolean;
-  command: string;
-  stdout: string;
-  stderr: string;
-  results: Array<{ provider: ChatProvider; ok: boolean; agent: string }>;
-  error?: string;
-} {
+}): SkillCommandResult {
   const providers = Array.from(new Set(input.providers.map((provider) => normalizeSkillLearnProvider(provider)).filter(Boolean))) as ChatProvider[];
   if (providers.length === 0) {
     return { ok: false, command: "", stdout: "", stderr: "", results: [], error: "No supported providers selected" };
+  }
+
+  const customSkill = findCustomCatalogSkill(input.repo, input.skillId);
+  if (customSkill) {
+    return installCustomCatalogSkill(customSkill, providers);
   }
 
   const startedAt = Date.now();
@@ -320,6 +631,7 @@ export function installSkill(input: {
   let lastStdout = "";
   let lastStderr = "";
   let lastCommand = "";
+  const skillLabel = findCustomCatalogSkill(input.repo, input.skillId)?.name ?? input.skillId;
   const providersByAgent = new Map<string, ChatProvider[]>();
 
   for (const provider of providers) {
@@ -350,7 +662,7 @@ export function installSkill(input: {
         provider,
         repo: input.repo,
         skill_id: input.skillId,
-        skill_label: input.skillId,
+        skill_label: skillLabel,
         status: ok ? "succeeded" : "failed",
         command: lastCommand,
         error: ok ? null : collapseWhitespace(lastStderr || lastStdout).slice(0, 1000),
@@ -378,17 +690,15 @@ export function installSkill(input: {
 export function removeSkill(input: {
   skillId: string;
   providers: ChatProvider[];
-}): {
-  ok: boolean;
-  command: string;
-  stdout: string;
-  stderr: string;
-  results: Array<{ provider: ChatProvider; ok: boolean; agent: string }>;
-  error?: string;
-} {
+}): SkillCommandResult {
   const providers = Array.from(new Set(input.providers.map((provider) => normalizeSkillLearnProvider(provider)).filter(Boolean))) as ChatProvider[];
   if (providers.length === 0) {
     return { ok: false, command: "", stdout: "", stderr: "", results: [], error: "No supported providers selected" };
+  }
+
+  const customSkill = findCustomCatalogSkillById(input.skillId);
+  if (customSkill) {
+    return removeCustomCatalogSkill(customSkill, providers);
   }
 
   const startedAt = Date.now();
@@ -396,6 +706,7 @@ export function removeSkill(input: {
   let lastStdout = "";
   let lastStderr = "";
   let lastCommand = "";
+  const skillLabel = findCustomCatalogSkillById(input.skillId)?.name ?? input.skillId;
   const providersByAgent = new Map<string, ChatProvider[]>();
 
   for (const provider of providers) {
@@ -426,7 +737,7 @@ export function removeSkill(input: {
         provider,
         repo: "local/remove",
         skill_id: input.skillId,
-        skill_label: input.skillId,
+        skill_label: skillLabel,
         status: ok ? "succeeded" : "failed",
         command: lastCommand,
         error: ok ? null : collapseWhitespace(lastStderr || lastStdout).slice(0, 1000),

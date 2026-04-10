@@ -20,6 +20,7 @@ describe("project-objectives", () => {
     const objective = createProjectObjective({
       id: "objective_growth",
       title: "Get 50 visitors daily",
+      teamId: "team-growth",
       summary: "Focus on referral traffic first.",
       cadence: "Every weekday morning",
       condition: "traffic is below target",
@@ -53,6 +54,7 @@ describe("project-objectives", () => {
     expect(roundTrip.objectives[0].manualTasks).toHaveLength(1);
     expect(roundTrip.objectives[0].cadence).toBe("Every weekday morning");
     expect(roundTrip.objectives[0].condition).toBe("traffic is below target");
+    expect(roundTrip.objectives[0].teamId).toBe("team-growth");
   });
 
   test("migrates legacy goal metadata into the objective workspace", () => {
@@ -111,6 +113,7 @@ describe("project-objectives", () => {
     const objective = createProjectObjective({
       id: "objective_growth",
       title: "Get 10 signups a day",
+      teamId: "team-growth",
       now: "2026-04-09T12:00:00.000Z",
     });
     let workspace = upsertProjectObjective(
@@ -163,6 +166,7 @@ describe("project-objectives", () => {
     const objective = createProjectObjective({
       id: "objective_growth",
       title: "Get 10 signups a day",
+      teamId: "team-growth",
       now: "2026-04-09T12:00:00.000Z",
     });
     let workspace = upsertProjectObjective(

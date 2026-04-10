@@ -540,44 +540,38 @@ export function ScheduleConditionPicker({
         )}
       </div>
 
-      <div className="space-y-3">
-        <FieldLabel>{conditionLabel}</FieldLabel>
-        {scheduleMode === "scheduled" ? (
-          <>
-            <SimpleDropdown
-              value={conditionMode}
-              onChange={(mode) => setConditionMode(mode)}
-              options={[
-                { value: "always", label: "Always run" },
-                { value: "gated", label: "Only run if" },
-              ]}
-              ariaLabel="Condition mode"
-            />
-            {conditionMode === "gated" ? (
-              <>
-                <textarea
-                  value={condition}
-                  onChange={(event) => setCondition(event.target.value)}
-                  placeholder="there are unread emails in my inbox"
-                  rows={3}
-                  className="w-full resize-none rounded-lg border border-[var(--card-border)] bg-[var(--muted)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--foreground)] transition-colors"
-                />
-                <p className="text-[10px] text-[var(--muted-foreground)]">
-                  {conditionHelpText}
-                </p>
-              </>
-            ) : (
+      {scheduleMode === "scheduled" ? (
+        <div className="space-y-3">
+          <FieldLabel>{conditionLabel}</FieldLabel>
+          <SimpleDropdown
+            value={conditionMode}
+            onChange={(mode) => setConditionMode(mode)}
+            options={[
+              { value: "always", label: "Always run" },
+              { value: "gated", label: "Only run if" },
+            ]}
+            ariaLabel="Condition mode"
+          />
+          {conditionMode === "gated" ? (
+            <>
+              <textarea
+                value={condition}
+                onChange={(event) => setCondition(event.target.value)}
+                placeholder="there are unread emails in my inbox"
+                rows={3}
+                className="w-full resize-none rounded-lg border border-[var(--card-border)] bg-[var(--muted)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--foreground)] transition-colors"
+              />
               <p className="text-[10px] text-[var(--muted-foreground)]">
-                Runs without checking any additional condition.
+                {conditionHelpText}
               </p>
-            )}
-          </>
-        ) : (
-          <p className="text-[10px] text-[var(--muted-foreground)]">
-            Set a schedule first to enable a condition.
-          </p>
-        )}
-      </div>
+            </>
+          ) : (
+            <p className="text-[10px] text-[var(--muted-foreground)]">
+              Runs without checking any additional condition.
+            </p>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

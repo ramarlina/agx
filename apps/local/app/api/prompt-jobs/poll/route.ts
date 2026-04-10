@@ -8,7 +8,6 @@ import { getAgent, getAgentSkills } from '@/lib/db';
 import { LOCAL_USER } from '@/lib/auth-mode';
 import { runCliResponse, buildCliAttempts } from '@/lib/cli-runner';
 import type { ChatProvider } from '@/lib/types';
-import { computeNextRun } from '@/src/prompt-scheduler/cron';
 import type { PromptJob, PromptRun } from '@/src/prompt-scheduler/types';
 
 /** Build a short command string for process identification (used by stale-run reaper). */
@@ -207,15 +206,12 @@ async function fireRun(job: PromptJob, run: PromptRun) {
     durationMs: result.durationMs,
     finishedAt: new Date().toISOString(),
   });
-  const nextRunAt = job.triggerType === 'condition'
-    ? Date.now() + job.checkEveryMs
-    : computeNextRun(job.cronExpr) ?? null;
-  store.updateJob(job.id, { lastOutcome: result.status, lastRunAt: Date.now(), nextRunAt });
+  store.updateJob(job.id, { lastOutcome: result.status, lastRunAt: Date.now() });
 }
 
 /** Dispatch — fire and forget (don't block the HTTP response) */
 function dispatchRun(job: PromptJob, run: PromptRun) {
-  const fn = job.triggerType === 'condition' && job.condition ? fireConditionGate : fireRun;
+  const fn = job.condition ? fireConditionGate : fireRun;
   fn(job, run).catch((err) => {
     const store = getPromptJobStore();
     store.updateRun(run.id, {

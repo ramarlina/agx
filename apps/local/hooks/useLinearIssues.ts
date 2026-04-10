@@ -8,6 +8,7 @@ export interface LinearIssue {
   status: string;
   assignee: string | null;
   updatedAt: string;
+  labels?: string[];
 }
 
 interface Filters {
@@ -17,6 +18,9 @@ interface Filters {
   assigneeIds?: string[];
   assignedToMe?: boolean;
   cycleId?: string;
+  sortBy?: string;
+  sortDir?: string;
+  hasActivity?: boolean;
 }
 
 interface UseLinearIssuesOptions {
@@ -30,6 +34,7 @@ interface UseLinearIssuesReturn {
   hasMore: boolean;
   loadMore: () => Promise<void>;
   refresh: () => Promise<void>;
+  updateIssue: (issue: LinearIssue) => void;
 }
 
 export function useLinearIssues(
@@ -69,6 +74,9 @@ export function useLinearIssues(
         }
         else if (filters.assignedToMe) params.set("assignedToMe", "true");
         if (filters.cycleId) params.set("cycleId", filters.cycleId);
+        if (filters.sortBy) params.set("sortBy", filters.sortBy);
+        if (filters.sortDir) params.set("sortDir", filters.sortDir);
+        if (filters.hasActivity) params.set("hasActivity", "true");
         if (append && cursorRef.current) params.set("cursor", cursorRef.current);
         if (options.projectSlug) params.set("projectSlug", options.projectSlug);
         if (options.limit) params.set("limit", String(options.limit));
@@ -88,7 +96,7 @@ export function useLinearIssues(
         setLoading(false);
       }
     },
-    [filters.teamId, filters.statuses, filters.search, filters.assigneeIds, filters.assignedToMe, filters.cycleId, enabled, options.projectSlug, options.limit],
+    [filters.teamId, filters.statuses, filters.search, filters.assigneeIds, filters.assignedToMe, filters.cycleId, filters.sortBy, filters.sortDir, filters.hasActivity, enabled, options.projectSlug, options.limit],
   );
 
   useEffect(() => {
@@ -102,5 +110,11 @@ export function useLinearIssues(
     return fetchPage(false, true);
   }, [fetchPage]);
 
-  return { issues, loading, hasMore, loadMore, refresh };
+  const updateIssue = useCallback((issue: LinearIssue) => {
+    setIssues((previous) =>
+      previous.map((entry) => (entry.id === issue.id ? issue : entry))
+    );
+  }, []);
+
+  return { issues, loading, hasMore, loadMore, refresh, updateIssue };
 }

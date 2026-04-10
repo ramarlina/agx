@@ -6,6 +6,9 @@ export interface LinearBoardFilters {
   statuses: string[];
   teamId: string;
   cycleId: string;
+  sortBy: "activity" | "identifier" | "status" | "created";
+  sortDir: "asc" | "desc";
+  hasActivity: boolean;
 }
 
 const DEFAULT_LINEAR_BOARD_FILTERS: LinearBoardFilters = {
@@ -14,6 +17,9 @@ const DEFAULT_LINEAR_BOARD_FILTERS: LinearBoardFilters = {
   statuses: [],
   teamId: "",
   cycleId: "",
+  sortBy: "activity",
+  sortDir: "desc",
+  hasActivity: false,
 };
 
 function isStorageAvailable(): boolean {
@@ -59,6 +65,15 @@ export function loadLinearBoardFilters(projectSlug?: string | null): LinearBoard
       statuses: normalizeStringArray(parsed.statuses),
       teamId: typeof parsed.teamId === "string" ? parsed.teamId : DEFAULT_LINEAR_BOARD_FILTERS.teamId,
       cycleId: typeof parsed.cycleId === "string" ? parsed.cycleId : DEFAULT_LINEAR_BOARD_FILTERS.cycleId,
+      sortBy: ["activity", "identifier", "status", "created"].includes(parsed.sortBy as string)
+        ? (parsed.sortBy as LinearBoardFilters["sortBy"])
+        : DEFAULT_LINEAR_BOARD_FILTERS.sortBy,
+      sortDir: ["asc", "desc"].includes(parsed.sortDir as string)
+        ? (parsed.sortDir as LinearBoardFilters["sortDir"])
+        : DEFAULT_LINEAR_BOARD_FILTERS.sortDir,
+      hasActivity: typeof parsed.hasActivity === "boolean"
+        ? parsed.hasActivity
+        : DEFAULT_LINEAR_BOARD_FILTERS.hasActivity,
     };
   } catch {
     return { ...DEFAULT_LINEAR_BOARD_FILTERS };
@@ -82,6 +97,9 @@ export function persistLinearBoardFilters(
         statuses: normalizeStringArray(filters.statuses),
         teamId: String(filters.teamId || ""),
         cycleId: String(filters.cycleId || ""),
+        sortBy: filters.sortBy || "activity",
+        sortDir: filters.sortDir || "desc",
+        hasActivity: !!filters.hasActivity,
       })
     );
   } catch {

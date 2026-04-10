@@ -3,10 +3,9 @@
 import { useState, useMemo } from "react";
 import {
   listTeamTemplates,
-  getSkillProfileBindings,
+  getAgentPresetBindings,
   type TeamTemplate,
   type AgentPreset,
-  type SkillProfileId,
 } from "@/lib/team-catalog";
 import { Users, Loader2, Check, AlertCircle, ChevronDown } from "lucide-react";
 
@@ -34,9 +33,9 @@ interface AdoptAgentsModalProps {
 
 function computeSkillOverlap(
   agentSkillFiles: string[],
-  profileId: SkillProfileId
+  preset: AgentPreset
 ): { overlap: string[]; missing: string[] } {
-  const bindings = getSkillProfileBindings(profileId);
+  const bindings = getAgentPresetBindings(preset);
   const expectedFiles = bindings.map((b) => `${b.repo}/${b.skillId}`);
   const agentSet = new Set(agentSkillFiles);
   const overlap = expectedFiles.filter((f) => agentSet.has(f));
@@ -57,7 +56,7 @@ function bestMatch(
   let bestScore = -1;
 
   for (const preset of presets) {
-    const { overlap, missing } = computeSkillOverlap(agentFiles, preset.skillProfileId);
+    const { overlap, missing } = computeSkillOverlap(agentFiles, preset);
     if (overlap.length > bestScore) {
       bestScore = overlap.length;
       best = { preset, overlap, missing };
@@ -103,7 +102,7 @@ export default function AdoptAgentsModal({
         const preset = selectedTemplate.agents.find((a) => a.roleKey === manualKey) ?? null;
         if (preset) {
           const agentFiles = agent.skills.map((s) => s.file);
-          const { overlap, missing } = computeSkillOverlap(agentFiles, preset.skillProfileId);
+          const { overlap, missing } = computeSkillOverlap(agentFiles, preset);
           return { agent, matchedPreset: preset, overlap, missing, manualRoleKey: manualKey };
         }
       }
@@ -160,7 +159,7 @@ export default function AdoptAgentsModal({
       if (backfillSkills && selectedTemplate) {
         for (const match of matches) {
           if (match.missing.length > 0 && match.matchedPreset) {
-            const bindings = getSkillProfileBindings(match.matchedPreset.skillProfileId);
+            const bindings = getAgentPresetBindings(match.matchedPreset);
             const missingSet = new Set(match.missing);
             const skillsToAdd = bindings
               .filter((b) => missingSet.has(`${b.repo}/${b.skillId}`))
@@ -242,38 +241,21 @@ export default function AdoptAgentsModal({
             <label className="block text-sm font-medium mb-1.5">
               Template <span className="text-[var(--muted-foreground)] font-normal">(optional)</span>
             </label>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setSelectedTemplateId(null)}
+            <div className="relative">
+              <select
+                value={selectedTemplateId ?? ""}
+                onChange={(e) => setSelectedTemplateId(e.target.value || null)}
                 disabled={creating}
-                className={`
-                  px-3 py-1.5 rounded-xl text-xs font-medium border transition-all
-                  ${
-                    !selectedTemplateId
-                      ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]"
-                      : "border-[var(--card-border)] hover:border-[var(--primary)]/50 text-[var(--muted-foreground)]"
-                  }
-                `}
+                className="appearance-none w-full bg-[var(--card-bg)] border border-[var(--card-border)] rounded-xl text-sm pl-3 pr-8 py-2 cursor-pointer focus:border-[var(--primary)] focus:outline-none transition-colors"
               >
-                None
-              </button>
-              {templates.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setSelectedTemplateId(t.id)}
-                  disabled={creating}
-                  className={`
-                    px-3 py-1.5 rounded-xl text-xs font-medium border transition-all
-                    ${
-                      selectedTemplateId === t.id
-                        ? "border-[var(--primary)] bg-[var(--primary)]/10 text-[var(--primary)]"
-                        : "border-[var(--card-border)] hover:border-[var(--primary)]/50 text-[var(--muted-foreground)]"
-                    }
-                  `}
-                >
-                  {t.name}
-                </button>
-              ))}
+                <option value="">None</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--muted-foreground)]" />
             </div>
           </div>
 

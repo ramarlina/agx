@@ -52,7 +52,7 @@ export function ProjectOverview({
             projectId={projectId}
             onViewAll={() => router.push(`/projects/${projectSlug}/automations`)}
           />
-          <FoldersSummaryCard repos={repos} />
+          <FoldersSummaryCard projectId={projectId} repos={repos} />
           <RecentThreadsSummaryCard
             threadIds={threadIds}
             projectSlug={projectSlug}

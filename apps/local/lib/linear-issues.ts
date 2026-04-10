@@ -29,6 +29,7 @@ export interface LinearIssueSummary {
   status: string;
   assignee: string | null;
   updatedAt: string;
+  labels?: string[];
 }
 
 export interface LinearIssueContext extends LinearIssueSummary {
@@ -99,6 +100,7 @@ function toSummary(issue: CachedLinearIssueRecord): LinearIssueSummary {
     status: issue.status,
     assignee: issue.assignee,
     updatedAt: issue.updatedAt,
+    labels: issue.labels ?? [],
   };
 }
 
@@ -147,6 +149,7 @@ function issueMarkdownBody(issue: CachedLinearIssueInput, pulledAt: string): str
     issue.cycleName || issue.cycleNumber != null
       ? `- Cycle: ${issue.cycleName ?? `Cycle ${issue.cycleNumber}`}`
       : null,
+    issue.labels?.length ? `- Labels: ${issue.labels.join(", ")}` : null,
     `- Updated in Linear: ${issue.updatedAt}`,
     `- Pulled locally: ${pulledAt}`,
     issue.url ? `- URL: ${issue.url}` : null,
@@ -240,7 +243,8 @@ export async function pullLinearIssues(input: {
 
     const pageIssues = await Promise.all(
       result.nodes.map(async (issue) => {
-        const [state, assignee, team, cycle] = await Promise.all([
+        const [labels, state, assignee, team, cycle] = await Promise.all([
+          issue.labels,
           issue.state,
           issue.assignee,
           issue.team,
@@ -252,6 +256,7 @@ export async function pullLinearIssues(input: {
           identifier: issue.identifier,
           title: issue.title,
           description: issue.description ?? null,
+          labels,
           url: issue.url,
           status: state?.name ?? "Unknown",
           assigneeId: assignee?.id ?? null,

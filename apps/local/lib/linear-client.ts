@@ -50,6 +50,7 @@ interface RawLinearTeamNode {
 }
 
 interface LinearIssueState {
+  id?: string;
   name: string;
 }
 
@@ -59,10 +60,18 @@ interface LinearIssueAssignee {
   email: string | null;
 }
 
+interface LinearIssueAssigneeName {
+  name: string;
+}
+
 interface LinearIssueTeam {
   id: string;
   name: string;
   key: string;
+}
+
+interface RawLinearIssueLabelNode {
+  name: string;
 }
 
 interface LinearIssueCycle {
@@ -82,6 +91,25 @@ interface RawLinearIssueNode {
   assignee: LinearIssueAssignee | null;
   team: LinearIssueTeam | null;
   cycle: LinearIssueCycle | null;
+  labels: {
+    nodes: RawLinearIssueLabelNode[];
+  } | null;
+}
+
+interface LinearIssueStatusSummary {
+  id: string;
+  identifier: string;
+  title: string;
+  url: string | null;
+  updatedAt: string;
+  status: string;
+  assignee: string | null;
+}
+
+interface RawLinearTeamStateNode {
+  id: string;
+  name: string;
+  position: number;
 }
 
 type LinearIssueFilter = Record<string, unknown>;
@@ -97,6 +125,14 @@ export interface LinearIssueNode {
   assignee: Promise<LinearIssueAssignee | null>;
   team: Promise<LinearIssueTeam | null>;
   cycle: Promise<LinearIssueCycle | null>;
+  labels: Promise<string[]>;
+}
+
+interface LinearIssueStatusTarget {
+  id: string;
+  teamId: string | null;
+  currentStateId: string | null;
+  currentStatus: string | null;
 }
 
 export interface LinearCycle {
@@ -319,6 +355,11 @@ export class LinearClient {
             assignee { id name email }
             team { id name key }
             cycle { id number name }
+            labels(first: 20) {
+              nodes {
+                name
+              }
+            }
           }
           pageInfo {
             hasNextPage
@@ -340,6 +381,11 @@ export class LinearClient {
         assignee: Promise.resolve(issue.assignee),
         team: Promise.resolve(issue.team),
         cycle: Promise.resolve(issue.cycle),
+        labels: Promise.resolve(
+          (issue.labels?.nodes ?? [])
+            .map((label) => label.name.trim())
+            .filter(Boolean)
+        ),
       })),
       pageInfo: data.issues.pageInfo,
     };
@@ -419,6 +465,159 @@ export class LinearClient {
     return [...deduped.values()].sort(
       (left, right) => new Date(right.startsAt).getTime() - new Date(left.startsAt).getTime()
     );
+  }
+
+  async updateIssueStatus(
+    issueId: string,
+    statusName: string
+  ): Promise<LinearIssueStatusSummary> {
+    const normalizedIssueId = issueId.trim();
+    const normalizedStatusName = statusName.trim();
+
+    if (!normalizedIssueId) {
+      throw new Error("Issue id is required");
+    }
+    if (!normalizedStatusName) {
+      throw new Error("Status name is required");
+    }
+
+    const issue = await this.request<{ issue: {
+      id: string;
+      team: { id: string } | null;
+      state: { id: string; name: string } | null;
+    } | null }>(
+      `query {
+        issue(id: ${JSON.stringify(normalizedIssueId)}) {
+          id
+          team { id }
+          state { id name }
+        }
+      }`
+    ).then((data): LinearIssueStatusTarget | null => {
+      if (!data.issue) {
+        return null;
+      }
+      return {
+        id: data.issue.id,
+        teamId: data.issue.team?.id ?? null,
+        currentStateId: data.issue.state?.id ?? null,
+        currentStatus: data.issue.state?.name ?? null,
+      };
+    });
+
+    if (!issue) {
+      throw new Error(`Issue "${normalizedIssueId}" not found in Linear`);
+    }
+
+    if (!issue.teamId) {
+      throw new Error(`Issue "${normalizedIssueId}" is missing a team in Linear`);
+    }
+
+    if (issue.currentStatus?.trim().toLowerCase() === normalizedStatusName.toLowerCase()) {
+      const currentStateName = issue.currentStatus.trim();
+      return await this.request<{ issue: {
+        id: string;
+        identifier: string;
+        title: string;
+        url: string | null;
+        updatedAt: string;
+        state: LinearIssueState | null;
+        assignee: LinearIssueAssigneeName | null;
+      } | null }>(
+        `query {
+          issue(id: ${JSON.stringify(normalizedIssueId)}) {
+            id
+            identifier
+            title
+            url
+            updatedAt
+            state { name }
+            assignee { name }
+          }
+        }`
+      ).then((data) => {
+        if (!data.issue) {
+          throw new Error(`Issue "${normalizedIssueId}" not found in Linear`);
+        }
+        return {
+          id: data.issue.id,
+          identifier: data.issue.identifier,
+          title: data.issue.title,
+          url: data.issue.url,
+          updatedAt: data.issue.updatedAt,
+          status: data.issue.state?.name ?? currentStateName,
+          assignee: data.issue.assignee?.name ?? null,
+        };
+      });
+    }
+
+    const states = await this.request<{ team: { states: { nodes: RawLinearTeamStateNode[] } | null } | null }>(
+      `query {
+        team(id: ${JSON.stringify(issue.teamId)}) {
+          states {
+            nodes {
+              id
+              name
+              position
+            }
+          }
+        }
+      }`
+    ).then((data) => data.team?.states?.nodes ?? []);
+
+    const targetState = states
+      .slice()
+      .sort((left, right) => left.position - right.position)
+      .find((state) => state.name.trim().toLowerCase() === normalizedStatusName.toLowerCase());
+
+    if (!targetState) {
+      throw new Error(`Linear status "${normalizedStatusName}" was not found for this issue's team`);
+    }
+
+    const mutation = await this.request<{ issueUpdate: {
+      success: boolean;
+      issue: {
+        id: string;
+        identifier: string;
+        title: string;
+        url: string | null;
+        updatedAt: string;
+        state: LinearIssueState | null;
+        assignee: LinearIssueAssigneeName | null;
+      } | null;
+    } }>(
+      `mutation {
+        issueUpdate(
+          id: ${JSON.stringify(normalizedIssueId)},
+          input: { stateId: ${JSON.stringify(targetState.id)} }
+        ) {
+          success
+          issue {
+            id
+            identifier
+            title
+            url
+            updatedAt
+            state { name }
+            assignee { name }
+          }
+        }
+      }`
+    ).then((data) => data.issueUpdate);
+
+    if (!mutation.success || !mutation.issue) {
+      throw new Error(`Linear rejected the status update for "${normalizedIssueId}"`);
+    }
+
+    return {
+      id: mutation.issue.id,
+      identifier: mutation.issue.identifier,
+      title: mutation.issue.title,
+      url: mutation.issue.url,
+      updatedAt: mutation.issue.updatedAt,
+      status: mutation.issue.state?.name ?? normalizedStatusName,
+      assignee: mutation.issue.assignee?.name ?? null,
+    };
   }
 
   private async request<TData>(query: string): Promise<TData> {

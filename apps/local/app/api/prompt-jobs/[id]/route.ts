@@ -1,9 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPromptJobStore } from '@/src/prompt-scheduler/get-store';
-import { parseCadence } from '@/src/prompt-scheduler/cron';
+import {
+  normalizeLegacyConditionSchedule,
+  parseCadence,
+} from '@/src/prompt-scheduler/cron';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+function resolveScheduledPayload(input: {
+  cadence?: unknown;
+  triggerType?: unknown;
+  checkEveryMs?: unknown;
+}): { cadence: string; cronExpr: string } | null {
+  if (typeof input.cadence === 'string') {
+    const trimmed = input.cadence.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const parsed = parseCadence(trimmed);
+    return parsed ? { cadence: parsed.cadence, cronExpr: parsed.cronExpr } : null;
+  }
+
+  if (input.triggerType === 'condition') {
+    const legacy = normalizeLegacyConditionSchedule(
+      typeof input.checkEveryMs === 'number' ? input.checkEveryMs : 300000,
+    );
+    return { cadence: legacy.cadence, cronExpr: legacy.cronExpr };
+  }
+
+  return null;
+}
 
 /**
  * GET /api/prompt-jobs/[id]
@@ -42,27 +69,26 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
 
     const body = await req.json();
-    const { cadence, ...rest } = body;
+    const { cadence, triggerType, checkEveryMs, ...rest } = body;
 
     const updates: Record<string, unknown> = { ...rest };
 
-    if (cadence !== undefined && cadence !== '') {
-      const parsed = parseCadence(cadence);
-      if (!parsed) {
-        return NextResponse.json(
-          { error: `Could not parse cadence: "${cadence}". Provide a valid cron expression or natural language schedule.` },
-          { status: 400 },
-        );
-      }
-      updates.cadence = parsed.cadence;
-      updates.cronExpr = parsed.cronExpr;
-    } else if (cadence === '') {
-      updates.cadence = '';
+    if (cadence === '') {
+      return NextResponse.json(
+        { error: 'Cadence cannot be cleared. Prompt jobs always require a schedule.' },
+        { status: 400 },
+      );
     }
 
-    // Recompute nextRunAt when trigger type changes
-    if (updates.triggerType === 'condition' && updates.checkEveryMs) {
-      updates.nextRunAt = Date.now() + (updates.checkEveryMs as number);
+    const scheduled = resolveScheduledPayload({ cadence, triggerType, checkEveryMs });
+    if (scheduled) {
+      updates.cadence = scheduled.cadence;
+      updates.cronExpr = scheduled.cronExpr;
+    } else if (cadence !== undefined) {
+      return NextResponse.json(
+        { error: `Could not parse cadence: "${cadence}". Provide a valid cron expression or natural language schedule.` },
+        { status: 400 },
+      );
     }
 
     const job = store.updateJob(id, updates);

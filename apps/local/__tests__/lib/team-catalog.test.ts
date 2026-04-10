@@ -3,6 +3,7 @@
  */
 
 import {
+  getAgentPresetBindings,
   getSkillProfile,
   getSkillProfileBindings,
   getTeamTemplate,
@@ -21,7 +22,7 @@ describe("team catalog", () => {
 
   test("ships the expected team template ids and counts", () => {
     expect(TEAM_TEMPLATES.map((template) => template.id)).toEqual([...TEAM_TEMPLATE_IDS]);
-    expect(TEAM_TEMPLATES).toHaveLength(8);
+    expect(TEAM_TEMPLATES).toHaveLength(9);
     expect(getTeamTemplate("engineering")?.agents).toHaveLength(3);
   });
 
@@ -61,7 +62,7 @@ describe("team catalog", () => {
 
     expect(getTeamTemplate("engineering")?.agents[0].name).toBe("Backend Engineer");
     expect(originalTemplate).not.toBe(mutatedTemplate);
-    expect(listTeamTemplates()).toHaveLength(8);
+    expect(listTeamTemplates()).toHaveLength(9);
   });
 
   test("senior builder profile preserves multi-repo bindings with explicit activation hints", () => {

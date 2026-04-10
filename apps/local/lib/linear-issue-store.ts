@@ -16,6 +16,7 @@ interface LinearIssueRow {
   identifier: string;
   title: string;
   description: string | null;
+  labels_json: string | null;
   url: string | null;
   status: string;
   assignee_id: string | null;
@@ -43,6 +44,7 @@ export interface CachedLinearIssueRecord {
   identifier: string;
   title: string;
   description: string | null;
+  labels?: string[];
   url: string | null;
   status: string;
   assigneeId: string | null;
@@ -64,6 +66,7 @@ export interface CachedLinearIssueInput {
   identifier: string;
   title: string;
   description?: string | null;
+  labels?: string[];
   url?: string | null;
   status: string;
   assigneeId?: string | null;
@@ -85,6 +88,9 @@ export interface LinearIssueSyncState {
   issueCount: number;
 }
 
+export type LinearIssueSortField = "activity" | "identifier" | "status" | "created";
+export type LinearIssueSortDir = "asc" | "desc";
+
 export interface ListCachedLinearIssuesInput {
   search?: string;
   statuses?: string[];
@@ -94,6 +100,11 @@ export interface ListCachedLinearIssuesInput {
   cycleId?: string;
   limit?: number;
   cursor?: string | null;
+  sortBy?: LinearIssueSortField;
+  sortDir?: LinearIssueSortDir;
+  hasActivity?: boolean;
+  /** Map of issue_id -> ISO timestamp from runs DB, required when sortBy=activity or hasActivity=true */
+  activityMap?: Map<string, string>;
 }
 
 export interface ListCachedLinearIssuesResult {
@@ -117,6 +128,36 @@ function toOptionalNumber(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function normalizeLabels(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+        .filter(Boolean)
+    )
+  );
+}
+
+function serializeLabels(value: string[] | undefined): string {
+  return JSON.stringify(normalizeLabels(value ?? []));
+}
+
+function parseLabels(value: string | null): string[] {
+  if (!value) {
+    return [];
+  }
+
+  try {
+    return normalizeLabels(JSON.parse(value));
+  } catch {
+    return [];
+  }
+}
+
 function toIso(timestampMs: number): string {
   return new Date(timestampMs).toISOString();
 }
@@ -127,6 +168,7 @@ function mapRow(row: LinearIssueRow): CachedLinearIssueRecord {
     identifier: row.identifier,
     title: row.title,
     description: row.description,
+    labels: parseLabels(row.labels_json),
     url: row.url,
     status: row.status,
     assigneeId: row.assignee_id,
@@ -156,6 +198,15 @@ function escapeLike(value: string): string {
   return value.replace(/[\\%_]/g, "\\$&");
 }
 
+function ensureColumn(db: DatabaseSync, table: string, column: string, sql: string): void {
+  const columns = db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all() as Array<{ name?: string }>;
+  if (!columns.some((entry) => entry.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${sql}`);
+  }
+}
+
 async function withLinearIssueDatabase<T>(run: (db: DatabaseSync) => T): Promise<T> {
   await fs.mkdir(LINEAR_DIR, { recursive: true });
   const db = new DatabaseSync(DB_PATH);
@@ -167,6 +218,7 @@ async function withLinearIssueDatabase<T>(run: (db: DatabaseSync) => T): Promise
         identifier TEXT NOT NULL,
         title TEXT NOT NULL,
         description TEXT,
+        labels_json TEXT NOT NULL DEFAULT '[]',
         url TEXT,
         status TEXT NOT NULL,
         assignee_id TEXT,
@@ -194,6 +246,7 @@ async function withLinearIssueDatabase<T>(run: (db: DatabaseSync) => T): Promise
         issue_count INTEGER NOT NULL
       );
     `);
+    ensureColumn(db, "linear_issues", "labels_json", "labels_json TEXT NOT NULL DEFAULT '[]'");
     return run(db);
   } finally {
     db.close();
@@ -213,15 +266,16 @@ export async function replaceCachedLinearIssues(input: {
     try {
       const upsert = db.prepare(`
         INSERT INTO linear_issues (
-          issue_id, identifier, title, description, url, status,
+          issue_id, identifier, title, description, labels_json, url, status,
           assignee_id, assignee_name, assignee_email, is_assigned_to_me,
           team_id, team_name, team_key, cycle_id, cycle_name, cycle_number,
           updated_at, pulled_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(issue_id) DO UPDATE SET
           identifier = excluded.identifier,
           title = excluded.title,
           description = excluded.description,
+          labels_json = excluded.labels_json,
           url = excluded.url,
           status = excluded.status,
           assignee_id = excluded.assignee_id,
@@ -244,6 +298,7 @@ export async function replaceCachedLinearIssues(input: {
           issue.identifier.trim(),
           issue.title.trim(),
           toOptionalString(issue.description ?? null),
+          serializeLabels(issue.labels),
           toOptionalString(issue.url ?? null),
           issue.status.trim(),
           toOptionalString(issue.assigneeId ?? null),
@@ -388,13 +443,100 @@ export async function listCachedLinearIssues(
       params.push(cycleId);
     }
 
+    // Activity-based filtering
+    if (input.hasActivity && input.activityMap) {
+      const activeIds = Array.from(input.activityMap.keys());
+      if (activeIds.length === 0) {
+        return {
+          issues: [],
+          pageInfo: { hasNextPage: false, endCursor: null },
+        };
+      }
+      clauses.push(`issue_id IN (${activeIds.map(() => "?").join(", ")})`);
+      params.push(...activeIds);
+    }
+
     const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+
+    const sortBy = input.sortBy ?? "activity";
+    const sortDir = input.sortDir ?? "desc";
+    const dirSql = sortDir === "asc" ? "ASC" : "DESC";
+
+    if (sortBy === "activity" && input.activityMap && input.activityMap.size > 0) {
+      // Two-phase: issues with activity first, then the rest
+      const activeIds = Array.from(input.activityMap.keys());
+      const activeIdsPlaceholders = activeIds.map(() => "?").join(", ");
+
+      // Phase 1: issues with activity
+      const activeWhereClause = whereClause
+        ? `${whereClause} AND issue_id IN (${activeIdsPlaceholders})`
+        : `WHERE issue_id IN (${activeIdsPlaceholders})`;
+
+      const activeRows = db
+        .prepare(
+          `SELECT * FROM linear_issues ${activeWhereClause} ORDER BY updated_at DESC, identifier ASC`
+        )
+        .all(...params, ...activeIds) as unknown as LinearIssueRow[];
+
+      // Sort by activity timestamp in JS (since it's from a different DB)
+      const activityMap = input.activityMap;
+      activeRows.sort((a, b) => {
+        const aTime = activityMap.get(a.issue_id) ?? "";
+        const bTime = activityMap.get(b.issue_id) ?? "";
+        return sortDir === "desc"
+          ? bTime.localeCompare(aTime)
+          : aTime.localeCompare(bTime);
+      });
+
+      // Phase 2: issues without activity (skip if hasActivity filter is on)
+      let inactiveRows: LinearIssueRow[] = [];
+      if (!input.hasActivity) {
+        const inactiveWhereClause = whereClause
+          ? `${whereClause} AND issue_id NOT IN (${activeIdsPlaceholders})`
+          : `WHERE issue_id NOT IN (${activeIdsPlaceholders})`;
+
+        inactiveRows = db
+          .prepare(
+            `SELECT * FROM linear_issues ${inactiveWhereClause} ORDER BY updated_at DESC, identifier ASC`
+          )
+          .all(...params, ...activeIds) as unknown as LinearIssueRow[];
+      }
+
+      const allRows = [...activeRows, ...inactiveRows];
+      const pageRows = allRows.slice(offset, offset + limit + 1);
+      const hasNextPage = pageRows.length > limit;
+      const finalRows = hasNextPage ? pageRows.slice(0, limit) : pageRows;
+      const endCursor = hasNextPage ? String(offset + limit) : null;
+
+      return {
+        issues: finalRows.map(mapRow),
+        pageInfo: { hasNextPage, endCursor },
+      };
+    }
+
+    // Non-activity sort fields
+    let orderClause: string;
+    switch (sortBy) {
+      case "identifier":
+        orderClause = `ORDER BY identifier ${dirSql}`;
+        break;
+      case "status":
+        orderClause = `ORDER BY LOWER(status) ${dirSql}, identifier ASC`;
+        break;
+      case "created":
+        orderClause = `ORDER BY pulled_at ${dirSql}, identifier ASC`;
+        break;
+      default:
+        orderClause = `ORDER BY updated_at ${dirSql}, identifier ASC`;
+        break;
+    }
+
     const rows = db
       .prepare(
         `SELECT *
          FROM linear_issues
          ${whereClause}
-         ORDER BY updated_at DESC, identifier ASC
+         ${orderClause}
          LIMIT ? OFFSET ?`
       )
       .all(...params, limit + 1, offset) as unknown as LinearIssueRow[];
@@ -405,10 +547,7 @@ export async function listCachedLinearIssues(
 
     return {
       issues: pageRows.map(mapRow),
-      pageInfo: {
-        hasNextPage,
-        endCursor,
-      },
+      pageInfo: { hasNextPage, endCursor },
     };
   });
 }
@@ -427,6 +566,31 @@ export async function listCachedLinearIssueStatuses(): Promise<string[]> {
     return rows
       .map((row) => row.status.trim())
       .filter(Boolean);
+  });
+}
+
+export async function updateCachedLinearIssueStatus(input: {
+  issueId: string;
+  status: string;
+  updatedAt: string;
+  pulledAtMs?: number;
+}): Promise<void> {
+  const issueId = input.issueId.trim();
+  const status = input.status.trim();
+  const updatedAt = input.updatedAt.trim();
+
+  if (!issueId || !status || !updatedAt) {
+    return;
+  }
+
+  const pulledAtMs = input.pulledAtMs ?? Date.now();
+
+  return withLinearIssueDatabase((db) => {
+    db.prepare(
+      `UPDATE linear_issues
+       SET status = ?, updated_at = ?, pulled_at = ?
+       WHERE issue_id = ?`
+    ).run(status, updatedAt, pulledAtMs, issueId);
   });
 }
 

@@ -9,6 +9,8 @@ export type LinearRunStatus =
   | "failed"
   | "cancelled";
 
+export type LinearRunMode = "chat" | "scripted";
+
 export interface LinearRun {
   id: string;
   projectId: string | null;
@@ -23,6 +25,8 @@ export interface LinearRun {
   chatRunId: string | null;
   agentId: string;
   agentName: string;
+  mode: LinearRunMode;
+  sessionTitle: string | null;
   status: LinearRunStatus;
   durationMs: number | null;
   lastError: string | null;
@@ -41,6 +45,7 @@ interface CreateLinearRunInput {
   issueAssignee?: string | null;
   agentId: string;
   agentName: string;
+  mode?: LinearRunMode;
 }
 
 interface UpdateLinearRunInput {

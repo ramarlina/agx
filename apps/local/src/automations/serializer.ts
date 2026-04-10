@@ -68,6 +68,9 @@ export function serializeAutomationDefinition(definition: AutomationDefinition):
       ...(execution.cancelCheckSec !== DEFAULT_CANCEL_CHECK_SEC
         ? { cancelCheckSec: execution.cancelCheckSec }
         : {}),
+      ...(definition.execution?.condition
+        ? { condition: definition.execution.condition }
+        : {}),
       ...(definition.execution?.maxRuns !== undefined
         ? { maxRuns: definition.execution.maxRuns }
         : {}),

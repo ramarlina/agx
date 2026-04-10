@@ -10,6 +10,7 @@ type SkillEntry = {
   skillId: string;
   repo: string;
   installs: number;
+  catalogSource?: "skills.sh" | "github";
 };
 
 type SkillDetail = {
@@ -193,7 +194,7 @@ export default function SkillsPage() {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Skills Library</h1>
             <p className="text-sm text-[var(--muted-foreground)] mt-1">
-              Browse skills from skills.sh, install them into this workspace, then attach installed skills to AGX agents.
+              Browse skills from skills.sh and curated GitHub imports, install them into this workspace, then attach installed skills to AGX agents.
             </p>
           </div>
           <div className="flex gap-3">
@@ -247,9 +248,16 @@ export default function SkillsPage() {
                             <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${isInstalled ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
                               {isInstalled ? "Installed" : "Not installed"}
                             </span>
+                            {skill.catalogSource === "github" && (
+                              <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700">
+                                GitHub
+                              </span>
+                            )}
                           </div>
                           <p className="mt-1 text-xs text-[var(--muted-foreground)]">{skill.repo} · {skill.skillId}</p>
-                          <p className="mt-2 text-xs text-[var(--muted-foreground)]">skills.sh installs: {skill.installs.toLocaleString()}</p>
+                          <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+                            {skill.catalogSource === "github" ? "Curated GitHub import" : `skills.sh installs: ${skill.installs.toLocaleString()}`}
+                          </p>
                         </div>
 
                         <div className="flex flex-wrap gap-2">
