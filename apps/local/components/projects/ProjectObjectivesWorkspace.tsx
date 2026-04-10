@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -11,7 +11,6 @@ import {
   ChevronRight,
   Pencil,
   Plus,
-  Target,
   Trash2,
 } from "lucide-react";
 import { useProjects } from "@/hooks/useProjects";
@@ -46,11 +45,17 @@ interface ProjectObjectiveDetailProps extends ProjectObjectivesWorkspaceProps {
 interface ObjectiveEditorDraft {
   id?: string;
   title: string;
+  teamId: string;
   summary: string;
   cadence: string;
   condition: string;
   progress: number;
   status: ProjectObjectiveHealth;
+}
+
+interface ProjectTeamSummary {
+  id: string;
+  name: string;
 }
 
 interface ManualTaskDraft {
@@ -133,6 +138,7 @@ function sortTasks(tasks: ProjectObjectiveManualTask[]): ProjectObjectiveManualT
 function buildEmptyObjectiveDraft(): ObjectiveEditorDraft {
   return {
     title: "",
+    teamId: "",
     summary: "",
     cadence: "",
     condition: "",
@@ -145,6 +151,7 @@ function buildObjectiveDraft(objective: ProjectObjective): ObjectiveEditorDraft 
   return {
     id: objective.id,
     title: objective.title,
+    teamId: objective.teamId,
     summary: objective.summary,
     cadence: objective.cadence,
     condition: objective.condition,
@@ -191,8 +198,36 @@ function buildActivityMeta(count: number, lastActivityAt: string | null): string
   return `${activityLabel} · Last ${formatDateTime(lastActivityAt)}`;
 }
 
+function findObjectiveAssignedToTeam(
+  workspace: ProjectObjectiveWorkspaceState,
+  teamId: string,
+  excludeObjectiveId?: string
+): ProjectObjective | null {
+  if (!teamId) return null;
+  return (
+    workspace.objectives.find(
+      (entry) => entry.teamId === teamId && entry.id !== excludeObjectiveId
+    ) ?? null
+  );
+}
+
+function getAvailableTeams(
+  teams: ProjectTeamSummary[],
+  workspace: ProjectObjectiveWorkspaceState,
+  excludeObjectiveId?: string
+): ProjectTeamSummary[] {
+  return teams.filter(
+    (team) => !findObjectiveAssignedToTeam(workspace, team.id, excludeObjectiveId)
+  );
+}
+
+function getTeamName(teams: ProjectTeamSummary[], teamId: string): string | null {
+  return teams.find((team) => team.id === teamId)?.name ?? null;
+}
+
 function useProjectObjectivesWorkspace(projectSlug: string) {
   const { projects, isLoading, updateProject } = useProjects();
+  const [teams, setTeams] = useState<ProjectTeamSummary[]>([]);
   const project = useMemo(
     () => projects.find((entry) => entry.slug === projectSlug) ?? null,
     [projectSlug, projects]
@@ -215,10 +250,50 @@ function useProjectObjectivesWorkspace(projectSlug: string) {
     [project, updateProject]
   );
 
+  useEffect(() => {
+    let isActive = true;
+
+    async function fetchTeams() {
+      if (!project?.id) {
+        setTeams([]);
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/projects/${project.id}/teams`);
+        if (!response.ok) {
+          throw new Error("Failed to fetch teams");
+        }
+        const payload = (await response.json()) as {
+          teams?: Array<{ id?: string; name?: string }>;
+        };
+        if (!isActive) return;
+        setTeams(
+          (payload.teams ?? [])
+            .map((team) => ({
+              id: typeof team.id === "string" ? team.id : "",
+              name: typeof team.name === "string" ? team.name : "Untitled team",
+            }))
+            .filter((team) => team.id)
+        );
+      } catch {
+        if (!isActive) return;
+        setTeams([]);
+      }
+    }
+
+    void fetchTeams();
+
+    return () => {
+      isActive = false;
+    };
+  }, [project?.id]);
+
   return {
     isLoading,
     project,
     workspace,
+    teams,
     persistWorkspace,
   };
 }
@@ -311,9 +386,13 @@ export function ProjectObjectivesOverview({
   projectSlug,
 }: ProjectObjectivesWorkspaceProps) {
   const router = useRouter();
-  const { isLoading, project, workspace, persistWorkspace } =
+  const { isLoading, project, workspace, teams, persistWorkspace } =
     useProjectObjectivesWorkspace(projectSlug);
   const objectives = workspace.objectives;
+  const availableTeams = useMemo(
+    () => getAvailableTeams(teams, workspace),
+    [teams, workspace]
+  );
   const [objectiveEditor, setObjectiveEditor] = useState<ObjectiveEditorDraft | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -326,10 +405,21 @@ export function ProjectObjectivesOverview({
       setSaveError("Objective statement is required.");
       return;
     }
+    const teamId = objectiveEditor.teamId.trim();
+    if (!teamId) {
+      setSaveError("Team owner is required.");
+      return;
+    }
+    const assignedObjective = findObjectiveAssignedToTeam(workspace, teamId);
+    if (assignedObjective) {
+      setSaveError(`Team owner is already assigned to "${assignedObjective.title}".`);
+      return;
+    }
 
     const now = new Date().toISOString();
     const nextObjective = createProjectObjective({
       title,
+      teamId,
       summary: objectiveEditor.summary,
       cadence: objectiveEditor.cadence,
       condition: objectiveEditor.condition,
@@ -420,6 +510,7 @@ export function ProjectObjectivesOverview({
         <ObjectiveEditorModal
           mode="create"
           draft={objectiveEditor}
+          teams={availableTeams}
           isSaving={isSaving}
           onChange={setObjectiveEditor}
           onClose={() => setObjectiveEditor(null)}
@@ -435,12 +526,17 @@ export function ProjectObjectiveDetail({
   objectiveId,
 }: ProjectObjectiveDetailProps) {
   const router = useRouter();
-  const { isLoading, project, workspace, persistWorkspace } =
+  const { isLoading, project, workspace, teams, persistWorkspace } =
     useProjectObjectivesWorkspace(projectSlug);
   const objective = useMemo(
     () => workspace.objectives.find((entry) => entry.id === objectiveId) ?? null,
     [objectiveId, workspace.objectives]
   );
+  const availableTeams = useMemo(
+    () => getAvailableTeams(teams, workspace, objectiveId),
+    [objectiveId, teams, workspace]
+  );
+  const teamName = objective ? getTeamName(teams, objective.teamId) : null;
   const [objectiveEditor, setObjectiveEditor] = useState<ObjectiveEditorDraft | null>(null);
   const [wakeEditor, setWakeEditor] = useState<ObjectiveEditorDraft | null>(null);
   const [taskEditor, setTaskEditor] = useState<ManualTaskDraft | null>(null);
@@ -471,10 +567,21 @@ export function ProjectObjectiveDetail({
       setSaveError("Objective statement is required.");
       return;
     }
+    const teamId = objectiveEditor.teamId.trim();
+    if (!teamId) {
+      setSaveError("Team owner is required.");
+      return;
+    }
+    const assignedObjective = findObjectiveAssignedToTeam(workspace, teamId, objective.id);
+    if (assignedObjective) {
+      setSaveError(`Team owner is already assigned to "${assignedObjective.title}".`);
+      return;
+    }
 
     const nextObjective = {
       ...objective,
       title,
+      teamId,
       summary: objectiveEditor.summary.trim(),
       cadence: objectiveEditor.cadence.trim(),
       condition: objectiveEditor.condition.trim(),
@@ -714,6 +821,36 @@ export function ProjectObjectiveDetail({
 
       <div className="flex-1 overflow-y-auto px-4 py-5 md:px-6 md:py-6">
         <div className="mx-auto max-w-4xl space-y-6">
+          <section className="rounded-[28px] border border-[var(--border)] bg-[var(--card-bg)] p-5">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold">Team owner</p>
+                <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                  Each objective is owned by a single team, and each team can own only one objective.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setObjectiveEditor(buildObjectiveDraft(objective))}
+                className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--card-hover-border)]"
+              >
+                <Pencil className="h-4 w-4" />
+                Edit team
+              </button>
+            </div>
+
+            <div className="rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.35)] px-4 py-4">
+              <p className="text-sm font-medium text-[var(--foreground)]">
+                {teamName ?? "Missing team"}
+              </p>
+              <p className="mt-1 text-sm text-[var(--muted-foreground)]">
+                {teamName
+                  ? "This team is currently responsible for the objective."
+                  : "The selected team no longer exists. Pick a new team owner."}
+              </p>
+            </div>
+          </section>
+
           <div className="space-y-3 px-1">
             <p className="text-sm font-medium text-[var(--muted-foreground)]">
               How often agents should wake up and work on it?
@@ -839,6 +976,7 @@ export function ProjectObjectiveDetail({
         <ObjectiveEditorModal
           mode="edit"
           draft={objectiveEditor}
+          teams={availableTeams}
           isSaving={isSaving}
           onChange={setObjectiveEditor}
           onClose={() => setObjectiveEditor(null)}
@@ -884,6 +1022,7 @@ function EmptyState({ label }: { label: string }) {
 function ObjectiveEditorModal({
   mode,
   draft,
+  teams,
   isSaving,
   onChange,
   onClose,
@@ -891,6 +1030,7 @@ function ObjectiveEditorModal({
 }: {
   mode: "create" | "edit";
   draft: ObjectiveEditorDraft;
+  teams: ProjectTeamSummary[];
   isSaving: boolean;
   onChange: (draft: ObjectiveEditorDraft) => void;
   onClose: () => void;
@@ -924,6 +1064,25 @@ function ObjectiveEditorModal({
               className="w-full rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.55)] px-4 py-3 text-sm text-[var(--foreground)] outline-none transition-colors focus:border-sky-500/50"
               placeholder="Get 50 qualified visitors daily"
             />
+          </div>
+
+          <div>
+            <FieldLabel label="Team owner" />
+            <select
+              value={draft.teamId}
+              onChange={(event) => onChange({ ...draft, teamId: event.target.value })}
+              className="w-full rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.55)] px-3 py-3 text-sm text-[var(--foreground)] outline-none transition-colors focus:border-sky-500/50"
+            >
+              <option value="">Select a team</option>
+              {teams.map((team) => (
+                <option key={team.id} value={team.id}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
+            <p className="mt-2 text-xs text-[var(--muted-foreground)]">
+              Teams can only own one objective at a time.
+            </p>
           </div>
 
           <div>

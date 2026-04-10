@@ -947,7 +947,7 @@ export function Composer({
                           aria-expanded={repoDropdownOpen}
                         >
                           <FolderGit2 className="h-3.5 w-3.5" strokeWidth={1.75} />
-                          <span>Repos</span>
+                          <span>Folders</span>
                           <ChevronDown className={`h-3 w-3 transition-transform ${repoDropdownOpen ? "rotate-180" : ""}`} />
                         </button>
                         {repoDropdownOpen && (

@@ -46,11 +46,20 @@ jest.mock("@/hooks/useProjects", () => ({
 const mockedUseProjects = jest.mocked(useProjects);
 const updateProjectMock = jest.fn();
 const confirmMock = jest.fn();
+const fetchMock = jest.fn();
+
+const teamsResponse = {
+  teams: [
+    { id: "team-growth", name: "Growth" },
+    { id: "team-product", name: "Product" },
+  ],
+};
 
 function buildProject(): ProjectWithRepos {
   const objective = createProjectObjective({
     id: "objective_growth",
     title: "Get 50 visitors daily",
+    teamId: "team-growth",
     summary: "Focus on referral traffic first.",
     cadence: "Every weekday morning",
     progress: 42,
@@ -117,6 +126,15 @@ describe("ProjectObjectivesWorkspace", () => {
       configurable: true,
       value: confirmMock,
     });
+    Object.defineProperty(global, "fetch", {
+      configurable: true,
+      value: fetchMock,
+    });
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => teamsResponse,
+    });
 
     mockedUseProjects.mockReturnValue({
       projects: [buildProject()],
@@ -153,6 +171,7 @@ describe("ProjectObjectivesWorkspace", () => {
     const dialog = screen.getByRole("dialog", { name: /New objective/i });
 
     expect(within(dialog).getByText("Objective statement")).toBeInTheDocument();
+    expect(within(dialog).getByText("Team owner")).toBeInTheDocument();
     expect(within(dialog).getByText("Notes")).toBeInTheDocument();
     expect(within(dialog).queryByText("Cadence")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("Health")).not.toBeInTheDocument();
@@ -188,7 +207,7 @@ describe("ProjectObjectivesWorkspace", () => {
     expect(readProjectObjectivesWorkspace(payload.metadata)).toEqual(expectedWorkspace);
   });
 
-  test("uses the simplified objective detail layout", () => {
+  test("uses the simplified objective detail layout", async () => {
     render(
       <ProjectObjectiveDetail
         projectSlug="alpha"
@@ -202,6 +221,8 @@ describe("ProjectObjectivesWorkspace", () => {
     expect(
       screen.getByText("How often agents should wake up and work on it?")
     ).toBeInTheDocument();
+    expect(screen.getByText("Team owner")).toBeInTheDocument();
+    await screen.findByText("Growth");
     expect(screen.getByText("Every weekday morning")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Edit cadence for Get 50 visitors daily/i })
@@ -221,6 +242,52 @@ describe("ProjectObjectivesWorkspace", () => {
     expect(
       screen.getByRole("button", { name: /Delete objective Get 50 visitors daily/i })
     ).toBeInTheDocument();
+  });
+
+  test("saves a team owner when creating an objective", async () => {
+    render(<ProjectObjectivesOverview projectSlug="alpha" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /New objective/i }));
+
+    const dialog = screen.getByRole("dialog", { name: /New objective/i });
+    await waitFor(() =>
+      expect(within(dialog).getByRole("option", { name: "Product" })).toBeInTheDocument()
+    );
+    fireEvent.change(within(dialog).getAllByRole("textbox")[0], {
+      target: { value: "Launch a partner program" },
+    });
+    fireEvent.change(within(dialog).getByRole("combobox"), {
+      target: { value: "team-product" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /Create objective/i }));
+
+    await waitFor(() => expect(updateProjectMock).toHaveBeenCalledTimes(1));
+
+    const [, payload] = updateProjectMock.mock.calls[0] as [
+      string,
+      { metadata: Record<string, unknown> }
+    ];
+    const nextWorkspace = readProjectObjectivesWorkspace(payload.metadata);
+    const createdObjective = nextWorkspace.objectives.find(
+      (entry) => entry.title === "Launch a partner program"
+    );
+
+    expect(createdObjective?.teamId).toBe("team-product");
+  });
+
+  test("only offers unclaimed teams when creating an objective", async () => {
+    render(<ProjectObjectivesOverview projectSlug="alpha" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /New objective/i }));
+
+    const dialog = screen.getByRole("dialog", { name: /New objective/i });
+    const select = within(dialog).getByRole("combobox");
+    await waitFor(() =>
+      expect(within(dialog).getByRole("option", { name: "Product" })).toBeInTheDocument()
+    );
+
+    expect(within(select).queryByRole("option", { name: "Growth" })).not.toBeInTheDocument();
+    expect(within(select).getByRole("option", { name: "Product" })).toBeInTheDocument();
   });
 
   test("opens a schedule-only editor from the wake question", () => {

@@ -15,6 +15,7 @@ export const SKILL_PROFILE_IDS = [
 export type SkillProfileId = (typeof SKILL_PROFILE_IDS)[number];
 
 export const TEAM_TEMPLATE_IDS = [
+  "fullstack",
   "engineering",
   "product",
   "growth",
@@ -39,6 +40,7 @@ export interface AgentPreset {
   style: AgentStyle;
   skillProfileId: SkillProfileId;
   identity: string;
+  extraSkills?: SkillReference[];
 }
 
 export interface TeamTemplate {
@@ -70,7 +72,9 @@ function cloneSkillProfile(profile: SkillProfile): SkillProfile {
 }
 
 function cloneAgentPreset(agent: AgentPreset): AgentPreset {
-  return { ...agent };
+  const clone = { ...agent };
+  if (clone.extraSkills) clone.extraSkills = clone.extraSkills.map(cloneSkillReference);
+  return clone;
 }
 
 function cloneTeamTemplate(template: TeamTemplate): TeamTemplate {
@@ -95,26 +99,12 @@ const skillProfilesData: Record<SkillProfileId, SkillReference[]> = {
     bind(SKILL_REPOS.superpowers, "requesting-code-review"),
     bind(SKILL_REPOS.superpowers, "verification-before-completion"),
     bind(SKILL_REPOS.superpowers, "finishing-a-development-branch"),
-    // Shared builder profiles stay reusable by carrying framework-specific bindings behind conditions.
-    bind(SKILL_REPOS.nextSkills, "api-routes", "next.js app router, route handlers, api endpoints"),
-    bind(SKILL_REPOS.nextSkills, "nextjs-patterns", "next.js app structure, routing, layouts, data fetching"),
-    bind(
-      SKILL_REPOS.nextSkills,
-      "react-server-components",
-      "react server components, server client boundaries, next.js rendering",
-    ),
   ],
   builder: [
     bind(SKILL_REPOS.superpowers, "test-driven-development"),
     bind(SKILL_REPOS.superpowers, "systematic-debugging"),
     bind(SKILL_REPOS.superpowers, "verification-before-completion"),
     bind(SKILL_REPOS.superpowers, "finishing-a-development-branch"),
-    bind(SKILL_REPOS.nextSkills, "nextjs-patterns", "next.js ui flows, routing, layouts, app router"),
-    bind(
-      SKILL_REPOS.nextSkills,
-      "react-server-components",
-      "react server components, server client boundaries, data fetching placement",
-    ),
   ],
   planner: [
     bind(SKILL_REPOS.superpowers, "brainstorming"),
@@ -124,6 +114,7 @@ const skillProfilesData: Record<SkillProfileId, SkillReference[]> = {
   researcher: [
     bind(SKILL_REPOS.superpowers, "brainstorming"),
     bind(SKILL_REPOS.superpowers, "writing-plans"),
+    bind(SKILL_REPOS.superpowers, "systematic-debugging"),
     bind(SKILL_REPOS.superpowers, "verification-before-completion"),
   ],
   reviewer: [
@@ -140,6 +131,43 @@ export const SKILL_PROFILES: SkillProfile[] = SKILL_PROFILE_IDS.map((id) => ({
 }));
 
 const teamTemplatesData: TeamTemplate[] = [
+  {
+    id: "fullstack",
+    name: "Fullstack",
+    description: "Compact squad for end-to-end delivery across the full stack with built-in quality gates.",
+    icon: "layers",
+    agents: [
+      {
+        roleKey: "tech-lead",
+        name: "Tech Lead",
+        title: "Tech Lead",
+        style: "balanced",
+        skillProfileId: "strategist-lead",
+        identity: "Own technical direction, break ambiguous work into executable plans, and keep the squad aligned on delivery.",
+      },
+      {
+        roleKey: "fullstack-engineer",
+        name: "Fullstack Engineer",
+        title: "Senior Fullstack Engineer",
+        style: "balanced",
+        skillProfileId: "senior-builder",
+        identity: "Ship features end-to-end across frontend and backend with pragmatic tradeoffs and clean boundaries.",
+        extraSkills: [
+          bind(SKILL_REPOS.nextSkills, "api-routes", "next.js app router, route handlers, api endpoints"),
+          bind(SKILL_REPOS.nextSkills, "nextjs-patterns", "next.js app structure, routing, layouts, data fetching"),
+          bind(SKILL_REPOS.nextSkills, "react-server-components", "react server components, server client boundaries, next.js rendering"),
+        ],
+      },
+      {
+        roleKey: "qa-engineer",
+        name: "QA Engineer",
+        title: "QA Engineer",
+        style: "conservative",
+        skillProfileId: "reviewer",
+        identity: "Find regressions early, tighten acceptance boundaries, and force evidence before release claims.",
+      },
+    ],
+  },
   {
     id: "engineering",
     name: "Engineering",
@@ -161,6 +189,11 @@ const teamTemplatesData: TeamTemplate[] = [
         style: "balanced",
         skillProfileId: "senior-builder",
         identity: "Own product-facing UI quality, interaction design fidelity, and maintainable front-end architecture.",
+        extraSkills: [
+          bind(SKILL_REPOS.nextSkills, "api-routes", "next.js app router, route handlers, api endpoints"),
+          bind(SKILL_REPOS.nextSkills, "nextjs-patterns", "next.js app structure, routing, layouts, data fetching"),
+          bind(SKILL_REPOS.nextSkills, "react-server-components", "react server components, server client boundaries, next.js rendering"),
+        ],
       },
       {
         roleKey: "qa-engineer",
@@ -265,6 +298,10 @@ const teamTemplatesData: TeamTemplate[] = [
         style: "specialist",
         skillProfileId: "builder",
         identity: "Refine interfaces into consistent, high-signal UI systems that are practical to build and maintain.",
+        extraSkills: [
+          bind(SKILL_REPOS.nextSkills, "nextjs-patterns", "next.js ui flows, routing, layouts, app router"),
+          bind(SKILL_REPOS.nextSkills, "react-server-components", "react server components, server client boundaries, data fetching placement"),
+        ],
       },
     ],
   },
@@ -303,8 +340,8 @@ const teamTemplatesData: TeamTemplate[] = [
         name: "Security Engineer",
         title: "Security Engineer",
         style: "conservative",
-        skillProfileId: "reviewer",
-        identity: "Stress the system at trust boundaries and turn vague risk into concrete engineering requirements.",
+        skillProfileId: "senior-builder",
+        identity: "Harden trust boundaries, implement secure defaults, and turn vague risk into concrete engineering requirements.",
       },
       {
         roleKey: "pen-tester",
@@ -356,6 +393,12 @@ export function getSkillProfile(id: SkillProfileId | null | undefined): SkillPro
 export function getSkillProfileBindings(id: SkillProfileId | null | undefined): SkillReference[] {
   const profile = getSkillProfile(id);
   return profile ? profile.skills : [];
+}
+
+export function getAgentPresetBindings(preset: AgentPreset): SkillReference[] {
+  const base = getSkillProfileBindings(preset.skillProfileId);
+  const extra = preset.extraSkills ? preset.extraSkills.map(cloneSkillReference) : [];
+  return [...base, ...extra];
 }
 
 export function getTeamTemplate(id: TeamTemplateId | null | undefined): TeamTemplate | null {
