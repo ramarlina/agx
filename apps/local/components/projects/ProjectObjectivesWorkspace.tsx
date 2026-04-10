@@ -367,18 +367,11 @@ export function ProjectObjectivesOverview({
       <div className="border-b border-[var(--border)] bg-[rgba(10,14,20,0.7)] px-4 py-5 backdrop-blur md:px-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="space-y-2">
-            <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.24em] text-[var(--muted-foreground)]">
-              <Target className="h-3.5 w-3.5" />
-              Objectives
-            </div>
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">{project.name}</h1>
-              <p className="text-sm text-[var(--muted-foreground)]">
-                {objectives.length === 0
-                  ? "Add an objective to start tracking work in this project."
-                  : "Expand a row for notes or open the detail view when you need more."}
-              </p>
-            </div>
+            <p className="text-sm text-[var(--muted-foreground)]">
+              {objectives.length === 0
+                ? "Add an objective to start tracking work in this project."
+                : "Expand a row for notes or open the detail view when you need more."}
+            </p>
           </div>
 
           <button
