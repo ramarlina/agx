@@ -29,6 +29,7 @@ export interface AutomationExecution {
   overlapPolicy?: OverlapPolicy;
   catchUpPolicy?: CatchUpPolicy;
   cancelCheckSec?: number;
+  condition?: string;
   maxRuns?: number;
   maxConsecutiveFailures?: number;
   activeUntil?: string;

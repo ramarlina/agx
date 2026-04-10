@@ -8,6 +8,7 @@ export interface LinearIssue {
   status: string;
   assignee: string | null;
   updatedAt: string;
+  labels?: string[];
 }
 
 interface Filters {
@@ -30,6 +31,7 @@ interface UseLinearIssuesReturn {
   hasMore: boolean;
   loadMore: () => Promise<void>;
   refresh: () => Promise<void>;
+  updateIssue: (issue: LinearIssue) => void;
 }
 
 export function useLinearIssues(
@@ -102,5 +104,11 @@ export function useLinearIssues(
     return fetchPage(false, true);
   }, [fetchPage]);
 
-  return { issues, loading, hasMore, loadMore, refresh };
+  const updateIssue = useCallback((issue: LinearIssue) => {
+    setIssues((previous) =>
+      previous.map((entry) => (entry.id === issue.id ? issue : entry))
+    );
+  }, []);
+
+  return { issues, loading, hasMore, loadMore, refresh, updateIssue };
 }

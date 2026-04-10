@@ -8,6 +8,7 @@ import type { DatabaseSync, SQLInputValue } from "node:sqlite";
 const execFileAsync = promisify(execFile);
 
 import {
+  DEFAULT_CONDITION_CHECK_EVERY_MS,
   automationRecordToPromptJob,
   getAutomationRepository,
   isAutomationDualReadEnabled,
@@ -19,6 +20,7 @@ import {
   type AutomationUpdatePatch,
 } from "@/src/automations";
 import { computeNextTickFromCron } from "../graph/scheduler";
+import { normalizeLegacyConditionSchedule, parseCadence } from "./cron";
 import type {
   CreatePromptJobInput,
   PromptJob,
@@ -147,14 +149,12 @@ function rowToJob(row: PromptJobRow): PromptJob {
     model: row.model || "",
     cliArgs: row.cli_args || "",
     cronExpr: row.cron_expr,
-    cadence: row.cadence,
+    cadence: row.cadence || row.cron_expr || "",
     state: row.state as PromptJobState,
     overlapPolicy: row.overlap_policy as PromptJob["overlapPolicy"],
     catchUpPolicy: (row.catch_up_policy || "fire_once") as PromptJob["catchUpPolicy"],
     cancelCheckSec: row.cancel_check_sec,
-    triggerType: (row.trigger_type || "scheduled") as PromptJob["triggerType"],
     condition: row.condition || "",
-    checkEveryMs: row.check_every_ms || 300000,
     nextRunAt: row.next_run_at,
     lastRunAt: row.last_run_at,
     lastOutcome: row.last_outcome as RunStatus | null,
@@ -192,6 +192,56 @@ function hasAnyValue(values: Record<string, unknown>): boolean {
   return Object.values(values).some((value) => value !== undefined);
 }
 
+interface ResolvedScheduledInput {
+  cadence: string;
+  cronExpr: string;
+  legacyIntervalMs: number;
+}
+
+function resolveScheduledInput(input: {
+  cadence?: string;
+  cronExpr?: string;
+  triggerType?: CreatePromptJobInput["triggerType"] | UpdatePromptJobInput["triggerType"];
+  checkEveryMs?: number;
+}): ResolvedScheduledInput | null {
+  const cadence = input.cadence?.trim();
+  const cronExpr = input.cronExpr?.trim();
+
+  if (cadence) {
+    if (cronExpr) {
+      return {
+        cadence,
+        cronExpr,
+        legacyIntervalMs: input.checkEveryMs ?? DEFAULT_CONDITION_CHECK_EVERY_MS,
+      };
+    }
+
+    const parsed = parseCadence(cadence);
+    if (!parsed) {
+      return null;
+    }
+
+    return {
+      cadence: parsed.cadence,
+      cronExpr: parsed.cronExpr,
+      legacyIntervalMs: input.checkEveryMs ?? DEFAULT_CONDITION_CHECK_EVERY_MS,
+    };
+  }
+
+  if (input.triggerType === "condition") {
+    const legacy = normalizeLegacyConditionSchedule(
+      input.checkEveryMs ?? DEFAULT_CONDITION_CHECK_EVERY_MS,
+    );
+    return {
+      cadence: legacy.cadence,
+      cronExpr: legacy.cronExpr,
+      legacyIntervalMs: legacy.intervalMs,
+    };
+  }
+
+  return null;
+}
+
 export class PromptJobStore {
   private automationRepository?: ReturnType<typeof getAutomationRepository>;
 
@@ -208,8 +258,13 @@ export class PromptJobStore {
   }
 
   createJob(input: CreatePromptJobInput): PromptJob {
+    const scheduled = resolveScheduledInput(input);
+    if (!scheduled) {
+      throw new Error("Prompt jobs require a valid cadence or convertible legacy condition interval.");
+    }
+
     if (!isAutomationFrontmatterEnabled()) {
-      return this.createLegacyJob(input);
+      return this.createLegacyJob(input, scheduled);
     }
 
     const id = randomUUID();
@@ -219,21 +274,16 @@ export class PromptJobStore {
       name: input.name,
       ...(input.projectId ? { projectId: input.projectId } : {}),
       state: "active",
-      trigger: (input.triggerType ?? "scheduled") === "condition"
-        ? {
-          type: "condition",
-          condition: input.condition ?? "",
-          checkEveryMs: input.checkEveryMs ?? 300000,
-        }
-        : {
-          type: "scheduled",
-          ...(input.cadence ? { cadence: input.cadence } : {}),
-          ...(input.cronExpr ? { cronExpr: input.cronExpr } : {}),
-        },
+      trigger: {
+        type: "scheduled",
+        cadence: scheduled.cadence,
+        cronExpr: scheduled.cronExpr,
+      },
       execution: {
         overlapPolicy: input.overlapPolicy,
         catchUpPolicy: input.catchUpPolicy,
         cancelCheckSec: input.cancelCheckSec,
+        ...(input.condition?.trim() ? { condition: input.condition.trim() } : {}),
       },
       target: {
         type: "prompt_job",
@@ -256,7 +306,7 @@ export class PromptJobStore {
       return this.getLegacyJob(id);
     }
 
-    const record = this.getAutomationRepo().getAutomation(id);
+    const record = this.getPromptJobRecord(id, false);
     if (record?.definition.target.type === "prompt_job") {
       const job = automationRecordToPromptJob(record);
       this.ensureLegacyJobRow(job);
@@ -277,7 +327,11 @@ export class PromptJobStore {
       ...(filter?.state ? { state: filter.state } : {}),
       ...(filter?.projectId ? { projectId: filter.projectId } : {}),
     })) {
-      const job = automationRecordToPromptJob(record);
+      const normalizedRecord = this.normalizePromptJobRecord(record);
+      if (!normalizedRecord) {
+        continue;
+      }
+      const job = automationRecordToPromptJob(normalizedRecord);
       jobsById.set(job.id, job);
       this.ensureLegacyJobRow(job);
     }
@@ -298,7 +352,7 @@ export class PromptJobStore {
       return this.updateLegacyJob(id, updates);
     }
 
-    const existingRecord = this.getAutomationRepo().getAutomation(id);
+    const existingRecord = this.getPromptJobRecord(id, false);
     if (!existingRecord) {
       return isAutomationDualReadEnabled() ? this.updateLegacyJob(id, updates) : null;
     }
@@ -345,10 +399,18 @@ export class PromptJobStore {
     }
 
     const jobsById = new Map<string, PromptJob>();
-    for (const record of this.getAutomationRepo().listDueAutomations(now, {
+    for (const record of this.getAutomationRepo().listVisibleAutomations({
       targetType: "prompt_job",
+      state: "active",
     })) {
-      const job = automationRecordToPromptJob(record);
+      const normalizedRecord = this.normalizePromptJobRecord(record);
+      if (!normalizedRecord) {
+        continue;
+      }
+      const job = automationRecordToPromptJob(normalizedRecord);
+      if (job.nextRunAt === null || job.nextRunAt > now) {
+        continue;
+      }
       jobsById.set(job.id, job);
       this.ensureLegacyJobRow(job);
     }
@@ -521,8 +583,34 @@ export class PromptJobStore {
     return row?.status === "cancelled";
   }
 
+  private normalizePromptJobRecord(record: AutomationRecord): AutomationRecord | null {
+    if (record.definition.target.type !== "prompt_job") {
+      return record;
+    }
+
+    if (record.definition.trigger.type !== "condition") {
+      return record;
+    }
+
+    const scheduled = normalizeLegacyConditionSchedule(record.definition.trigger.checkEveryMs);
+    const updatedRecord = this.getAutomationRepo().updateAutomation(record.definition.id, {
+      trigger: {
+        type: "scheduled",
+        cadence: scheduled.cadence,
+        cronExpr: scheduled.cronExpr,
+      },
+      execution: {
+        ...(record.definition.execution ?? {}),
+        condition: record.definition.execution?.condition ?? record.definition.trigger.condition,
+      },
+    });
+
+    return updatedRecord;
+  }
+
   private getPromptJobRecord(id: string, materializeLegacy: boolean): AutomationRecord | null {
-    const record = this.getAutomationRepo().getAutomation(id);
+    const rawRecord = this.getAutomationRepo().getAutomation(id);
+    const record = rawRecord ? this.normalizePromptJobRecord(rawRecord) : null;
     if (record?.definition.target.type === "prompt_job") {
       return record;
     }
@@ -566,38 +654,37 @@ export class PromptJobStore {
     if (updates.state !== undefined) patch.state = updates.state;
     if (updates.prompt !== undefined) patch.body = updates.prompt;
 
-    if (
-      updates.triggerType !== undefined
-      || updates.cadence !== undefined
-      || updates.cronExpr !== undefined
-      || updates.condition !== undefined
-      || updates.checkEveryMs !== undefined
-    ) {
+    const resolvedSchedule = resolveScheduledInput(updates);
+    if (resolvedSchedule) {
+      triggerPatch.type = "scheduled";
+      triggerPatch.cadence = resolvedSchedule.cadence;
+      triggerPatch.cronExpr = resolvedSchedule.cronExpr;
+      triggerPatch.intervalMs = record.definition.trigger.type === "scheduled"
+        ? record.definition.trigger.intervalMs
+        : undefined;
+    } else if (updates.cadence === "") {
+      triggerPatch.type = "scheduled";
+      triggerPatch.cadence = record.definition.trigger.type === "scheduled"
+        ? record.definition.trigger.cadence
+        : undefined;
+      triggerPatch.cronExpr = record.definition.trigger.type === "scheduled"
+        ? record.definition.trigger.cronExpr
+        : undefined;
+      triggerPatch.intervalMs = record.definition.trigger.type === "scheduled"
+        ? record.definition.trigger.intervalMs
+        : undefined;
+    } else if (updates.cronExpr !== undefined || updates.cadence !== undefined) {
       const currentTrigger = record.definition.trigger;
-      const triggerType = updates.triggerType ?? currentTrigger.type;
-      triggerPatch.type = triggerType;
-
-      if (triggerType === "condition") {
-        triggerPatch.condition = updates.condition
-          ?? (currentTrigger.type === "condition" ? currentTrigger.condition : "");
-        triggerPatch.checkEveryMs = updates.checkEveryMs
-          ?? (currentTrigger.type === "condition" ? currentTrigger.checkEveryMs : 300000);
-      } else {
-        triggerPatch.cadence = updates.cadence === ""
-          ? undefined
-          : updates.cadence ?? (currentTrigger.type === "scheduled" ? currentTrigger.cadence : undefined);
-        triggerPatch.cronExpr = updates.cronExpr !== undefined
-          ? updates.cronExpr
-          : updates.cadence !== undefined && updates.cadence !== ""
-            ? undefined
-            : (currentTrigger.type === "scheduled" ? currentTrigger.cronExpr : undefined);
-        triggerPatch.intervalMs = currentTrigger.type === "scheduled" ? currentTrigger.intervalMs : undefined;
-      }
+      triggerPatch.type = "scheduled";
+      triggerPatch.cadence = updates.cadence ?? (currentTrigger.type === "scheduled" ? currentTrigger.cadence : undefined);
+      triggerPatch.cronExpr = updates.cronExpr ?? (currentTrigger.type === "scheduled" ? currentTrigger.cronExpr : undefined);
+      triggerPatch.intervalMs = currentTrigger.type === "scheduled" ? currentTrigger.intervalMs : undefined;
     }
 
     if (updates.overlapPolicy !== undefined) executionPatch.overlapPolicy = updates.overlapPolicy;
     if (updates.catchUpPolicy !== undefined) executionPatch.catchUpPolicy = updates.catchUpPolicy;
     if (updates.cancelCheckSec !== undefined) executionPatch.cancelCheckSec = updates.cancelCheckSec;
+    if (updates.condition !== undefined) executionPatch.condition = updates.condition || undefined;
 
     if (updates.agentId !== undefined) targetPatch.agentId = updates.agentId || undefined;
     if (updates.provider !== undefined) targetPatch.provider = updates.provider || undefined;
@@ -692,9 +779,9 @@ export class PromptJobStore {
         job.overlapPolicy,
         job.catchUpPolicy,
         job.cancelCheckSec,
-        job.triggerType,
+        "scheduled",
         job.condition || "",
-        job.checkEveryMs,
+        DEFAULT_CONDITION_CHECK_EVERY_MS,
         job.nextRunAt ?? null,
         job.lastRunAt ?? null,
         job.lastOutcome ?? null,
@@ -703,19 +790,10 @@ export class PromptJobStore {
       );
   }
 
-  private createLegacyJob(input: CreatePromptJobInput): PromptJob {
+  private createLegacyJob(input: CreatePromptJobInput, scheduled: ResolvedScheduledInput): PromptJob {
     const id = randomUUID();
-    const cadence = input.cadence;
-    const cronExpr = input.cronExpr || cadence;
-    const triggerType = input.triggerType ?? "scheduled";
     const provider = input.provider ?? "claude";
-
-    let nextRunAt: number | null;
-    if (triggerType === "condition") {
-      nextRunAt = Date.now() + (input.checkEveryMs ?? 300000);
-    } else {
-      nextRunAt = computeNextTickFromCron(cronExpr) ?? null;
-    }
+    const nextRunAt = computeNextTickFromCron(scheduled.cronExpr) ?? null;
 
     this.db
       .prepare(
@@ -735,25 +813,56 @@ export class PromptJobStore {
         provider,
         input.model ?? "",
         input.cliArgs ?? "",
-        cronExpr,
-        cadence,
+        scheduled.cronExpr,
+        scheduled.cadence,
         input.overlapPolicy ?? "skip",
         input.catchUpPolicy ?? "fire_once",
         input.cancelCheckSec ?? 5,
-        triggerType,
+        "scheduled",
         input.condition ?? "",
-        input.checkEveryMs ?? 300000,
+        scheduled.legacyIntervalMs,
         nextRunAt,
       );
 
     return this.getLegacyJob(id) as PromptJob;
   }
 
+  private normalizeLegacyJobRow(row: PromptJobRow): PromptJobRow {
+    if ((row.trigger_type || "scheduled") !== "condition") {
+      return row;
+    }
+
+    const scheduled = normalizeLegacyConditionSchedule(
+      row.check_every_ms || DEFAULT_CONDITION_CHECK_EVERY_MS,
+    );
+    const nextRunAt = computeNextTickFromCron(scheduled.cronExpr) ?? null;
+
+    this.db
+      .prepare(
+        `UPDATE prompt_jobs
+         SET trigger_type = 'scheduled',
+             cadence = ?,
+             cron_expr = ?,
+             next_run_at = ?,
+             updated_at = datetime('now')
+         WHERE id = ?`,
+      )
+      .run(scheduled.cadence, scheduled.cronExpr, nextRunAt, row.id);
+
+    return {
+      ...row,
+      trigger_type: "scheduled",
+      cadence: scheduled.cadence,
+      cron_expr: scheduled.cronExpr,
+      next_run_at: nextRunAt,
+    };
+  }
+
   private getLegacyJob(id: string): PromptJob | null {
     const row = this.db
       .prepare("SELECT * FROM prompt_jobs WHERE id = ?")
       .get(id) as PromptJobRow | undefined;
-    return row ? rowToJob(row) : null;
+    return row ? rowToJob(this.normalizeLegacyJobRow(row)) : null;
   }
 
   private listLegacyJobs(filter?: { state?: PromptJobState; projectId?: string }): PromptJob[] {
@@ -775,7 +884,7 @@ export class PromptJobStore {
     sql += " ORDER BY created_at DESC";
 
     const rows = this.db.prepare(sql).all(...params) as unknown as PromptJobRow[];
-    return rows.map(rowToJob);
+    return rows.map((row) => rowToJob(this.normalizeLegacyJobRow(row)));
   }
 
   private updateLegacyJob(id: string, updates: UpdatePromptJobInput): PromptJob | null {
@@ -794,9 +903,7 @@ export class PromptJobStore {
       overlapPolicy: "overlap_policy",
       catchUpPolicy: "catch_up_policy",
       cancelCheckSec: "cancel_check_sec",
-      triggerType: "trigger_type",
       condition: "condition",
-      checkEveryMs: "check_every_ms",
       nextRunAt: "next_run_at",
       lastRunAt: "last_run_at",
       lastOutcome: "last_outcome",
@@ -804,8 +911,15 @@ export class PromptJobStore {
 
     const setClauses: string[] = [];
     const values: unknown[] = [];
+    const resolvedSchedule = resolveScheduledInput(updates);
 
     for (const [key, value] of Object.entries(updates)) {
+      if (
+        resolvedSchedule
+        && (key === "cadence" || key === "cronExpr" || key === "triggerType" || key === "checkEveryMs")
+      ) {
+        continue;
+      }
       const column = fieldMap[key];
       if (!column || value === undefined) {
         continue;
@@ -813,13 +927,23 @@ export class PromptJobStore {
 
       setClauses.push(`${column} = ?`);
       values.push(value);
+    }
 
-      if (key === "cadence" && typeof value === "string" && updates.cronExpr === undefined) {
-        setClauses.push("cron_expr = ?");
-        values.push(value);
+    if (resolvedSchedule) {
+      setClauses.push("cadence = ?");
+      values.push(resolvedSchedule.cadence);
+      setClauses.push("cron_expr = ?");
+      values.push(resolvedSchedule.cronExpr);
+      setClauses.push("trigger_type = ?");
+      values.push("scheduled");
+      setClauses.push("check_every_ms = ?");
+      values.push(resolvedSchedule.legacyIntervalMs);
+      if (updates.nextRunAt === undefined) {
         setClauses.push("next_run_at = ?");
-        values.push(computeNextTickFromCron(value) ?? null);
+        values.push(computeNextTickFromCron(resolvedSchedule.cronExpr) ?? null);
       }
+    } else if (updates.cadence === "") {
+      return this.getLegacyJob(id);
     }
 
     if (setClauses.length === 0) {
@@ -846,6 +970,8 @@ export class PromptJobStore {
          ORDER BY next_run_at ASC`,
       )
       .all(now) as unknown as PromptJobRow[];
-    return rows.map(rowToJob);
+    return rows
+      .map((row) => rowToJob(this.normalizeLegacyJobRow(row)))
+      .filter((job) => job.nextRunAt !== null && job.nextRunAt <= now);
   }
 }

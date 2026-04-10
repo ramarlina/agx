@@ -78,7 +78,7 @@ describe('PromptJobStore', () => {
       expect(job.name).toBe('Test Job');
       expect(job.prompt).toBe('Do something useful');
       expect(job.provider).toBe('claude');
-      expect(job.cadence).toBe(VALID_CRON);
+      expect(job.cadence).toBe('Every 5 minutes');
       expect(job.cronExpr).toBe(VALID_CRON);
       expect(job.state).toBe('active');
       expect(job.overlapPolicy).toBe('skip');
@@ -102,6 +102,32 @@ describe('PromptJobStore', () => {
       const job = store.createJob(makeInput());
       expect(job.lastRunAt).toBeNull();
       expect(job.lastOutcome).toBeNull();
+    });
+
+    it('stores the optional condition gate in automation frontmatter', () => {
+      const job = store.createJob(makeInput({ condition: 'there are unread emails' }));
+
+      expect(job.condition).toBe('there are unread emails');
+
+      const markdown = fs.readFileSync(path.join(automationsDir, 'active', `${job.id}.md`), 'utf8');
+      expect(markdown).toContain('type: prompt_job');
+      expect(markdown).toContain('type: scheduled');
+      expect(markdown).toContain('condition: there are unread emails');
+      expect(markdown).not.toContain('type: condition');
+    });
+
+    it('auto-converts legacy condition-trigger input into a schedule plus gate', () => {
+      const job = store.createJob(makeInput({
+        cadence: '',
+        triggerType: 'condition',
+        checkEveryMs: 300000,
+        condition: 'inbox has unread items',
+      }));
+
+      expect(job.condition).toBe('inbox has unread items');
+      expect(job.cronExpr).toBe('*/5 * * * *');
+      expect(job.cadence).toBe('Every 5 minutes');
+      expect(job.nextRunAt).toBeGreaterThan(Date.now() - 1000);
     });
   });
 
@@ -173,7 +199,7 @@ describe('PromptJobStore', () => {
       const job = store.createJob(makeInput());
       const newCron = '0 * * * *';
       const updated = store.updateJob(job.id, { cadence: newCron });
-      expect(updated?.cadence).toBe(newCron);
+      expect(updated?.cadence).toBe('Every hour');
       expect(updated?.cronExpr).toBe(newCron);
       expect(updated?.nextRunAt).toBeGreaterThan(0);
     });
@@ -229,6 +255,91 @@ describe('PromptJobStore', () => {
       expect(updated?.state).toBe('paused');
       expect(fs.existsSync(path.join(automationsDir, 'active', `${id}.md`))).toBe(false);
       expect(fs.existsSync(path.join(automationsDir, '.state', `${id}.json`))).toBe(false);
+    });
+
+    it('auto-converts legacy condition rows when they are read', () => {
+      const id = 'legacy-condition-job';
+      const createdAt = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO prompt_jobs (
+          id, name, prompt, cli, agent_id, project_id, provider, model, cli_args,
+          cron_expr, cadence, state, overlap_policy, catch_up_policy, cancel_check_sec,
+          trigger_type, condition, check_every_ms, next_run_at, last_run_at, last_outcome,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        'Legacy Condition Job',
+        'Check the inbox',
+        'claude',
+        null,
+        null,
+        'claude',
+        '',
+        '',
+        '',
+        '',
+        'active',
+        'skip',
+        'fire_once',
+        5,
+        'condition',
+        'there are unread emails',
+        300000,
+        Date.now() + 300000,
+        null,
+        null,
+        createdAt,
+        createdAt,
+      );
+
+      const fetched = store.getJob(id);
+      const row = db.prepare('SELECT trigger_type, cadence, cron_expr FROM prompt_jobs WHERE id = ?').get(id) as {
+        trigger_type: string;
+        cadence: string;
+        cron_expr: string;
+      };
+
+      expect(fetched?.condition).toBe('there are unread emails');
+      expect(fetched?.cronExpr).toBe('*/5 * * * *');
+      expect(fetched?.cadence).toBe('Every 5 minutes');
+      expect(row).toEqual({
+        trigger_type: 'scheduled',
+        cadence: 'Every 5 minutes',
+        cron_expr: '*/5 * * * *',
+      });
+    });
+
+    it('auto-converts legacy condition automations when they are loaded', () => {
+      const id = 'legacy-automation-condition';
+      fs.mkdirSync(path.join(automationsDir, 'active'), { recursive: true });
+      fs.writeFileSync(
+        path.join(automationsDir, 'active', `${id}.md`),
+        `---
+id: ${id}
+name: Legacy Automation
+state: active
+trigger:
+  type: condition
+  condition: there are unread emails
+  checkEveryMs: 300000
+target:
+  type: prompt_job
+  provider: claude
+---
+Check the inbox
+`,
+        'utf8',
+      );
+
+      const fetched = store.getJob(id);
+      const markdown = fs.readFileSync(path.join(automationsDir, 'active', `${id}.md`), 'utf8');
+
+      expect(fetched?.condition).toBe('there are unread emails');
+      expect(fetched?.cronExpr).toBe('*/5 * * * *');
+      expect(markdown).toContain('type: scheduled');
+      expect(markdown).toContain('condition: there are unread emails');
+      expect(markdown).not.toContain('type: condition');
     });
   });
 

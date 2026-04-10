@@ -1,10 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPromptJobStore } from '@/src/prompt-scheduler/get-store';
-import { parseCadence, computeNextRun } from '@/src/prompt-scheduler/cron';
+import {
+  computeNextRun,
+  normalizeLegacyConditionSchedule,
+  parseCadence,
+} from '@/src/prompt-scheduler/cron';
 import type { PromptJobState } from '@/src/prompt-scheduler/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+function resolveScheduledPayload(input: {
+  cadence?: unknown;
+  triggerType?: unknown;
+  checkEveryMs?: unknown;
+}): { cadence: string; cronExpr: string } | null {
+  if (typeof input.cadence === 'string' && input.cadence.trim()) {
+    const parsed = parseCadence(input.cadence.trim());
+    return parsed ? { cadence: parsed.cadence, cronExpr: parsed.cronExpr } : null;
+  }
+
+  if (input.triggerType === 'condition') {
+    const legacy = normalizeLegacyConditionSchedule(
+      typeof input.checkEveryMs === 'number' ? input.checkEveryMs : 300000,
+    );
+    return { cadence: legacy.cadence, cronExpr: legacy.cronExpr };
+  }
+
+  return null;
+}
 
 /**
  * GET /api/prompt-jobs
@@ -23,7 +47,7 @@ export async function GET(req: NextRequest) {
     // Auto-heal active jobs with null nextRunAt
     for (const job of jobs) {
       if (job.state === 'active' && job.nextRunAt === null) {
-        let cronExpr = job.cronExpr;
+        let cronExpr = job.cronExpr || job.cadence;
         // If cronExpr isn't valid cron, try parsing it as NL
         let nextRunAt = computeNextRun(cronExpr);
         if (nextRunAt === null) {
@@ -33,9 +57,6 @@ export async function GET(req: NextRequest) {
             nextRunAt = computeNextRun(cronExpr);
             if (nextRunAt) store.updateJob(job.id, { cronExpr });
           }
-        }
-        if (nextRunAt === null && job.triggerType === 'condition') {
-          nextRunAt = Date.now() + job.checkEveryMs;
         }
         if (nextRunAt) {
           store.updateJob(job.id, { nextRunAt });
@@ -62,7 +83,22 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { name, prompt, agentId, projectId, provider, model, cliArgs, cadence, overlapPolicy, catchUpPolicy, cancelCheckSec, triggerType, condition, checkEveryMs } = body;
+    const {
+      name,
+      prompt,
+      agentId,
+      projectId,
+      provider,
+      model,
+      cliArgs,
+      cadence,
+      overlapPolicy,
+      catchUpPolicy,
+      cancelCheckSec,
+      triggerType,
+      condition,
+      checkEveryMs,
+    } = body;
 
     if (!name || !prompt) {
       return NextResponse.json(
@@ -71,28 +107,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // For condition triggers, cadence is optional (uses checkEveryMs instead)
-    const effectiveTriggerType = triggerType ?? 'scheduled';
-    if (effectiveTriggerType === 'scheduled' && !cadence) {
+    const scheduled = resolveScheduledPayload({ cadence, triggerType, checkEveryMs });
+    if (!scheduled) {
       return NextResponse.json(
-        { error: 'Missing required field: cadence (required for scheduled triggers)' },
+        { error: 'Missing required field: cadence (or legacy condition interval to convert)' },
         { status: 400 },
       );
-    }
-
-    // cadence can be either a cron expression (from schedule builder) or natural language
-    let cronExpr = '';
-    let cadenceLabel = '';
-    if (cadence) {
-      const parsed = parseCadence(cadence);
-      if (parsed) {
-        cronExpr = parsed.cronExpr;
-        cadenceLabel = parsed.cadence;
-      } else {
-        // Might already be a raw cron expression from the schedule builder
-        cronExpr = cadence;
-        cadenceLabel = cadence;
-      }
     }
 
     const store = getPromptJobStore();
@@ -104,14 +124,12 @@ export async function POST(req: NextRequest) {
       provider: provider ?? 'claude',
       model,
       cliArgs,
-      cronExpr: cronExpr || undefined,
-      cadence: cadenceLabel || `every ${Math.round((checkEveryMs ?? 300000) / 60000)}m`,
+      cronExpr: scheduled.cronExpr,
+      cadence: scheduled.cadence,
       overlapPolicy,
       catchUpPolicy,
       cancelCheckSec,
-      triggerType: effectiveTriggerType,
       condition,
-      checkEveryMs,
     });
 
     return NextResponse.json({ job }, { status: 201 });
