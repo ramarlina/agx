@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { MAX_WORKERS, assertWorkerCount } from "@/lib/limits";
 import { getAll } from "@/lib/agent-process-registry";
+import { requireDaemonControl } from "@/lib/api/daemon-control";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +14,11 @@ interface DaemonState {
   running: boolean;
   targetWorkers: number;
   startedAt: string | null;
+}
+
+interface DaemonPayload {
+  action?: unknown;
+  workers?: unknown;
 }
 
 const state: DaemonState = {
@@ -31,7 +37,12 @@ function activeWorkerCount(): number {
 /**
  * GET /api/daemon — Check daemon status
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const auth = await requireDaemonControl(request);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
   const active = activeWorkerCount();
   return NextResponse.json({
     running: state.running,
@@ -47,10 +58,23 @@ export async function GET() {
  * Body: { workers: number } | { action: "stop" }
  */
 export async function POST(req: Request) {
-  const body = await req.json();
+  const auth = await requireDaemonControl(req);
+  if (!auth.ok) {
+    return auth.response;
+  }
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const payload: DaemonPayload =
+    body && typeof body === "object" ? (body as DaemonPayload) : {};
 
   // Stop action
-  if (body.action === "stop") {
+  if ("action" in payload && payload.action === "stop") {
     state.running = false;
     state.targetWorkers = 0;
     state.startedAt = null;
@@ -58,7 +82,7 @@ export async function POST(req: Request) {
   }
 
   // Start / reconfigure
-  const workers = typeof body.workers === "number" ? body.workers : 1;
+  const workers = typeof payload.workers === "number" ? payload.workers : 1;
 
   try {
     assertWorkerCount(workers);
