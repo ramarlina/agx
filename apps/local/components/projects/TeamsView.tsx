@@ -9,9 +9,9 @@ import {
   Users,
 } from "lucide-react";
 import TeamPickerModal from "@/components/TeamPickerModal";
-import { TeamDetailView } from "@/components/TeamDetailView";
-import { AdoptAgentsModal } from "@/components/projects/AdoptAgentsModal";
-import { ReplaceAgentsModal } from "@/components/projects/ReplaceAgentsModal";
+import TeamDetailView from "@/components/TeamDetailView";
+import AdoptAgentsModal from "@/components/projects/AdoptAgentsModal";
+import ReplaceAgentsModal from "@/components/projects/ReplaceAgentsModal";
 
 interface TeamAgent {
   team_id: string;
