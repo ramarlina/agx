@@ -135,16 +135,7 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
   return (
     <div className="flex flex-col gap-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Users className="w-5 h-5 text-zinc-400" />
-          <h1 className="text-lg font-semibold text-zinc-100">Teams</h1>
-          {teams.length > 0 && (
-            <span className="rounded-full bg-zinc-800 px-2.5 py-0.5 text-xs text-zinc-400">
-              {teams.length}
-            </span>
-          )}
-        </div>
+      <div className="flex items-center justify-end">
         <button
           onClick={() => setShowTeamPicker(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"

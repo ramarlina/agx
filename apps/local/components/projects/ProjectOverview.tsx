@@ -30,13 +30,9 @@ export function ProjectOverview({
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-5xl mx-auto px-6 py-8">
-        {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-2xl font-bold text-zinc-100">{projectName}</h1>
-          {projectDescription && (
-            <p className="mt-1 text-sm text-zinc-400">{projectDescription}</p>
-          )}
-        </div>
+        {projectDescription && (
+          <p className="mb-6 text-sm text-zinc-400">{projectDescription}</p>
+        )}
 
         {/* Card Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

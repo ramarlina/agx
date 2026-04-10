@@ -161,12 +161,6 @@ export function ProjectSettings({ project, onUpdate, onDelete }: ProjectSettings
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto px-6 py-8 space-y-8">
-        {/* Header */}
-        <div className="flex items-center gap-3">
-          <Settings className="w-5 h-5 text-zinc-400" />
-          <h1 className="text-xl font-bold text-zinc-100">Project Settings</h1>
-        </div>
-
         {/* Section 1: Project Info */}
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 space-y-4">
           <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
