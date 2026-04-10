@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import {
   AlertTriangle,
   Loader2,
@@ -10,6 +9,9 @@ import {
   Users,
 } from "lucide-react";
 import TeamPickerModal from "@/components/TeamPickerModal";
+import { TeamDetailView } from "@/components/TeamDetailView";
+import { AdoptAgentsModal } from "@/components/projects/AdoptAgentsModal";
+import { ReplaceAgentsModal } from "@/components/projects/ReplaceAgentsModal";
 
 interface TeamAgent {
   team_id: string;
@@ -43,6 +45,10 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showTeamPicker, setShowTeamPicker] = useState(false);
+  const [manageTeamId, setManageTeamId] = useState<string | null>(null);
+  const [showAdopt, setShowAdopt] = useState(false);
+  const [showReplace, setShowReplace] = useState(false);
+  const [unassignedDetails, setUnassignedDetails] = useState<Array<{ id: string; name: string; style: string; skills: Array<{ file: string }> }>>([]);
 
   const fetchTeams = useCallback(async () => {
     setLoading(true);
@@ -80,6 +86,16 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
   function agentName(agentId: string): string {
     return participantMap.get(agentId) || agentId.slice(0, 8);
   }
+
+  const fetchUnassignedDetails = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/agents/unassigned`);
+      if (res.ok) {
+        const data = await res.json();
+        setUnassignedDetails(data.agents ?? []);
+      }
+    } catch { /* silent */ }
+  }, [projectId]);
 
   // Compute unassigned agents
   const assignedAgentIds = new Set(teams.flatMap((t) => t.agents.map((a) => a.agent_id)));
@@ -192,16 +208,27 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
                 </div>
               )}
 
-              {/* Manage link */}
+              {/* Manage button */}
               <div className="pt-2 border-t border-zinc-800 mt-auto">
-                <Link
-                  href={`/projects/${projectSlug}/teams/${team.id}`}
+                <button
+                  type="button"
+                  onClick={() => setManageTeamId(manageTeamId === team.id ? null : team.id)}
                   className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
                 >
                   <Settings className="w-3 h-3" />
-                  Manage
-                </Link>
+                  {manageTeamId === team.id ? "Close" : "Manage"}
+                </button>
               </div>
+              {manageTeamId === team.id && (
+                <div className="mt-3 border-t border-zinc-800 pt-3">
+                  <TeamDetailView
+                    projectId={projectId}
+                    teamId={team.id}
+                    onTeamDeleted={() => { setManageTeamId(null); fetchTeams(); }}
+                    onTeamUpdated={fetchTeams}
+                  />
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -234,10 +261,16 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
             ))}
           </div>
           <div className="flex items-center gap-2 pt-1">
-            <button className="text-xs px-3 py-1 rounded-lg border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors">
+            <button
+              className="text-xs px-3 py-1 rounded-lg border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
+              onClick={() => { fetchUnassignedDetails(); setShowAdopt(true); }}
+            >
               Adopt into team
             </button>
-            <button className="text-xs px-3 py-1 rounded-lg border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors">
+            <button
+              className="text-xs px-3 py-1 rounded-lg border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
+              onClick={() => { fetchUnassignedDetails(); setShowReplace(true); }}
+            >
               Replace with preset
             </button>
           </div>
@@ -251,6 +284,26 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
           existingTeamTemplateIds={existingTemplateIds}
           onClose={() => setShowTeamPicker(false)}
           onTeamCreated={fetchTeams}
+        />
+      )}
+
+      {/* Adopt Modal */}
+      {showAdopt && (
+        <AdoptAgentsModal
+          projectId={projectId}
+          unassignedAgents={unassignedDetails}
+          onClose={() => setShowAdopt(false)}
+          onAdopted={() => { setShowAdopt(false); fetchTeams(); }}
+        />
+      )}
+
+      {/* Replace Modal */}
+      {showReplace && (
+        <ReplaceAgentsModal
+          projectId={projectId}
+          unassignedAgents={unassignedDetails.map((a) => ({ id: a.id, name: a.name }))}
+          onClose={() => setShowReplace(false)}
+          onReplaced={() => { setShowReplace(false); fetchTeams(); }}
         />
       )}
     </div>
