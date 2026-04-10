@@ -3,6 +3,7 @@
 import { Suspense, use, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
+import { Sun, Moon } from "lucide-react";
 import { WorkspaceSidebar } from "@/components/thread/WorkspaceSidebar";
 import { useProjectsWithAgents } from "@/hooks/useProjects";
 import { useThreadState } from "@/hooks/useThreadState";
@@ -13,6 +14,8 @@ import {
 } from "@/state/uiSettings";
 import { loadWorkspaceWidth, persistWorkspaceWidth } from "@/state/windowState";
 import "@/styles/workspaceSidebar.css";
+
+const THEME_STORAGE_KEY = "agx-theme";
 
 function ProjectLayoutContent({
   children,
@@ -47,11 +50,25 @@ function ProjectLayoutContent({
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(368);
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    if (typeof window === "undefined") return "light";
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "dark" || stored === "light") return stored;
+    return document.documentElement.classList.contains("dark") ? "dark" : "light";
+  });
 
   useEffect(() => {
     setSidebarVisible(loadWorkspaceSidebarVisible());
     setSidebarWidth(loadWorkspaceWidth() || 368);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const isDark = theme === "dark";
+    document.documentElement.classList.toggle("dark", isDark);
+    document.documentElement.style.colorScheme = theme;
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+  }, [theme]);
 
   useEffect(() => {
     void fetch("/api/participants")
@@ -165,19 +182,32 @@ function ProjectLayoutContent({
         }}
       />
       <div className="flex-1 min-h-0 flex flex-col min-w-0 h-full overflow-hidden">
-        {activeProjectView !== "overview" && (
-          <div className="flex items-center gap-1.5 px-4 py-2 border-b border-[var(--app-shell-border)] bg-[var(--background)] shrink-0">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-[var(--app-shell-border)] bg-[var(--background)] shrink-0">
+          <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => router.push(`/projects/${slug}`)}
-              className="text-xs text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
+              className={`text-xs transition-colors ${activeProjectView === "overview" ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
             >
               {currentProject.name}
             </button>
-            <span className="text-xs text-[var(--muted-foreground)]">/</span>
-            <span className="text-xs text-[var(--foreground)]">{{ objectives: "Objectives", teams: "Teams", linear: "Linear", automations: "Scheduled Tasks", thread: "Chat", knowledge: "Knowledge", settings: "Settings" }[activeProjectView] ?? activeProjectView}</span>
+            {activeProjectView !== "overview" && (
+              <>
+                <span className="text-xs text-[var(--muted-foreground)]">/</span>
+                <span className="text-xs text-[var(--foreground)]">{{ objectives: "Objectives", teams: "Teams", linear: "Linear", automations: "Scheduled Tasks", thread: "Chat", knowledge: "Knowledge", settings: "Settings" }[activeProjectView] ?? activeProjectView}</span>
+              </>
+            )}
           </div>
-        )}
+          <button
+            type="button"
+            onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] hover:bg-[var(--app-shell-subtle)]"
+          >
+            {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+          </button>
+        </div>
         {children}
       </div>
     </div>
