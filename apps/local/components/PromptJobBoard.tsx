@@ -14,13 +14,8 @@ import {
   RefreshCw,
   ChevronDown,
   Settings2,
-  Zap,
-  Calendar,
-  CalendarDays,
-  Repeat,
   Pencil,
   ArrowLeft,
-  Copy,
   ExternalLink,
   User,
   Sparkles,
@@ -37,6 +32,7 @@ import {
 import type { GroupMessage } from "@/lib/types";
 import type { PromptJob, PromptRun } from "@/src/prompt-scheduler/types";
 import { cronToHuman } from "@/src/graph/nl-schedule";
+import { ScheduleConditionPicker } from "@/components/scheduling/ScheduleConditionPicker";
 
 const Composer = dynamic(() => import("@/components/chat-ui/Composer").then((m) => m.Composer), {
   ssr: false,
@@ -120,302 +116,8 @@ interface CreateJobData {
   cliArgs: string;
   catchUpPolicy: string;
   cadence: string;
-  triggerType: string;
   condition: string;
-  checkEveryMs: number;
 }
-
-const DAYS_OF_WEEK = [
-  { label: "Sun", short: "S", value: 0 },
-  { label: "Mon", short: "M", value: 1 },
-  { label: "Tue", short: "T", value: 2 },
-  { label: "Wed", short: "W", value: 3 },
-  { label: "Thu", short: "T", value: 4 },
-  { label: "Fri", short: "F", value: 5 },
-  { label: "Sat", short: "S", value: 6 },
-];
-
-function getOrdinal(n: number) {
-  const s = ["th", "st", "nd", "rd"];
-  const v = n % 100;
-  return s[(v - 20) % 10] || s[v] || s[0];
-}
-
-function buildCron(
-  freq: string,
-  hour: string,
-  minute: string,
-  days: number[],
-  monthDay: number,
-): string {
-  switch (freq) {
-    case "hourly":
-      return `${minute} * * * *`;
-    case "daily":
-      return `${minute} ${hour} * * *`;
-    case "weekly":
-      return `${minute} ${hour} * * ${days.sort().join(",")}`;
-    case "monthly":
-      return `${minute} ${hour} ${monthDay} * *`;
-    default:
-      return `${minute} ${hour} * * *`;
-  }
-}
-
-function buildHumanReadable(
-  freq: string,
-  hour: string,
-  minute: string,
-  days: number[],
-  monthDay: number,
-): string {
-  const hh = parseInt(hour);
-  const suffix = hh >= 12 ? "PM" : "AM";
-  const displayHour = hh % 12 || 12;
-  const time = `${displayHour}:${minute} ${suffix}`;
-
-  switch (freq) {
-    case "hourly":
-      return `Every hour at :${minute}`;
-    case "daily":
-      return `Every day at ${time}`;
-    case "weekly": {
-      const labels = days
-        .sort()
-        .map((d) => DAYS_OF_WEEK.find((day) => day.value === d)!.label);
-      return `${time} on ${labels.join(", ")}`;
-    }
-    case "monthly":
-      return `${monthDay}${getOrdinal(monthDay)} of every month at ${time}`;
-    default:
-      return `Every day at ${time}`;
-  }
-}
-
-function ScheduleBuilder({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (cron: string, label: string) => void;
-}) {
-  const [freq, setFreq] = useState("daily");
-  const [hour, setHour] = useState("09");
-  const [minute, setMinute] = useState("00");
-  const [selectedDays, setSelectedDays] = useState([1, 2, 3, 4, 5]);
-  const [monthDay, setMonthDay] = useState(1);
-
-  useEffect(() => {
-    const cron = buildCron(freq, hour, minute, selectedDays, monthDay);
-    const label = buildHumanReadable(
-      freq,
-      hour,
-      minute,
-      selectedDays,
-      monthDay,
-    );
-    onChange(cron, label);
-  }, [freq, hour, minute, selectedDays, monthDay]);
-
-  const toggleDay = (d: number) =>
-    setSelectedDays((prev) =>
-      prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d],
-    );
-
-  const freqPill = (
-    id: string,
-    label: string,
-    Icon: React.ComponentType<{ size?: number }>,
-  ) => (
-    <button
-      key={id}
-      type="button"
-      onClick={() => setFreq(id)}
-      className={`flex flex-col items-center justify-center p-2.5 rounded-xl border transition-all text-[11px] font-medium ${
-        freq === id
-          ? "border-[var(--foreground)] bg-[var(--foreground)]/5 text-[var(--foreground)]"
-          : "border-[var(--card-border)] bg-[var(--muted)] text-[var(--muted-foreground)] hover:border-[var(--muted-foreground)]"
-      }`}
-    >
-      <Icon size={16} />
-      <span className="mt-1">{label}</span>
-    </button>
-  );
-
-  const selectClass =
-    "bg-[var(--muted)] border border-[var(--card-border)] rounded-lg px-2 py-1.5 text-sm font-medium text-[var(--foreground)] focus:outline-none focus:border-[var(--foreground)] transition-colors";
-
-  return (
-    <div className="space-y-4">
-      {/* Frequency pills */}
-      <div className="grid grid-cols-4 gap-2">
-        {freqPill("hourly", "Hourly", Repeat)}
-        {freqPill("daily", "Daily", Clock)}
-        {freqPill("weekly", "Weekly", CalendarDays)}
-        {freqPill("monthly", "Monthly", Calendar)}
-      </div>
-
-      {/* Time picker (not for hourly) */}
-      {freq !== "hourly" ? (
-        <div>
-          <div className="text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-widest mb-1.5">
-            Time
-          </div>
-          <div className="flex items-center gap-1.5">
-            <select
-              value={hour}
-              onChange={(e) => setHour(e.target.value)}
-              className={selectClass}
-            >
-              {Array.from({ length: 24 }).map((_, i) => {
-                const val = i.toString().padStart(2, "0");
-                return (
-                  <option key={val} value={val}>
-                    {val}
-                  </option>
-                );
-              })}
-            </select>
-            <span className="text-sm font-bold text-[var(--muted-foreground)]">
-              :
-            </span>
-            <select
-              value={minute}
-              onChange={(e) => setMinute(e.target.value)}
-              className={selectClass}
-            >
-              {[
-                "00",
-                "05",
-                "10",
-                "15",
-                "20",
-                "25",
-                "30",
-                "35",
-                "40",
-                "45",
-                "50",
-                "55",
-              ].map((val) => (
-                <option key={val} value={val}>
-                  {val}
-                </option>
-              ))}
-            </select>
-            <span className="ml-1.5 text-[10px] text-[var(--muted-foreground)]">
-              {parseInt(hour) >= 12 ? "PM" : "AM"}
-            </span>
-          </div>
-        </div>
-      ) : (
-        <div>
-          <div className="text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-widest mb-1.5">
-            At minute
-          </div>
-          <select
-            value={minute}
-            onChange={(e) => setMinute(e.target.value)}
-            className={selectClass}
-          >
-            {[
-              "00",
-              "05",
-              "10",
-              "15",
-              "20",
-              "25",
-              "30",
-              "35",
-              "40",
-              "45",
-              "50",
-              "55",
-            ].map((val) => (
-              <option key={val} value={val}>
-                :{val}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {/* Weekly: day selector */}
-      {freq === "weekly" && (
-        <div>
-          <div className="text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-widest mb-1.5">
-            Repeat on
-          </div>
-          <div className="flex gap-1.5">
-            {DAYS_OF_WEEK.map((day) => (
-              <button
-                key={day.value}
-                type="button"
-                onClick={() => toggleDay(day.value)}
-                className={`size-8 rounded-full flex items-center justify-center text-[10px] font-bold transition-all ${
-                  selectedDays.includes(day.value)
-                    ? "bg-[var(--foreground)] text-[var(--background)]"
-                    : "bg-[var(--muted)] text-[var(--muted-foreground)] hover:bg-[var(--card-border)]"
-                }`}
-              >
-                {day.label[0]}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Monthly: date grid */}
-      {freq === "monthly" && (
-        <div>
-          <div className="text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-widest mb-1.5">
-            On day
-          </div>
-          <div className="grid grid-cols-7 gap-1">
-            {Array.from({ length: 31 }).map((_, i) => {
-              const d = i + 1;
-              return (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => setMonthDay(d)}
-                  className={`size-7 rounded-lg flex items-center justify-center text-[10px] font-medium transition-all ${
-                    monthDay === d
-                      ? "bg-[var(--foreground)] text-[var(--background)]"
-                      : "bg-[var(--muted)] text-[var(--muted-foreground)] hover:bg-[var(--card-border)]"
-                  }`}
-                >
-                  {d}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Summary */}
-      <div className="px-3 py-2 rounded-lg bg-[var(--muted)] border border-[var(--card-border)]">
-        <div className="text-[10px] text-[var(--muted-foreground)] mb-0.5">
-          Schedule
-        </div>
-        <div className="text-xs font-medium text-[var(--foreground)]">
-          {buildHumanReadable(freq, hour, minute, selectedDays, monthDay)}
-        </div>
-        <div className="text-[10px] font-mono text-[var(--muted-foreground)] mt-0.5">
-          {buildCron(freq, hour, minute, selectedDays, monthDay)}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-const CHECK_PRESETS = [
-  { label: "1 min", ms: 60000 },
-  { label: "5 min", ms: 300000 },
-  { label: "15 min", ms: 900000 },
-  { label: "30 min", ms: 1800000 },
-  { label: "1 hour", ms: 3600000 },
-] as const;
 
 function Label({ children }: { children: React.ReactNode }) {
   return (
@@ -540,24 +242,16 @@ function CreateJobModal({
       .catch((err) => console.warn('[PromptJobBoard] fetch agents failed:', err));
   }, []);
   const [cliArgs, setCliArgs] = useState(editingJob?.cliArgs ?? "");
-  const [cadence, setCadence] = useState(editingJob?.cadence ?? "");
-  const [cadenceLabel, setCadenceLabel] = useState(editingJob?.cadence ?? "");
-  const [triggerType, setTriggerType] = useState<"scheduled" | "condition">(
-    (editingJob?.triggerType as any) ?? "scheduled",
-  );
+  const [cadence, setCadence] = useState(editingJob?.cronExpr || editingJob?.cadence || "");
   const [condition, setCondition] = useState(editingJob?.condition ?? "");
-  const [checkEveryMs, setCheckEveryMs] = useState(
-    editingJob?.checkEveryMs ?? 300000,
-  );
+  const [isScheduleValid, setIsScheduleValid] = useState(Boolean(editingJob?.cronExpr || editingJob?.cadence));
   const [catchUpPolicy, setCatchUpPolicy] = useState<'fire_once' | 'replay_all' | 'skip'>(editingJob?.catchUpPolicy ?? 'fire_once');
   const [showAdvanced, setShowAdvanced] = useState(!!editingJob?.cliArgs || (editingJob?.catchUpPolicy != null && editingJob.catchUpPolicy !== 'fire_once'));
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !prompt.trim()) return;
-    if (triggerType === "scheduled" && !cadence.trim()) return;
-    if (triggerType === "condition" && !condition.trim()) return;
+    if (!name.trim() || !prompt.trim() || !cadence.trim() || !isScheduleValid) return;
     setSubmitting(true);
     await onSubmit({
       name: name.trim(),
@@ -567,10 +261,8 @@ function CreateJobModal({
       model: model.trim(),
       cliArgs: cliArgs.trim(),
       catchUpPolicy,
-      cadence: triggerType === "scheduled" ? cadence.trim() : "",
-      triggerType,
+      cadence: cadence.trim(),
       condition: condition.trim(),
-      checkEveryMs,
     });
     setSubmitting(false);
     onClose();
@@ -578,12 +270,6 @@ function CreateJobModal({
 
   const inputClass =
     "w-full bg-[var(--muted)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--foreground)] transition-colors";
-  const pillClass = (active: boolean) =>
-    `px-3 py-1.5 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
-      active
-        ? "bg-[var(--foreground)] text-[var(--background)] border-[var(--foreground)]"
-        : "bg-[var(--muted)] text-[var(--muted-foreground)] border-[var(--card-border)] hover:border-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-    }`;
 
   return (
     <div className="h-full flex flex-col text-[var(--foreground)]">
@@ -601,7 +287,7 @@ function CreateJobModal({
         </div>
         <button
           onClick={handleSubmit as any}
-          disabled={submitting || !name.trim() || !prompt.trim()}
+          disabled={submitting || !name.trim() || !prompt.trim() || !cadence.trim() || !isScheduleValid}
           className="px-5 py-2 rounded-lg text-sm font-medium bg-[var(--foreground)] text-[var(--background)] hover:opacity-90 disabled:opacity-40 transition-opacity"
         >
           {submitting
@@ -654,66 +340,17 @@ function CreateJobModal({
             }}
           />
 
-          <div>
-            <Label>Trigger</Label>
-            <div className="flex rounded-lg border border-[var(--card-border)] overflow-hidden">
-              <button
-                type="button"
-                onClick={() => setTriggerType("scheduled")}
-                className={`flex-1 py-2.5 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${triggerType === "scheduled" ? "bg-[var(--foreground)] text-[var(--background)]" : "bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
-              >
-                <Calendar size={13} /> Schedule
-              </button>
-              <button
-                type="button"
-                onClick={() => setTriggerType("condition")}
-                className={`flex-1 py-2.5 text-xs font-medium flex items-center justify-center gap-1.5 transition-colors ${triggerType === "condition" ? "bg-[var(--foreground)] text-[var(--background)]" : "bg-[var(--muted)] text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
-              >
-                <Zap size={13} /> Condition
-              </button>
-            </div>
-          </div>
-
-          {triggerType === "scheduled" ? (
-            <ScheduleBuilder
-              value={cadence}
-              onChange={(cron, label) => {
-                setCadence(cron);
-                setCadenceLabel(label);
-              }}
-            />
-          ) : (
-            <>
-              <div>
-                <Label>Condition</Label>
-                <textarea
-                  value={condition}
-                  onChange={(e) => setCondition(e.target.value)}
-                  placeholder="there are unread emails in my inbox"
-                  rows={3}
-                  className={`${inputClass} resize-none`}
-                />
-                <p className="text-[10px] text-[var(--muted-foreground)] mt-1.5">
-                  The LLM evaluates this as a gate. If true, the prompt runs.
-                </p>
-              </div>
-              <div>
-                <Label>Check frequency</Label>
-                <div className="flex flex-wrap gap-1.5">
-                  {CHECK_PRESETS.map((preset) => (
-                    <button
-                      key={preset.ms}
-                      type="button"
-                      onClick={() => setCheckEveryMs(preset.ms)}
-                      className={pillClass(checkEveryMs === preset.ms)}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
+          <ScheduleConditionPicker
+            value={{ cadence, condition }}
+            onChange={(nextValue, meta) => {
+              setCadence(nextValue.cadence);
+              setCondition(nextValue.condition);
+              setIsScheduleValid(meta.isScheduleValid);
+            }}
+            scheduleLabel="Schedule"
+            conditionLabel="Condition"
+            conditionHelpText="Scheduled runs and Run now will check this condition before executing."
+          />
 
           <div>
             <button
@@ -1249,18 +886,16 @@ function JobDetailView({
             />
             <div>
               <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted-foreground)] mb-1.5">
-                Trigger
+                Schedule
               </div>
               <div className="text-[12px] text-[var(--foreground)]">
-                {job.triggerType === "condition"
-                  ? `Condition (every ${Math.round(job.checkEveryMs / 60000)}m)`
-                  : (job.cronExpr && cronToHuman(job.cronExpr)) || job.cadence || job.cronExpr}
+                {(job.cronExpr && cronToHuman(job.cronExpr)) || job.cadence || job.cronExpr}
               </div>
             </div>
             {job.condition && (
               <div>
                 <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted-foreground)] mb-1.5">
-                  Condition
+                  Gate
                 </div>
                 <div className="text-[12px] text-[var(--foreground)]">
                   {job.condition}
@@ -1696,9 +1331,9 @@ export default function PromptJobBoard({
                         </>
                       )}
                     </span>
-                    {job.triggerType === "condition" && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-400/20">
-                        condition
+                    {job.condition && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-400/20">
+                        gated
                       </span>
                     )}
                     <span className="flex items-center gap-1">
@@ -1709,9 +1344,7 @@ export default function PromptJobBoard({
                       className="ml-auto font-mono truncate max-w-[120px]"
                       title={(job.cronExpr && cronToHuman(job.cronExpr)) || job.cadence || job.cronExpr}
                     >
-                      {job.triggerType === "condition"
-                        ? `every ${Math.round(job.checkEveryMs / 60000)}m`
-                        : (job.cronExpr && cronToHuman(job.cronExpr)) || job.cadence || job.cronExpr}
+                      {(job.cronExpr && cronToHuman(job.cronExpr)) || job.cadence || job.cronExpr}
                     </span>
                   </div>
                 </div>
