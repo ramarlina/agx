@@ -502,15 +502,6 @@ export function WorkspaceSidebar({
                     >
                       <Settings size={12} />
                     </Link>
-                    <button
-                      type="button"
-                      className="workspace-sidebar__workspace-action workspace-sidebar__workspace-action--delete"
-                      onClick={() => handleDeleteProject(project.id)}
-                      aria-label={`Delete project ${project.name}`}
-                      title={`Delete project ${project.name}`}
-                    >
-                      <Trash2 size={12} />
-                    </button>
                   </div>
                 </div>
                 {projectIsExpanded && (
