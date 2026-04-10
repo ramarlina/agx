@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { Check, ChevronDown, Clock, FileText, Link2, Play, Plus, RefreshCw, Search, Settings, User } from "lucide-react";
+import { Check, ChevronDown, Clock, ExternalLink, FileText, Link2, Play, Plus, RefreshCw, Search, Settings, User } from "lucide-react";
 import { useLinearIssues, type LinearIssue } from "@/hooks/useLinearIssues";
 import { useLinearConnection } from "@/hooks/useLinearConnection";
 import { useLinearRuns, type LinearRun } from "@/hooks/useLinearRuns";
@@ -98,6 +98,11 @@ function formatRunTime(iso: string): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function openLinearIssueTab(issueUrl: string): void {
+  const opened = window.open(issueUrl, "_blank", "noopener,noreferrer");
+  opened?.focus();
 }
 
 function formatRunStatus(status: LinearRun["status"]): string {
@@ -964,6 +969,14 @@ function TicketRow({
     }
   }, [issue.url]);
 
+  const handleOpenIssue = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+    if (!issue.url) {
+      return;
+    }
+    openLinearIssueTab(issue.url);
+  }, [issue.url]);
+
   const shortStatus = STATUS_LABELS[issue.status] ?? issue.status.slice(0, 6);
   return (
     <div
@@ -994,20 +1007,34 @@ function TicketRow({
       <span className="shrink-0 text-xs text-[var(--muted-foreground)]">
         {shortStatus}
       </span>
-      <button
-        type="button"
-        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)] transition-all hover:bg-zinc-700 hover:text-[var(--foreground)] ${
-          selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-        } ${issue.url ? "" : "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[var(--muted-foreground)]"}`}
-        onClick={(event) => {
-          void handleCopyUrl(event);
-        }}
-        title={copied ? "Copied ticket URL" : "Copy ticket URL"}
-        aria-label={copied ? "Copied ticket URL" : "Copy ticket URL"}
-        disabled={!issue.url}
-      >
-        {copied ? <Check size={10} className="text-emerald-400" /> : <Link2 size={10} />}
-      </button>
+      <div className={`flex shrink-0 items-center gap-0.5 ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
+        <button
+          type="button"
+          className={`flex h-6 w-6 items-center justify-center rounded text-[var(--muted-foreground)] transition-all hover:bg-zinc-700 hover:text-[var(--foreground)] ${
+            issue.url ? "" : "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[var(--muted-foreground)]"
+          }`}
+          onClick={(event) => {
+            void handleCopyUrl(event);
+          }}
+          title={copied ? "Copied ticket URL" : "Copy ticket URL"}
+          aria-label={copied ? "Copied ticket URL" : "Copy ticket URL"}
+          disabled={!issue.url}
+        >
+          {copied ? <Check size={10} className="text-emerald-400" /> : <Link2 size={10} />}
+        </button>
+        <button
+          type="button"
+          className={`flex h-6 w-6 items-center justify-center rounded text-[var(--muted-foreground)] transition-all hover:bg-zinc-700 hover:text-[var(--foreground)] ${
+            issue.url ? "" : "cursor-not-allowed opacity-40 hover:bg-transparent hover:text-[var(--muted-foreground)]"
+          }`}
+          onClick={handleOpenIssue}
+          title={issue.url ? "Open this Linear ticket in a new tab" : "This ticket does not have a Linear URL"}
+          aria-label={issue.url ? "Open this Linear ticket in a new tab" : "This ticket does not have a Linear URL"}
+          disabled={!issue.url}
+        >
+          <ExternalLink size={10} />
+        </button>
+      </div>
     </div>
   );
 }
