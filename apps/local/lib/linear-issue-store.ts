@@ -88,6 +88,9 @@ export interface LinearIssueSyncState {
   issueCount: number;
 }
 
+export type LinearIssueSortField = "activity" | "identifier" | "status" | "created";
+export type LinearIssueSortDir = "asc" | "desc";
+
 export interface ListCachedLinearIssuesInput {
   search?: string;
   statuses?: string[];
@@ -97,6 +100,11 @@ export interface ListCachedLinearIssuesInput {
   cycleId?: string;
   limit?: number;
   cursor?: string | null;
+  sortBy?: LinearIssueSortField;
+  sortDir?: LinearIssueSortDir;
+  hasActivity?: boolean;
+  /** Map of issue_id -> ISO timestamp from runs DB, required when sortBy=activity or hasActivity=true */
+  activityMap?: Map<string, string>;
 }
 
 export interface ListCachedLinearIssuesResult {
@@ -435,13 +443,100 @@ export async function listCachedLinearIssues(
       params.push(cycleId);
     }
 
+    // Activity-based filtering
+    if (input.hasActivity && input.activityMap) {
+      const activeIds = Array.from(input.activityMap.keys());
+      if (activeIds.length === 0) {
+        return {
+          issues: [],
+          pageInfo: { hasNextPage: false, endCursor: null },
+        };
+      }
+      clauses.push(`issue_id IN (${activeIds.map(() => "?").join(", ")})`);
+      params.push(...activeIds);
+    }
+
     const whereClause = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
+
+    const sortBy = input.sortBy ?? "activity";
+    const sortDir = input.sortDir ?? "desc";
+    const dirSql = sortDir === "asc" ? "ASC" : "DESC";
+
+    if (sortBy === "activity" && input.activityMap && input.activityMap.size > 0) {
+      // Two-phase: issues with activity first, then the rest
+      const activeIds = Array.from(input.activityMap.keys());
+      const activeIdsPlaceholders = activeIds.map(() => "?").join(", ");
+
+      // Phase 1: issues with activity
+      const activeWhereClause = whereClause
+        ? `${whereClause} AND issue_id IN (${activeIdsPlaceholders})`
+        : `WHERE issue_id IN (${activeIdsPlaceholders})`;
+
+      const activeRows = db
+        .prepare(
+          `SELECT * FROM linear_issues ${activeWhereClause} ORDER BY updated_at DESC, identifier ASC`
+        )
+        .all(...params, ...activeIds) as unknown as LinearIssueRow[];
+
+      // Sort by activity timestamp in JS (since it's from a different DB)
+      const activityMap = input.activityMap;
+      activeRows.sort((a, b) => {
+        const aTime = activityMap.get(a.issue_id) ?? "";
+        const bTime = activityMap.get(b.issue_id) ?? "";
+        return sortDir === "desc"
+          ? bTime.localeCompare(aTime)
+          : aTime.localeCompare(bTime);
+      });
+
+      // Phase 2: issues without activity (skip if hasActivity filter is on)
+      let inactiveRows: LinearIssueRow[] = [];
+      if (!input.hasActivity) {
+        const inactiveWhereClause = whereClause
+          ? `${whereClause} AND issue_id NOT IN (${activeIdsPlaceholders})`
+          : `WHERE issue_id NOT IN (${activeIdsPlaceholders})`;
+
+        inactiveRows = db
+          .prepare(
+            `SELECT * FROM linear_issues ${inactiveWhereClause} ORDER BY updated_at DESC, identifier ASC`
+          )
+          .all(...params, ...activeIds) as unknown as LinearIssueRow[];
+      }
+
+      const allRows = [...activeRows, ...inactiveRows];
+      const pageRows = allRows.slice(offset, offset + limit + 1);
+      const hasNextPage = pageRows.length > limit;
+      const finalRows = hasNextPage ? pageRows.slice(0, limit) : pageRows;
+      const endCursor = hasNextPage ? String(offset + limit) : null;
+
+      return {
+        issues: finalRows.map(mapRow),
+        pageInfo: { hasNextPage, endCursor },
+      };
+    }
+
+    // Non-activity sort fields
+    let orderClause: string;
+    switch (sortBy) {
+      case "identifier":
+        orderClause = `ORDER BY identifier ${dirSql}`;
+        break;
+      case "status":
+        orderClause = `ORDER BY LOWER(status) ${dirSql}, identifier ASC`;
+        break;
+      case "created":
+        orderClause = `ORDER BY pulled_at ${dirSql}, identifier ASC`;
+        break;
+      default:
+        orderClause = `ORDER BY updated_at ${dirSql}, identifier ASC`;
+        break;
+    }
+
     const rows = db
       .prepare(
         `SELECT *
          FROM linear_issues
          ${whereClause}
-         ORDER BY updated_at DESC, identifier ASC
+         ${orderClause}
          LIMIT ? OFFSET ?`
       )
       .all(...params, limit + 1, offset) as unknown as LinearIssueRow[];
@@ -452,10 +547,7 @@ export async function listCachedLinearIssues(
 
     return {
       issues: pageRows.map(mapRow),
-      pageInfo: {
-        hasNextPage,
-        endCursor,
-      },
+      pageInfo: { hasNextPage, endCursor },
     };
   });
 }
