@@ -87,7 +87,10 @@ function hasRecentDuplicateSteer(
     });
 }
 
-async function getThreadProjectContext(threadId: string): Promise<{
+async function getThreadProjectContext(
+  threadId: string,
+  taskId?: string,
+): Promise<{
   projectSlug: string | null;
   projectAgentIds: string[];
 }> {
@@ -108,20 +111,62 @@ async function getThreadProjectContext(threadId: string): Promise<{
       return { projectSlug: null, projectAgentIds: [] };
     }
 
-    const agentRows = db
+    // Try team-based agent resolution if the task has a team tag
+    const teamAgentIds = resolveTeamAgentsFromTask(db, projectRow.project_id, taskId);
+
+    const agentIds = teamAgentIds ?? (db
       .prepare(
         "SELECT agent_id FROM project_agents WHERE project_id = ? ORDER BY routing_order ASC, created_at ASC",
       )
-      .all(projectRow.project_id) as Array<{ agent_id: string }>;
+      .all(projectRow.project_id) as Array<{ agent_id: string }>)
+      .map((row) => row.agent_id?.trim())
+      .filter((agentId): agentId is string => Boolean(agentId));
 
     return {
       projectSlug: projectRow.project_slug?.trim() || null,
-      projectAgentIds: agentRows
-        .map((row) => row.agent_id?.trim())
-        .filter((agentId): agentId is string => Boolean(agentId)),
+      projectAgentIds: agentIds,
     };
   } catch {
     return { projectSlug: null, projectAgentIds: [] };
+  }
+}
+
+/**
+ * Resolve agents from a team if the task's frontmatter has a `team` field.
+ * Returns agent_ids or null if no team match is found (falls back to project agents).
+ */
+function resolveTeamAgentsFromTask(
+  db: ReturnType<typeof import("@/lib/sqlite-query-adapter").getSQLiteDb>,
+  projectId: string,
+  taskId: string | undefined,
+): string[] | null {
+  if (!taskId) return null;
+  try {
+    const { parseFrontmatter } = require("@/lib/db") as typeof import("@/lib/db");
+    const taskRow = db
+      .prepare("SELECT content FROM tasks WHERE id = ? LIMIT 1")
+      .get(taskId) as { content: string } | undefined;
+    if (!taskRow?.content) return null;
+
+    const { frontmatter } = parseFrontmatter(taskRow.content);
+    const teamName = typeof frontmatter.team === "string" ? frontmatter.team.trim() : "";
+    if (!teamName) return null;
+
+    const teamRow = db
+      .prepare("SELECT id FROM teams WHERE project_id = ? AND name = ? LIMIT 1")
+      .get(projectId, teamName) as { id: string } | undefined;
+    if (!teamRow?.id) return null;
+
+    const agentRows = db
+      .prepare("SELECT agent_id FROM team_agents WHERE team_id = ? ORDER BY routing_order ASC")
+      .all(teamRow.id) as Array<{ agent_id: string }>;
+    if (agentRows.length === 0) return null;
+
+    return agentRows
+      .map((row) => row.agent_id?.trim())
+      .filter((agentId): agentId is string => Boolean(agentId));
+  } catch {
+    return null;
   }
 }
 
@@ -223,7 +268,7 @@ async function dispatchShipModeAct(node: FunctionNode, graph: ExecutionGraph): P
   const participantNames = Object.fromEntries(
     participantLibrary.map((participant) => [participant.id, participant.name])
   );
-  const { projectSlug, projectAgentIds } = await getThreadProjectContext(threadRef.threadId);
+  const { projectSlug, projectAgentIds } = await getThreadProjectContext(threadRef.threadId, graph.taskId);
   const threadHistory = await loadHistory(threadRef.threadId);
   const defaultAgent = projectAgentIds[0] ?? participantLibrary[0]?.id ?? null;
 

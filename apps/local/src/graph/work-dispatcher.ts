@@ -52,7 +52,45 @@ function resolveProvider(raw: string): ChatProvider {
   }
 }
 
-async function getSteeringAgentConfig(threadId: string): Promise<{ provider: ChatProvider; model: string | null }> {
+/**
+ * Resolve the first agent from a team if the task's frontmatter has a `team` field.
+ * Returns the agent_id or null if no team match is found.
+ */
+function resolveTeamAgent(
+  sqlite: ReturnType<typeof import('@/lib/sqlite-query-adapter').getSQLiteDb>,
+  projectId: string,
+  taskId: string | undefined,
+): string | null {
+  if (!taskId) return null;
+  try {
+    const { parseFrontmatter } = require('@/lib/db') as typeof import('@/lib/db');
+    const taskRow = sqlite
+      .prepare('SELECT content FROM tasks WHERE id = ? LIMIT 1')
+      .get(taskId) as { content: string } | undefined;
+    if (!taskRow?.content) return null;
+
+    const { frontmatter } = parseFrontmatter(taskRow.content);
+    const teamName = typeof frontmatter.team === 'string' ? frontmatter.team.trim() : '';
+    if (!teamName) return null;
+
+    const teamRow = sqlite
+      .prepare('SELECT id FROM teams WHERE project_id = ? AND name = ? LIMIT 1')
+      .get(projectId, teamName) as { id: string } | undefined;
+    if (!teamRow?.id) return null;
+
+    const agentRow = sqlite
+      .prepare('SELECT agent_id FROM team_agents WHERE team_id = ? ORDER BY routing_order ASC LIMIT 1')
+      .get(teamRow.id) as { agent_id: string } | undefined;
+    return agentRow?.agent_id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function getSteeringAgentConfig(
+  threadId: string,
+  taskId?: string,
+): Promise<{ provider: ChatProvider; model: string | null }> {
   try {
     const [{ getSQLiteDb }, { loadDbParticipants }] = await Promise.all([
       import('@/lib/sqlite-query-adapter'),
@@ -72,7 +110,10 @@ async function getSteeringAgentConfig(threadId: string): Promise<{ provider: Cha
       return { provider: resolveProvider(getDefaultProvider()), model: null };
     }
 
-    const agentRow = sqlite
+    // Try team-based agent resolution first
+    const teamAgentId = resolveTeamAgent(sqlite, projectRow.project_id, taskId);
+
+    const agentId = teamAgentId ?? (sqlite
       .prepare(
         `SELECT agent_id
          FROM project_agents
@@ -80,13 +121,14 @@ async function getSteeringAgentConfig(threadId: string): Promise<{ provider: Cha
          ORDER BY routing_order ASC, created_at ASC
          LIMIT 1`
       )
-      .get(projectRow.project_id) as { agent_id: string } | undefined;
-    if (!agentRow?.agent_id) {
+      .get(projectRow.project_id) as { agent_id: string } | undefined)?.agent_id;
+
+    if (!agentId) {
       return { provider: resolveProvider(getDefaultProvider()), model: null };
     }
 
     const participants = await loadDbParticipants();
-    const agent = participants.find((participant) => participant.id === agentRow.agent_id);
+    const agent = participants.find((participant) => participant.id === agentId);
     if (!agent) {
       return { provider: resolveProvider(getDefaultProvider()), model: null };
     }
@@ -200,7 +242,7 @@ export function createDispatchWork(): (
 
       // 3. Call provider directly via runCliResponse (same path as chat endpoint)
       const { runCliResponse } = await import('@/lib/cli-runner');
-      const steeringAgent = await getSteeringAgentConfig(threadRef.threadId);
+      const steeringAgent = await getSteeringAgentConfig(threadRef.threadId, graph.taskId);
       console.log(
         `[work-dispatch] Calling ${steeringAgent.provider} via runCliResponse (prompt length: ${assessPrompt.length})...`
       );
