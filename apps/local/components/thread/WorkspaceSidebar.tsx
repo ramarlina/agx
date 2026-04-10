@@ -494,15 +494,14 @@ export function WorkspaceSidebar({
                     <span className="workspace-sidebar__workspace-title">{project.name}</span>
                   </div>
                   <div className="workspace-sidebar__workspace-actions">
-                    <button
-                      type="button"
+                    <Link
+                      href={`/projects/${project.slug}/settings`}
                       className="workspace-sidebar__workspace-action"
-                      onClick={() => void handleOpenProjectSettings(project.id)}
-                      aria-label={`Open project settings for ${project.name}`}
+                      aria-label={`Settings for ${project.name}`}
                       title="Project settings"
                     >
-                      <Pencil size={12} />
-                    </button>
+                      <Settings size={12} />
+                    </Link>
                     <button
                       type="button"
                       className="workspace-sidebar__workspace-action workspace-sidebar__workspace-action--delete"
@@ -516,18 +515,6 @@ export function WorkspaceSidebar({
                 </div>
                 {projectIsExpanded && (
                   <div className="ml-4 my-1 flex flex-col gap-0.5 border-l border-[var(--app-shell-border)] pl-3">
-                    {/* Overview */}
-                    <div className="workspace-sidebar__workspace-item">
-                      <Link
-                        href={`/projects/${project.slug}`}
-                        className={`workspace-sidebar__nav-item ${isActiveProjectOverview ? "workspace-sidebar__nav-item--active" : ""}`}
-                        aria-current={isActiveProjectOverview ? "page" : undefined}
-                      >
-                        <Folder size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                        <span className="workspace-sidebar__workspace-title text-xs">Overview</span>
-                      </Link>
-                    </div>
-
                     {/* Objectives */}
                     <div className="workspace-sidebar__workspace-item">
                       <Link
@@ -607,17 +594,6 @@ export function WorkspaceSidebar({
                       )}
                     </div>
 
-                    {/* Settings */}
-                    <div className="workspace-sidebar__workspace-item">
-                      <Link
-                        href={`/projects/${project.slug}/settings`}
-                        className={`workspace-sidebar__nav-item ${isActiveProjectSettings ? "workspace-sidebar__nav-item--active" : ""}`}
-                        aria-current={isActiveProjectSettings ? "page" : undefined}
-                      >
-                        <Settings size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                        <span className="workspace-sidebar__workspace-title text-xs">Settings</span>
-                      </Link>
-                    </div>
                   </div>
                 )}
               </div>
