@@ -26,22 +26,22 @@
   justify-content: center;
 }
 
-.workspace-sidebar--collapsed .workspace-sidebar__brand-icon {
+.workspace-sidebar--collapsed .workspace-sidebar__brand-trigger {
   cursor: pointer;
   transition: transform 0.15s ease;
 }
 
-.workspace-sidebar--collapsed .workspace-sidebar__brand-icon:hover {
+.workspace-sidebar--collapsed .workspace-sidebar__brand-trigger:hover {
   transform: scale(1.08);
 }
 
 
 /* ──────────────────────────────────────────────
-   Brand bar  (pill logo + "Workspace" + collapse)
+   Brand bar
    ────────────────────────────────────────────── */
 .workspace-sidebar__brand {
-  padding: 0.875rem 0.75rem;
-  min-height: 3.5625rem;
+  padding: 0.5rem 0.75rem;
+  min-height: 0;
   box-sizing: border-box;
   border-bottom: 1px solid var(--app-shell-border);
   display: flex;
@@ -51,33 +51,72 @@
   backdrop-filter: blur(12px);
 }
 
-.workspace-sidebar__brand-icon {
-  width: 2.25rem;
-  height: 1.35rem;
-  border-radius: 999px;
+.workspace-sidebar__brand-content {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.workspace-sidebar__brand-trigger {
   border: 0;
-  background: #000000;
-  color: #ffffff;
+  background: transparent;
+  padding: 0;
+  color: inherit;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.625rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+}
+
+.workspace-sidebar__brand-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.workspace-sidebar__brand-logo--compact {
+  gap: 0;
+}
+
+.workspace-sidebar__brand-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px;
   flex-shrink: 0;
 }
 
-.dark .workspace-sidebar__brand-icon {
-  background: #ffffff;
-  color: #000000;
+.workspace-sidebar__brand-dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 2px;
 }
 
-.workspace-sidebar__brand-title {
-  margin: 0;
-  font-size: 0.9375rem;
-  font-weight: 600;
+.workspace-sidebar__brand-dot--blue {
+  background: #3b82f6;
+}
+
+.workspace-sidebar__brand-dot--yellow {
+  background: #facc15;
+}
+
+.workspace-sidebar__brand-dot--mint {
+  background: #00e59b;
+}
+
+.workspace-sidebar__brand-dot--red {
+  background: #ef4444;
+}
+
+.workspace-sidebar__brand-text {
   color: var(--foreground);
+  font-size: 1.25rem;
+  font-weight: 900;
+  letter-spacing: -0.05em;
+  line-height: 1;
+}
+
+.workspace-sidebar__brand-logo--compact .workspace-sidebar__brand-text {
+  display: none;
 }
 
 /* ──────────────────────────────────────────────

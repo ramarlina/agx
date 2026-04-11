@@ -106,6 +106,58 @@ interface LinearIssueStatusSummary {
   assignee: string | null;
 }
 
+export interface LinearIssueLabel {
+  id: string;
+  name: string;
+  color: string | null;
+  teamId: string | null;
+  teamName: string | null;
+}
+
+interface RawLinearIssueLabelListNode {
+  id: string;
+  name: string;
+  color: string | null;
+  team: {
+    id: string;
+    name: string;
+  } | null;
+}
+
+export interface CreateLinearIssueLabelInput {
+  name: string;
+  description?: string;
+  color?: string;
+  teamId?: string | null;
+}
+
+export interface CreateLinearIssueInput {
+  title: string;
+  description?: string;
+  teamId: string;
+  assigneeId?: string;
+  cycleId?: string;
+  projectId?: string;
+  stateId?: string;
+  priority?: number;
+  labelIds?: string[];
+}
+
+export interface CreatedLinearIssue {
+  id: string;
+  identifier: string;
+  title: string;
+  description: string | null;
+  url: string | null;
+  updatedAt: string;
+  status: string | null;
+  assignee: string | null;
+  teamId: string | null;
+  teamName: string | null;
+  teamKey: string | null;
+  labels: string[];
+}
+
 interface RawLinearTeamStateNode {
   id: string;
   name: string;
@@ -326,6 +378,89 @@ export class LinearClient {
       .sort((left, right) => left.name.localeCompare(right.name));
   }
 
+  async issueLabels(): Promise<LinearIssueLabel[]> {
+    const data = await this.request<{
+      issueLabels: {
+        nodes: RawLinearIssueLabelListNode[];
+      };
+    }>(
+      `query {
+        issueLabels(first: 250, includeArchived: false) {
+          nodes {
+            id
+            name
+            color
+            team {
+              id
+              name
+            }
+          }
+        }
+      }`
+    );
+
+    return data.issueLabels.nodes
+      .filter((label) => label.name.trim().length > 0)
+      .map((label) => ({
+        id: label.id,
+        name: label.name.trim(),
+        color: label.color,
+        teamId: label.team?.id ?? null,
+        teamName: label.team?.name ?? null,
+      }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async createIssueLabel(input: CreateLinearIssueLabelInput): Promise<LinearIssueLabel> {
+    const name = input.name.trim();
+    if (!name) {
+      throw new Error("Linear label name is required");
+    }
+
+    const payload = {
+      name,
+      ...(input.description?.trim()
+        ? { description: input.description.trim() }
+        : {}),
+      ...(input.color?.trim() ? { color: input.color.trim() } : {}),
+      ...(input.teamId?.trim() ? { teamId: input.teamId.trim() } : {}),
+    };
+
+    const result = await this.request<{
+      issueLabelCreate: {
+        success: boolean;
+        issueLabel: RawLinearIssueLabelListNode;
+      };
+    }>(
+      `mutation {
+        issueLabelCreate(input: ${serializeGraphQLValue(payload)}) {
+          success
+          issueLabel {
+            id
+            name
+            color
+            team {
+              id
+              name
+            }
+          }
+        }
+      }`
+    ).then((data) => data.issueLabelCreate);
+
+    if (!result.success) {
+      throw new Error(`Linear rejected the label creation for "${name}"`);
+    }
+
+    return {
+      id: result.issueLabel.id,
+      name: result.issueLabel.name.trim(),
+      color: result.issueLabel.color,
+      teamId: result.issueLabel.team?.id ?? null,
+      teamName: result.issueLabel.team?.name ?? null,
+    };
+  }
+
   async issues(params: {
     first: number;
     after?: string;
@@ -388,6 +523,93 @@ export class LinearClient {
         ),
       })),
       pageInfo: data.issues.pageInfo,
+    };
+  }
+
+  async createIssue(input: CreateLinearIssueInput): Promise<CreatedLinearIssue> {
+    const title = input.title.trim();
+    const teamId = input.teamId.trim();
+
+    if (!title) {
+      throw new Error("Linear issue title is required");
+    }
+    if (!teamId) {
+      throw new Error("Linear issue team is required");
+    }
+
+    const payload = {
+      title,
+      teamId,
+      ...(input.description?.trim() ? { description: input.description.trim() } : {}),
+      ...(input.assigneeId?.trim() ? { assigneeId: input.assigneeId.trim() } : {}),
+      ...(input.cycleId?.trim() ? { cycleId: input.cycleId.trim() } : {}),
+      ...(input.projectId?.trim() ? { projectId: input.projectId.trim() } : {}),
+      ...(input.stateId?.trim() ? { stateId: input.stateId.trim() } : {}),
+      ...(typeof input.priority === "number" && Number.isFinite(input.priority)
+        ? { priority: Math.trunc(input.priority) }
+        : {}),
+      ...(input.labelIds?.length
+        ? {
+            labelIds: Array.from(
+              new Set(
+                input.labelIds
+                  .map((labelId) => labelId.trim())
+                  .filter(Boolean)
+              )
+            ),
+          }
+        : {}),
+    };
+
+    const result = await this.request<{
+      issueCreate: {
+        success: boolean;
+        issue: RawLinearIssueNode | null;
+      };
+    }>(
+      `mutation {
+        issueCreate(input: ${serializeGraphQLValue(payload)}) {
+          success
+          issue {
+            id
+            identifier
+            title
+            description
+            url
+            updatedAt
+            state { name }
+            assignee { id name email }
+            team { id name key }
+            cycle { id number name }
+            labels(first: 20) {
+              nodes {
+                name
+              }
+            }
+          }
+        }
+      }`
+    ).then((data) => data.issueCreate);
+
+    if (!result.success || !result.issue) {
+      throw new Error(`Linear rejected the issue creation for "${title}"`);
+    }
+
+    return {
+      id: result.issue.id,
+      identifier: result.issue.identifier,
+      title: result.issue.title,
+      description: result.issue.description,
+      url: result.issue.url,
+      updatedAt: result.issue.updatedAt,
+      status: result.issue.state?.name ?? null,
+      assignee: result.issue.assignee?.name ?? null,
+      teamId: result.issue.team?.id ?? null,
+      teamName: result.issue.team?.name ?? null,
+      teamKey: result.issue.team?.key ?? null,
+      labels: (result.issue.labels?.nodes ?? [])
+        .map((label) => label.name.trim())
+        .filter(Boolean),
     };
   }
 

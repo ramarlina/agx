@@ -178,7 +178,8 @@ export function TeamsView({
   }
 
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-8">
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
@@ -393,7 +394,7 @@ export function TeamsView({
           </div>
         </div>
       )}
-
+      </div>
     </div>
   );
 }

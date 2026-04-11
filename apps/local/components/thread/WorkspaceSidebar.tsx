@@ -5,7 +5,6 @@ import { createPortal } from "react-dom";
 import {
   ChevronDown,
   ChevronRight,
-  Hash,
   Bot,
   Zap,
   Folder,
@@ -20,6 +19,8 @@ import {
   Settings,
   Target,
   Users,
+  Home,
+  MessageSquare,
 } from "lucide-react";
 import Link from "next/link";
 import type { Thread } from "@/lib/storage";
@@ -28,6 +29,7 @@ import type { ProjectRepo, ProjectWithAgents, ProjectWithRepos, UpdateProjectPay
 import { useFocusManagement } from "@/hooks/useFocusManagement";
 import { agentAvatarUrl, AgentForm, type AgentFormData } from "@/components/chat-ui/ParticipantBar";
 import ProjectModal, { createProjectPayload, useProjectFormState } from "@/components/ProjectModal";
+import { readProjectObjectivesWorkspace } from "@/lib/project-objectives";
 
 interface WorkspaceSidebarProps {
   threads: Thread[];
@@ -63,6 +65,23 @@ interface WorkspaceSidebarProps {
   activeProjectId?: string | null;
   activeProjectView?: "overview" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "settings" | null;
   onAddTeam?: (projectId: string) => void;
+}
+
+function WorkspaceSidebarBrandLogo({ compact = false }: { compact?: boolean }) {
+  return (
+    <span
+      className={`workspace-sidebar__brand-logo${compact ? " workspace-sidebar__brand-logo--compact" : ""}`}
+      aria-hidden="true"
+    >
+      <span className="workspace-sidebar__brand-grid">
+        <span className="workspace-sidebar__brand-dot workspace-sidebar__brand-dot--blue" />
+        <span className="workspace-sidebar__brand-dot workspace-sidebar__brand-dot--yellow" />
+        <span className="workspace-sidebar__brand-dot workspace-sidebar__brand-dot--mint" />
+        <span className="workspace-sidebar__brand-dot workspace-sidebar__brand-dot--red" />
+      </span>
+      <span className="workspace-sidebar__brand-text">AGX</span>
+    </span>
+  );
 }
 
 export function WorkspaceSidebar({
@@ -164,6 +183,7 @@ export function WorkspaceSidebar({
   const [teamsByProject, setTeamsByProject] = useState<Record<string, TeamWithAgents[]>>({});
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set());
   const [teamsFetchedFor, setTeamsFetchedFor] = useState<Set<string>>(new Set());
+  const objectiveThreadMaintenanceRef = useRef<Set<string>>(new Set());
 
   // Fetch teams when a project section is expanded
   useEffect(() => {
@@ -326,21 +346,141 @@ export function WorkspaceSidebar({
   const sortedWorkspaces = [...threads].sort((a, b) => (a.title ?? "").localeCompare(b.title ?? ""));
   const threadById = new Map(threads.map((thread) => [thread.id, thread]));
   const nonDefaultProjects = projectsProp.filter((project) => !project.is_default);
-  const unassignedThreads = sortedWorkspaces.filter((thread) => !nonDefaultProjects.some((project) => project.thread_ids?.includes(thread.id)));
+
+  useEffect(() => {
+    if (nonDefaultProjects.length === 0) {
+      return;
+    }
+
+    const objectiveIndex = new Map<
+      string,
+      { projectId: string; canonicalThreadId: string }
+    >();
+    const linkedThreadIds = new Set<string>();
+    const objectiveThreadsByTitle = new Map<string, Thread[]>();
+
+    for (const project of nonDefaultProjects) {
+      for (const threadId of project.thread_ids ?? []) {
+        if (typeof threadId === "string" && threadId.trim()) {
+          linkedThreadIds.add(threadId);
+        }
+      }
+
+      const workspace = readProjectObjectivesWorkspace(project.metadata);
+      for (const objective of workspace.objectives) {
+        const objectiveId = objective.id.trim();
+        if (!objectiveId) continue;
+        objectiveIndex.set(objectiveId, {
+          projectId: project.id,
+          canonicalThreadId:
+            objective.threadId?.trim() || `objective-chat:${objectiveId}`,
+        });
+      }
+    }
+
+    for (const thread of threads) {
+      const metadata =
+        thread.metadata && typeof thread.metadata === "object"
+          ? (thread.metadata as Record<string, unknown>)
+          : null;
+      const scope = typeof metadata?.scope === "string" ? metadata.scope : "";
+      const isObjectiveThread =
+        scope === "objective" || thread.id.startsWith("objective-chat:");
+      const normalizedTitle = thread.title?.trim().toLowerCase() ?? "";
+
+      if (!isObjectiveThread || !normalizedTitle) continue;
+
+      const existing = objectiveThreadsByTitle.get(normalizedTitle) ?? [];
+      existing.push(thread);
+      objectiveThreadsByTitle.set(normalizedTitle, existing);
+    }
+
+    for (const [title, groupedThreads] of objectiveThreadsByTitle) {
+      objectiveThreadsByTitle.set(
+        title,
+        [...groupedThreads].sort((left, right) => right.updatedAt - left.updatedAt)
+      );
+    }
+
+    for (const thread of threads) {
+      const metadata =
+        thread.metadata && typeof thread.metadata === "object"
+          ? (thread.metadata as Record<string, unknown>)
+          : null;
+      const scope = typeof metadata?.scope === "string" ? metadata.scope : "";
+      const objectiveId =
+        typeof metadata?.objectiveId === "string" ? metadata.objectiveId.trim() : "";
+      const derivedObjectiveId = thread.id.startsWith("objective-chat:")
+        ? thread.id.slice("objective-chat:".length).trim()
+        : "";
+      const resolvedObjectiveId = objectiveId || derivedObjectiveId;
+      const isObjectiveThread = scope === "objective" || Boolean(derivedObjectiveId);
+      const normalizedTitle = thread.title?.trim().toLowerCase() ?? "";
+      const isStaleEmptyThread =
+        thread.messages.length === 0 && thread.updatedAt < Date.now() - 5 * 60 * 1000;
+
+      if (!isObjectiveThread) continue;
+
+      const objectiveEntry = resolvedObjectiveId
+        ? objectiveIndex.get(resolvedObjectiveId)
+        : undefined;
+
+      if (objectiveEntry) {
+        if (thread.id !== objectiveEntry.canonicalThreadId && isStaleEmptyThread) {
+          const deleteKey = `delete:${thread.id}`;
+          if (objectiveThreadMaintenanceRef.current.has(deleteKey)) continue;
+          objectiveThreadMaintenanceRef.current.add(deleteKey);
+          void Promise.resolve(onDeleteThread(thread.id)).catch((error) => {
+            objectiveThreadMaintenanceRef.current.delete(deleteKey);
+            console.warn("Failed to delete legacy objective thread", error);
+          });
+          continue;
+        }
+
+        if (!linkedThreadIds.has(thread.id)) {
+          const linkKey = `link:${thread.id}`;
+          if (objectiveThreadMaintenanceRef.current.has(linkKey)) continue;
+          objectiveThreadMaintenanceRef.current.add(linkKey);
+          void fetch(`/api/projects/${objectiveEntry.projectId}/threads`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ threadId: thread.id }),
+          })
+            .then((response) => {
+              if (!response.ok) {
+                throw new Error(`Request failed with status ${response.status}`);
+              }
+            })
+            .catch((error) => {
+              objectiveThreadMaintenanceRef.current.delete(linkKey);
+              console.warn("Failed to re-link objective thread", error);
+            });
+        }
+        continue;
+      }
+
+      if (!isStaleEmptyThread) continue;
+      const duplicateTitleGroup = normalizedTitle
+        ? objectiveThreadsByTitle.get(normalizedTitle) ?? []
+        : [];
+      if (duplicateTitleGroup.length < 2 || duplicateTitleGroup[0]?.id === thread.id) {
+        continue;
+      }
+
+      const deleteKey = `delete:${thread.id}`;
+      if (objectiveThreadMaintenanceRef.current.has(deleteKey)) continue;
+      objectiveThreadMaintenanceRef.current.add(deleteKey);
+      void Promise.resolve(onDeleteThread(thread.id)).catch((error) => {
+        objectiveThreadMaintenanceRef.current.delete(deleteKey);
+        console.warn("Failed to delete orphan objective thread", error);
+      });
+    }
+  }, [nonDefaultProjects, onDeleteThread, threads]);
 
   useFocusManagement({
     focusTarget: emptyCtaRef,
     shouldFocus: isVisible && showEmptyState && !isCreating,
   });
-
-  const handleCreateClick = () => {
-    setInputModal({
-      title: "Create chat",
-      placeholder: "Chat title",
-      defaultValue: "",
-      onSubmit: (title) => void onCreateThread({ title }),
-    });
-  };
 
   const handleDeleteClick = (workspaceId: string) => {
     const ws = threads.find((t) => t.id === workspaceId);
@@ -371,11 +511,11 @@ export function WorkspaceSidebar({
           <button
             type="button"
             onClick={onToggle}
-            className="workspace-sidebar__brand-icon border-none outline-none cursor-pointer"
+            className="workspace-sidebar__brand-trigger border-none outline-none cursor-pointer"
             aria-label="Show chats"
             title="Show chats"
           >
-            <span className="text-[10px]">AGX</span>
+            <WorkspaceSidebarBrandLogo compact />
           </button>
         </div>
         <div className="mt-auto p-2">
@@ -407,23 +547,20 @@ export function WorkspaceSidebar({
       style={width ? { width: `${width}px`, minWidth: `${width}px` } : undefined}
     >
       <div className="workspace-sidebar__brand">
-          <div className="workspace-sidebar__brand-content flex items-center gap-2 px-1">
-            <div className="workspace-sidebar__brand-icon" aria-hidden="true">
-              <span className="text-[10px]">AGX</span>
-            </div>
-            <span className="workspace-sidebar__brand-title">Workspace</span>
-          </div>
-          {onToggle && (
-            <button
-              type="button"
-              onClick={onToggle}
-              aria-label="Hide chats"
-              title="Hide chats"
-              className="workspace-sidebar__brand-toggle ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--app-shell-soft-text)] transition-all hover:bg-[var(--app-shell-subtle)] hover:text-[var(--foreground)]"
-            >
-              <PanelLeftClose className="h-4 w-4" strokeWidth={1.75} />
-            </button>
-          )}
+        <div className="workspace-sidebar__brand-content">
+          <WorkspaceSidebarBrandLogo />
+        </div>
+        {onToggle && (
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label="Hide chats"
+            title="Hide chats"
+            className="workspace-sidebar__brand-toggle ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--app-shell-soft-text)] transition-all hover:bg-[var(--app-shell-subtle)] hover:text-[var(--foreground)]"
+          >
+            <PanelLeftClose className="h-4 w-4" strokeWidth={1.75} />
+          </button>
+        )}
       </div>
 
       <div className="workspace-sidebar__content">
@@ -476,7 +613,7 @@ export function WorkspaceSidebar({
             return (
               <div key={project.id}>
                 <div className="workspace-sidebar__workspace-item group">
-                  <div className={`workspace-sidebar__nav-item workspace-sidebar__workspace-nav-item ${isActiveProjectOverview ? "workspace-sidebar__nav-item--active" : ""}`}>
+                  <div className="workspace-sidebar__nav-item workspace-sidebar__workspace-nav-item">
                     <button
                       type="button"
                       className="inline-flex items-center justify-center rounded-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
@@ -512,6 +649,18 @@ export function WorkspaceSidebar({
                 </div>
                 {projectIsExpanded && (
                   <div className="ml-4 my-1 flex flex-col gap-0.5 border-l border-[var(--app-shell-border)] pl-3">
+                    {/* Overview */}
+                    <div className="workspace-sidebar__workspace-item">
+                      <Link
+                        href={`/projects/${project.slug}`}
+                        className={`workspace-sidebar__nav-item ${isActiveProjectOverview ? "workspace-sidebar__nav-item--active" : ""}`}
+                        aria-current={isActiveProjectOverview ? "page" : undefined}
+                      >
+                        <Home size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                        <span className="workspace-sidebar__workspace-title text-xs">Overview</span>
+                      </Link>
+                    </div>
+
                     {/* Objectives */}
                     <div className="workspace-sidebar__workspace-item">
                       <Link
@@ -576,19 +725,10 @@ export function WorkspaceSidebar({
                           onClick={() => onSelectThread(primaryProjectThreadId)}
                           aria-current={isActiveProjectThread ? "page" : undefined}
                         >
-                          <Hash size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                          <MessageSquare size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
                           <span className="workspace-sidebar__workspace-title text-xs">Chat</span>
                         </button>
-                      ) : (
-                        <button
-                          type="button"
-                          className="workspace-sidebar__nav-item"
-                          onClick={handleCreateClick}
-                        >
-                          <Hash size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                          <span className="workspace-sidebar__workspace-title text-xs">Chat</span>
-                        </button>
-                      )}
+                      ) : null}
                     </div>
 
                   </div>
@@ -596,28 +736,6 @@ export function WorkspaceSidebar({
               </div>
             );
           })}
-          {unassignedThreads.length > 0 && (
-            <div className="pt-3">
-              <p className="px-1 py-1 text-[10px] font-medium text-[var(--muted-foreground)] uppercase tracking-wide">Unassigned Threads</p>
-              {unassignedThreads.map((thread) => {
-                const isActive = thread.id === activeThreadId;
-                const title = thread.title?.trim() || "Untitled thread";
-                return (
-                  <div key={thread.id} className="workspace-sidebar__workspace-item group">
-                    <button
-                      type="button"
-                      className={`workspace-sidebar__nav-item workspace-sidebar__workspace-nav-item ${isActive ? "workspace-sidebar__nav-item--active workspace-sidebar__workspace-nav-item--active" : ""}`}
-                      onClick={() => onSelectThread(thread.id)}
-                      aria-current={isActive ? "page" : undefined}
-                    >
-                      <Hash size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                      <span className="workspace-sidebar__workspace-title">{title}</span>
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </nav>
 
       </div>

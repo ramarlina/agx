@@ -88,6 +88,24 @@ describe("automation repository", () => {
     expect(resolvePromptFromDefinition(parsed)).toBe("Summarize blockers and next actions.");
   });
 
+  test("serializer and parser preserve objective metadata on prompt jobs", () => {
+    const markdown = serializeAutomationDefinition({
+      ...buildPromptDefinition("objective-review"),
+      target: {
+        ...buildPromptDefinition("objective-review").target,
+        objectiveId: "objective-growth",
+        objectiveKey: "growth-daily-visitors",
+      },
+    });
+    const parsed = parseAutomationMarkdown(markdown);
+
+    expect(parsed.target).toMatchObject({
+      type: "prompt_job",
+      objectiveId: "objective-growth",
+      objectiveKey: "growth-daily-visitors",
+    });
+  });
+
   test("parser preserves sub-minute natural language cadences as interval schedules", () => {
     const parsed = parseAutomationMarkdown(`---
 id: fast-monitor

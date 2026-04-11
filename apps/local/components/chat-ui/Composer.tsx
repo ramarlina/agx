@@ -75,6 +75,7 @@ interface Props {
   onStop: () => void;
   loading: boolean;
   activityStatus?: "ready" | "queued" | "working";
+  sendInterruptsBusy?: boolean;
   /** Whether autonomous mode is currently active */
   autoMode?: boolean;
   /** Called when user toggles autonomous mode */
@@ -135,6 +136,7 @@ export function Composer({
   onStop,
   loading,
   activityStatus,
+  sendInterruptsBusy = false,
   participants,
   projects = [],
   projectGroups = [],
@@ -1030,7 +1032,7 @@ export function Composer({
               </div>
 
               {/* Send / Stop Button */}
-              {isBusy ? (
+              {isBusy && !sendInterruptsBusy ? (
                 <button
                   type="button"
                   onClick={onStop}

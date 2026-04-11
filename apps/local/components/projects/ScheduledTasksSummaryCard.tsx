@@ -1,16 +1,41 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Clock, ArrowRight } from "lucide-react";
 import type { AutomationItem } from "@/app/api/automations/route";
 import type { PromptJob, PromptRun } from "@/src/prompt-scheduler/types";
 
 interface ScheduledTasksSummaryCardProps {
   projectId: string;
+  projectSlug?: string;
   onViewAll?: () => void;
 }
 
-export function ScheduledTasksSummaryCard({ projectId, onViewAll }: ScheduledTasksSummaryCardProps) {
+type SummaryEntry =
+  | {
+      id: string;
+      title: string;
+      kind: "prompt";
+      jobId: string;
+      runId: string | null;
+      updatedAt?: string;
+      nextRunAt?: number;
+    }
+  | {
+      id: string;
+      title: string;
+      kind: "automation";
+      updatedAt?: string;
+      nextRunAt?: number;
+    };
+
+export function ScheduledTasksSummaryCard({
+  projectId,
+  projectSlug,
+  onViewAll,
+}: ScheduledTasksSummaryCardProps) {
+  const router = useRouter();
   const [automations, setAutomations] = useState<AutomationItem[]>([]);
   const [jobs, setJobs] = useState<PromptJob[]>([]);
   const [latestRuns, setLatestRuns] = useState<Record<string, PromptRun | null>>({});
@@ -86,7 +111,17 @@ export function ScheduledTasksSummaryCard({ projectId, onViewAll }: ScheduledTas
     };
   }, [projectId]);
 
-  const runningEntries = [
+  const openEntry = (entry: SummaryEntry) => {
+    if (!projectSlug || entry.kind !== "prompt") return;
+
+    const params = new URLSearchParams({ job: entry.jobId });
+    if (entry.runId) {
+      params.set("run", entry.runId);
+    }
+    router.push(`/projects/${projectSlug}/automations?${params.toString()}`);
+  };
+
+  const runningEntries: SummaryEntry[] = [
     ...jobs
       .filter((job) => {
         const latestRun = latestRuns[job.id];
@@ -95,6 +130,9 @@ export function ScheduledTasksSummaryCard({ projectId, onViewAll }: ScheduledTas
       .map((job) => ({
         id: `prompt:${job.id}`,
         title: job.name,
+        kind: "prompt" as const,
+        jobId: job.id,
+        runId: latestRuns[job.id]?.id ?? null,
         updatedAt: latestRuns[job.id]?.createdAt ?? job.updatedAt,
       })),
     ...automations
@@ -102,6 +140,7 @@ export function ScheduledTasksSummaryCard({ projectId, onViewAll }: ScheduledTas
       .map((automation) => ({
         id: `automation:${automation.graphId}`,
         title: automation.title,
+        kind: "automation" as const,
         updatedAt: automation.updatedAt,
       })),
   ]
@@ -109,12 +148,15 @@ export function ScheduledTasksSummaryCard({ projectId, onViewAll }: ScheduledTas
 
   const runningIds = new Set(runningEntries.map((entry) => entry.id));
 
-  const upcomingEntries = [
+  const upcomingEntries: SummaryEntry[] = [
     ...jobs
       .filter((job) => job.state === "active" && typeof job.nextRunAt === "number")
       .map((job) => ({
         id: `prompt:${job.id}`,
         title: job.name,
+        kind: "prompt" as const,
+        jobId: job.id,
+        runId: null,
         nextRunAt: job.nextRunAt as number,
       })),
     ...automations
@@ -122,6 +164,7 @@ export function ScheduledTasksSummaryCard({ projectId, onViewAll }: ScheduledTas
       .map((automation) => ({
         id: `automation:${automation.graphId}`,
         title: automation.title,
+        kind: "automation" as const,
         nextRunAt: automation.schedule.nextTickAt as number,
       })),
   ]
@@ -200,11 +243,21 @@ export function ScheduledTasksSummaryCard({ projectId, onViewAll }: ScheduledTas
             ) : (
               <div className="space-y-2">
                 {runningEntries.slice(0, 3).map((entry) => (
-                  <div key={entry.id} className="flex items-center gap-2 text-sm">
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => openEntry(entry)}
+                    disabled={entry.kind !== "prompt" || !projectSlug}
+                    className={`flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-sm transition-colors ${
+                      entry.kind === "prompt" && projectSlug
+                        ? "cursor-pointer hover:bg-zinc-800/70"
+                        : "cursor-default"
+                    }`}
+                  >
                     <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />
                     <span className="truncate text-zinc-300">{entry.title}</span>
                     <span className="ml-auto shrink-0 text-xs text-emerald-400">running</span>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}
@@ -220,7 +273,17 @@ export function ScheduledTasksSummaryCard({ projectId, onViewAll }: ScheduledTas
             ) : (
               <div className="space-y-2">
                 {upcomingEntries.slice(0, 3).map((entry) => (
-                  <div key={entry.id} className="flex items-center gap-2 text-sm">
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => openEntry(entry)}
+                    disabled={entry.kind !== "prompt" || !projectSlug}
+                    className={`flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-sm transition-colors ${
+                      entry.kind === "prompt" && projectSlug
+                        ? "cursor-pointer hover:bg-zinc-800/70"
+                        : "cursor-default"
+                    }`}
+                  >
                     <Clock className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-zinc-300">{entry.title}</div>
@@ -229,7 +292,7 @@ export function ScheduledTasksSummaryCard({ projectId, onViewAll }: ScheduledTas
                         <span className="text-zinc-400">• {formatCountdown(entry.nextRunAt)}</span>
                       </div>
                     </div>
-                  </div>
+                  </button>
                 ))}
               </div>
             )}

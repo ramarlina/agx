@@ -5,11 +5,11 @@ import { MessageSquare, ArrowRight } from "lucide-react";
 
 interface RecentThreadsSummaryCardProps {
   projectId: string;
-  onSelectThread?: (threadId: string, rootMessageId: string) => void;
+  onSelectThread?: (thread: RecentThreadEntry) => void;
   onViewAll?: () => void;
 }
 
-interface RecentThreadEntry {
+export interface RecentThreadEntry {
   id: string;
   threadId: string;
   title: string;
@@ -90,7 +90,7 @@ export function RecentThreadsSummaryCard({
           {recent.map((thread) => (
             <button
               key={thread.id}
-              onClick={() => onSelectThread?.(thread.threadId, thread.id)}
+              onClick={() => onSelectThread?.(thread)}
               className="flex items-center gap-2 text-sm w-full text-left rounded-lg px-2 py-1.5 hover:bg-zinc-800 transition-colors"
             >
               <MessageSquare className="w-3.5 h-3.5 text-zinc-500 shrink-0" />

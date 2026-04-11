@@ -117,6 +117,49 @@ describe("RecentThreadsSummaryCard", () => {
     expect(screen.queryByText("Old discussion")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Newest discussion/i }));
-    expect(onSelectThread).toHaveBeenCalledWith("workspace-1", "root-2");
+    expect(onSelectThread).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "root-2",
+        threadId: "workspace-1",
+        title: "Newest discussion",
+        status: "active",
+      })
+    );
+  });
+
+  test("calls onViewAll when the view all button is pressed", async () => {
+    jest.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        total: 1,
+        threads: {
+          "workspace-1": {
+            name: "Agx",
+            threads: [
+              {
+                id: "root-1",
+                threadId: "workspace-1",
+                title: "Newest discussion",
+                status: "active",
+                replyCount: 0,
+                createdAt: 200,
+                lastActivity: 600,
+                outcomeNote: null,
+              },
+            ],
+          },
+        },
+      }),
+    } as Response);
+
+    const onViewAll = jest.fn();
+    render(<RecentThreadsSummaryCard projectId="project-1" onViewAll={onViewAll} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Newest discussion")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /View all/i }));
+    expect(onViewAll).toHaveBeenCalled();
   });
 });

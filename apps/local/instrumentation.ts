@@ -3,12 +3,16 @@ const PROMPT_JOB_POLL_INTERVAL_MS = 15_000;
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    const { getConfiguredLocalServerPort } = await import("./lib/app-config");
     const { ensureScheduledTaskSkillInstalled } = await import("./lib/scheduled-task-skill");
     await import("./lib/check-node-version");
     const { getQueue, QUEUE_NAMES } = await import('@/lib/queue/boss');
     const { taskProcessor } = await import('@/lib/orchestrator/processor');
     const { chatProcessor } = await import('@/lib/orchestrator/chat-processor');
+    const {
+      processPromptJobs,
+      registerPromptJobPump,
+      requestPromptJobPump,
+    } = await import('@/src/prompt-scheduler/processor');
 
     ensureScheduledTaskSkillInstalled();
 
@@ -26,33 +30,30 @@ export async function register() {
     const { GraphStore } = await import('@/src/graph/store');
 
     // Prompt job poller — drives recurring prompt-based scheduled tasks
-    const port = getConfiguredLocalServerPort();
-    const baseUrl = `http://localhost:${port}`;
     let promptJobPollReady = false;
 
-    // Wait for the server to be ready before polling prompt jobs
-    setTimeout(() => { promptJobPollReady = true; }, 5_000);
-
-    setInterval(async () => {
-      if (!promptJobPollReady) return;
-      try {
-        const res = await fetch(`${baseUrl}/api/prompt-jobs/poll`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: '{}',
-        });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.queued?.length > 0) {
-            console.log(`[prompt-jobs] dispatched ${data.queued.length} run(s)`);
-          }
-          if (data.skipped?.length > 0) {
-            console.log(`[prompt-jobs] skipped ${data.skipped.length} job(s):`, data.skipped.map((s: any) => s.reason));
-          }
-        }
-      } catch {
-        // Server not ready or network error — ignore
+    registerPromptJobPump(async () => {
+      const result = await processPromptJobs();
+      if (result.queued.length > 0) {
+        console.log(`[prompt-jobs] queued ${result.queued.length} run(s)`);
       }
+      if (result.dispatched > 0) {
+        console.log(`[prompt-jobs] dispatched ${result.dispatched} run(s)`);
+      }
+      if (result.skipped.length > 0) {
+        console.log(`[prompt-jobs] skipped ${result.skipped.length} job(s):`, result.skipped.map((s: any) => s.reason));
+      }
+    });
+
+    // Wait for the server to be ready before polling prompt jobs
+    setTimeout(() => {
+      promptJobPollReady = true;
+      requestPromptJobPump();
+    }, 5_000);
+
+    setInterval(() => {
+      if (!promptJobPollReady) return;
+      requestPromptJobPump();
     }, PROMPT_JOB_POLL_INTERVAL_MS);
     console.log(`[prompt-jobs] poller started (every ${PROMPT_JOB_POLL_INTERVAL_MS / 1000}s)`);
 

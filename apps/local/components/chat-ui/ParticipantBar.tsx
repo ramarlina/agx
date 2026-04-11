@@ -32,6 +32,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Participant, ChatProvider, SkillBinding } from "@/lib/types";
+import SearchCombo, { type ComboOption } from "@/components/SearchCombo";
 
 const COLORS = ["#D97706", "#2563EB", "#059669", "#DC2626", "#7C3AED", "#DB2777", "#0891B2"];
 
@@ -149,6 +150,7 @@ function useClickOutside(ref: React.RefObject<HTMLElement | null>, onClose: () =
 
 export interface AgentFormData {
   name: string;
+  roleId?: string;
   title?: string;
   provider: ChatProvider;
   model: string;
@@ -194,6 +196,7 @@ function buildAgentFormJson(data: AgentFormData, projectIds?: string[]) {
   return JSON.stringify(
     {
       name: data.name,
+      ...(data.roleId ? { roleId: data.roleId } : {}),
       ...(data.title ? { title: data.title } : {}),
       provider: data.provider,
       model: data.model,
@@ -263,6 +266,7 @@ function parseAgentFormJson(raw: string, currentProvider: ChatProvider) {
   return {
     data: {
       name: typeof obj.name === "string" ? obj.name : "",
+      roleId: typeof obj.roleId === "string" ? obj.roleId : undefined,
       title: typeof obj.title === "string" ? obj.title : "",
       provider,
       model: typeof obj.model === "string" ? obj.model : "",
@@ -299,6 +303,9 @@ export function AgentForm({
   projectMemberships,
   onAddToProject,
   onRemoveFromProject,
+  roleOptions,
+  roleLabel = "Role",
+  onRolePresetChange,
 }: {
   title: string;
   initial: AgentFormData;
@@ -311,8 +318,12 @@ export function AgentForm({
   projectMemberships?: ProjectMembership;
   onAddToProject?: (projectId: string) => void;
   onRemoveFromProject?: (projectId: string) => void;
+  roleOptions?: ComboOption[];
+  roleLabel?: string;
+  onRolePresetChange?: (roleId: string, currentData: AgentFormData) => AgentFormData | void;
 }) {
   const [name, setName] = useState(initial.name);
+  const [roleId, setRoleId] = useState(initial.roleId ?? "");
   const [title, setTitle] = useState(initial.title ?? "");
   const [provider, setProvider] = useState(initial.provider);
   const [model, setModel] = useState(initial.model);
@@ -330,6 +341,8 @@ export function AgentForm({
   const [skillBindings, setSkillBindings] = useState<SkillBinding[]>(initial.skillBindings ?? []);
   const skillPickerRef = useRef<HTMLDivElement>(null);
   const ref = useRef<HTMLDivElement>(null);
+  const showRoleField = Boolean(roleOptions && roleOptions.length > 0);
+  const avatarSeed = agentId || name.trim() || initial.name || "agent";
 
   useClickOutside(ref, onCancel);
 
@@ -348,6 +361,7 @@ export function AgentForm({
     if (viewMode !== "form") return;
     setJsonText(buildAgentFormJson({
       name,
+      ...(showRoleField && roleId ? { roleId } : {}),
       title,
       provider,
       model,
@@ -356,7 +370,7 @@ export function AgentForm({
       skills: parseSkillsText(skillsText),
       skillBindings,
     }, projects ? Array.from(selectedProjectIds) : undefined));
-  }, [viewMode, name, title, provider, model, identity, color, skillsText, skillBindings, selectedProjectIds, projects]);
+  }, [viewMode, name, roleId, showRoleField, title, provider, model, identity, color, skillsText, skillBindings, selectedProjectIds, projects]);
 
   useEffect(() => {
     if (!jsonCopied) return;
@@ -397,28 +411,57 @@ export function AgentForm({
     };
   }, []);
 
-  const applyParsedJson = (raw: string) => {
-    const parsed = parseAgentFormJson(raw, provider);
+  const applyFormData = (data: AgentFormData, projectIds?: string[]) => {
     const validProjectIds = projects
-      ? (parsed.projectIds ?? []).filter((projectId) => projects.some((project) => project.id === projectId))
+      ? (projectIds ?? []).filter((projectId) => projects.some((project) => project.id === projectId))
       : undefined;
-    setName(parsed.data.name);
-    setTitle(parsed.data.title ?? "");
-    setProvider(parsed.data.provider);
-    setModel(parsed.data.model);
-    setIdentity(parsed.data.identity);
-    setColor(parsed.data.color ?? "#6B7280");
-    setSkillsText(serializeSkills(parsed.data.skills));
-    setSkillBindings(parsed.data.skillBindings ?? []);
+
+    setName(data.name);
+    setRoleId(data.roleId ?? "");
+    setTitle(data.title ?? "");
+    setProvider(data.provider);
+    setModel(data.model);
+    setIdentity(data.identity);
+    setColor(data.color ?? "#6B7280");
+    setSkillsText(serializeSkills(data.skills));
+    setSkillBindings(data.skillBindings ?? []);
     if (projects) {
       setSelectedProjectIds(new Set(validProjectIds ?? []));
     }
-    setJsonText(buildAgentFormJson(parsed.data, projects ? (validProjectIds ?? []) : undefined));
+    setJsonText(buildAgentFormJson(data, projects ? (validProjectIds ?? []) : undefined));
     setJsonError(null);
+    return validProjectIds;
+  };
+
+  const applyParsedJson = (raw: string) => {
+    const parsed = parseAgentFormJson(raw, provider);
+    const validProjectIds = applyFormData(parsed.data, parsed.projectIds);
     return {
       ...parsed,
       projectIds: validProjectIds,
     };
+  };
+
+  const handleRoleChange = (nextRoleId: string) => {
+    if (!showRoleField) return;
+    const currentData: AgentFormData = {
+      name,
+      roleId: nextRoleId,
+      title,
+      provider,
+      model,
+      identity,
+      color,
+      skills: parseSkillsText(skillsText),
+      skillBindings,
+    };
+    const nextData = onRolePresetChange?.(nextRoleId, currentData);
+    if (nextData) {
+      applyFormData({ ...nextData, roleId: nextRoleId }, projects ? Array.from(selectedProjectIds) : undefined);
+      return;
+    }
+
+    setRoleId(nextRoleId);
   };
 
   const switchToFormView = () => {
@@ -434,6 +477,7 @@ export function AgentForm({
   const switchToJsonView = () => {
     setJsonText(buildAgentFormJson({
       name,
+      ...(showRoleField && roleId ? { roleId } : {}),
       title,
       provider,
       model,
@@ -457,6 +501,7 @@ export function AgentForm({
 
   const handleSubmit = () => {
     let nextName = name.trim();
+    let nextRoleId = roleId;
     let nextTitle = title.trim();
     let nextProvider = provider;
     let nextModel = model.trim();
@@ -470,6 +515,7 @@ export function AgentForm({
       try {
         const parsed = applyParsedJson(jsonText);
         nextName = parsed.data.name.trim();
+        nextRoleId = parsed.data.roleId ?? "";
         nextTitle = (parsed.data.title ?? "").trim();
         nextProvider = parsed.data.provider;
         nextModel = parsed.data.model.trim();
@@ -489,6 +535,7 @@ export function AgentForm({
     onSubmit(
       {
         name: nextName,
+        ...(showRoleField && nextRoleId ? { roleId: nextRoleId } : {}),
         title: nextTitle || undefined,
         provider: nextProvider,
         model: nextModel,
@@ -540,24 +587,22 @@ export function AgentForm({
       <div className="bg-[var(--card-bg)] rounded-[32px] shadow-2xl overflow-hidden w-full max-w-2xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in duration-300">
         <div className="px-8 pt-8 pb-4 shrink-0 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            {agentId && (
-              <div className="flex flex-col items-center gap-1.5">
-                <img
-                  src={agentAvatarUrl(agentId, 64, color)}
-                  alt={name}
-                  className="w-14 h-14 rounded-full bg-[var(--muted)]"
+            <div className="flex flex-col items-center gap-1.5">
+              <img
+                src={agentAvatarUrl(avatarSeed, 64, color)}
+                alt={name}
+                className="w-14 h-14 rounded-full bg-[var(--muted)]"
+              />
+              <div className="flex items-center gap-1.5">
+                <label className="text-[10px] text-[var(--muted-foreground)]">Color</label>
+                <input
+                  type="color"
+                  value={color}
+                  onChange={(e) => setColor(e.target.value)}
+                  className="w-5 h-5 rounded border border-[var(--border)] cursor-pointer p-0"
                 />
-                <div className="flex items-center gap-1.5">
-                  <label className="text-[10px] text-[var(--muted-foreground)]">Color</label>
-                  <input
-                    type="color"
-                    value={color}
-                    onChange={(e) => setColor(e.target.value)}
-                    className="w-5 h-5 rounded border border-[var(--border)] cursor-pointer p-0"
-                  />
-                </div>
               </div>
-            )}
+            </div>
             <div>
               <h2 className="text-[10px] font-bold tracking-widest text-[var(--muted-foreground)] uppercase">{formTitle}</h2>
               <h1 className="text-2xl font-semibold mt-1">{name || "Configure Agent"}</h1>
@@ -621,6 +666,35 @@ export function AgentForm({
                     autoFocus
                   />
                 </div>
+                {showRoleField ? (
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-sm font-medium text-[var(--muted-foreground)]">
+                      {roleLabel}
+                    </label>
+                    <SearchCombo
+                      options={roleOptions ?? []}
+                      value={roleId || null}
+                      onChange={handleRoleChange}
+                      placeholder="Select a role preset..."
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-sm font-medium text-[var(--muted-foreground)]">
+                      Title
+                    </label>
+                    <input
+                      type="text"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      className="w-full px-4 py-3 bg-[var(--app-shell-subtle)] border border-[var(--border)] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                      placeholder="e.g. VP of Engineering"
+                    />
+                  </div>
+                )}
+              </div>
+
+              {showRoleField && (
                 <div className="space-y-2">
                   <label className="flex items-center gap-2 text-sm font-medium text-[var(--muted-foreground)]">
                     Title
@@ -633,7 +707,7 @@ export function AgentForm({
                     placeholder="e.g. VP of Engineering"
                   />
                 </div>
-              </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">

@@ -15,6 +15,59 @@ describe('/api/prompt-jobs routes', () => {
     jest.clearAllMocks();
   });
 
+  test('GET excludes objective-owned jobs by default', async () => {
+    const listJobs = jest.fn().mockReturnValue([]);
+    mockGetPromptJobStore.mockReturnValue({ listJobs });
+
+    const { GET } = await import('@/app/api/prompt-jobs/route');
+    const request = new NextRequest('http://localhost/api/prompt-jobs?projectId=project-1');
+
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(listJobs).toHaveBeenCalledWith({
+      projectId: 'project-1',
+      includeObjectiveJobs: false,
+    });
+  });
+
+  test('GET can include objective-owned jobs when requested', async () => {
+    const listJobs = jest.fn().mockReturnValue([]);
+    mockGetPromptJobStore.mockReturnValue({ listJobs });
+
+    const { GET } = await import('@/app/api/prompt-jobs/route');
+    const request = new NextRequest(
+      'http://localhost/api/prompt-jobs?projectId=project-1&includeObjectiveJobs=true'
+    );
+
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(listJobs).toHaveBeenCalledWith({
+      projectId: 'project-1',
+      includeObjectiveJobs: true,
+    });
+  });
+
+  test('GET can scope the shared list to a specific objective', async () => {
+    const listJobs = jest.fn().mockReturnValue([]);
+    mockGetPromptJobStore.mockReturnValue({ listJobs });
+
+    const { GET } = await import('@/app/api/prompt-jobs/route');
+    const request = new NextRequest(
+      'http://localhost/api/prompt-jobs?projectId=project-1&objectiveId=objective-7'
+    );
+
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(listJobs).toHaveBeenCalledWith({
+      projectId: 'project-1',
+      objectiveId: 'objective-7',
+      includeObjectiveJobs: false,
+    });
+  });
+
   test('POST normalizes a raw cron cadence into schedule-first job input', async () => {
     const createJob = jest.fn().mockImplementation((input) => ({ id: 'job-1', ...input }));
     mockGetPromptJobStore.mockReturnValue({ createJob });

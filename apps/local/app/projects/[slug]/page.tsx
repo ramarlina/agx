@@ -27,6 +27,7 @@ export default function ProjectPage({
       projectSlug={project.slug}
       projectName={project.name}
       projectDescription={project.description}
+      projectMetadata={project.metadata}
       repos={project.repos}
       threadIds={project.thread_ids}
     />

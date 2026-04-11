@@ -1,11 +1,20 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ScheduledTasksSummaryCard } from "@/components/projects/ScheduledTasksSummaryCard";
 import type { AutomationItem } from "@/app/api/automations/route";
 import type { PromptJob, PromptRun } from "@/src/prompt-scheduler/types";
 
+const pushMock = jest.fn();
+
+jest.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: pushMock,
+  }),
+}));
+
 describe("ScheduledTasksSummaryCard", () => {
   beforeEach(() => {
     global.fetch = jest.fn();
+    pushMock.mockReset();
     jest.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 3, 10, 10, 55, 0));
   });
 
@@ -167,7 +176,7 @@ describe("ScheduledTasksSummaryCard", () => {
       throw new Error(`Unexpected fetch: ${url}`);
     });
 
-    render(<ScheduledTasksSummaryCard projectId="project-1" />);
+    render(<ScheduledTasksSummaryCard projectId="project-1" projectSlug="alpha" />);
 
     await waitFor(() => {
       expect(screen.getByText("Morning sync")).toBeInTheDocument();
@@ -183,5 +192,14 @@ describe("ScheduledTasksSummaryCard", () => {
     expect(screen.getByText(/in 1h 5m/)).toBeInTheDocument();
     expect(screen.queryByText("Paused cleanup")).not.toBeInTheDocument();
     expect(screen.queryByText("No scheduled tasks")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Morning sync/i }));
+    expect(pushMock).toHaveBeenCalledWith("/projects/alpha/automations?job=job-1&run=run-1");
+
+    fireEvent.click(screen.getByRole("button", { name: /Backlog review/i }));
+    expect(pushMock).toHaveBeenCalledWith("/projects/alpha/automations?job=job-2");
+
+    fireEvent.click(screen.getByRole("button", { name: /Automation sweep/i }));
+    expect(pushMock).toHaveBeenCalledTimes(2);
   });
 });

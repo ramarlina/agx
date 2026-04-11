@@ -326,13 +326,8 @@ function createWindow(port) {
   mainWindow.webContents.on("did-finish-load", () => {
     mainWindow.webContents.insertCSS(`
       .workspace-sidebar:not(.workspace-sidebar--collapsed) .workspace-sidebar__brand {
-        min-height: 3.25rem;
-        padding: 0.75rem 0.75rem 0.75rem 4.75rem !important;
-        justify-content: flex-end;
-      }
-
-      .workspace-sidebar:not(.workspace-sidebar--collapsed) .workspace-sidebar__brand-content {
-        display: none !important;
+        min-height: 0;
+        padding: 0.5rem 0.75rem 0.5rem 4.75rem !important;
       }
 
       .workspace-sidebar__brand,

@@ -98,7 +98,7 @@ interface AgentOption {
   title: string | null;
 }
 
-interface CreateJobData {
+export interface CreateJobData {
   name: string;
   prompt: string;
   agentId: string;
@@ -210,21 +210,25 @@ function AgentDropdown({
   );
 }
 
-function CreateJobModal({
+export function CreateJobModal({
   onClose,
   onSubmit,
   editingJob,
+  createDefaults,
+  contextLabel,
 }: {
   onClose: () => void;
   onSubmit: (data: CreateJobData) => Promise<void>;
   editingJob?: PromptJob | null;
+  createDefaults?: Partial<CreateJobData>;
+  contextLabel?: string | null;
 }) {
   const [agents, setAgents] = useState<AgentOption[]>([]);
-  const [name, setName] = useState(editingJob?.name ?? "");
-  const [prompt, setPrompt] = useState(editingJob?.prompt ?? "");
-  const [agentId, setAgentId] = useState(editingJob?.agentId ?? "");
-  const [provider, setProvider] = useState(editingJob?.provider ?? "claude");
-  const [model, setModel] = useState(editingJob?.model ?? "");
+  const [name, setName] = useState(editingJob?.name ?? createDefaults?.name ?? "");
+  const [prompt, setPrompt] = useState(editingJob?.prompt ?? createDefaults?.prompt ?? "");
+  const [agentId, setAgentId] = useState(editingJob?.agentId ?? createDefaults?.agentId ?? "");
+  const [provider, setProvider] = useState(editingJob?.provider ?? createDefaults?.provider ?? "claude");
+  const [model, setModel] = useState(editingJob?.model ?? createDefaults?.model ?? "");
 
   useEffect(() => {
     fetch("/api/prompt-jobs/agents")
@@ -232,12 +236,23 @@ function CreateJobModal({
       .then((d) => setAgents(d.agents ?? []))
       .catch((err) => console.warn('[PromptJobBoard] fetch agents failed:', err));
   }, []);
-  const [cliArgs, setCliArgs] = useState(editingJob?.cliArgs ?? "");
-  const [cadence, setCadence] = useState(editingJob?.cronExpr || editingJob?.cadence || "");
-  const [condition, setCondition] = useState(editingJob?.condition ?? "");
-  const [isScheduleValid, setIsScheduleValid] = useState(Boolean(editingJob?.cronExpr || editingJob?.cadence));
-  const [catchUpPolicy, setCatchUpPolicy] = useState<'fire_once' | 'replay_all' | 'skip'>(editingJob?.catchUpPolicy ?? 'fire_once');
-  const [showAdvanced, setShowAdvanced] = useState(!!editingJob?.cliArgs || (editingJob?.catchUpPolicy != null && editingJob.catchUpPolicy !== 'fire_once'));
+  const [cliArgs, setCliArgs] = useState(editingJob?.cliArgs ?? createDefaults?.cliArgs ?? "");
+  const [cadence, setCadence] = useState(
+    editingJob?.cronExpr || editingJob?.cadence || createDefaults?.cadence || ""
+  );
+  const [condition, setCondition] = useState(editingJob?.condition ?? createDefaults?.condition ?? "");
+  const [isScheduleValid, setIsScheduleValid] = useState(
+    Boolean(editingJob?.cronExpr || editingJob?.cadence || createDefaults?.cadence)
+  );
+  const [catchUpPolicy, setCatchUpPolicy] = useState<'fire_once' | 'replay_all' | 'skip'>(
+    editingJob?.catchUpPolicy ?? (createDefaults?.catchUpPolicy as 'fire_once' | 'replay_all' | 'skip' | undefined) ?? 'fire_once'
+  );
+  const [showAdvanced, setShowAdvanced] = useState(
+    !!editingJob?.cliArgs ||
+      !!createDefaults?.cliArgs ||
+      (editingJob?.catchUpPolicy != null && editingJob.catchUpPolicy !== 'fire_once') ||
+      (createDefaults?.catchUpPolicy != null && createDefaults.catchUpPolicy !== 'fire_once')
+  );
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -273,8 +288,13 @@ function CreateJobModal({
             <X size={18} />
           </button>
           <h2 className="text-sm font-semibold">
-            {editingJob ? "Edit Prompt Job" : "New Prompt Job"}
+            {editingJob ? "Edit Scheduled Task" : "New Scheduled Task"}
           </h2>
+          {contextLabel ? (
+            <span className="rounded-full border border-sky-500/25 bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-100">
+              {contextLabel}
+            </span>
+          ) : null}
         </div>
         <button
           onClick={handleSubmit as any}
@@ -285,7 +305,7 @@ function CreateJobModal({
             ? "Saving..."
             : editingJob
               ? "Save Changes"
-              : "Create Job"}
+              : "Create Task"}
         </button>
       </div>
 
@@ -314,7 +334,6 @@ function CreateJobModal({
         </div>
 
         <div className="w-[380px] shrink-0 overflow-y-auto p-6 space-y-6">
-          {/* Agent picker dropdown */}
           <AgentDropdown
             agents={agents}
             value={agentId}
@@ -1023,9 +1042,19 @@ function JobDetailView({
 export default function PromptJobBoard({
   projectId,
   requireProjectId = false,
+  includeObjectiveJobs = false,
+  visibleJobIds,
+  contextLabel,
+  createDefaults,
+  onCreateJob,
 }: {
   projectId?: string | null;
   requireProjectId?: boolean;
+  includeObjectiveJobs?: boolean;
+  visibleJobIds?: string[] | null;
+  contextLabel?: string | null;
+  createDefaults?: Partial<CreateJobData>;
+  onCreateJob?: (data: CreateJobData) => Promise<boolean>;
 } = {}) {
   const {
     jobs, loading, refresh,
@@ -1036,7 +1065,7 @@ export default function PromptJobBoard({
     runNow,
     cancelRun,
     fetchRuns,
-  } = usePromptJobs(projectId, { requireProjectId });
+  } = usePromptJobs(projectId, { requireProjectId, includeObjectiveJobs });
 
   const [filter, setFilter] = useState("all");
   const [selectedJobFallback, setSelectedJobFallback] = useState<PromptJob | null>(null);
@@ -1048,6 +1077,10 @@ export default function PromptJobBoard({
   const { getSelection, pushSelection, replaceSelection } = useUrlSelection();
   const selectedId = getSelection("job");
   const selectedRunId = getSelection("run");
+  const visibleJobIdSet = useMemo(
+    () => (visibleJobIds ? new Set(visibleJobIds) : null),
+    [visibleJobIds]
+  );
 
   useEffect(() => {
     fetch("/api/prompt-jobs/agents")
@@ -1065,17 +1098,29 @@ export default function PromptJobBoard({
     setTimeout(() => setToast(null), 2500);
   };
 
-  const filteredJobs = jobs.filter((j) => filter === "all" || j.state === filter);
-  const selectedFromList = selectedId ? jobs.find((j) => j.id === selectedId) ?? null : null;
+  const visibleJobs = useMemo(
+    () =>
+      visibleJobIdSet
+        ? jobs.filter((job) => visibleJobIdSet.has(job.id))
+        : jobs,
+    [jobs, visibleJobIdSet]
+  );
+  const filteredJobs = visibleJobs.filter((j) => filter === "all" || j.state === filter);
+  const selectedFromList = selectedId ? visibleJobs.find((j) => j.id === selectedId) ?? null : null;
   const selected =
     selectedFromList ??
-    (selectedJobFallback?.id === selectedId ? selectedJobFallback : null);
+    (
+      selectedJobFallback?.id === selectedId &&
+      (!visibleJobIdSet || visibleJobIdSet.has(selectedJobFallback.id))
+        ? selectedJobFallback
+        : null
+    );
 
   const counts: Record<string, number> = {
-    all: jobs.length,
-    active: jobs.filter((j) => j.state === "active").length,
-    paused: jobs.filter((j) => j.state === "paused").length,
-    stopped: jobs.filter((j) => j.state === "stopped").length,
+    all: visibleJobs.length,
+    active: visibleJobs.filter((j) => j.state === "active").length,
+    paused: visibleJobs.filter((j) => j.state === "paused").length,
+    stopped: visibleJobs.filter((j) => j.state === "stopped").length,
   };
 
   const handleToggle = async (job: PromptJob) => {
@@ -1113,12 +1158,19 @@ export default function PromptJobBoard({
   };
 
   const handleCreateOrUpdate = async (data: CreateJobData) => {
+    let ok = false;
+
     if (editingJob) {
-      const ok = await updateJob(editingJob.id, data as any);
-      if (ok) showToast(`Job "${data.name}" updated`);
+      ok = await updateJob(editingJob.id, data as any);
+      if (ok) showToast(`Task "${data.name}" updated`);
     } else {
-      const ok = await createJob({ ...data, projectId: projectId ?? '' });
-      if (ok) showToast(`Job "${data.name}" created`);
+      ok = onCreateJob
+        ? await onCreateJob(data)
+        : await createJob({ ...data, projectId: projectId ?? '' });
+      if (ok) {
+        await refresh();
+        showToast(`Task "${data.name}" created`);
+      }
     }
   };
 
@@ -1128,6 +1180,12 @@ export default function PromptJobBoard({
       if (selectedRunId) {
         replaceSelection({ run: null });
       }
+      return;
+    }
+
+    if (visibleJobIdSet && !visibleJobIdSet.has(selectedId)) {
+      setSelectedJobFallback(null);
+      replaceSelection({ job: null, run: null });
       return;
     }
 
@@ -1157,6 +1215,10 @@ export default function PromptJobBoard({
           replaceSelection({ job: null, run: null });
           return;
         }
+        if (!includeObjectiveJobs && payload.job.objectiveId) {
+          replaceSelection({ job: null, run: null });
+          return;
+        }
 
         setSelectedJobFallback(payload.job);
       } catch (error) {
@@ -1169,7 +1231,7 @@ export default function PromptJobBoard({
     return () => {
       cancelled = true;
     };
-  }, [replaceSelection, selectedFromList, selectedId, selectedRunId]);
+  }, [includeObjectiveJobs, replaceSelection, selectedFromList, selectedId, selectedRunId, visibleJobIdSet]);
 
   // Toast overlay (shared across all views)
   const toastEl = toast && (
@@ -1192,6 +1254,8 @@ export default function PromptJobBoard({
           }}
           onSubmit={handleCreateOrUpdate}
           editingJob={editingJob}
+          createDefaults={createDefaults}
+          contextLabel={contextLabel}
         />
       </>
     );
@@ -1205,7 +1269,8 @@ export default function PromptJobBoard({
         <div className="px-6 pb-0 pt-6">
           <div className="border-b border-[var(--card-border)]">
             <div className="flex items-end justify-between gap-4">
-              <div className="flex items-end gap-10">
+              <div className="flex items-center gap-4">
+                <div className="flex items-end gap-10">
                 {(["all", "active", "paused"] as const).map((f) => {
                   const isActive = filter === f;
                   return (
@@ -1225,6 +1290,12 @@ export default function PromptJobBoard({
                     </button>
                   );
                 })}
+                </div>
+                {contextLabel ? (
+                  <span className="mb-3 rounded-full border border-sky-500/25 bg-sky-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-sky-100">
+                    {contextLabel}
+                  </span>
+                ) : null}
               </div>
 
               <div className="flex items-center gap-5 pb-4 text-[var(--muted-foreground)]">
@@ -1251,9 +1322,9 @@ export default function PromptJobBoard({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto pb-5">
-          {loading && jobs.length === 0 ? (
+          {loading && visibleJobs.length === 0 ? (
             <div className="py-12 text-center text-sm text-[var(--muted-foreground)]">
-              Loading jobs...
+              Loading scheduled tasks...
             </div>
           ) : (
             <div className="overflow-hidden">
@@ -1325,9 +1396,9 @@ export default function PromptJobBoard({
 
               {filteredJobs.length === 0 && (
                 <div className="rounded-xl border border-dashed border-[var(--card-border)] py-12 text-center text-sm text-[var(--muted-foreground)]">
-                  {jobs.length === 0
-                    ? "No prompt jobs yet. Create one to get started."
-                    : "No jobs match the selected filter."}
+                  {visibleJobs.length === 0
+                    ? "No scheduled tasks yet. Create one to get started."
+                    : "No scheduled tasks match the selected filter."}
                 </div>
               )}
             </div>

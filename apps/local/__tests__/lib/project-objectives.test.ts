@@ -8,6 +8,7 @@ import {
   createObjectiveActivityThreadMessage,
   createObjectiveManualTask,
   createProjectObjective,
+  generateProjectObjectiveKey,
   readProjectObjectivesWorkspace,
   removeProjectObjective,
   upsertObjectiveManualTask,
@@ -55,6 +56,8 @@ describe("project-objectives", () => {
     expect(roundTrip.objectives[0].cadence).toBe("Every weekday morning");
     expect(roundTrip.objectives[0].condition).toBe("traffic is below target");
     expect(roundTrip.objectives[0].teamId).toBe("team-growth");
+    expect(roundTrip.objectives[0].key).toBe("get-50-visitors-daily");
+    expect(roundTrip.objectives[0].scheduledTaskIds).toEqual([]);
   });
 
   test("migrates legacy goal metadata into the objective workspace", () => {
@@ -209,5 +212,38 @@ describe("project-objectives", () => {
     expect(nextWorkspace.objectives).toHaveLength(0);
     expect(nextWorkspace.activities).toHaveLength(0);
     expect(nextWorkspace.activityThreads["activity-1"]).toBeUndefined();
+  });
+
+  test("generates unique objective keys and normalizes legacy scheduled task ids", () => {
+    const workspace = readProjectObjectivesWorkspace({
+      [PROJECT_OBJECTIVES_METADATA_KEY]: {
+        objectives: [
+          {
+            id: "objective-1",
+            title: "Get 50 visitors daily",
+            teamId: "team-growth",
+            promptJobIds: ["job-a", "job-a", "", 12],
+            createdAt: "2026-04-09T12:00:00.000Z",
+            updatedAt: "2026-04-09T12:00:00.000Z",
+          },
+          {
+            id: "objective-2",
+            title: "Get 50 visitors daily",
+            teamId: "team-product",
+            createdAt: "2026-04-08T12:00:00.000Z",
+            updatedAt: "2026-04-08T12:00:00.000Z",
+          },
+        ],
+      },
+    });
+
+    expect(workspace.objectives.map((objective) => objective.key)).toEqual([
+      "get-50-visitors-daily",
+      "get-50-visitors-daily-2",
+    ]);
+    expect(workspace.objectives[0].scheduledTaskIds).toEqual(["job-a"]);
+    expect(
+      generateProjectObjectiveKey("Get 50 visitors daily", workspace.objectives)
+    ).toBe("get-50-visitors-daily-3");
   });
 });

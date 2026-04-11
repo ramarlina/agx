@@ -10,6 +10,8 @@ export interface PromptJob {
   prompt: string;
   agentId: string;
   projectId: string;
+  objectiveId?: string | null;
+  objectiveKey?: string | null;
   provider: string;
   model: string;
   cliArgs: string;
@@ -47,6 +49,8 @@ export interface CreatePromptJobInput {
   prompt: string;
   agentId?: string;
   projectId?: string;
+  objectiveId?: string | null;
+  objectiveKey?: string | null;
   provider: string;
   model?: string;
   cliArgs?: string;
@@ -66,6 +70,8 @@ export interface UpdatePromptJobInput {
   prompt?: string;
   agentId?: string;
   projectId?: string;
+  objectiveId?: string | null;
+  objectiveKey?: string | null;
   provider?: string;
   model?: string;
   cliArgs?: string;
