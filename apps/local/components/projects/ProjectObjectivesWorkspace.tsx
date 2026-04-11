@@ -7,10 +7,12 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  Clock,
   Pencil,
   Plus,
   Trash2,
   User,
+  Users,
 } from "lucide-react";
 import { useProjects } from "@/hooks/useProjects";
 import { useGroupChat } from "@/hooks/useGroupChat";
@@ -1685,17 +1687,16 @@ export function ProjectObjectiveDetail({
 
   if (!objective) {
     return (
-      <div className="flex h-full items-center justify-center px-4">
-        <div className="rounded-[32px] border border-[var(--border)] bg-[var(--card-bg)] p-8 text-center">
-          <p className="text-lg font-semibold text-[var(--foreground)]">Objective not found</p>
-          <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+      <div className="flex h-full items-center justify-center px-4 bg-[#131315]">
+        <div className="rounded-xl border border-zinc-700/80 bg-[#18181b] p-8 text-center">
+          <p className="text-lg font-semibold text-zinc-100">Objective not found</p>
+          <p className="mt-2 text-sm text-zinc-500">
             It may have been deleted or the link is stale.
           </p>
           <Link
             href={`/projects/${projectSlug}`}
-            className="mt-4 inline-flex items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--card-hover-border)]"
+            className="mt-4 inline-flex items-center gap-2 rounded-md border border-zinc-700/80 px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:bg-zinc-800/50 bg-[#1a1a1c]"
           >
-            <ArrowLeft className="h-4 w-4" />
             Back to objectives
           </Link>
         </div>
@@ -1704,210 +1705,221 @@ export function ProjectObjectiveDetail({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_28%),var(--background)] text-[var(--foreground)]">
+    <div className="flex h-full min-h-0 flex-col bg-[#131315] text-zinc-200">
       <div className="flex-1 min-h-0 overflow-hidden">
         <div className="flex h-full min-h-0 flex-col xl:flex-row">
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="border-b border-[var(--border)] bg-[rgba(10,14,20,0.76)] px-4 py-5 backdrop-blur md:px-6">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="space-y-3">
-                  <Link
-                    href={`/projects/${projectSlug}`}
-                    className="inline-flex items-center gap-2 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                    Back to objectives
-                  </Link>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${HEALTH_META[objective.status].chipClass}`}
-                    >
-                      {HEALTH_META[objective.status].label}
-                    </span>
-                    <span className="rounded-full border border-[var(--border)] bg-[rgba(15,23,42,0.32)] px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
-                      {objective.key}
-                    </span>
-                  </div>
-
-                  <div>
-                    <h1 className="text-2xl font-semibold tracking-tight">{objective.title}</h1>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 self-start">
-                  <button
-                    type="button"
-                    onClick={() => setObjectiveEditor(buildObjectiveDraft(objective))}
-                    aria-label={`Edit objective ${objective.title}`}
-                    className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card-bg)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--card-hover-border)]"
-                  >
-                    <Pencil className="h-4 w-4" />
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleObjectiveDelete()}
-                    aria-label={`Delete objective ${objective.title}`}
-                    className="inline-flex items-center gap-2 rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-sm text-rose-100 transition-colors hover:bg-rose-500/20"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Delete
-                  </button>
-                </div>
-              </div>
+            <div className="max-w-5xl mx-auto pt-16 px-8 pb-20">
               <ErrorBanner message={saveError} />
-            </div>
 
-            <div className="px-5 py-6 md:px-7 md:py-7 xl:px-8">
-            <div className="mx-auto max-w-4xl space-y-6 xl:max-w-[760px] 2xl:max-w-[820px]">
-              <section className="px-1">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold">Notes</p>
-                <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-                  Capture the strategy, constraints, and what better looks like.
-                </p>
-              </div>
-              <span className="text-xs text-[var(--muted-foreground)]">
-                {isNotesSaving ? "Saving..." : "Auto-saves"}
-              </span>
-            </div>
-            <ObjectiveNotesEditor
-              content={objectiveNotesDraft}
-              editable
-              onChange={setObjectiveNotesDraft}
-              placeholder="Use this space to explain what better looks like."
-            />
-              </section>
-
-              <section className="px-1">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold">Team</p>
-                <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-                  Each objective is owned by a single team, and each team can own only one objective.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setTeamEditor({ teamId: objective.teamId })}
-                aria-label={`Edit team for ${objective.title}`}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-[var(--border)] bg-[rgba(15,23,42,0.28)] text-[var(--foreground)] transition-colors hover:border-[var(--card-hover-border)]"
-              >
-                <Pencil className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.35)] px-4 py-4">
-              <p className="text-sm font-medium text-[var(--foreground)]">
-                {teamName ?? "Missing team"}
-              </p>
-              <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-                {teamName
-                  ? "This team is currently responsible for the objective."
-                  : "The selected team no longer exists. Pick a new team."}
-              </p>
-            </div>
-              </section>
-
-              <div className="space-y-3 px-1">
-            <p className="text-sm font-medium text-[var(--muted-foreground)]">
-              How often agents should wake up and work on it?
-            </p>
-            <div className="flex items-start gap-3">
-              <div className="min-w-0 flex-1 space-y-3">
-                <div className="rounded-xl border border-[var(--border)] bg-[rgba(15,23,42,0.28)] px-4 py-3 text-sm text-[var(--foreground)]">
-                  <span className="block truncate">{formatObjectiveCadence(objective.cadence)}</span>
-                </div>
-                {objective.condition ? (
-                  <div className="rounded-xl border border-[var(--border)] bg-[rgba(15,23,42,0.28)] px-4 py-3 text-sm text-[var(--foreground)]">
-                    <span className="block text-xs uppercase tracking-[0.2em] text-[var(--muted-foreground)]">
-                      Condition
-                    </span>
-                    <span className="mt-1 block truncate">{objective.condition}</span>
-                  </div>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                onClick={() => setWakeEditor(buildObjectiveDraft(objective))}
-                aria-label={`Edit cadence for ${objective.title}`}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-[var(--border)] bg-[rgba(15,23,42,0.28)] text-[var(--foreground)] transition-colors hover:border-[var(--card-hover-border)]"
-              >
-                <Pencil className="h-4 w-4" />
-              </button>
-            </div>
+              <div className="flex items-center gap-3 mb-4">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono tracking-wider bg-zinc-800/60 text-zinc-400 border border-zinc-700 uppercase">
+                  {objective.key}
+                </span>
+                <span
+                  className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${HEALTH_META[objective.status].chipClass}`}
+                >
+                  {HEALTH_META[objective.status].label}
+                </span>
               </div>
 
-              <section>
-                <ObjectiveScheduledTasksPanel
-                  projectId={project.id}
-                  objectiveId={objective.id}
-                  objectiveKey={objective.key}
-                  createDefaults={{
-                    name: `Work on ${objective.title}`,
-                    cadence: objective.cadence,
-                    condition: objective.condition,
-                  }}
-                  onCreateTask={handleScheduledTaskCreate}
-                />
-              </section>
+              <div className="flex items-center gap-4 mb-12">
+                <h1 className="text-[28px] leading-tight font-semibold text-zinc-100">
+                  {objective.title}
+                </h1>
+                <button
+                  type="button"
+                  onClick={() => setObjectiveEditor(buildObjectiveDraft(objective))}
+                  aria-label={`Edit objective ${objective.title}`}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-zinc-700/80 text-zinc-300 text-sm font-medium hover:bg-zinc-800/50 transition-colors bg-[#1a1a1c]"
+                >
+                  <Pencil size={14} /> Edit
+                </button>
+              </div>
 
-              <section className="px-1">
-            <div className="mb-4">
-              <p className="text-sm font-semibold">Linear Tickets</p>
-              <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-                Tickets are tracked by the objective label{" "}
-                <span className="font-mono text-[var(--foreground)]">{objective.key}</span>.
-              </p>
-            </div>
-            {!linearConnected ? (
-              <EmptyState label="Connect Linear to create and track tickets for this objective." />
-            ) : linearIssues.length === 0 ? (
-              <EmptyState label={`No Linear tickets with label ${objective.key} yet.`} />
-            ) : (
-              <div className="space-y-3">
-                {linearIssues.map((issue) => (
-                  <div
-                    key={issue.id}
-                    className="rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.35)] px-4 py-4"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
-                          {issue.identifier}
+              {/* Two-Column Layout */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
+
+                {/* Left Column: Main Content */}
+                <div className="lg:col-span-2 space-y-10">
+
+                  {/* Notes */}
+                  <section>
+                    <div className="flex justify-between items-end mb-3">
+                      <div>
+                        <h2 className="text-sm font-semibold text-zinc-200">Notes</h2>
+                        <p className="text-sm text-zinc-500 mt-0.5">
+                          Capture the strategy, constraints, and what better looks like.
                         </p>
-                        {issue.url ? (
-                          <a
-                            href={issue.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="mt-1 block text-sm font-medium text-[var(--foreground)] transition-colors hover:text-sky-200"
-                          >
-                            {issue.title}
-                          </a>
-                        ) : (
-                          <p className="mt-1 text-sm font-medium text-[var(--foreground)]">
-                            {issue.title}
-                          </p>
-                        )}
                       </div>
-                      <span className="rounded-full border border-[var(--border)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
-                        {issue.status}
+                      <span className="text-xs text-zinc-500">
+                        {isNotesSaving ? "Saving..." : "Auto-saves"}
                       </span>
                     </div>
+                    <ObjectiveNotesEditor
+                      content={objectiveNotesDraft}
+                      editable
+                      onChange={setObjectiveNotesDraft}
+                      placeholder="Use this space to explain what better looks like."
+                    />
+                  </section>
 
-                    <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[var(--muted-foreground)]">
-                      <span>Updated {formatDateTime(issue.updatedAt)}</span>
-                      <span>{issue.assignee ? `Assigned to ${issue.assignee}` : "Unassigned"}</span>
+                  {/* Scheduled Tasks */}
+                  <section>
+                    <ObjectiveScheduledTasksPanel
+                      projectId={project.id}
+                      objectiveId={objective.id}
+                      objectiveKey={objective.key}
+                      createDefaults={{
+                        name: `Work on ${objective.title}`,
+                        cadence: objective.cadence,
+                        condition: objective.condition,
+                      }}
+                      onCreateTask={handleScheduledTaskCreate}
+                    />
+                  </section>
+
+                  {/* Linear Tickets */}
+                  <section>
+                    <div className="mb-3">
+                      <h2 className="text-sm font-semibold text-zinc-200">Linear Tickets</h2>
+                      <p className="text-sm text-zinc-500 mt-0.5">
+                        Tickets are tracked by the objective label{" "}
+                        <code className="font-mono text-[11px] bg-zinc-800/80 px-1.5 py-0.5 rounded text-zinc-300">
+                          {objective.key}
+                        </code>.
+                      </p>
                     </div>
+                    {!linearConnected ? (
+                      <EmptyState label="Connect Linear to create and track tickets for this objective." />
+                    ) : linearIssues.length === 0 ? (
+                      <EmptyState label={`No Linear tickets with label ${objective.key} yet.`} />
+                    ) : (
+                      <div className="space-y-3">
+                        {linearIssues.map((issue) => (
+                          <div
+                            key={issue.id}
+                            className="bg-[#1c212b] border border-[#2d3748] rounded-xl p-4"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                  {issue.identifier}
+                                </p>
+                                {issue.url ? (
+                                  <a
+                                    href={issue.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="mt-1 block text-sm font-medium text-zinc-200 transition-colors hover:text-sky-200"
+                                  >
+                                    {issue.title}
+                                  </a>
+                                ) : (
+                                  <p className="mt-1 text-sm font-medium text-zinc-200">
+                                    {issue.title}
+                                  </p>
+                                )}
+                              </div>
+                              <span className="rounded-full border border-zinc-700 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                {issue.status}
+                              </span>
+                            </div>
+                            <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+                              <span>Updated {formatDateTime(issue.updatedAt)}</span>
+                              <span>{issue.assignee ? `Assigned to ${issue.assignee}` : "Unassigned"}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+
+                  {/* Danger Zone */}
+                  <section className="pt-10">
+                    <div className="mb-4">
+                      <h2 className="text-sm font-semibold text-red-400">Danger Zone</h2>
+                    </div>
+                    <div className="border border-red-900/30 rounded-xl p-5 flex items-center justify-between bg-red-950/5">
+                      <div>
+                        <h3 className="text-sm font-medium text-zinc-200">Delete Objective</h3>
+                        <p className="text-sm text-zinc-500 mt-1">
+                          Once you delete an objective, there is no going back.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleObjectiveDelete()}
+                        aria-label={`Delete objective ${objective.title}`}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-red-900/40 text-red-400 text-sm font-medium hover:bg-red-950/40 transition-colors bg-red-950/20 whitespace-nowrap"
+                      >
+                        <Trash2 size={14} /> Delete
+                      </button>
+                    </div>
+                  </section>
+
+                </div>
+
+                {/* Right Column: Sidebar Metadata */}
+                <div className="space-y-8">
+                  <div className="bg-[#18181b] border border-zinc-800/80 rounded-xl p-5 space-y-6">
+
+                    {/* Team Property */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+                          <Users size={14} /> Team
+                        </h2>
+                        <button
+                          type="button"
+                          onClick={() => setTeamEditor({ teamId: objective.teamId })}
+                          aria-label={`Edit team for ${objective.title}`}
+                          className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs font-bold border border-blue-500/30">
+                          {(teamName ?? "?").charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-sm font-medium text-zinc-200">
+                          {teamName ?? "Missing team"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="h-px bg-zinc-800/80 w-full" />
+
+                    {/* Check-in Frequency Property */}
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+                          <Clock size={14} /> Check-in
+                        </h2>
+                        <button
+                          type="button"
+                          onClick={() => setWakeEditor(buildObjectiveDraft(objective))}
+                          aria-label={`Edit cadence for ${objective.title}`}
+                          className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                      </div>
+                      <div className="text-sm text-zinc-200">
+                        {formatObjectiveCadence(objective.cadence)}
+                      </div>
+                      {objective.condition ? (
+                        <p className="mt-1 text-xs text-zinc-500 truncate">
+                          Condition: {objective.condition}
+                        </p>
+                      ) : null}
+                    </div>
+
                   </div>
-                ))}
+                </div>
+
               </div>
-            )}
-              </section>
-            </div>
             </div>
           </div>
 
@@ -1953,7 +1965,6 @@ export function ProjectObjectiveDetail({
           onSave={() => void handleWakeSave()}
         />
       ) : null}
-
     </div>
   );
 }
@@ -1964,8 +1975,8 @@ export function ProjectObjectivesWorkspace(props: ProjectObjectivesWorkspaceProp
 
 function EmptyState({ label }: { label: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-[var(--border)] px-4 py-5 text-sm text-[var(--muted-foreground)]">
-      {label}
+    <div className="border border-dashed border-zinc-700/80 rounded-xl p-6 flex items-center bg-[#151517]">
+      <p className="text-sm text-zinc-500">{label}</p>
     </div>
   );
 }
