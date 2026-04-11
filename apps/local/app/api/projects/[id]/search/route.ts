@@ -369,14 +369,13 @@ export async function GET(request: NextRequest, context: RouteContext) {
       offset: 0,
     });
 
-    const historyByThread = new Map(
-      await Promise.all(
-        Array.from(new Set(messageSearch.results.map((result) => result.threadId))).map(async (threadId) => [
-          threadId,
-          await loadHistory(threadId),
-        ]),
-      ),
+    const historyEntries = await Promise.all(
+      Array.from(new Set(messageSearch.results.map((result) => result.threadId))).map(async (threadId) => [
+        threadId,
+        await loadHistory(threadId),
+      ] as const),
     );
+    const historyByThread = new Map(historyEntries);
 
     chatResults = messageSearch.results.map((result) => {
       const rootMessageId = result.rootMessageId || result.messageId;

@@ -54,6 +54,19 @@ function formatActivityThread(process: EnrichedProcessEntry): string {
   return "Main thread";
 }
 
+function formatLastActive(lastActivity: number): string {
+  const elapsedMs = Date.now() - lastActivity;
+  const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  if (elapsedSeconds < 5) return "Just now";
+  if (elapsedSeconds < 60) return `${elapsedSeconds}s ago`;
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m ago`;
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `${elapsedHours}h ago`;
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  return `${elapsedDays}d ago`;
+}
+
 export function TeamsView({
   projectId,
   projectSlug,
@@ -150,6 +163,21 @@ export function TeamsView({
   const activeTeamCount = teams.filter((team) =>
     team.agents.some((agent) => activeAgentIds.has(agent.agent_id))
   ).length;
+  const teamActivityRows = teams.flatMap((team) => {
+    const teamAgentIds = new Set(team.agents.map((agent) => agent.agent_id));
+    return activeProcesses
+      .filter((process) => teamAgentIds.has(process.agentId))
+      .map((process) => ({
+        key: `${team.id}-${process.workspaceId}-${process.threadId}-${process.agentId}`,
+        teamId: team.id,
+        teamName: team.name,
+        threadId: process.threadId,
+        agentName: agentName(process.agentId),
+        state: process.state,
+        threadLabel: formatActivityThread(process),
+        lastActiveLabel: formatLastActive(process.lastActivity),
+      }));
+  });
 
   // --- Loading ---
   if (loading) {
@@ -283,37 +311,78 @@ export function TeamsView({
                   </div>
                 )}
 
-                {teamActiveProcesses.length > 0 && (
-                  <div className="rounded-xl border border-emerald-800/50 bg-emerald-900/10 p-3 flex flex-col gap-2">
-                    <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.18em] text-emerald-300">
-                      <Activity className="h-3.5 w-3.5" />
-                      Working Now
-                    </div>
-                    {teamActiveProcesses.slice(0, 3).map((process) => (
-                      <div key={`${team.id}-${process.workspaceId}-${process.threadId}-${process.agentId}`} className="flex items-start gap-2">
-                        <span className="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-xs text-zinc-200 truncate">
-                            <span className="font-medium">{agentName(process.agentId)}</span>{" "}
-                            {process.state === "spawning" ? "is starting up" : "is working"}
-                          </p>
-                          <p className="text-[11px] text-zinc-500 truncate">
-                            {formatActivityThread(process)}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                    {teamActiveProcesses.length > 3 && (
-                      <p className="text-[11px] text-zinc-500">
-                        +{teamActiveProcesses.length - 3} more live activit{teamActiveProcesses.length - 3 === 1 ? "y" : "ies"}
-                      </p>
-                    )}
-                  </div>
-                )}
               </div>
             );
           })}
         </div>
+      )}
+
+      {teamActivityRows.length > 0 && (
+        <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
+          <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
+            <div>
+              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-zinc-500">
+                <Activity className="h-3.5 w-3.5" />
+                Working Now
+              </div>
+              <p className="mt-1 text-xs text-zinc-500">
+                Live activity across all teams.
+              </p>
+            </div>
+            <span className="rounded-full border border-emerald-700/60 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
+              {teamActivityRows.length} live {teamActivityRows.length === 1 ? "entry" : "entries"}
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-zinc-950/40">
+                <tr className="text-left text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+                  <th className="px-4 py-3 font-medium">Team</th>
+                  <th className="px-4 py-3 font-medium">Agent</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Thread</th>
+                  <th className="px-4 py-3 font-medium">Last active</th>
+                </tr>
+              </thead>
+              <tbody>
+                {teamActivityRows.map((row) => (
+                  <tr
+                    key={row.key}
+                    className="cursor-pointer border-t border-zinc-800/80 text-zinc-300 transition-colors hover:bg-zinc-800/30"
+                    onClick={() =>
+                      router.push(
+                        `/projects/${projectSlug}/thread/${encodeURIComponent(row.threadId)}`
+                      )
+                    }
+                  >
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          router.push(`/projects/${projectSlug}/teams/${row.teamId}`);
+                        }}
+                        className="text-left font-medium text-zinc-100 hover:text-white"
+                      >
+                        {row.teamName}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 text-zinc-200">{row.agentName}</td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-700/60 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                        {row.state === "spawning" ? "Starting" : "Working"}
+                      </span>
+                    </td>
+                    <td className="max-w-[24rem] px-4 py-3 text-zinc-400">
+                      <span className="block truncate">{row.threadLabel}</span>
+                    </td>
+                    <td className="px-4 py-3 text-zinc-500">{row.lastActiveLabel}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
 
       {/* Unassigned agents */}

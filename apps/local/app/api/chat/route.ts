@@ -123,8 +123,8 @@ interface ProjectAgentRow {
 function loadProjectsWithAgents(): { projects: ProjectRow[]; agentsByProject: Record<string, ProjectAgentRow[]> } {
   try {
     const db = getSQLiteDb();
-    const projects = db.prepare("SELECT id, name, slug FROM projects").all() as ProjectRow[];
-    const agents = db.prepare("SELECT * FROM project_agents ORDER BY routing_order ASC").all() as ProjectAgentRow[];
+    const projects = db.prepare("SELECT id, name, slug FROM projects").all() as unknown as ProjectRow[];
+    const agents = db.prepare("SELECT * FROM project_agents ORDER BY routing_order ASC").all() as unknown as ProjectAgentRow[];
     const agentsByProject: Record<string, ProjectAgentRow[]> = {};
     for (const a of agents) {
       (agentsByProject[a.project_id] ??= []).push(a);
