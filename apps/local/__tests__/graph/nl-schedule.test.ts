@@ -12,12 +12,13 @@ describe('cronToHuman', () => {
 
   it('handles every hour', () => {
     expect(cronToHuman('0 * * * *')).toBe('Every hour');
-    expect(cronToHuman('30 * * * *')).toBe('Every hour');
+    expect(cronToHuman('30 * * * *')).toBe('30 minutes past every hour');
   });
 
   it('handles every N hours', () => {
     expect(cronToHuman('0 */2 * * *')).toBe('Every 2 hours');
     expect(cronToHuman('0 */6 * * *')).toBe('Every 6 hours');
+    expect(cronToHuman('15 */6 * * *')).toBe('15 minutes past every 6 hours');
   });
 
   it('handles daily at midnight', () => {

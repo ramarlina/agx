@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { ArrowDown, ArrowUp, Check, ChevronDown, Clock, ExternalLink, FileText, Link2, Play, Plus, RefreshCw, Search, Settings, User } from "lucide-react";
+import { useUrlSelection } from "@/hooks/useUrlSelection";
 import { useLinearIssues, type LinearIssue } from "@/hooks/useLinearIssues";
 import { useLinearConnection } from "@/hooks/useLinearConnection";
 import { useLinearRuns, type LinearRun } from "@/hooks/useLinearRuns";
@@ -192,7 +193,7 @@ const STATUS_TEXT_COLORS: Record<RunDisplayTone, string> = {
   cancelled: "text-[var(--muted-foreground)]",
 };
 
-const NEW_SESSION_PANEL_ID = "__new-session__";
+const NEW_SESSION_PANEL_ID = "new";
 
 interface FilterOption {
   value: string;
@@ -1201,8 +1202,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
   const [sortBy, setSortBy] = useState<"activity" | "identifier" | "status" | "created">("activity");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [hasActivity, setHasActivity] = useState(false);
-  const [selectedIssue, setSelectedIssue] = useState<LinearIssue | null>(null);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [selectedIssueFallback, setSelectedIssueFallback] = useState<LinearIssue | null>(null);
   const [updatingIssueId, setUpdatingIssueId] = useState<string | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [pickerIssue, setPickerIssue] = useState<LinearIssue | null>(null);
@@ -1211,6 +1211,9 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
   const skipNextFilterPersistRef = useRef(true);
   const runScriptsButtonRef = useRef<HTMLButtonElement | null>(null);
   const runScriptsPanelRef = useRef<HTMLDivElement | null>(null);
+  const { getSelection, pushSelection, replaceSelection } = useUrlSelection();
+  const selectedIssueId = getSelection("issue");
+  const selectedRunId = getSelection("run");
 
   const handleSearchChange = useCallback((value: string) => {
     setSearch(value);
@@ -1366,6 +1369,13 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
     refresh: refreshIssues,
     updateIssue,
   } = useLinearIssues(filters, connected, { projectSlug });
+  const selectedIssueFromList = useMemo(
+    () => (selectedIssueId ? issues.find((issue) => issue.id === selectedIssueId) ?? null : null),
+    [issues, selectedIssueId],
+  );
+  const selectedIssue =
+    selectedIssueFromList ??
+    (selectedIssueFallback?.id === selectedIssueId ? selectedIssueFallback : null);
   const {
     runs,
     loading: runsLoading,
@@ -1448,7 +1458,9 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
 
         const updatedIssue = payload.issue;
         updateIssue(updatedIssue);
-        setSelectedIssue((current) => (current?.id === updatedIssue.id ? updatedIssue : current));
+        if (selectedIssueId === updatedIssue.id) {
+          setSelectedIssueFallback(updatedIssue);
+        }
         await refreshIssues();
       } catch (error) {
         if (error instanceof Error) {
@@ -1458,41 +1470,78 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
         setUpdatingIssueId((current) => (current === issue.id ? null : current));
       }
     },
-    [refreshIssues, updateIssue]
+    [refreshIssues, selectedIssueId, updateIssue]
   );
 
   useEffect(() => {
-    if (issues.length === 0) {
-      setSelectedIssue(null);
+    if (!selectedIssueId) {
+      setSelectedIssueFallback(null);
       return;
     }
 
-    setSelectedIssue((current) => {
-      if (current && issues.some((issue) => issue.id === current.id)) {
-        return issues.find((issue) => issue.id === current.id) ?? current;
+    if (selectedIssueFromList) {
+      setSelectedIssueFallback((current) => {
+        if (current?.id === selectedIssueId) {
+          return selectedIssueFromList;
+        }
+        return null;
+      });
+      return;
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const response = await fetch(`/api/linear/issues/${encodeURIComponent(selectedIssueId)}`);
+        if (cancelled) return;
+
+        if (response.status === 404) {
+          replaceSelection({ issue: null, run: null });
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch selected Linear ticket: ${response.status}`);
+        }
+
+        const payload = (await response.json().catch(() => ({}))) as { issue?: LinearIssue };
+        if (!payload.issue?.id) {
+          replaceSelection({ issue: null, run: null });
+          return;
+        }
+
+        setSelectedIssueFallback(payload.issue);
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to hydrate selected Linear issue", error);
+        }
       }
-      return issues[0] ?? null;
-    });
-  }, [issues]);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [replaceSelection, selectedIssueFromList, selectedIssueId]);
 
   useEffect(() => {
-    setSelectedRunId(null);
-  }, [selectedIssue?.id]);
+    if (!selectedIssueId) {
+      if (selectedRunId) {
+        replaceSelection({ run: null });
+      }
+      return;
+    }
+  }, [replaceSelection, selectedIssueId, selectedRunId]);
 
   useEffect(() => {
-    if (runs.length === 0) {
-      setSelectedRunId(NEW_SESSION_PANEL_ID);
+    if (!selectedIssue || !selectedRunId || selectedRunId === NEW_SESSION_PANEL_ID || runsLoading) {
       return;
     }
 
-    if (selectedRunId === NEW_SESSION_PANEL_ID) {
-      return;
+    if (!runs.some((run) => run.id === selectedRunId)) {
+      replaceSelection({ run: null });
     }
-
-    if (!selectedRunId || !runs.some((run) => run.id === selectedRunId)) {
-      setSelectedRunId(runs[0]?.id ?? NEW_SESSION_PANEL_ID);
-    }
-  }, [runs, selectedRunId]);
+  }, [replaceSelection, runs, runsLoading, selectedIssue, selectedRunId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1586,8 +1635,6 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
 
       let createdRun: LinearRun | null = null;
       try {
-        setSelectedIssue(issue);
-
         createdRun = await createRun({
           projectId: projectId ?? null,
           projectSlug: projectSlug ?? null,
@@ -1600,7 +1647,10 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
           agentName: agent.name,
           mode: "scripted",
         });
-        setSelectedRunId(createdRun.id);
+        pushSelection({
+          issue: issue.id,
+          run: createdRun.id,
+        });
 
         const executionPromptInput: LinearExecutionPromptInput = {
           issue: {
@@ -1658,7 +1708,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
         }
       }
     },
-    [activeScript, createRun, projectId, projectSlug, updateRun]
+    [activeScript, createRun, projectId, projectSlug, pushSelection, updateRun]
   );
 
   const handleStartScriptedSession = useCallback(
@@ -1847,7 +1897,12 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
                   key={issue.id}
                   issue={issue}
                   selected={selectedIssue?.id === issue.id}
-                  onSelect={() => setSelectedIssue(issue)}
+                  onSelect={() =>
+                    pushSelection({
+                      issue: issue.id,
+                      run: null,
+                    })
+                  }
                 />
               ))}
               {hasMore ? (
@@ -1874,7 +1929,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
             className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card-bg)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
             onClick={() => {
               setShowRunScripts(false);
-              setSelectedRunId(NEW_SESSION_PANEL_ID);
+              pushSelection({ run: NEW_SESSION_PANEL_ID });
             }}
             title="Open a fresh chat for this ticket. You can choose or edit the session script in the session details pane."
             aria-label="New session"
@@ -1929,7 +1984,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
                           ? "bg-[var(--card-bg)]"
                           : "hover:bg-[var(--card-bg)]"
                       }`}
-                      onClick={() => setSelectedRunId(run.id)}
+                      onClick={() => pushSelection({ run: run.id })}
                     >
                       <div className="flex items-center justify-between gap-1">
                         <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-[var(--foreground)]">
@@ -2004,7 +2059,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
             onStartScriptedSession={(event) => handleStartScriptedSession(selectedIssue, event)}
             createRun={createRun}
             updateRun={updateRun}
-            onRunCreated={(runId) => setSelectedRunId(runId)}
+            onRunCreated={(runId) => pushSelection({ run: runId })}
           />
         ) : (
           <div className="flex h-full items-center justify-center text-xs text-[var(--muted-foreground)]">

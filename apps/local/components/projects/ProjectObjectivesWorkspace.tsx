@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -12,9 +12,22 @@ import {
   Pencil,
   Plus,
   Trash2,
+  User,
 } from "lucide-react";
 import { useProjects } from "@/hooks/useProjects";
+import { useGroupChat } from "@/hooks/useGroupChat";
+import { useProcessPolling } from "@/hooks/useProcessPolling";
+import { Composer } from "@/components/chat-ui/Composer";
+import { Markdown } from "@/components/chat-ui/Markdown";
+import { agentAvatarUrl } from "@/components/chat-ui/ParticipantBar";
 import { ScheduleConditionPicker } from "@/components/scheduling/ScheduleConditionPicker";
+import { cronToHuman } from "@/src/graph/nl-schedule";
+import { threadService } from "@/services/threadService";
+import {
+  loadObjectiveChatPanelWidth,
+  persistObjectiveChatPanelWidth,
+} from "@/state/windowState";
+import type { Participant } from "@/lib/types";
 import {
   addObjectiveActivity,
   buildObjectiveTimelineActivities,
@@ -58,6 +71,11 @@ interface ObjectiveTeamDraft {
 interface ProjectTeamSummary {
   id: string;
   name: string;
+}
+
+interface ProjectAgentSummary {
+  agent_id: string;
+  routing_order: number;
 }
 
 interface ManualTaskDraft {
@@ -110,6 +128,62 @@ const TASK_STATUS_META: Record<
     chipClass: "border-emerald-500/20 bg-emerald-500/10 text-emerald-100",
   },
 };
+
+const OBJECTIVE_CHAT_MIN_WIDTH = 320;
+const OBJECTIVE_CHAT_MAX_WIDTH = 720;
+const OBJECTIVE_CHAT_DEFAULT_WIDTH = 440;
+
+function ObjectiveChatResizeHandle({
+  onResize,
+}: {
+  onResize: (delta: number) => void;
+}) {
+  const dragging = useRef(false);
+  const lastX = useRef(0);
+
+  useEffect(() => {
+    if (!dragging.current) return;
+
+    const onMouseMove = (event: MouseEvent) => {
+      const delta = lastX.current - event.clientX;
+      lastX.current = event.clientX;
+      onResize(delta);
+    };
+
+    const onMouseUp = () => {
+      dragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  });
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize objective chat panel"
+      className="group relative z-10 hidden w-0 shrink-0 cursor-col-resize xl:block"
+      onMouseDown={(event) => {
+        event.preventDefault();
+        dragging.current = true;
+        lastX.current = event.clientX;
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+      }}
+    >
+      <div className="absolute inset-y-0 -left-0.5 w-1 transition-colors group-hover:bg-[var(--primary)]/40" />
+    </div>
+  );
+}
 
 function formatDateTime(value: string): string {
   return new Date(value).toLocaleString([], {
@@ -219,6 +293,12 @@ function getTeamName(teams: ProjectTeamSummary[], teamId: string): string | null
   return teams.find((team) => team.id === teamId)?.name ?? null;
 }
 
+function formatObjectiveCadence(cadence: string): string {
+  const trimmed = cadence.trim();
+  if (!trimmed) return "Not set yet";
+  return cronToHuman(trimmed) ?? trimmed;
+}
+
 function useProjectObjectivesWorkspace(projectSlug: string) {
   const { projects, isLoading, updateProject } = useProjects();
   const [teams, setTeams] = useState<ProjectTeamSummary[]>([]);
@@ -290,6 +370,355 @@ function useProjectObjectivesWorkspace(projectSlug: string) {
     teams,
     persistWorkspace,
   };
+}
+
+function buildObjectiveChatPrefix(objective: ProjectObjective, teamName: string | null): string {
+  return [
+    "You are working inside an objective discussion for this project.",
+    `Objective: ${objective.title}`,
+    teamName ? `Owning team: ${teamName}` : "",
+    objective.summary ? `Current notes:\n${objective.summary}` : "Current notes: none yet.",
+    objective.cadence ? `Wake schedule: ${formatObjectiveCadence(objective.cadence)}` : "",
+    objective.condition ? `Wake condition: ${objective.condition}` : "",
+    "Help the user discuss, refine, and rewrite the objective when asked. When suggesting edits, be explicit about the exact replacement text.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function ObjectiveChatPanel({
+  projectId,
+  projectSlug,
+  objective,
+  teamName,
+  onThreadLinked,
+}: {
+  projectId: string;
+  projectSlug: string;
+  objective: ProjectObjective;
+  teamName: string | null;
+  onThreadLinked: (threadId: string) => Promise<void>;
+}) {
+  const [chatPanelWidth, setChatPanelWidth] = useState(() => {
+    const storedWidth = loadObjectiveChatPanelWidth();
+    return storedWidth || OBJECTIVE_CHAT_DEFAULT_WIDTH;
+  });
+  const [threadId, setThreadId] = useState<string | null>(
+    objective.threadId ?? (objective.id ? `objective-chat:${objective.id}` : null)
+  );
+  const [participants, setParticipants] = useState<Participant[]>([]);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const {
+    messages,
+    setMessages,
+    sendMessage,
+    loadHistory,
+    stop,
+    chatRuns,
+  } = useGroupChat(threadId);
+  const { processes, streaming } = useProcessPolling(
+    threadId ? { workspaceId: threadId } : null,
+    { messages, setMessages }
+  );
+
+  useEffect(() => {
+    if (objective.threadId && objective.threadId !== threadId) {
+      setThreadId(objective.threadId);
+    }
+  }, [objective.threadId, threadId]);
+
+  const linkThreadToProject = useCallback(
+    async (nextThreadId: string) => {
+      const normalizedThreadId = nextThreadId.trim();
+      if (!normalizedThreadId) return;
+
+      const response = await fetch(`/api/projects/${projectId}/threads`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadId: normalizedThreadId }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to link objective chat to the project.");
+      }
+    },
+    [projectId]
+  );
+
+  useEffect(() => {
+    if (!threadId) return;
+    void loadHistory(threadId);
+  }, [loadHistory, threadId]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages, streaming]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadParticipants() {
+      try {
+        const [participantsResponse, projectAgentsResponse] = await Promise.all([
+          fetch("/api/participants"),
+          fetch(`/api/projects/${projectId}/agents`),
+        ]);
+        const rawParticipants = participantsResponse.ok
+          ? await participantsResponse.json()
+          : [];
+        const allParticipants = Array.isArray(rawParticipants) ? (rawParticipants as Participant[]) : [];
+        const rawProjectAgents = projectAgentsResponse.ok
+          ? await projectAgentsResponse.json()
+          : { agents: [] };
+        const projectAgentsPayload =
+          rawProjectAgents && typeof rawProjectAgents === "object"
+            ? (rawProjectAgents as { agents?: ProjectAgentSummary[] })
+            : { agents: [] };
+        if (cancelled) return;
+
+        const orderedAgentIds = (projectAgentsPayload.agents ?? [])
+          .slice()
+          .sort((left, right) => left.routing_order - right.routing_order)
+          .map((agent) => agent.agent_id);
+        if (orderedAgentIds.length === 0) {
+          setParticipants(allParticipants);
+          return;
+        }
+
+        const participantById = new Map(allParticipants.map((participant) => [participant.id, participant]));
+        setParticipants(
+          orderedAgentIds
+            .map((agentId) => participantById.get(agentId))
+            .filter((participant): participant is Participant => Boolean(participant))
+        );
+      } catch (error) {
+        if (cancelled) return;
+        console.error("Failed to load objective chat participants", error);
+        setParticipants([]);
+      }
+    }
+
+    void loadParticipants();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!objective.threadId) {
+      return;
+    }
+
+    void linkThreadToProject(objective.threadId).catch((error) => {
+      console.warn("Failed to re-link objective chat thread to project", error);
+    });
+  }, [linkThreadToProject, objective.threadId]);
+
+  const ensureObjectiveThread = useCallback(async (): Promise<string | null> => {
+    if (objective.threadId) {
+      return objective.threadId;
+    }
+
+    const desiredThreadId =
+      threadId ?? (objective.id ? `objective-chat:${objective.id}` : null);
+    if (!desiredThreadId) {
+      return null;
+    }
+
+    setChatError(null);
+
+    try {
+      const createdThread = await threadService.createThread({
+        id: desiredThreadId,
+        title: objective.title,
+        metadata: {
+          scope: "objective",
+          objectiveId: objective.id,
+          projectId,
+          projectSlug,
+        },
+      });
+      setThreadId(createdThread.id);
+      await linkThreadToProject(createdThread.id);
+      await onThreadLinked(createdThread.id);
+      return createdThread.id;
+    } catch (error) {
+      setChatError(
+        error instanceof Error ? error.message : "Failed to create the objective chat."
+      );
+      return null;
+    }
+  }, [
+    linkThreadToProject,
+    objective.id,
+    objective.threadId,
+    objective.title,
+    onThreadLinked,
+    projectId,
+    projectSlug,
+    threadId,
+  ]);
+
+  const participantMap = useMemo(
+    () => new Map(participants.map((participant) => [participant.id, participant])),
+    [participants]
+  );
+  const activeRunStatuses = new Set(["queued", "running", "awaiting_user", "blocked"]);
+  const isWorking =
+    chatRuns.some((entry) => activeRunStatuses.has(entry.status)) ||
+    processes.some((process) => process.state === "spawning" || process.state === "running");
+  const activityStatus: "ready" | "queued" | "working" = isWorking
+    ? chatRuns.some((entry) => entry.status === "queued")
+      ? "queued"
+      : "working"
+    : "ready";
+
+  const handleSend = useCallback(
+    async (
+      message: string,
+      maxRounds: number,
+      attachmentIds?: string[],
+      attachments?: import("@/lib/types").Attachment[],
+      pinnedParticipantId?: string,
+      promptPrefix?: string,
+      routing?: import("@/lib/chat/composer-routing").ComposerRoutingMetadata
+    ) => {
+      const ensuredThreadId = await ensureObjectiveThread();
+      if (!ensuredThreadId) return;
+      const projectParticipantIds = participants.map((participant) => participant.id);
+      const combinedPrefix = [buildObjectiveChatPrefix(objective, teamName), promptPrefix]
+        .filter(Boolean)
+        .join("\n\n");
+
+      await sendMessage(
+        message,
+        maxRounds,
+        ensuredThreadId,
+        null,
+        attachmentIds,
+        attachments,
+        pinnedParticipantId ? [pinnedParticipantId] : projectParticipantIds,
+        projectSlug,
+        combinedPrefix,
+        routing
+      );
+    },
+    [ensureObjectiveThread, objective, participants, projectSlug, sendMessage, teamName]
+  );
+
+  const visibleMessages = useMemo(
+    () => messages.filter((message) => !message.rootMessageId),
+    [messages]
+  );
+
+  const handleChatPanelResize = useCallback((delta: number) => {
+    setChatPanelWidth((currentWidth) => {
+      const nextWidth = Math.max(
+        OBJECTIVE_CHAT_MIN_WIDTH,
+        Math.min(OBJECTIVE_CHAT_MAX_WIDTH, currentWidth + delta)
+      );
+      persistObjectiveChatPanelWidth(nextWidth);
+      return nextWidth;
+    });
+  }, []);
+
+  return (
+    <>
+      <ObjectiveChatResizeHandle onResize={handleChatPanelResize} />
+      <aside
+        className="relative flex h-full min-h-[420px] w-full flex-col overflow-hidden border-t border-[var(--border)] bg-[rgba(8,12,18,0.72)] xl:min-h-0 xl:w-[var(--objective-chat-panel-width)] xl:shrink-0 xl:self-stretch xl:border-l xl:border-t-0"
+        style={
+          {
+            "--objective-chat-panel-width": `${chatPanelWidth}px`,
+          } as CSSProperties
+        }
+      >
+        <ErrorBanner message={chatError} />
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-36">
+          {visibleMessages.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center gap-2 px-4 text-center text-[var(--muted-foreground)]">
+              <p className="text-sm font-medium text-[var(--foreground)]">Start the objective discussion</p>
+              <p className="max-w-sm text-xs">
+                Ask an agent to tighten the wording, challenge the metric, or draft a better version.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {visibleMessages.map((message) => {
+                const participant = message.participantId
+                  ? participantMap.get(message.participantId)
+                  : null;
+                return (
+                  <div key={message.id} className="flex gap-3">
+                    {message.role === "user" ? (
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[rgba(15,23,42,0.55)] text-[var(--muted-foreground)]">
+                        <User className="h-4 w-4" />
+                      </div>
+                    ) : (
+                      <img
+                        src={agentAvatarUrl(message.participantId ?? "assistant", 32, participant?.color)}
+                        alt={participant?.name ?? "Agent"}
+                        className="h-8 w-8 shrink-0 rounded-full border border-[var(--border)] object-cover"
+                      />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-[var(--foreground)]">
+                          {message.role === "user" ? "You" : participant?.name ?? "Agent"}
+                        </span>
+                        <span className="text-[11px] text-[var(--muted-foreground)]">
+                          {new Date(message.timestamp).toLocaleString([], {
+                            month: "short",
+                            day: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </div>
+                      <div className="mt-2 rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.32)] px-4 py-3 text-sm text-[var(--foreground)]">
+                        <Markdown content={message.content} isUser={message.role === "user"} />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {Object.entries(streaming).map(([participantId]) => {
+                const participant = participantMap.get(participantId);
+                return (
+                  <div key={`stream-${participantId}`} className="flex items-center gap-3 text-sm text-[var(--muted-foreground)]">
+                    <img
+                      src={agentAvatarUrl(participantId, 32, participant?.color)}
+                      alt={participant?.name ?? "Agent"}
+                      className="h-8 w-8 shrink-0 rounded-full border border-[var(--border)] object-cover"
+                    />
+                    <span>{participant?.name ?? "Agent"} is thinking...</span>
+                  </div>
+                );
+              })}
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+        </div>
+
+        <div className="absolute bottom-0 left-0 right-0 bg-[rgba(8,12,18,0.94)] p-3 backdrop-blur">
+          <Composer
+            onSend={handleSend}
+            onStop={stop}
+            participants={participants}
+            commands={[]}
+            projectSlug={projectSlug}
+            loading={activityStatus !== "ready"}
+            activityStatus={activityStatus}
+            placeholder={`Discuss "${objective.title}"...`}
+            initialPinnedParticipantId={participants[0]?.id}
+          />
+        </div>
+      </aside>
+    </>
+  );
 }
 
 function LoadingState({ label }: { label: string }) {
@@ -620,6 +1049,20 @@ export function ProjectObjectiveDetail({
     router.push(`/projects/${projectSlug}`);
   };
 
+  const handleObjectiveThreadLinked = useCallback(
+    async (threadId: string) => {
+      if (!objective || objective.threadId === threadId) return;
+      await runPersist(
+        upsertProjectObjective(workspace, {
+          ...objective,
+          threadId,
+          updatedAt: new Date().toISOString(),
+        })
+      );
+    },
+    [objective, runPersist, workspace]
+  );
+
   const handleTaskSave = async () => {
     if (!objective || !taskEditor) return;
 
@@ -770,61 +1213,64 @@ export function ProjectObjectiveDetail({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_28%),var(--background)] text-[var(--foreground)]">
-      <div className="border-b border-[var(--border)] bg-[rgba(10,14,20,0.76)] px-4 py-5 backdrop-blur md:px-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="space-y-3">
-            <Link
-              href={`/projects/${projectSlug}`}
-              className="inline-flex items-center gap-2 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back to objectives
-            </Link>
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <div className="flex h-full min-h-0 flex-col xl:flex-row">
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="border-b border-[var(--border)] bg-[rgba(10,14,20,0.76)] px-4 py-5 backdrop-blur md:px-6">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="space-y-3">
+                  <Link
+                    href={`/projects/${projectSlug}`}
+                    className="inline-flex items-center gap-2 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                    Back to objectives
+                  </Link>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <span
-                className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${HEALTH_META[objective.status].chipClass}`}
-              >
-                {HEALTH_META[objective.status].label}
-              </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${HEALTH_META[objective.status].chipClass}`}
+                    >
+                      {HEALTH_META[objective.status].label}
+                    </span>
+                  </div>
+
+                  <div>
+                    <h1 className="text-2xl font-semibold tracking-tight">{objective.title}</h1>
+                    <p className="mt-2 max-w-3xl text-sm text-[var(--muted-foreground)]">
+                      {objective.summary ||
+                        "No notes yet. Use this space to explain what better looks like."}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-start">
+                  <button
+                    type="button"
+                    onClick={() => setObjectiveEditor(buildObjectiveDraft(objective))}
+                    aria-label={`Edit objective ${objective.title}`}
+                    className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card-bg)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--card-hover-border)]"
+                  >
+                    <Pencil className="h-4 w-4" />
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleObjectiveDelete()}
+                    aria-label={`Delete objective ${objective.title}`}
+                    className="inline-flex items-center gap-2 rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-sm text-rose-100 transition-colors hover:bg-rose-500/20"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Delete
+                  </button>
+                </div>
+              </div>
+              <ErrorBanner message={saveError} />
             </div>
 
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">{objective.title}</h1>
-              <p className="mt-2 max-w-3xl text-sm text-[var(--muted-foreground)]">
-                {objective.summary ||
-                  "No notes yet. Use this space to explain what better looks like."}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 self-start">
-            <button
-              type="button"
-              onClick={() => setObjectiveEditor(buildObjectiveDraft(objective))}
-              aria-label={`Edit objective ${objective.title}`}
-              className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--card-bg)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--card-hover-border)]"
-            >
-              <Pencil className="h-4 w-4" />
-              Edit
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleObjectiveDelete()}
-              aria-label={`Delete objective ${objective.title}`}
-              className="inline-flex items-center gap-2 rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-sm text-rose-100 transition-colors hover:bg-rose-500/20"
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </button>
-          </div>
-        </div>
-        <ErrorBanner message={saveError} />
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-4 py-5 md:px-6 md:py-6">
-        <div className="mx-auto max-w-4xl space-y-6">
-          <section className="rounded-[28px] border border-[var(--border)] bg-[var(--card-bg)] p-5">
+            <div className="px-5 py-6 md:px-7 md:py-7 xl:px-8">
+            <div className="mx-auto max-w-4xl space-y-6 pr-1 xl:mx-0 xl:max-w-none xl:pr-6">
+              <section className="rounded-[28px] border border-[var(--border)] bg-[var(--card-bg)] p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold">Team</p>
@@ -852,16 +1298,16 @@ export function ProjectObjectiveDetail({
                   : "The selected team no longer exists. Pick a new team."}
               </p>
             </div>
-          </section>
+              </section>
 
-          <div className="space-y-3 px-1">
+              <div className="space-y-3 px-1">
             <p className="text-sm font-medium text-[var(--muted-foreground)]">
               How often agents should wake up and work on it?
             </p>
             <div className="flex items-start gap-3">
               <div className="min-w-0 flex-1 space-y-3">
                 <div className="rounded-xl border border-[var(--border)] bg-[rgba(15,23,42,0.28)] px-4 py-3 text-sm text-[var(--foreground)]">
-                  <span className="block truncate">{objective.cadence || "Not set yet"}</span>
+                  <span className="block truncate">{formatObjectiveCadence(objective.cadence)}</span>
                 </div>
                 {objective.condition ? (
                   <div className="rounded-xl border border-[var(--border)] bg-[rgba(15,23,42,0.28)] px-4 py-3 text-sm text-[var(--foreground)]">
@@ -881,9 +1327,9 @@ export function ProjectObjectiveDetail({
                 <Pencil className="h-4 w-4" />
               </button>
             </div>
-          </div>
+              </div>
 
-          <section className="rounded-[28px] border border-[var(--border)] bg-[var(--card-bg)] p-5">
+              <section className="rounded-[28px] border border-[var(--border)] bg-[var(--card-bg)] p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <p className="text-sm font-semibold">Scheduled Tasks</p>
               <button
@@ -964,14 +1410,25 @@ export function ProjectObjectiveDetail({
                 ))}
               </div>
             )}
-          </section>
+              </section>
 
-          <section className="rounded-[28px] border border-[var(--border)] bg-[var(--card-bg)] p-5">
+              <section className="rounded-[28px] border border-[var(--border)] bg-[var(--card-bg)] p-5">
             <div className="mb-4">
               <p className="text-sm font-semibold">Linear Tickets</p>
             </div>
             <EmptyState label="No Linear ticket tracking configured for this objective yet." />
-          </section>
+              </section>
+            </div>
+            </div>
+          </div>
+
+          <ObjectiveChatPanel
+            projectId={project.id}
+            projectSlug={projectSlug}
+            objective={objective}
+            teamName={teamName}
+            onThreadLinked={handleObjectiveThreadLinked}
+          />
         </div>
       </div>
 

@@ -167,7 +167,8 @@ async function fireConditionGate(job: PromptJob, run: PromptRun) {
   }
 
   // Gate passed — execute action prompt with full agent context
-  store.updateRun(run.id, { output: `Gate: yes\nExecuting action prompt...` });
+  // Clear stale gate PID so the reaper won't kill us between gate→action spawn
+  store.updateRun(run.id, { output: `Gate: yes\nExecuting action prompt...`, hostPid: null });
   const actionResult = await executePrompt({
     ...ctx,
     prompt: job.prompt,

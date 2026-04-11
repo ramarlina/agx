@@ -6,11 +6,24 @@ import type { LinearIssue } from "@/hooks/useLinearIssues";
 import type { LinearRun } from "@/hooks/useLinearRuns";
 import { getLinearBoardFiltersStorageKey } from "@/state/linearBoardFilters";
 
+const mockUseSearchParams = jest.fn();
+const mockUsePathname = jest.fn();
+const pushMock = jest.fn();
+const replaceMock = jest.fn();
 const mockUseLinearConnection = jest.fn();
 const mockUseLinearIssues = jest.fn();
 const mockUseLinearRuns = jest.fn();
 const mockUseGroupChat = jest.fn();
 const mockUseProcessPolling = jest.fn();
+
+jest.mock("next/navigation", () => ({
+  useSearchParams: () => mockUseSearchParams(),
+  usePathname: () => mockUsePathname(),
+  useRouter: () => ({
+    push: pushMock,
+    replace: replaceMock,
+  }),
+}));
 
 jest.mock("next/dynamic", () => () => {
   return function MockDynamicComponent() {
@@ -125,6 +138,10 @@ describe("LinearBoard", () => {
       configurable: true,
       value: mockWindowOpen,
     });
+    mockUseSearchParams.mockReturnValue(new URLSearchParams());
+    mockUsePathname.mockReturnValue("/projects/agx/linear");
+    pushMock.mockReset();
+    replaceMock.mockReset();
 
     global.IntersectionObserver = class {
       observe() {}
@@ -364,6 +381,8 @@ describe("LinearBoard", () => {
   });
 
   test("shows sessions language and removes the old run-now action", async () => {
+    mockUseSearchParams.mockReturnValue(new URLSearchParams("issue=issue-1"));
+
     render(<LinearBoard projectId="project-1" projectSlug="agx" />);
 
     expect(await screen.findByText("Sessions")).toBeInTheDocument();
@@ -381,6 +400,7 @@ describe("LinearBoard", () => {
       participants: [{ id: "agent-1", name: "Builder" }],
       projectAgentIds: ["agent-1"],
     });
+    mockUseSearchParams.mockReturnValue(new URLSearchParams("issue=issue-1"));
 
     render(<LinearBoard projectId="project-1" projectSlug="agx" />);
 
@@ -416,6 +436,8 @@ describe("LinearBoard", () => {
   });
 
   test("labels plain chat sessions as ready instead of success", async () => {
+    mockUseSearchParams.mockReturnValue(new URLSearchParams("issue=issue-1&run=run-1"));
+
     mockUseLinearRuns.mockReturnValue({
       runs: [
         {
@@ -457,6 +479,8 @@ describe("LinearBoard", () => {
   });
 
   test("updates the selected ticket status through the clickable status control", async () => {
+    mockUseSearchParams.mockReturnValue(new URLSearchParams("issue=issue-1"));
+
     const refresh = jest.fn().mockResolvedValue(undefined);
     const updateIssue = jest.fn();
 
@@ -506,5 +530,24 @@ describe("LinearBoard", () => {
       );
       expect(refresh).toHaveBeenCalledTimes(1);
     });
+  });
+
+  test("does not auto-select the first issue when the URL has no issue param", async () => {
+    render(<LinearBoard projectId="project-1" projectSlug="agx" />);
+
+    expect(await screen.findByText("Select a ticket from the list.")).toBeInTheDocument();
+    expect(screen.getByText("Select a ticket to see sessions.")).toBeInTheDocument();
+  });
+
+  test("uses the issue query param as the selected ticket", async () => {
+    mockUseSearchParams.mockReturnValue(new URLSearchParams("issue=issue-1"));
+    mockBoardFetch({
+      participants: [{ id: "agent-1", name: "Builder" }],
+      projectAgentIds: ["agent-1"],
+    });
+
+    render(<LinearBoard projectId="project-1" projectSlug="agx" />);
+
+    expect(await screen.findByText("Start a new session for this ticket")).toBeInTheDocument();
   });
 });

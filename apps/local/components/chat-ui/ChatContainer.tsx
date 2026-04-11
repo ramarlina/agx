@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback, useMemo } from "react";
-import { createPortal } from "react-dom";
 import { UI_POLL_CHAT_CHECK_MS, UI_POLL_CHAT_ALT_MS } from "@/lib/constants/timing";
-import { useSearchParams } from "next/navigation";
+import { useUrlSelection } from "@/hooks/useUrlSelection";
 import { useGroupChat } from "@/hooks/useGroupChat";
 import { useProcessPolling } from "@/hooks/useProcessPolling";
 import { useThreadState } from "@/hooks/useThreadState";
@@ -222,7 +221,7 @@ export function ChatContainer({
   initialRootMessageId,
   showSidebar = true,
 }: ChatContainerProps = {}) {
-  const searchParams = useSearchParams();
+  const { getSelection, pushSelection, replaceSelection } = useUrlSelection();
   const {
     threads,
     activeThreadId,
@@ -382,8 +381,11 @@ export function ChatContainer({
   const [pendingAutoMode, setPendingAutoMode] = useState(false);
   const [knowledgeExtractionPending, setKnowledgeExtractionPending] = useState(false);
   const [threadKnowledgeRun, setThreadKnowledgeRun] = useState<ThreadKnowledgeRun | null>(null);
-  const [openThreadId, setOpenThreadId] = useState<string | null>(initialRootMessageId ?? null);
-  const routeOpenThreadId = searchParams.get("open")?.trim() || null;
+  const routeOpenThreadId = getSelection("open");
+  const routeMessageId = getSelection("message");
+  const openThreadId = projectSlug
+    ? routeOpenThreadId ?? initialRootMessageId ?? null
+    : initialRootMessageId ?? null;
   const autoMode = openThreadId ? autoModeThreads.has(openThreadId) : pendingAutoMode;
 
   // Hydrate & poll ship mode from server when a thread is opened
@@ -436,25 +438,45 @@ export function ChatContainer({
     return () => { cancelled = true; clearInterval(interval); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync URL to reflect the currently open thread
-  useEffect(() => {
-    if (openThreadId) {
-      const nextPath = projectSlug
-        ? `/projects/${projectSlug}/thread/${encodeURIComponent(activeThreadId ?? initialThreadId ?? "")}?open=${encodeURIComponent(openThreadId)}`
-        : `/thread/${openThreadId}`;
-      window.history.replaceState(null, "", nextPath);
-    } else {
-      window.history.replaceState(null, "", projectSlug ? `/projects/${projectSlug}/thread/${encodeURIComponent(activeThreadId ?? initialThreadId ?? "")}` : "/");
-    }
-  }, [activeThreadId, initialThreadId, openThreadId, projectSlug]);
+  const navigateToThread = useCallback(
+    (
+      rootMessageId: string | null,
+      options: {
+        messageId?: string | null;
+        threadId?: string | null;
+        replace?: boolean;
+      } = {},
+    ) => {
+      const navigate = options.replace ? replaceSelection : pushSelection;
 
-  useEffect(() => {
-    if (!projectSlug) {
-      return;
-    }
+      if (projectSlug) {
+        const nextThreadId = options.threadId ?? activeThreadId ?? initialThreadId ?? null;
+        if (!nextThreadId) return;
 
-    setOpenThreadId((current) => (current === routeOpenThreadId ? current : routeOpenThreadId));
-  }, [projectSlug, routeOpenThreadId]);
+        navigate(
+          {
+            open: rootMessageId,
+            message: options.messageId ?? null,
+          },
+          `/projects/${projectSlug}/thread/${encodeURIComponent(nextThreadId)}`,
+        );
+        return;
+      }
+
+      if (rootMessageId) {
+        navigate(
+          {
+            message: options.messageId ?? null,
+          },
+          `/thread/${encodeURIComponent(rootMessageId)}`,
+        );
+        return;
+      }
+
+      navigate({ message: null }, "/");
+    },
+    [activeThreadId, initialThreadId, projectSlug, pushSelection, replaceSelection],
+  );
 
   // Resolve initialRootMessageId → workspace thread on mount
   useEffect(() => {
@@ -473,7 +495,6 @@ export function ChatContainer({
   const [searchTotal, setSearchTotal] = useState(0);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
   const [summarizingThreads, setSummarizingThreads] = useState<Set<string>>(new Set());
   const [deletingThreadRootId, setDeletingThreadRootId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ type: "thread" | "message"; id: string; preview?: string } | null>(null);
@@ -499,8 +520,6 @@ export function ChatContainer({
   const [extractingTasks, setExtractingTasks] = useState<Set<string>>(new Set());
   const [buildingDrafts, setBuildingDrafts] = useState<Set<string>>(new Set());
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const pendingOpenThreadIdRef = useRef<string | null>(null);
-  const highlightClearTimeoutRef = useRef<number | null>(null);
   const lastUnknownParticipantSignatureRef = useRef<string>("");
 
   const reloadParticipants = useCallback(
@@ -604,6 +623,37 @@ export function ChatContainer({
     };
     return { value: status, ...map[status] };
   }, [openThreadId, messages]);
+
+  useEffect(() => {
+    if (!routeMessageId) {
+      return;
+    }
+
+    const matchedMessage = messages.find((message) => message.id === routeMessageId) ?? null;
+    if (matchedMessage) {
+      const targetRootId = matchedMessage.rootMessageId || matchedMessage.id;
+      if (targetRootId !== openThreadId) {
+        navigateToThread(targetRootId, {
+          messageId: routeMessageId,
+          replace: true,
+        });
+      }
+      return;
+    }
+
+    if (!openThreadId) {
+      return;
+    }
+
+    const openThreadMessages = [
+      messages.find((message) => message.id === openThreadId),
+      ...messages.filter((message) => message.rootMessageId === openThreadId),
+    ].filter(Boolean) as GroupMessage[];
+
+    if (openThreadMessages.length > 0) {
+      replaceSelection({ message: null });
+    }
+  }, [messages, navigateToThread, openThreadId, replaceSelection, routeMessageId]);
 
   const clearSearch = useCallback(() => {
     setSearchQuery("");
@@ -844,14 +894,10 @@ export function ChatContainer({
   }, [threadsLoading, isCreating, threads.length, createThread]);
 
   useEffect(() => {
-    return () => {
-      if (highlightClearTimeoutRef.current) {
-        window.clearTimeout(highlightClearTimeoutRef.current);
-      }
-    };
-  }, []);
+    if (projectSlug) {
+      return;
+    }
 
-  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -866,7 +912,7 @@ export function ChatContainer({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [clearSearch, normalizedSearchQuery]);
+  }, [clearSearch, normalizedSearchQuery, projectSlug]);
 
   useEffect(() => {
     if (!normalizedSearchQuery) {
@@ -932,12 +978,6 @@ export function ChatContainer({
     // Only stop active streams when actually switching threads, not on initial mount.
     if (prevActiveThreadIdRef.current !== null && prevActiveThreadIdRef.current !== activeThreadId) {
       void handleStopRef.current();
-      if (pendingOpenThreadIdRef.current) {
-        setOpenThreadId(pendingOpenThreadIdRef.current);
-        pendingOpenThreadIdRef.current = null;
-      } else {
-        setOpenThreadId(null);
-      }
     }
     prevActiveThreadIdRef.current = activeThreadId;
     if (!activeThreadId) return;
@@ -1142,12 +1182,12 @@ export function ChatContainer({
   }, [activeThreadId, handleExtractTasks, messages, openThreadId]);
 
   const handleReplyToMessage = useCallback((messageId: string) => {
-    setOpenThreadId(messageId);
-  }, []);
+    navigateToThread(messageId);
+  }, [navigateToThread]);
 
   const handleOpenThread = useCallback((rootMessageId: string) => {
-    setOpenThreadId(rootMessageId);
-  }, []);
+    navigateToThread(rootMessageId);
+  }, [navigateToThread]);
 
   const handleSearchCommand = useCallback((query?: string) => {
     const normalized = query?.trim() ?? "";
@@ -1316,25 +1356,13 @@ export function ChatContainer({
   const handleSelectSearchResult = useCallback(
     (result: MessageSearchResult) => {
       const targetRootId = result.rootMessageId || result.messageId;
-      if (result.threadId !== activeThreadId) {
-        pendingOpenThreadIdRef.current = targetRootId;
-        selectThread(result.threadId);
-      } else {
-        setOpenThreadId(targetRootId);
-      }
-      setHighlightedMessageId(null);
-      window.requestAnimationFrame(() => {
-        setHighlightedMessageId(result.messageId);
-        if (highlightClearTimeoutRef.current) {
-          window.clearTimeout(highlightClearTimeoutRef.current);
-        }
-        highlightClearTimeoutRef.current = window.setTimeout(() => {
-          setHighlightedMessageId((current) => (current === result.messageId ? null : current));
-        }, 2000);
+      navigateToThread(targetRootId, {
+        messageId: result.messageId,
+        threadId: result.threadId,
       });
       clearSearch();
     },
-    [activeThreadId, clearSearch, selectThread]
+    [clearSearch, navigateToThread]
   );
 
   const handleDeleteThread = useCallback(
@@ -1373,8 +1401,18 @@ export function ChatContainer({
           return;
         }
 
-        setOpenThreadId((current) => (current === rootMessageId ? null : current));
-        setHighlightedMessageId(null);
+        const highlightedMessage = routeMessageId
+          ? messages.find((message) => message.id === routeMessageId) ?? null
+          : null;
+        const highlightedRootId = highlightedMessage
+          ? highlightedMessage.rootMessageId || highlightedMessage.id
+          : null;
+
+        if (openThreadId === rootMessageId) {
+          navigateToThread(null, { replace: true });
+        } else if (highlightedRootId === rootMessageId) {
+          replaceSelection({ message: null });
+        }
 
         const nextMessages = messages.filter(
           (message) => message.id !== rootMessageId && message.rootMessageId !== rootMessageId
@@ -1387,7 +1425,17 @@ export function ChatContainer({
         setDeletingThreadRootId((current) => (current === rootMessageId ? null : current));
       }
     },
-    [activeThreadId, loadHistory, messages, handleStopThread, updateThreadMessages]
+    [
+      activeThreadId,
+      handleStopThread,
+      loadHistory,
+      messages,
+      navigateToThread,
+      openThreadId,
+      replaceSelection,
+      routeMessageId,
+      updateThreadMessages,
+    ]
   );
 
   const handleDeleteMessage = useCallback(
@@ -1415,6 +1463,10 @@ export function ChatContainer({
           return;
         }
 
+        if (routeMessageId === messageId) {
+          replaceSelection({ message: null });
+        }
+
         const nextMessages = messages.filter((m) => m.id !== messageId);
         void updateThreadMessages(activeThreadId, nextMessages);
         await loadHistory(activeThreadId);
@@ -1422,7 +1474,7 @@ export function ChatContainer({
         console.error("Failed to delete message", error);
       }
     },
-    [activeThreadId, loadHistory, messages, updateThreadMessages]
+    [activeThreadId, loadHistory, messages, replaceSelection, routeMessageId, updateThreadMessages]
   );
 
   const handleConfirmDelete = useCallback(() => {
@@ -1711,35 +1763,6 @@ export function ChatContainer({
     </div>
   );
 
-  const [topbarTarget, setTopbarTarget] = useState<HTMLElement | null>(null);
-  useEffect(() => {
-    if (!projectSlug) return;
-    const el = document.getElementById("topbar-center");
-    setTopbarTarget(el);
-  }, [projectSlug]);
-
-  const topbarSearchPortal = projectSlug && topbarTarget ? createPortal(
-    <div className="flex items-center gap-2 w-full">
-      {searchBar}
-      {openThreadId && (
-        <button
-          type="button"
-          onClick={() => setLogsOpen(!logsOpen)}
-          aria-label={logsOpen ? "Hide logs" : `Show logs${logs.length > 0 ? ` (${logs.length})` : ""}`}
-          aria-pressed={logsOpen}
-          title={logsOpen ? "Hide logs" : `Show logs${logs.length > 0 ? ` (${logs.length})` : ""}`}
-          className={`inline-flex h-7 w-7 items-center justify-center rounded-lg border transition-all shrink-0 ${logsOpen
-            ? "border-[var(--app-shell-border-strong)] bg-[var(--app-shell-subtle)] text-[var(--foreground)]"
-            : "border-[var(--app-shell-border)] bg-[var(--app-shell-elevated)] text-[var(--app-shell-muted)] hover:bg-[var(--app-shell-subtle)] hover:text-[var(--foreground)]"
-            }`}
-        >
-          <SquareTerminal className="h-3.5 w-3.5" strokeWidth={1.75} />
-        </button>
-      )}
-    </div>,
-    topbarTarget
-  ) : null;
-
   const mainToolbar = projectSlug ? null : (
     <div
       className="desktop-titlebar border-b border-[var(--app-shell-border)] bg-[var(--app-shell-surface)] px-4 py-2.5 backdrop-blur-xl md:px-6"
@@ -1788,7 +1811,6 @@ export function ChatContainer({
 
   return (
     <div className={`flex ${projectSlug ? "h-full" : "h-screen"} bg-[var(--app-shell-bg)] text-[var(--foreground)]`}>
-      {topbarSearchPortal}
         {showSidebar ? (
           <WorkspaceSidebar
             threads={threads}
@@ -1833,7 +1855,7 @@ export function ChatContainer({
                   <div className="desktop-titlebar border-b border-[var(--app-shell-border)] bg-[var(--app-shell-surface)] px-4 py-2.5 backdrop-blur-xl md:px-6 transition-colors duration-200 shrink-0">
                     <div className="mx-auto flex max-w-5xl items-center gap-3 min-w-0">
                       <button
-                        onClick={() => setOpenThreadId(null)}
+                        onClick={() => navigateToThread(null)}
                         className="p-1.5 text-[var(--app-shell-muted)] hover:text-[var(--primary)] hover:bg-[var(--app-shell-subtle)] rounded-xl transition-all active:scale-95 flex-shrink-0"
                         title="Back to main feed"
                       >
@@ -1933,12 +1955,12 @@ export function ChatContainer({
                     participants={participants}
                     rootMessageId={openThreadId}
                     queued={activeChatRuns.some((run) => run.rootMessageId === openThreadId && run.status === "queued")}
-                    onClose={() => setOpenThreadId(null)}
+                    onClose={() => navigateToThread(null)}
                     onCopyThread={handleCopyThread}
                     onAddToChat={handleAddToChat}
                     onDeleteThreadRoot={handleDeleteThreadRoot}
                     onDeleteMessage={handleDeleteMessage}
-                    highlightedMessageId={highlightedMessageId || undefined}
+                    highlightedMessageId={routeMessageId || undefined}
                     renderReplyComposer={renderReplyComposer}
                     activeProcesses={activeProcesses.filter(p => ["spawning", "running"].includes(p.state) && p.threadId === openThreadId)}
                   />
@@ -1960,7 +1982,7 @@ export function ChatContainer({
                     buildingDrafts={buildingDrafts}
                     taskDrafts={taskDrafts}
                     deletingThreadRootId={deletingThreadRootId}
-                    highlightedMessageId={highlightedMessageId}
+                    highlightedMessageId={routeMessageId}
                     shipModeThreads={autoModeThreads}
                     onUpdateMessageThreadStatus={activeThreadId ? (messageId, status) => {
                       setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, threadStatus: status } : m));

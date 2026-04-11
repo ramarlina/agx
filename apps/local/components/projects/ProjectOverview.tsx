@@ -3,7 +3,6 @@
 import { useRouter } from "next/navigation";
 import { TeamsSummaryCard } from "./TeamsSummaryCard";
 import { ObjectivesSummaryCard } from "./ObjectivesSummaryCard";
-import { ActiveTasksSummaryCard } from "./ActiveTasksSummaryCard";
 import { ScheduledTasksSummaryCard } from "./ScheduledTasksSummaryCard";
 import { FoldersSummaryCard } from "./FoldersSummaryCard";
 import { RecentThreadsSummaryCard } from "./RecentThreadsSummaryCard";
@@ -26,6 +25,7 @@ export function ProjectOverview({
   threadIds,
 }: ProjectOverviewProps) {
   const router = useRouter();
+  const primaryThreadId = threadIds[0] ?? null;
 
   return (
     <div className="h-full overflow-y-auto">
@@ -44,21 +44,21 @@ export function ProjectOverview({
             projectSlug={projectSlug}
             onViewAll={() => router.push(`/projects/${projectSlug}/objectives`)}
           />
-          <ActiveTasksSummaryCard
-            projectId={projectId}
-            onViewAll={() => router.push(`/projects/${projectSlug}/automations`)}
-          />
           <ScheduledTasksSummaryCard
             projectId={projectId}
             onViewAll={() => router.push(`/projects/${projectSlug}/automations`)}
           />
           <FoldersSummaryCard projectId={projectId} repos={repos} />
           <RecentThreadsSummaryCard
-            threadIds={threadIds}
-            projectSlug={projectSlug}
-            onSelectThread={(threadId) =>
-              router.push(`/projects/${projectSlug}/thread/${encodeURIComponent(threadId)}`)
+            projectId={projectId}
+            onSelectThread={(threadId, rootMessageId) =>
+              router.push(
+                `/projects/${projectSlug}/thread/${encodeURIComponent(threadId)}?open=${encodeURIComponent(rootMessageId)}`
+              )
             }
+            onViewAll={primaryThreadId ? () => {
+              router.push(`/projects/${projectSlug}/thread/${encodeURIComponent(primaryThreadId)}`);
+            } : undefined}
           />
         </div>
       </div>

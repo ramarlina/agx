@@ -1,6 +1,9 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ProjectWithRepos } from "@/hooks/useProjects";
 import { useProjects } from "@/hooks/useProjects";
+import { useGroupChat } from "@/hooks/useGroupChat";
+import { useProcessPolling } from "@/hooks/useProcessPolling";
+import { threadService } from "@/services/threadService";
 import {
   ProjectObjectiveDetail,
   ProjectObjectivesOverview,
@@ -43,7 +46,47 @@ jest.mock("@/hooks/useProjects", () => ({
   useProjects: jest.fn(),
 }));
 
+jest.mock("@/hooks/useGroupChat", () => ({
+  useGroupChat: jest.fn(),
+}));
+
+jest.mock("@/hooks/useProcessPolling", () => ({
+  useProcessPolling: jest.fn(),
+}));
+
+jest.mock("@/services/threadService", () => ({
+  threadService: {
+    createThread: jest.fn(),
+  },
+}));
+
+jest.mock("@/components/chat-ui/Composer", () => ({
+  Composer: ({
+    placeholder,
+    onSend,
+  }: {
+    placeholder?: string;
+    onSend?: (message: string, maxRounds: number) => Promise<void> | void;
+  }) => (
+    <div data-testid="objective-chat-composer">
+      <span>{placeholder ?? "composer"}</span>
+      {onSend ? (
+        <button type="button" data-testid="objective-chat-send" onClick={() => void onSend("Test objective chat", 10)}>
+          Send
+        </button>
+      ) : null}
+    </div>
+  ),
+}));
+
+jest.mock("@/components/chat-ui/Markdown", () => ({
+  Markdown: ({ content }: { content: string }) => <div>{content}</div>,
+}));
+
 const mockedUseProjects = jest.mocked(useProjects);
+const mockedUseGroupChat = jest.mocked(useGroupChat);
+const mockedUseProcessPolling = jest.mocked(useProcessPolling);
+const mockedThreadService = jest.mocked(threadService);
 const updateProjectMock = jest.fn();
 const confirmMock = jest.fn();
 const fetchMock = jest.fn();
@@ -55,11 +98,16 @@ const teamsResponse = {
   ],
 };
 
-function buildProject(): ProjectWithRepos {
+function buildProject({
+  objectiveThreadId = "thread-objective_growth",
+}: {
+  objectiveThreadId?: string | null;
+} = {}): ProjectWithRepos {
   const objective = createProjectObjective({
     id: "objective_growth",
     title: "Get 50 visitors daily",
     teamId: "team-growth",
+    threadId: objectiveThreadId,
     summary: "Focus on referral traffic first.",
     cadence: "Every weekday morning",
     progress: 42,
@@ -130,10 +178,77 @@ describe("ProjectObjectivesWorkspace", () => {
       configurable: true,
       value: fetchMock,
     });
+    mockedThreadService.createThread.mockReset();
+    mockedThreadService.createThread.mockResolvedValue({
+      id: "objective-chat:objective_growth",
+      title: "Get 50 visitors daily",
+      messages: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    });
     fetchMock.mockReset();
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => teamsResponse,
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.includes("/teams")) {
+        return {
+          ok: true,
+          json: async () => teamsResponse,
+        };
+      }
+
+      if (url.includes("/participants")) {
+        return {
+          ok: true,
+          json: async () => [],
+        };
+      }
+
+      if (url.includes("/agents")) {
+        return {
+          ok: true,
+          json: async () => ({ agents: [] }),
+        };
+      }
+
+      if (url.includes("/api/history") || url.includes("/api/logs") || url.includes("/api/chat-runs")) {
+        return {
+          ok: true,
+          json: async () => [],
+        };
+      }
+
+      if (url.includes("/api/processes")) {
+        return {
+          ok: true,
+          json: async () => [],
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({}),
+      };
+    });
+    mockedUseGroupChat.mockReturnValue({
+      messages: [],
+      setMessages: jest.fn(),
+      logs: [],
+      sendMessage: jest.fn(),
+      loadHistory: jest.fn(),
+      clearHistory: jest.fn(),
+      clearLogs: jest.fn(),
+      chatRuns: [],
+      setChatRuns: jest.fn(),
+      stop: jest.fn(),
+      stopThread: jest.fn(),
+    });
+    mockedUseProcessPolling.mockReturnValue({
+      activeAgents: [],
+      processes: [],
+      streaming: {},
+      chatRuns: [],
+      poll: jest.fn(),
     });
 
     mockedUseProjects.mockReturnValue({
@@ -150,7 +265,6 @@ describe("ProjectObjectivesWorkspace", () => {
   test("keeps the root view focused on the objective list", () => {
     render(<ProjectObjectivesOverview projectSlug="alpha" />);
 
-    expect(screen.getByRole("heading", { name: "Alpha" })).toBeInTheDocument();
     expect(screen.getByText(/1 activity · Last Apr 9,/i)).toBeInTheDocument();
     expect(screen.queryByText("Focus on referral traffic first.")).not.toBeInTheDocument();
     expect(
@@ -275,6 +389,7 @@ describe("ProjectObjectivesWorkspace", () => {
     expect(screen.queryByText("Condition")).not.toBeInTheDocument();
     expect(screen.getByText("Scheduled Tasks")).toBeInTheDocument();
     expect(screen.getByText("Linear Tickets")).toBeInTheDocument();
+    expect(screen.getByTestId("objective-chat-composer")).toBeInTheDocument();
     expect(screen.getByText("Review landing page copy")).toBeInTheDocument();
     expect(screen.queryByText("Progress")).not.toBeInTheDocument();
     expect(screen.queryByText("Cadence")).not.toBeInTheDocument();
@@ -282,11 +397,105 @@ describe("ProjectObjectivesWorkspace", () => {
     expect(screen.queryByText("Activity timeline")).not.toBeInTheDocument();
     expect(screen.queryByText("Referral CTA refreshed")).not.toBeInTheDocument();
     expect(
+      screen.getByRole("separator", { name: /Resize objective chat panel/i })
+    ).toBeInTheDocument();
+    expect(
       screen.getByText("No Linear ticket tracking configured for this objective yet.")
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Delete objective Get 50 visitors daily/i })
     ).toBeInTheDocument();
+  });
+
+  test("restores the saved objective chat width", () => {
+    window.localStorage.setItem(
+      "agx:windowState",
+      JSON.stringify({
+        sidebar: {
+          objectiveChatPanelWidth: 512,
+        },
+      })
+    );
+
+    const { container } = render(
+      <ProjectObjectiveDetail
+        projectSlug="alpha"
+        objectiveId="objective_growth"
+      />
+    );
+
+    const chatPanel = container.querySelector(
+      '[style*="--objective-chat-panel-width: 512px"]'
+    );
+    expect(chatPanel).not.toBeNull();
+  });
+
+  test("creates the objective chat lazily on first send instead of on load", async () => {
+    const sendMessageMock = jest.fn();
+    mockedUseGroupChat.mockReturnValue({
+      messages: [],
+      setMessages: jest.fn(),
+      logs: [],
+      sendMessage: sendMessageMock,
+      loadHistory: jest.fn(),
+      clearHistory: jest.fn(),
+      clearLogs: jest.fn(),
+      chatRuns: [],
+      setChatRuns: jest.fn(),
+      stop: jest.fn(),
+      stopThread: jest.fn(),
+    });
+    mockedUseProjects.mockReturnValue({
+      projects: [buildProject({ objectiveThreadId: null })],
+      isLoading: false,
+      error: null,
+      refetch: jest.fn(),
+      createProject: jest.fn(),
+      updateProject: updateProjectMock,
+      deleteProject: jest.fn(),
+    });
+
+    render(
+      <ProjectObjectiveDetail
+        projectSlug="alpha"
+        objectiveId="objective_growth"
+      />
+    );
+
+    expect(mockedThreadService.createThread).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("objective-chat-send"));
+
+    await waitFor(() => expect(mockedThreadService.createThread).toHaveBeenCalledTimes(1));
+    expect(mockedThreadService.createThread).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "objective-chat:objective_growth",
+        title: "Get 50 visitors daily",
+        metadata: expect.objectContaining({
+          scope: "objective",
+          objectiveId: "objective_growth",
+          projectId: "project-1",
+          projectSlug: "alpha",
+        }),
+      })
+    );
+    await waitFor(() => expect(updateProjectMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/projects/project-1/threads",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(sendMessageMock).toHaveBeenCalledWith(
+      "Test objective chat",
+      10,
+      "objective-chat:objective_growth",
+      null,
+      undefined,
+      undefined,
+      [],
+      "alpha",
+      expect.stringContaining("Objective: Get 50 visitors daily"),
+      undefined
+    );
   });
 
   test("saves a team when creating an objective", async () => {

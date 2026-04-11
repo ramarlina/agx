@@ -149,6 +149,16 @@ export function parseNaturalSchedule(input: string): ParsedSchedule | undefined 
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+function formatTime(hour: number, minute: number): string {
+  const suffix = hour >= 12 ? 'PM' : 'AM';
+  const h12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+  return `${h12}${minute > 0 ? ':' + String(minute).padStart(2, '0') : ''} ${suffix}`;
+}
+
+function formatMinuteOffset(minute: number): string {
+  return `${minute} minute${minute === 1 ? '' : 's'} past`;
+}
+
 /**
  * Convert a cron expression to a human-readable string.
  * Returns undefined if the pattern isn't recognized.
@@ -167,38 +177,38 @@ export function cronToHuman(cronExpr: string): string | undefined {
     return `Every ${min.slice(2)} minutes`;
 
   // every hour: 0 * * * * (or N * * * * = at :N every hour)
-  if (/^\d+$/.test(min) && hour === '*' && dom === '*' && mon === '*' && dow === '*')
-    return 'Every hour';
+  if (/^\d+$/.test(min) && hour === '*' && dom === '*' && mon === '*' && dow === '*') {
+    const minute = parseInt(min);
+    return minute === 0 ? 'Every hour' : `${formatMinuteOffset(minute)} every hour`;
+  }
 
   // every N hours: 0 */N * * *
-  if (/^\d+$/.test(min) && /^\*\/\d+$/.test(hour) && dom === '*' && mon === '*' && dow === '*')
-    return `Every ${hour.slice(2)} hours`;
+  if (/^\d+$/.test(min) && /^\*\/\d+$/.test(hour) && dom === '*' && mon === '*' && dow === '*') {
+    const minute = parseInt(min);
+    return minute === 0
+      ? `Every ${hour.slice(2)} hours`
+      : `${formatMinuteOffset(minute)} every ${hour.slice(2)} hours`;
+  }
 
   // daily at HH:MM
   if (/^\d+$/.test(min) && /^\d+$/.test(hour) && dom === '*' && mon === '*' && dow === '*') {
     const h = parseInt(hour), m = parseInt(min);
     if (h === 0 && m === 0) return 'Daily at midnight';
     if (h === 12 && m === 0) return 'Daily at noon';
-    const suffix = h >= 12 ? 'PM' : 'AM';
-    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-    return `Daily at ${h12}${m > 0 ? ':' + String(m).padStart(2, '0') : ''} ${suffix}`;
+    return `Daily at ${formatTime(h, m)}`;
   }
 
   // weekdays at HH:MM
   if (/^\d+$/.test(min) && /^\d+$/.test(hour) && dom === '*' && mon === '*' && dow === '1-5') {
     const h = parseInt(hour), m = parseInt(min);
-    const suffix = h >= 12 ? 'PM' : 'AM';
-    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-    return `Weekdays at ${h12}${m > 0 ? ':' + String(m).padStart(2, '0') : ''} ${suffix}`;
+    return `Weekdays at ${formatTime(h, m)}`;
   }
 
   // specific day of week
   if (/^\d+$/.test(min) && /^\d+$/.test(hour) && dom === '*' && mon === '*' && /^\d$/.test(dow)) {
     const h = parseInt(hour), m = parseInt(min), d = parseInt(dow);
-    const suffix = h >= 12 ? 'PM' : 'AM';
-    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
     const dayName = DAY_NAMES[d] || dow;
-    return `${dayName}s at ${h12}${m > 0 ? ':' + String(m).padStart(2, '0') : ''} ${suffix}`;
+    return `${dayName}s at ${formatTime(h, m)}`;
   }
 
   // every N days: 0 0 */N * *

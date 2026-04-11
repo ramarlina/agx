@@ -32,6 +32,7 @@ interface TeamDetailViewProps {
   teamId: string;
   onTeamDeleted?: () => void;
   onTeamUpdated?: () => void;
+  onTeamMissing?: () => void;
 }
 
 export default function TeamDetailView({
@@ -39,6 +40,7 @@ export default function TeamDetailView({
   teamId,
   onTeamDeleted,
   onTeamUpdated,
+  onTeamMissing,
 }: TeamDetailViewProps) {
   const [team, setTeam] = useState<Team | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,6 +66,10 @@ export default function TeamDetailView({
       const res = await fetch(
         `/api/projects/${projectId}/teams/${teamId}`
       );
+      if (res.status === 404) {
+        onTeamMissing?.();
+        return;
+      }
       if (!res.ok) throw new Error(`Failed to load team (${res.status})`);
       const data = await res.json();
       setTeam(data.team);
@@ -73,7 +79,7 @@ export default function TeamDetailView({
     } finally {
       setLoading(false);
     }
-  }, [projectId, teamId]);
+  }, [onTeamMissing, projectId, teamId]);
 
   useEffect(() => {
     fetchTeam();

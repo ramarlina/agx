@@ -5,7 +5,6 @@ import { UI_POLL_PROMPT_RUNS_MS } from "@/lib/constants/timing";
 import dynamic from "next/dynamic";
 import {
   Play,
-  Pause,
   Trash2,
   Plus,
   X,
@@ -15,11 +14,10 @@ import {
   ChevronDown,
   Settings2,
   Pencil,
-  ArrowLeft,
-  ExternalLink,
   User,
   Sparkles,
 } from "lucide-react";
+import { useUrlSelection } from "@/hooks/useUrlSelection";
 import { usePromptJobs } from "@/hooks/usePromptJobs";
 import { useGroupChat } from "@/hooks/useGroupChat";
 import { useProcessPolling } from "@/hooks/useProcessPolling";
@@ -66,35 +64,28 @@ function formatDate(iso: string | null): string {
   );
 }
 
-function StateBadge({ state }: { state: PromptJob["state"] }) {
-  const styles: Record<string, string> = {
-    active: "text-green-400 bg-green-400/10 border-green-400/20",
-    paused: "text-amber-400 bg-amber-400/10 border-amber-400/20",
-    stopped:
-      "text-[var(--muted-foreground)] bg-[var(--muted)] border-[var(--card-border)]",
-  };
-  return (
-    <span
-      className={`text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-md border ${styles[state] ?? styles.stopped}`}
-    >
-      {state}
-    </span>
-  );
+function promptTarget(prompt: string): string {
+  const firstLine = prompt
+    .split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!firstLine) return "No target";
+  return firstLine.replace(/^execute\s+/i, "");
 }
 
-const statusDotColor: Record<string, string> = {
-  active: "bg-emerald-400",
-  paused: "bg-amber-400",
-  stopped: "bg-zinc-500",
-};
+function stateDotClass(state: PromptJob["state"]): string {
+  if (state === "active") return "bg-emerald-400";
+  if (state === "paused") return "bg-amber-400";
+  return "bg-zinc-500";
+}
 
-const runStatusDot: Record<string, string> = {
-  success: "bg-emerald-400",
-  failed: "bg-red-400",
-  cancelled: "bg-zinc-500",
-  running: "bg-sky-400",
-  queued: "bg-amber-400",
-};
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
+      {children}
+    </div>
+  );
+}
 
 // ── Create/Edit Modal ────────────────────────────────────────────────────────
 
@@ -749,37 +740,35 @@ function RunChatPanel({
 function JobDetailView({
   job,
   agentMap,
-  onBack,
   onEdit,
   onToggle,
   onDelete,
   onRunNow,
   onCancelRun,
-  onUpdateAgent,
   fetchRuns,
 }: {
   job: PromptJob;
   agentMap: Record<string, AgentOption>;
-  onBack: () => void;
   onEdit: () => void;
   onToggle: () => void;
   onDelete: () => void;
   onRunNow: () => void;
   onCancelRun: () => void;
-  onUpdateAgent: (agentId: string) => void;
   fetchRuns: (jobId: string) => Promise<PromptRun[]>;
 }) {
   const [runs, setRuns] = useState<PromptRun[]>([]);
-  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const agents = Object.values(agentMap);
+  const [runsLoaded, setRunsLoaded] = useState(false);
+  const { getSelection, pushSelection, replaceSelection } = useUrlSelection();
+  const selectedRunId = getSelection("run");
   const agentName =
     job.agentId && agentMap[job.agentId] ? agentMap[job.agentId].name : null;
 
   const loadRuns = useCallback(async () => {
+    setRunsLoaded(false);
     const data = await fetchRuns(job.id);
     setRuns(data);
-    if (data.length > 0 && !selectedRunId) setSelectedRunId(data[0].id);
-  }, [job.id, fetchRuns, selectedRunId]);
+    setRunsLoaded(true);
+  }, [fetchRuns, job.id]);
 
   useEffect(() => {
     loadRuns();
@@ -790,68 +779,63 @@ function JobDetailView({
     return () => clearInterval(iv);
   }, [loadRuns]);
 
+  useEffect(() => {
+    if (!selectedRunId || !runsLoaded) {
+      return;
+    }
+
+    if (!runs.some((run) => run.id === selectedRunId)) {
+      replaceSelection({ run: null });
+    }
+  }, [replaceSelection, runs, runsLoaded, selectedRunId]);
+
   const selectedRun = runs.find((r) => r.id === selectedRunId) ?? null;
   const isRunning = job.lastOutcome === "running";
+  const scheduleLabel =
+    (job.cronExpr && cronToHuman(job.cronExpr)) || job.cadence || job.cronExpr;
+  const targetLabel = promptTarget(job.prompt);
+  const selectedAgent = job.agentId ? agentMap[job.agentId] : null;
 
   return (
     <div className="h-full flex flex-col text-[var(--foreground)]">
-      {/* Top bar */}
-      <div className="shrink-0 flex items-center gap-3 border-b border-[var(--card-border)] px-4 py-3.5 pt-4">
-        <button
-          onClick={onBack}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[var(--card-border)] px-2.5 py-1 text-[11px] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
-        >
-          <ArrowLeft size={12} /> Back
-        </button>
-        <h2 className="text-[13px] font-semibold truncate">{job.name}</h2>
-        <span
-          className={`inline-block size-2 shrink-0 rounded-full ${statusDotColor[job.state] ?? "bg-zinc-500"}`}
-        />
-      </div>
-
-      {/* 3-panel content */}
       <div className="flex min-h-0 flex-1">
-        {/* LEFT: Job details */}
-        <div className="flex w-[260px] shrink-0 flex-col border-r border-[var(--card-border)] overflow-y-auto">
-          <div className="p-4 space-y-4">
-            {/* Actions */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={onRunNow}
-                disabled={isRunning}
-                className="inline-flex items-center gap-1.5 rounded-md border border-[var(--card-border)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.05em] text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] hover:border-[var(--foreground)] disabled:opacity-50"
-              >
-                <Play size={11} /> Run now
-              </button>
-              <button
-                onClick={onToggle}
-                type="button"
-                role="switch"
-                aria-checked={job.state === "active"}
-                title={job.state === "active" ? "Pause" : "Resume"}
-                className={`relative inline-flex h-[16px] w-[28px] shrink-0 cursor-pointer rounded-full border transition-colors ${
-                  job.state === "active"
-                    ? "border-emerald-400/30 bg-emerald-500/40"
-                    : "border-[var(--card-border)] bg-[var(--muted)]"
-                }`}
-              >
-                <span
-                  className={`pointer-events-none absolute top-[2px] size-[10px] rounded-full bg-white/90 shadow-sm transition-transform ${
-                    job.state === "active"
-                      ? "translate-x-[14px]"
-                      : "translate-x-[2px]"
-                  }`}
-                />
-              </button>
-              {isRunning && (
+        <div className="flex w-[420px] shrink-0 flex-col border-r border-[var(--card-border)] overflow-hidden">
+          <div className="border-b border-[var(--card-border)] px-6 py-5">
+            <div className="flex items-start gap-4">
+              <div className="min-w-0 flex-1">
+                <h2 className="truncate text-[18px] font-semibold text-[var(--foreground)]">
+                  {job.name}
+                </h2>
+              </div>
+              <div className="flex items-center gap-1.5">
                 <button
-                  onClick={onCancelRun}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-[var(--card-border)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.05em] text-[var(--muted-foreground)] hover:text-red-400 hover:border-red-400/30 transition-colors"
+                  onClick={onToggle}
+                  type="button"
+                  role="switch"
+                  aria-checked={job.state === "active"}
+                  title={job.state === "active" ? "Pause" : "Resume"}
+                  className={`relative inline-flex h-[18px] w-[32px] shrink-0 cursor-pointer rounded-full border transition-colors ${
+                    job.state === "active"
+                      ? "border-emerald-400/30 bg-emerald-500/40"
+                      : "border-[var(--card-border)] bg-[var(--muted)]"
+                  }`}
                 >
-                  Cancel
+                  <span
+                    className={`pointer-events-none absolute top-[2px] size-[12px] rounded-full bg-white/90 shadow-sm transition-transform ${
+                      job.state === "active"
+                        ? "translate-x-[16px]"
+                        : "translate-x-[2px]"
+                    }`}
+                  />
                 </button>
-              )}
-              <div className="ml-auto flex items-center gap-1">
+                <button
+                  onClick={onRunNow}
+                  disabled={isRunning}
+                  title="Run now"
+                  className="rounded-md border border-[var(--card-border)] p-1.5 text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)] disabled:opacity-50"
+                >
+                  <Play size={12} className="fill-current" />
+                </button>
                 <button
                   onClick={onEdit}
                   title="Edit"
@@ -868,139 +852,153 @@ function JobDetailView({
                 </button>
               </div>
             </div>
-
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted-foreground)] mb-1.5">
-                Status
-              </div>
-              <div
-                className={`text-[12px] font-semibold ${job.state === "active" ? "text-emerald-400" : job.state === "paused" ? "text-amber-400" : "text-[var(--muted-foreground)]"}`}
-              >
-                {job.state.charAt(0).toUpperCase() + job.state.slice(1)}
-              </div>
-            </div>
-            <AgentDropdown
-              agents={agents}
-              value={job.agentId}
-              onChange={onUpdateAgent}
-            />
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted-foreground)] mb-1.5">
-                Schedule
-              </div>
-              <div className="text-[12px] text-[var(--foreground)]">
-                {(job.cronExpr && cronToHuman(job.cronExpr)) || job.cadence || job.cronExpr}
-              </div>
-            </div>
-            {job.condition && (
-              <div>
-                <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted-foreground)] mb-1.5">
-                  Gate
-                </div>
-                <div className="text-[12px] text-[var(--foreground)]">
-                  {job.condition}
-                </div>
-              </div>
-            )}
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted-foreground)] mb-1.5">
-                Instructions
-              </div>
-              <div className="text-[11px] leading-[1.5] text-[var(--muted-foreground)] whitespace-pre-wrap break-words">
-                {job.prompt.length > 200
-                  ? job.prompt.slice(0, 200) + "..."
-                  : job.prompt}
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              {[
-                ...(job.overlapPolicy !== "skip"
-                  ? [{ l: "Overlap", v: job.overlapPolicy }]
-                  : []),
-                ...(job.cliArgs ? [{ l: "CLI args", v: job.cliArgs }] : []),
-                { l: "Next run", v: formatNextRun(job.nextRunAt, job.state) },
-                {
-                  l: "Last run",
-                  v: job.lastRunAt
-                    ? formatDate(new Date(job.lastRunAt).toISOString()) +
-                      ` (${job.lastOutcome ?? "—"})`
-                    : "Never",
-                },
-              ].map((item) => (
-                <div
-                  key={item.l}
-                  className="flex items-center justify-between rounded-md border border-[var(--card-border)] bg-[var(--muted)]/50 px-2.5 py-1.5 text-[11px]"
-                >
-                  <span className="text-[var(--muted-foreground)]">
-                    {item.l}
-                  </span>
-                  <span className="font-medium text-[var(--foreground)]">
-                    {item.v}
-                  </span>
-                </div>
-              ))}
-            </div>
           </div>
-        </div>
 
-        {/* MIDDLE: Run history */}
-        <div className="flex w-[240px] shrink-0 flex-col border-r border-[var(--card-border)] overflow-hidden">
-          <div className="border-b border-[var(--card-border)] px-3 py-2">
-            <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
-              Run History{" "}
-              <span className="text-[var(--muted-foreground)]/50">
-                {runs.length}
-              </span>
-            </div>
-          </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {runs.length === 0 ? (
-              <div className="p-4 text-center text-[11px] text-[var(--muted-foreground)]">
-                No runs yet
-              </div>
-            ) : (
-              <div className="flex flex-col">
-                {runs.map((run) => {
-                  const isSelected = selectedRunId === run.id;
-                  return (
-                    <button
-                      key={run.id}
-                      type="button"
-                      onClick={() => setSelectedRunId(run.id)}
-                      className={`flex items-start gap-2.5 px-3 py-2.5 text-left transition-colors border-l-2 ${
-                        isSelected
-                          ? "bg-[var(--foreground)]/5 border-l-[var(--foreground)]"
-                          : "border-l-transparent hover:bg-[var(--muted)]/30"
-                      }`}
-                    >
-                      <span
-                        className={`mt-1 inline-block size-2 shrink-0 rounded-full ${runStatusDot[run.status] ?? "bg-zinc-500"}`}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[11px] font-medium text-[var(--foreground)] truncate">
-                          {run.status === "running"
-                            ? "Running..."
-                            : run.status.charAt(0).toUpperCase() +
-                              run.status.slice(1)}
-                          {run.durationMs != null &&
-                            ` · ${(run.durationMs / 1000).toFixed(1)}s`}
-                        </div>
-                        <div className="mt-0.5 flex items-center gap-2 text-[10px] text-[var(--muted-foreground)]">
-                          <span>
-                            {formatDate(run.startedAt ?? run.createdAt)}
-                          </span>
+            <div className="space-y-0">
+              <div className="px-6 py-5">
+                <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] px-5 py-4">
+                  <div className="grid grid-cols-[96px,minmax(0,1fr)] items-center gap-x-4 gap-y-4">
+                    <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
+                      Agent
+                    </div>
+                    <div className="min-w-0 flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex items-center gap-2.5">
+                        {selectedAgent ? (
+                          <img
+                            src={agentAvatar(selectedAgent.id, selectedAgent.color, 20)}
+                            alt=""
+                            className="size-5 rounded-full shrink-0"
+                          />
+                        ) : (
+                          <Terminal size={14} className="shrink-0 text-[var(--muted-foreground)]" />
+                        )}
+                        <div className="truncate text-[13px] font-medium text-[var(--foreground)]">
+                          {agentName ?? job.provider}
+                          {job.model ? ` (${job.provider} / ${job.model})` : ""}
                         </div>
                       </div>
-                    </button>
-                  );
-                })}
+                    </div>
+                    <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
+                      Schedule
+                    </div>
+                    <div className="truncate text-[13px] font-medium text-[var(--foreground)]">
+                      {scheduleLabel || "—"}
+                    </div>
+                    <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
+                      Target
+                    </div>
+                    <div
+                      className="truncate font-mono text-[13px] text-[var(--foreground)]"
+                      title={targetLabel}
+                    >
+                      {targetLabel}
+                    </div>
+                  </div>
+                </div>
               </div>
-            )}
+
+              <div className="border-t border-[var(--card-border)]">
+                <div className="flex items-center justify-between px-6 py-4">
+                  <SectionLabel>Recent Runs</SectionLabel>
+                  <span className="text-sm text-[var(--muted-foreground)]">
+                    {runs.length} total
+                  </span>
+                </div>
+                <div>
+                  {runs.length === 0 ? (
+                    <div className="px-6 py-10 text-center text-[11px] text-[var(--muted-foreground)]">
+                      No runs yet
+                    </div>
+                  ) : (
+                    runs.map((run) => {
+                      const isSelected = selectedRunId === run.id;
+                      const isSuccessful = run.status === "success";
+                      return (
+                        <button
+                          key={run.id}
+                          type="button"
+                          onClick={() => pushSelection({ run: run.id })}
+                          className={`flex w-full items-center gap-4 border-t border-[var(--card-border)]/50 px-6 py-5 text-left transition-colors ${
+                            isSelected
+                              ? "border-l-2 border-l-emerald-400 bg-emerald-500/5"
+                              : "hover:bg-[var(--muted)]/20"
+                          }`}
+                        >
+                          <span
+                            className={`flex size-6 shrink-0 items-center justify-center rounded-full border text-[11px] ${
+                              isSuccessful
+                                ? "border-emerald-400 text-emerald-400"
+                                : run.status === "failed"
+                                  ? "border-red-400 text-red-400"
+                                  : run.status === "running"
+                                    ? "border-sky-400 text-sky-400"
+                                    : "border-[var(--card-border)] text-[var(--muted-foreground)]"
+                            }`}
+                          >
+                            {isSuccessful ? "✓" : run.status === "failed" ? "!" : "•"}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="text-[13px] font-medium text-[var(--foreground)]">
+                              {formatDate(run.startedAt ?? run.createdAt)}
+                            </div>
+                            <div className="mt-1 text-[12px] text-[var(--muted-foreground)]">
+                              {run.durationMs != null
+                                ? `${(run.durationMs / 1000).toFixed(1)}s`
+                                : run.status === "running"
+                                  ? "Running..."
+                                  : run.status.charAt(0).toUpperCase() + run.status.slice(1)}
+                            </div>
+                          </div>
+                          {isSelected ? (
+                            <span className="rounded-md bg-[var(--muted)] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                              Viewing
+                            </span>
+                          ) : null}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              <div className="border-t border-[var(--card-border)] px-6 py-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  {isRunning ? (
+                    <button
+                      onClick={onCancelRun}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-red-400/30 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.05em] text-red-400 transition-colors hover:bg-red-500/10"
+                    >
+                      Cancel run
+                    </button>
+                  ) : null}
+                  {job.condition ? (
+                    <span className="rounded-md border border-blue-400/20 bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-blue-400">
+                      gated
+                    </span>
+                  ) : null}
+                  <span className="text-[11px] text-[var(--muted-foreground)]">
+                    Next run {formatNextRun(job.nextRunAt, job.state)}
+                  </span>
+                  <span className="text-[11px] text-[var(--muted-foreground)]">
+                    Last {job.lastRunAt ? formatDate(new Date(job.lastRunAt).toISOString()) : "Never"}
+                  </span>
+                  {(job.cliArgs || job.overlapPolicy !== "skip") && (
+                    <span className="text-[11px] text-[var(--muted-foreground)]">
+                      {job.cliArgs ? "Custom CLI args" : `Overlap ${job.overlapPolicy}`}
+                    </span>
+                  )}
+                </div>
+                {job.condition ? (
+                  <div className="mt-3 text-[11px] leading-[1.5] text-[var(--muted-foreground)]">
+                    {job.condition}
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* RIGHT: Selected run output + chat */}
         {selectedRun ? (
           <RunChatPanel
             key={selectedRun.id}
@@ -1041,12 +1039,15 @@ export default function PromptJobBoard({
   } = usePromptJobs(projectId, { requireProjectId });
 
   const [filter, setFilter] = useState("all");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedJobFallback, setSelectedJobFallback] = useState<PromptJob | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [editingJob, setEditingJob] = useState<PromptJob | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<string | null>(null);
   const [agentMap, setAgentMap] = useState<Record<string, AgentOption>>({});
+  const { getSelection, pushSelection, replaceSelection } = useUrlSelection();
+  const selectedId = getSelection("job");
+  const selectedRunId = getSelection("run");
 
   useEffect(() => {
     fetch("/api/prompt-jobs/agents")
@@ -1064,10 +1065,11 @@ export default function PromptJobBoard({
     setTimeout(() => setToast(null), 2500);
   };
 
-  const filteredJobs = jobs.filter(
-    (j) => filter === "all" || j.state === filter,
-  );
-  const selected = jobs.find((j) => j.id === selectedId) ?? null;
+  const filteredJobs = jobs.filter((j) => filter === "all" || j.state === filter);
+  const selectedFromList = selectedId ? jobs.find((j) => j.id === selectedId) ?? null : null;
+  const selected =
+    selectedFromList ??
+    (selectedJobFallback?.id === selectedId ? selectedJobFallback : null);
 
   const counts: Record<string, number> = {
     all: jobs.length,
@@ -1098,7 +1100,9 @@ export default function PromptJobBoard({
   const handleDelete = async (id: string) => {
     const ok = await deleteJob(id);
     if (ok) {
-      if (selectedId === id) setSelectedId(null);
+      if (selectedId === id) {
+        pushSelection({ job: null, run: null });
+      }
       showToast("Job deleted");
     }
   };
@@ -1117,6 +1121,55 @@ export default function PromptJobBoard({
       if (ok) showToast(`Job "${data.name}" created`);
     }
   };
+
+  useEffect(() => {
+    if (!selectedId) {
+      setSelectedJobFallback(null);
+      if (selectedRunId) {
+        replaceSelection({ run: null });
+      }
+      return;
+    }
+
+    if (selectedFromList) {
+      setSelectedJobFallback((current) => (current?.id === selectedId ? selectedFromList : null));
+      return;
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const response = await fetch(`/api/prompt-jobs/${encodeURIComponent(selectedId)}`);
+        if (cancelled) return;
+
+        if (response.status === 404) {
+          replaceSelection({ job: null, run: null });
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch selected scheduled task: ${response.status}`);
+        }
+
+        const payload = (await response.json().catch(() => ({}))) as { job?: PromptJob };
+        if (!payload.job?.id) {
+          replaceSelection({ job: null, run: null });
+          return;
+        }
+
+        setSelectedJobFallback(payload.job);
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to hydrate selected prompt job", error);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [replaceSelection, selectedFromList, selectedId, selectedRunId]);
 
   // Toast overlay (shared across all views)
   const toastEl = toast && (
@@ -1144,215 +1197,170 @@ export default function PromptJobBoard({
     );
   }
 
-  // ── Detail view (3-panel) ──
-  if (selected) {
-    return (
-      <>
-        {toastEl}
-        <JobDetailView
-          job={selected}
-          agentMap={agentMap}
-          onBack={() => setSelectedId(null)}
-          onEdit={() => {
-            setEditingJob(selected);
-            setShowCreate(true);
-          }}
-          onToggle={() => handleToggle(selected)}
-          onDelete={() => handleDelete(selected.id)}
-          onRunNow={() => handleRunNow(selected.id)}
-          onCancelRun={() => handleCancelRun(selected.id)}
-          onUpdateAgent={async (agentId) => {
-            const agent = agentMap[agentId];
-            await updateJob(selected.id, {
-              agentId,
-              provider: agent?.provider ?? "claude",
-              model: agent?.model ?? "",
-            } as any);
-          }}
-          fetchRuns={fetchRuns}
-        />
-      </>
-    );
-  }
-
-  // ── List view ──
   return (
-    <div className="h-full flex flex-col text-[var(--foreground)]">
+    <div className="flex h-full min-h-0 flex-col text-[var(--foreground)] lg:flex-row">
       {toastEl}
 
-      <div className="px-6 md:px-10 pt-6 pb-0">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-6">
-          <p className="text-sm text-[var(--muted-foreground)]">
-            {counts.active} active job{counts.active !== 1 ? "s" : ""}{" "}
-            &middot; {jobs.length} total
-          </p>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => refresh()}
-              className="p-2 rounded-lg border border-[var(--card-border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--foreground)] transition-colors"
-            >
-              <RefreshCw size={16} />
-            </button>
-            <button
-              onClick={() => {
-                setEditingJob(null);
-                setShowCreate(true);
-              }}
-              className="bg-[var(--foreground)] text-[var(--background)] px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:opacity-90 transition-opacity"
-            >
-              <Plus size={16} /> New Job
-            </button>
+      <div className="flex w-full shrink-0 flex-col border-b border-[var(--card-border)] lg:w-[390px] lg:border-b-0 lg:border-r">
+        <div className="px-6 pb-0 pt-6">
+          <div className="border-b border-[var(--card-border)]">
+            <div className="flex items-end justify-between gap-4">
+              <div className="flex items-end gap-10">
+                {(["all", "active", "paused"] as const).map((f) => {
+                  const isActive = filter === f;
+                  return (
+                    <button
+                      key={f}
+                      onClick={() => setFilter(f)}
+                      className={`relative pb-4 text-[18px] font-semibold capitalize transition-colors ${
+                        isActive
+                          ? "text-[var(--foreground)]"
+                          : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                      }`}
+                    >
+                      {f}
+                      {isActive ? (
+                        <span className="absolute bottom-[6px] left-0 h-[4px] w-8 rounded-full bg-[var(--foreground)]" />
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center gap-5 pb-4 text-[var(--muted-foreground)]">
+                <button
+                  onClick={() => refresh()}
+                  className="transition-colors hover:text-[var(--foreground)]"
+                  title="Refresh"
+                >
+                  <RefreshCw size={18} />
+                </button>
+                <button
+                  onClick={() => {
+                    setEditingJob(null);
+                    setShowCreate(true);
+                  }}
+                  className="transition-colors hover:text-[var(--foreground)]"
+                  title="New Job"
+                >
+                  <Plus size={20} />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="flex gap-4 border-b border-[var(--card-border)] pb-3">
-          {(["all", "active", "paused", "stopped"] as const).map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`text-xs font-medium pb-1 transition-colors border-b-2 capitalize ${
-                filter === f
-                  ? "border-[var(--foreground)] text-[var(--foreground)]"
-                  : "border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-              }`}
-            >
-              {f}
-              <span className="ml-1.5 text-[10px] text-[var(--muted-foreground)] font-mono">
-                {counts[f]}
-              </span>
-            </button>
-          ))}
+        <div className="min-h-0 flex-1 overflow-y-auto pb-5">
+          {loading && jobs.length === 0 ? (
+            <div className="py-12 text-center text-sm text-[var(--muted-foreground)]">
+              Loading jobs...
+            </div>
+          ) : (
+            <div className="overflow-hidden">
+              {filteredJobs.map((job) => {
+                const isSelected = selectedId === job.id;
+                const scheduleLabel =
+                  (job.cronExpr && cronToHuman(job.cronExpr)) || job.cadence || job.cronExpr;
+                return (
+                  <div
+                    key={job.id}
+                    onClick={() => pushSelection({ job: job.id, run: null })}
+                    className={`cursor-pointer border-b border-[var(--card-border)]/50 px-6 py-4 transition-colors ${
+                      isSelected
+                        ? "bg-[var(--card-bg)]"
+                        : "hover:bg-[var(--muted)]/10"
+                    }`}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[15px] font-medium text-[var(--foreground)]">
+                          {job.name}
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-[var(--muted-foreground)]">
+                          <span className="min-w-0 flex items-center gap-1.5 truncate">
+                            {job.agentId && agentMap[job.agentId] ? (
+                              <>
+                                <img
+                                  src={agentAvatar(
+                                    job.agentId,
+                                    agentMap[job.agentId].color,
+                                    16,
+                                  )}
+                                  alt=""
+                                  className="size-4 rounded-full"
+                                />
+                                {agentMap[job.agentId].name}
+                              </>
+                            ) : (
+                              <>
+                                <Terminal size={11} />
+                                {job.provider}
+                              </>
+                            )}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Clock size={11} />
+                            {formatNextRun(job.nextRunAt, job.state)}
+                          </span>
+                          <span
+                            className="truncate font-mono text-[11px]"
+                            title={scheduleLabel}
+                          >
+                            {scheduleLabel}
+                          </span>
+                          {job.condition ? (
+                            <span className="rounded-md border border-blue-400/20 bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-400">
+                              gated
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <span
+                        className={`mt-1 inline-block size-2 shrink-0 rounded-full ${stateDotClass(job.state)}`}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+
+              {filteredJobs.length === 0 && (
+                <div className="rounded-xl border border-dashed border-[var(--card-border)] py-12 text-center text-sm text-[var(--muted-foreground)]">
+                  {jobs.length === 0
+                    ? "No prompt jobs yet. Create one to get started."
+                    : "No jobs match the selected filter."}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="flex-1 min-h-0 px-6 md:px-10 py-6 overflow-y-auto">
-        {loading && jobs.length === 0 ? (
-          <div className="text-center py-12 text-[var(--muted-foreground)] text-sm">
-            Loading jobs...
-          </div>
+      <div className="min-h-0 min-w-0 flex-1">
+        {selected ? (
+          <JobDetailView
+            key={selected.id}
+            job={selected}
+            agentMap={agentMap}
+            onEdit={() => {
+              setEditingJob(selected);
+              setShowCreate(true);
+            }}
+            onToggle={() => handleToggle(selected)}
+            onDelete={() => handleDelete(selected.id)}
+            onRunNow={() => handleRunNow(selected.id)}
+            onCancelRun={() => handleCancelRun(selected.id)}
+            fetchRuns={fetchRuns}
+          />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {filteredJobs.map((job) => {
-              const isBusy = busy[job.id];
-              return (
-                <div
-                  key={job.id}
-                  onClick={() => setSelectedId(job.id)}
-                  className="p-5 rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] hover:border-[var(--muted-foreground)] transition-all cursor-pointer"
-                >
-                  <div className="flex justify-between items-start gap-3 mb-3">
-                    <div className="min-w-0">
-                      <h3 className="text-sm font-semibold truncate mb-1">
-                        {job.name}
-                      </h3>
-                      <StateBadge state={job.state} />
-                    </div>
-                    <div
-                      className="flex items-center gap-1.5 shrink-0"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleToggle(job); }}
-                        type="button"
-                        role="switch"
-                        aria-checked={job.state === 'active'}
-                        title={job.state === 'active' ? 'Pause' : 'Resume'}
-                        className={`relative inline-flex h-[14px] w-[24px] shrink-0 cursor-pointer rounded-full border transition-colors ${
-                          job.state === 'active' ? 'border-emerald-400/30 bg-emerald-500/40' : 'border-[var(--card-border)] bg-[var(--muted)]'
-                        }`}
-                      >
-                        <span className={`pointer-events-none absolute top-[1.5px] size-[9px] rounded-full bg-white/90 shadow-sm transition-transform ${
-                          job.state === 'active' ? 'translate-x-[11px]' : 'translate-x-[1.5px]'
-                        }`} />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingJob(job);
-                          setShowCreate(true);
-                        }}
-                        title="Edit"
-                        className="p-1.5 rounded-md border border-[var(--card-border)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:border-[var(--muted-foreground)] transition-colors"
-                      >
-                        <Pencil size={12} />
-                      </button>
-                      <button
-                        onClick={(e) => handleRunNow(job.id, e)}
-                        disabled={isBusy}
-                        title="Run now"
-                        className={`p-1.5 rounded-md border text-[var(--muted-foreground)] transition-colors ${isBusy ? "border-[var(--card-border)] opacity-50 cursor-wait" : "border-[var(--card-border)] hover:text-[var(--foreground)] hover:border-[var(--muted-foreground)]"}`}
-                      >
-                        <Play
-                          size={12}
-                          className={isBusy ? "animate-pulse" : "fill-current"}
-                        />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(job.id);
-                        }}
-                        title="Delete"
-                        className="p-1.5 rounded-md border border-[var(--card-border)] text-[var(--muted-foreground)] hover:text-red-500 hover:border-red-500/30 transition-colors"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
-                  </div>
-
-                  <p className="text-[12px] text-[var(--muted-foreground)] leading-relaxed line-clamp-2 mb-3">
-                    {job.prompt}
-                  </p>
-
-                  <div className="pt-3 border-t border-[var(--card-border)]/50 flex items-center gap-4 text-[11px] text-[var(--muted-foreground)]">
-                    <span className="flex items-center gap-1">
-                      {job.agentId && agentMap[job.agentId] ? (
-                        <>
-                          <img
-                            src={agentAvatar(
-                              job.agentId,
-                              agentMap[job.agentId].color,
-                              16,
-                            )}
-                            alt=""
-                            className="size-4 rounded-full"
-                          />
-                          {agentMap[job.agentId].name}
-                        </>
-                      ) : (
-                        <>
-                          <Terminal size={11} />
-                          {job.provider}
-                        </>
-                      )}
-                    </span>
-                    {job.condition && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-400/20">
-                        gated
-                      </span>
-                    )}
-                    <span className="flex items-center gap-1">
-                      <Clock size={11} />
-                      {formatNextRun(job.nextRunAt, job.state)}
-                    </span>
-                    <span
-                      className="ml-auto font-mono truncate max-w-[120px]"
-                      title={(job.cronExpr && cronToHuman(job.cronExpr)) || job.cadence || job.cronExpr}
-                    >
-                      {(job.cronExpr && cronToHuman(job.cronExpr)) || job.cadence || job.cronExpr}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-
-            {filteredJobs.length === 0 && (
-              <div className="md:col-span-2 xl:col-span-3 text-center py-12 text-[var(--muted-foreground)] text-sm border border-dashed border-[var(--card-border)] rounded-xl">
-                {jobs.length === 0
-                  ? "No prompt jobs yet. Create one to get started."
-                  : "No jobs match the selected filter."}
+          <div className="flex h-full items-center justify-center border-t border-[var(--card-border)] lg:border-l-0 lg:border-t-0">
+            <div className="rounded-2xl border border-dashed border-[var(--card-border)] bg-[var(--card-bg)]/60 px-8 py-10 text-center">
+              <div className="text-sm font-medium text-[var(--foreground)]">
+                Select a scheduled task
               </div>
-            )}
+              <p className="mt-2 text-sm text-[var(--muted-foreground)]">
+                The selected job will open here with its runs and chat output.
+              </p>
+            </div>
           </div>
         )}
       </div>

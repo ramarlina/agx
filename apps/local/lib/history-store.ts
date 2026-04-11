@@ -72,6 +72,7 @@ interface SweepStaleWorkingResult {
 interface SearchMessagesInput {
   query: string;
   threadId?: string | null;
+  threadIds?: string[] | null;
   limit?: number;
   offset?: number;
 }
@@ -1482,6 +1483,16 @@ export async function searchMessages(input: SearchMessagesInput): Promise<Search
 
   const normalizedThreadId =
     typeof input.threadId === "string" ? input.threadId.trim() || null : null;
+  const normalizedThreadIds =
+    normalizedThreadId || !Array.isArray(input.threadIds)
+      ? []
+      : Array.from(
+          new Set(
+            input.threadIds
+              .map((threadId) => (typeof threadId === "string" ? threadId.trim() : ""))
+              .filter(Boolean)
+          )
+        );
   const requestedLimit = Number.isFinite(input.limit) ? Number(input.limit) : 20;
   const requestedOffset = Number.isFinite(input.offset) ? Number(input.offset) : 0;
   const limit = Math.min(Math.max(Math.trunc(requestedLimit), 1), 100);
@@ -1489,15 +1500,32 @@ export async function searchMessages(input: SearchMessagesInput): Promise<Search
   const searchTerms = tokenizeSearchTerms(normalizedQuery);
   const ftsQuery = searchTerms.length > 0 ? searchTerms.map((term) => `${term}*`).join(" ") : null;
 
+  if (!normalizedThreadId && Array.isArray(input.threadIds) && normalizedThreadIds.length === 0) {
+    return { results: [], total: 0 };
+  }
+
   return withDatabase((db) => {
     const merged = new Map<string, MessageSearchResult & { sortRank: number; matchedByFts: boolean }>();
+    const buildThreadClauses = (columnName: string): { clause: string | null; params: string[] } => {
+      if (normalizedThreadId) {
+        return { clause: `${columnName} = ?`, params: [normalizedThreadId] };
+      }
+      if (normalizedThreadIds.length > 0) {
+        return {
+          clause: `${columnName} IN (${normalizedThreadIds.map(() => "?").join(", ")})`,
+          params: normalizedThreadIds,
+        };
+      }
+      return { clause: null, params: [] };
+    };
 
     if (ftsQuery) {
       const ftsWhereClauses = ["messages_fts MATCH ?"];
       const ftsWhereParams: Array<string | number> = [ftsQuery];
-      if (normalizedThreadId) {
-        ftsWhereClauses.push("m.thread_id = ?");
-        ftsWhereParams.push(normalizedThreadId);
+      const threadFilter = buildThreadClauses("m.thread_id");
+      if (threadFilter.clause) {
+        ftsWhereClauses.push(threadFilter.clause);
+        ftsWhereParams.push(...threadFilter.params);
       }
 
       const ftsRows = db
@@ -1530,9 +1558,10 @@ export async function searchMessages(input: SearchMessagesInput): Promise<Search
 
     const fallbackClauses: string[] = [];
     const fallbackParams: Array<string | number> = [];
-    if (normalizedThreadId) {
-      fallbackClauses.push("m.thread_id = ?");
-      fallbackParams.push(normalizedThreadId);
+    const fallbackThreadFilter = buildThreadClauses("m.thread_id");
+    if (fallbackThreadFilter.clause) {
+      fallbackClauses.push(fallbackThreadFilter.clause);
+      fallbackParams.push(...fallbackThreadFilter.params);
     }
     if (searchTerms.length > 0) {
       for (const term of searchTerms) {

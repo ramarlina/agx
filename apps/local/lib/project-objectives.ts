@@ -19,6 +19,7 @@ export interface ProjectObjective {
   id: string;
   title: string;
   teamId: string;
+  threadId: string | null;
   summary: string;
   cadence: string;
   condition: string;
@@ -63,6 +64,7 @@ interface CreateProjectObjectiveInput {
   id?: string;
   title: string;
   teamId: string;
+  threadId?: string | null;
   summary?: string;
   cadence?: string;
   condition?: string;
@@ -199,6 +201,7 @@ function normalizeObjective(raw: unknown): ProjectObjective | null {
     id: readString(raw.id, createId("objective")),
     title: readString(raw.title, "Untitled objective"),
     teamId: readString(raw.teamId ?? raw.team_id ?? raw.ownerTeamId),
+    threadId: readString(raw.threadId) || null,
     summary: readString(raw.summary),
     cadence: readString(raw.cadence),
     condition: readString(raw.condition),
@@ -389,6 +392,7 @@ export function createProjectObjective(
     id: input.id ?? createId("objective"),
     title: input.title.trim(),
     teamId: input.teamId.trim(),
+    threadId: typeof input.threadId === "string" && input.threadId.trim() ? input.threadId.trim() : null,
     summary: input.summary?.trim() ?? "",
     cadence: input.cadence?.trim() ?? "",
     condition: input.condition?.trim() ?? "",
