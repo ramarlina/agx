@@ -1,20 +1,19 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { TerminalTab } from "@/lib/terminal-types";
+import type { TerminalSession } from "@/lib/terminal-types";
 
 export interface TerminalTabsState {
-  tabs: TerminalTab[];
-  activeTabId: string | null;
+  sessions: TerminalSession[];
 
-  createTab: (cwd?: string) => string;
-  closeTab: (id: string) => void;
-  renameTab: (id: string, title: string) => void;
-  setActiveTab: (id: string) => void;
-  setSessionId: (tabId: string, sessionId: string) => void;
+  createSession: (cwd?: string) => string;
+  closeSession: (id: string) => void;
+  renameSession: (id: string, title: string) => void;
+  setSessionId: (id: string, sessionId: string) => void;
+  updateStatus: (id: string, status: TerminalSession["status"]) => void;
 }
 
-function nextTitle(tabs: TerminalTab[]): string {
-  const nums = tabs
+function nextTitle(sessions: TerminalSession[]): string {
+  const nums = sessions
     .map((t) => {
       const match = t.title.match(/^Terminal (\d+)$/);
       return match ? Number(match[1]) : 0;
@@ -28,58 +27,52 @@ function nextTitle(tabs: TerminalTab[]): string {
 export const useTerminalTabsStore = create<TerminalTabsState>()(
   persist(
     (set, get) => ({
-      tabs: [],
-      activeTabId: null,
+      sessions: [],
 
-      createTab(cwd?: string): string {
+      createSession(cwd?: string): string {
         const id = crypto.randomUUID();
-        const title = nextTitle(get().tabs);
-        const tab: TerminalTab = { id, title, cwd, createdAt: Date.now() };
+        const title = nextTitle(get().sessions);
+        const session: TerminalSession = {
+          id,
+          title,
+          cwd,
+          createdAt: Date.now(),
+          status: "connecting",
+        };
 
         set((state) => ({
-          tabs: [...state.tabs, tab],
-          activeTabId: id,
+          sessions: [...state.sessions, session],
         }));
 
         return id;
       },
 
-      closeTab(id: string): void {
-        set((state) => {
-          const idx = state.tabs.findIndex((t) => t.id === id);
-          if (idx === -1) return state;
-
-          const nextTabs = state.tabs.filter((t) => t.id !== id);
-          let nextActive = state.activeTabId;
-
-          if (state.activeTabId === id) {
-            if (nextTabs.length === 0) {
-              nextActive = null;
-            } else if (idx < nextTabs.length) {
-              nextActive = nextTabs[idx].id;
-            } else {
-              nextActive = nextTabs[nextTabs.length - 1].id;
-            }
-          }
-
-          return { tabs: nextTabs, activeTabId: nextActive };
-        });
-      },
-
-      renameTab(id: string, title: string): void {
+      closeSession(id: string): void {
         set((state) => ({
-          tabs: state.tabs.map((t) => (t.id === id ? { ...t, title } : t)),
+          sessions: state.sessions.filter((s) => s.id !== id),
         }));
       },
 
-      setActiveTab(id: string): void {
-        set({ activeTabId: id });
+      renameSession(id: string, title: string): void {
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === id ? { ...s, title } : s,
+          ),
+        }));
       },
 
-      setSessionId(tabId: string, sessionId: string): void {
+      setSessionId(id: string, sessionId: string): void {
         set((state) => ({
-          tabs: state.tabs.map((t) =>
-            t.id === tabId ? { ...t, sessionId } : t,
+          sessions: state.sessions.map((s) =>
+            s.id === id ? { ...s, sessionId } : s,
+          ),
+        }));
+      },
+
+      updateStatus(id: string, status: TerminalSession["status"]): void {
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === id ? { ...s, status } : s,
           ),
         }));
       },

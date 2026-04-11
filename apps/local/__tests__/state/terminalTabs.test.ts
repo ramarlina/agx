@@ -2,133 +2,130 @@ import { useTerminalTabsStore } from "@/state/terminalTabs";
 
 // Reset store between tests
 beforeEach(() => {
-  useTerminalTabsStore.setState({ tabs: [], activeTabId: null });
+  useTerminalTabsStore.setState({ sessions: [] });
 });
 
 describe("terminalTabs store", () => {
-  describe("createTab", () => {
-    it("creates a tab and sets it active", () => {
-      const id = useTerminalTabsStore.getState().createTab();
+  describe("createSession", () => {
+    it("creates a session", () => {
+      const id = useTerminalTabsStore.getState().createSession();
       const state = useTerminalTabsStore.getState();
-      expect(state.tabs).toHaveLength(1);
-      expect(state.tabs[0].id).toBe(id);
-      expect(state.tabs[0].title).toBe("Terminal 1");
-      expect(state.activeTabId).toBe(id);
+      expect(state.sessions).toHaveLength(1);
+      expect(state.sessions[0].id).toBe(id);
+      expect(state.sessions[0].title).toBe("Terminal 1");
+      expect(state.sessions[0].status).toBe("connecting");
     });
 
-    it("increments title numbers for subsequent tabs", () => {
-      const { createTab } = useTerminalTabsStore.getState();
-      createTab();
-      createTab();
-      createTab();
+    it("increments title numbers for subsequent sessions", () => {
+      const { createSession } = useTerminalTabsStore.getState();
+      createSession();
+      createSession();
+      createSession();
 
-      const titles = useTerminalTabsStore.getState().tabs.map((t) => t.title);
+      const titles = useTerminalTabsStore
+        .getState()
+        .sessions.map((s) => s.title);
       expect(titles).toEqual(["Terminal 1", "Terminal 2", "Terminal 3"]);
     });
 
-    it("passes cwd to the created tab", () => {
-      const id = useTerminalTabsStore.getState().createTab("/tmp");
-      const tab = useTerminalTabsStore.getState().tabs.find((t) => t.id === id);
-      expect(tab?.cwd).toBe("/tmp");
-    });
-
-    it("sets the newly created tab as active", () => {
-      const { createTab } = useTerminalTabsStore.getState();
-      const id1 = createTab();
-      expect(useTerminalTabsStore.getState().activeTabId).toBe(id1);
-      const id2 = createTab();
-      expect(useTerminalTabsStore.getState().activeTabId).toBe(id2);
+    it("passes cwd to the created session", () => {
+      const id = useTerminalTabsStore.getState().createSession("/tmp");
+      const session = useTerminalTabsStore
+        .getState()
+        .sessions.find((s) => s.id === id);
+      expect(session?.cwd).toBe("/tmp");
     });
   });
 
-  describe("closeTab", () => {
-    it("removes the tab from the list", () => {
-      const { createTab } = useTerminalTabsStore.getState();
-      const id = createTab();
-      useTerminalTabsStore.getState().closeTab(id);
-      expect(useTerminalTabsStore.getState().tabs).toHaveLength(0);
+  describe("closeSession", () => {
+    it("removes the session from the list", () => {
+      const { createSession } = useTerminalTabsStore.getState();
+      const id = createSession();
+      useTerminalTabsStore.getState().closeSession(id);
+      expect(useTerminalTabsStore.getState().sessions).toHaveLength(0);
     });
 
-    it("activates the next tab when closing the active tab", () => {
-      const { createTab } = useTerminalTabsStore.getState();
-      const id1 = createTab();
-      const id2 = createTab();
-      const id3 = createTab();
+    it("does not affect other sessions when closing one", () => {
+      const { createSession } = useTerminalTabsStore.getState();
+      const id1 = createSession();
+      const id2 = createSession();
 
-      // Activate the middle tab then close it
-      useTerminalTabsStore.getState().setActiveTab(id2);
-      useTerminalTabsStore.getState().closeTab(id2);
-
-      // The tab that was at the same index (id3) should now be active
-      expect(useTerminalTabsStore.getState().activeTabId).toBe(id3);
-    });
-
-    it("activates the previous tab when closing the last tab in the list", () => {
-      const { createTab } = useTerminalTabsStore.getState();
-      const id1 = createTab();
-      const id2 = createTab();
-
-      // id2 is active (last created), close it
-      useTerminalTabsStore.getState().closeTab(id2);
-      expect(useTerminalTabsStore.getState().activeTabId).toBe(id1);
-    });
-
-    it("sets activeTabId to null when closing the only tab", () => {
-      const id = useTerminalTabsStore.getState().createTab();
-      useTerminalTabsStore.getState().closeTab(id);
-      expect(useTerminalTabsStore.getState().activeTabId).toBeNull();
-    });
-
-    it("does not change active tab when closing a non-active tab", () => {
-      const { createTab } = useTerminalTabsStore.getState();
-      const id1 = createTab();
-      const id2 = createTab();
-
-      // id2 is active, close id1
-      useTerminalTabsStore.getState().closeTab(id1);
-      expect(useTerminalTabsStore.getState().activeTabId).toBe(id2);
+      useTerminalTabsStore.getState().closeSession(id1);
+      const sessions = useTerminalTabsStore.getState().sessions;
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].id).toBe(id2);
     });
   });
 
-  describe("renameTab", () => {
-    it("renames a tab", () => {
-      const id = useTerminalTabsStore.getState().createTab();
-      useTerminalTabsStore.getState().renameTab(id, "My Shell");
+  describe("renameSession", () => {
+    it("renames a session", () => {
+      const id = useTerminalTabsStore.getState().createSession();
+      useTerminalTabsStore.getState().renameSession(id, "My Shell");
 
-      const tab = useTerminalTabsStore.getState().tabs.find((t) => t.id === id);
-      expect(tab?.title).toBe("My Shell");
-    });
-  });
-
-  describe("setActiveTab", () => {
-    it("updates the active tab id", () => {
-      const { createTab } = useTerminalTabsStore.getState();
-      const id1 = createTab();
-      const id2 = createTab();
-
-      useTerminalTabsStore.getState().setActiveTab(id1);
-      expect(useTerminalTabsStore.getState().activeTabId).toBe(id1);
+      const session = useTerminalTabsStore
+        .getState()
+        .sessions.find((s) => s.id === id);
+      expect(session?.title).toBe("My Shell");
     });
   });
 
   describe("setSessionId", () => {
-    it("assigns a session id to a tab", () => {
-      const id = useTerminalTabsStore.getState().createTab();
+    it("assigns a session id to a session", () => {
+      const id = useTerminalTabsStore.getState().createSession();
       useTerminalTabsStore.getState().setSessionId(id, "pty-session-abc");
 
-      const tab = useTerminalTabsStore.getState().tabs.find((t) => t.id === id);
-      expect(tab?.sessionId).toBe("pty-session-abc");
+      const session = useTerminalTabsStore
+        .getState()
+        .sessions.find((s) => s.id === id);
+      expect(session?.sessionId).toBe("pty-session-abc");
     });
 
-    it("does not affect other tabs", () => {
-      const { createTab } = useTerminalTabsStore.getState();
-      const id1 = createTab();
-      const id2 = createTab();
+    it("does not affect other sessions", () => {
+      const { createSession } = useTerminalTabsStore.getState();
+      const id1 = createSession();
+      const id2 = createSession();
 
       useTerminalTabsStore.getState().setSessionId(id1, "session-1");
 
-      const tab2 = useTerminalTabsStore.getState().tabs.find((t) => t.id === id2);
-      expect(tab2?.sessionId).toBeUndefined();
+      const session2 = useTerminalTabsStore
+        .getState()
+        .sessions.find((s) => s.id === id2);
+      expect(session2?.sessionId).toBeUndefined();
+    });
+  });
+
+  describe("updateStatus", () => {
+    it("updates the status of a session", () => {
+      const id = useTerminalTabsStore.getState().createSession();
+      useTerminalTabsStore.getState().updateStatus(id, "active");
+
+      const session = useTerminalTabsStore
+        .getState()
+        .sessions.find((s) => s.id === id);
+      expect(session?.status).toBe("active");
+    });
+
+    it("can set status to exited", () => {
+      const id = useTerminalTabsStore.getState().createSession();
+      useTerminalTabsStore.getState().updateStatus(id, "exited");
+
+      const session = useTerminalTabsStore
+        .getState()
+        .sessions.find((s) => s.id === id);
+      expect(session?.status).toBe("exited");
+    });
+
+    it("does not affect other sessions", () => {
+      const { createSession } = useTerminalTabsStore.getState();
+      const id1 = createSession();
+      const id2 = createSession();
+
+      useTerminalTabsStore.getState().updateStatus(id1, "active");
+
+      const session2 = useTerminalTabsStore
+        .getState()
+        .sessions.find((s) => s.id === id2);
+      expect(session2?.status).toBe("connecting");
     });
   });
 });
