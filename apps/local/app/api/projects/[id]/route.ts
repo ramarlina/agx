@@ -4,6 +4,7 @@ import { buildProjectUpdatePayload } from "../payload";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import { PROJECT_OBJECTIVES_METADATA_KEY, readProjectObjectivesWorkspace } from "@/lib/project-objectives";
 import { getObjectiveRepository } from "@/src/objectives/repository";
+import { hydrateProjectObjectiveMetadata } from "../objective-metadata";
 
 type ParamsArg = Promise<{ id: string }>;
 
@@ -35,7 +36,7 @@ export async function GET(request: NextRequest, { params }: { params: ParamsArg 
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ project });
+    return NextResponse.json({ project: hydrateProjectObjectiveMetadata(project) });
   } catch (err) {
     console.error("Error fetching project:", err);
     return NextResponse.json({ error: "Failed to fetch project" }, { status: 500 });
@@ -81,7 +82,7 @@ export async function PATCH(request: NextRequest, { params }: { params: ParamsAr
       }
     }
 
-    return NextResponse.json({ project });
+    return NextResponse.json({ project: hydrateProjectObjectiveMetadata(project) });
   } catch (err) {
     console.error("Error updating project:", err);
     return NextResponse.json({ error: "Failed to update project" }, { status: 500 });
@@ -107,4 +108,3 @@ export async function DELETE(request: NextRequest, { params }: { params: ParamsA
     return NextResponse.json({ error: "Failed to delete project" }, { status: 500 });
   }
 }
-
