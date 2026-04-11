@@ -33,18 +33,13 @@ import {
   addObjectiveActivity,
   buildObjectiveTimelineActivities,
   createManualObjectiveActivity,
-  createObjectiveManualTask,
   createProjectObjective,
   generateProjectObjectiveKey,
   readProjectObjectivesWorkspace,
-  removeObjectiveManualTask,
   removeProjectObjective,
   type ProjectObjective,
   type ProjectObjectiveHealth,
-  type ProjectObjectiveManualTask,
-  type ProjectObjectiveTaskStatus,
   type ProjectObjectiveWorkspaceState,
-  upsertObjectiveManualTask,
   upsertProjectObjective,
   writeProjectObjectivesWorkspace,
 } from "@/lib/project-objectives";
@@ -78,13 +73,6 @@ interface ProjectTeamSummary {
 interface ProjectAgentSummary {
   agent_id: string;
   routing_order: number;
-}
-
-interface ManualTaskDraft {
-  id?: string;
-  title: string;
-  notes: string;
-  status: ProjectObjectiveTaskStatus;
 }
 
 interface ObjectiveLinearIssueSummary {
@@ -121,24 +109,6 @@ const HEALTH_META: Record<
     label: "Done",
     chipClass: "border-sky-500/20 bg-sky-500/10 text-sky-100",
     toneClass: "text-sky-300",
-  },
-};
-
-const TASK_STATUS_META: Record<
-  ProjectObjectiveTaskStatus,
-  { label: string; chipClass: string }
-> = {
-  todo: {
-    label: "Todo",
-    chipClass: "border-slate-500/20 bg-slate-500/10 text-slate-200",
-  },
-  in_progress: {
-    label: "Working",
-    chipClass: "border-amber-500/20 bg-amber-500/10 text-amber-100",
-  },
-  done: {
-    label: "Done",
-    chipClass: "border-emerald-500/20 bg-emerald-500/10 text-emerald-100",
   },
 };
 
@@ -207,19 +177,6 @@ function formatDateTime(value: string | number): string {
   });
 }
 
-function sortTasks(tasks: ProjectObjectiveManualTask[]): ProjectObjectiveManualTask[] {
-  const rank: Record<ProjectObjectiveTaskStatus, number> = {
-    in_progress: 0,
-    todo: 1,
-    done: 2,
-  };
-  return [...tasks].sort((left, right) => {
-    const rankDelta = rank[left.status] - rank[right.status];
-    if (rankDelta !== 0) return rankDelta;
-    return Date.parse(right.updatedAt) - Date.parse(left.updatedAt);
-  });
-}
-
 function buildEmptyObjectiveDraft(): ObjectiveEditorDraft {
   return {
     title: "",
@@ -239,28 +196,6 @@ function buildObjectiveDraft(objective: ProjectObjective): ObjectiveEditorDraft 
     cadence: objective.cadence,
     condition: objective.condition,
   };
-}
-
-function buildEmptyTaskDraft(): ManualTaskDraft {
-  return {
-    title: "",
-    notes: "",
-    status: "todo",
-  };
-}
-
-function buildTaskDraft(task: ProjectObjectiveManualTask): ManualTaskDraft {
-  return {
-    id: task.id,
-    title: task.title,
-    notes: task.notes,
-    status: task.status,
-  };
-}
-
-function buildTaskSummary(task: ProjectObjectiveManualTask): string {
-  const status = TASK_STATUS_META[task.status].label;
-  return task.notes ? `${status}. ${task.notes}` : status;
 }
 
 function buildObjectiveHref(projectSlug: string, objectiveId: string): string {
@@ -1499,7 +1434,7 @@ export function ProjectObjectiveDetail({
   const [objectiveEditor, setObjectiveEditor] = useState<ObjectiveEditorDraft | null>(null);
   const [teamEditor, setTeamEditor] = useState<ObjectiveTeamDraft | null>(null);
   const [wakeEditor, setWakeEditor] = useState<ObjectiveEditorDraft | null>(null);
-  const [taskEditor, setTaskEditor] = useState<ManualTaskDraft | null>(null);
+
   const [isSaving, setIsSaving] = useState(false);
   const [isNotesSaving, setIsNotesSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -1685,126 +1620,6 @@ export function ProjectObjectiveDetail({
     },
     [objective, project?.id, refetchProject]
   );
-
-  const handleTaskSave = async () => {
-    if (!objective || !taskEditor) return;
-
-    const title = taskEditor.title.trim();
-    if (!title) {
-      setSaveError("Manual task title is required.");
-      return;
-    }
-
-    const now = new Date().toISOString();
-    const existingTask = taskEditor.id
-      ? objective.manualTasks.find((task) => task.id === taskEditor.id) ?? null
-      : null;
-    const nextTask = existingTask
-      ? {
-          ...existingTask,
-          title,
-          notes: taskEditor.notes.trim(),
-          status: taskEditor.status,
-          updatedAt: now,
-          completedAt:
-            taskEditor.status === "done" ? existingTask.completedAt ?? now : null,
-        }
-      : createObjectiveManualTask({
-          title,
-          notes: taskEditor.notes,
-          status: taskEditor.status,
-          now,
-        });
-
-    let nextWorkspace = upsertObjectiveManualTask(
-      workspace,
-      objective.id,
-      nextTask,
-      now
-    );
-
-    if (!existingTask) {
-      const activity = createManualObjectiveActivity({
-        objectiveId: objective.id,
-        title: nextTask.title,
-        body: `Manual task added. ${buildTaskSummary(nextTask)}`,
-        sourceType: "manual_task",
-        sourceLabel: "Manual task",
-        relatedTaskId: nextTask.id,
-        now,
-      });
-      nextWorkspace = addObjectiveActivity(nextWorkspace, activity);
-    } else if (existingTask.status !== nextTask.status) {
-      const activity = createManualObjectiveActivity({
-        objectiveId: objective.id,
-        title: nextTask.title,
-        body: `Status changed to ${TASK_STATUS_META[nextTask.status].label.toLowerCase()}.`,
-        sourceType: "manual_task",
-        sourceLabel: "Manual task",
-        relatedTaskId: nextTask.id,
-        now,
-      });
-      nextWorkspace = addObjectiveActivity(nextWorkspace, activity);
-    }
-
-    await runPersist(nextWorkspace);
-    setTaskEditor(null);
-  };
-
-  const handleTaskStatusChange = async (
-    task: ProjectObjectiveManualTask,
-    status: ProjectObjectiveTaskStatus
-  ) => {
-    if (!objective || task.status === status) return;
-
-    const now = new Date().toISOString();
-    const nextTask: ProjectObjectiveManualTask = {
-      ...task,
-      status,
-      updatedAt: now,
-      completedAt: status === "done" ? task.completedAt ?? now : null,
-    };
-    let nextWorkspace = upsertObjectiveManualTask(
-      workspace,
-      objective.id,
-      nextTask,
-      now
-    );
-    const activity = createManualObjectiveActivity({
-      objectiveId: objective.id,
-      title: nextTask.title,
-      body: `Status changed to ${TASK_STATUS_META[status].label.toLowerCase()}.`,
-      sourceType: "manual_task",
-      sourceLabel: "Manual task",
-      relatedTaskId: task.id,
-      now,
-    });
-    nextWorkspace = addObjectiveActivity(nextWorkspace, activity);
-
-    await runPersist(nextWorkspace);
-  };
-
-  const handleTaskDelete = async (task: ProjectObjectiveManualTask) => {
-    if (!objective) return;
-
-    const confirmed = window.confirm(`Delete manual task "${task.title}"?`);
-    if (!confirmed) return;
-
-    const now = new Date().toISOString();
-    let nextWorkspace = removeObjectiveManualTask(workspace, objective.id, task.id, now);
-    const activity = createManualObjectiveActivity({
-      objectiveId: objective.id,
-      title: task.title,
-      body: "Manual task removed.",
-      sourceType: "manual_task",
-      sourceLabel: "Manual task",
-      relatedTaskId: task.id,
-      now,
-    });
-    nextWorkspace = addObjectiveActivity(nextWorkspace, activity);
-
-    await runPersist(nextWorkspace);
-  };
 
   useEffect(() => {
     if (!project?.id || !objective?.id) {
@@ -2132,15 +1947,6 @@ export function ProjectObjectiveDetail({
         />
       ) : null}
 
-      {taskEditor ? (
-        <ManualTaskModal
-          draft={taskEditor}
-          isSaving={isSaving}
-          onChange={setTaskEditor}
-          onClose={() => setTaskEditor(null)}
-          onSave={() => void handleTaskSave()}
-        />
-      ) : null}
     </div>
   );
 }
@@ -2381,93 +2187,6 @@ function ObjectiveWakeModal({
             className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-100 transition-colors hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSaving ? "Saving..." : "Save schedule"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ManualTaskModal({
-  draft,
-  isSaving,
-  onChange,
-  onClose,
-  onSave,
-}: {
-  draft: ManualTaskDraft;
-  isSaving: boolean;
-  onChange: (draft: ManualTaskDraft) => void;
-  onClose: () => void;
-  onSave: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-      <div className="w-full max-w-2xl rounded-[32px] border border-[var(--border)] bg-[rgba(6,10,16,0.96)] shadow-2xl">
-        <div className="border-b border-[var(--border)] px-5 py-4">
-          <h3 className="text-lg font-semibold text-[var(--foreground)]">
-            {draft.id ? "Edit manual task" : "New manual task"}
-          </h3>
-          <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-            Use manual tasks only for explicit pushes that should sit under this objective.
-          </p>
-        </div>
-
-        <div className="space-y-4 px-5 py-5">
-          <div>
-            <FieldLabel label="Task" />
-            <input
-              value={draft.title}
-              onChange={(event) => onChange({ ...draft, title: event.target.value })}
-              className="w-full rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.55)] px-4 py-3 text-sm text-[var(--foreground)] outline-none transition-colors focus:border-sky-500/50"
-              placeholder="Ship a new referral landing page draft"
-            />
-          </div>
-
-          <div>
-            <FieldLabel label="Notes" />
-            <textarea
-              value={draft.notes}
-              onChange={(event) => onChange({ ...draft, notes: event.target.value })}
-              className="min-h-28 w-full rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.55)] px-4 py-3 text-sm text-[var(--foreground)] outline-none transition-colors focus:border-sky-500/50"
-              placeholder="Include any specifics that make this push concrete."
-            />
-          </div>
-
-          <div>
-            <FieldLabel label="Status" />
-            <select
-              value={draft.status}
-              onChange={(event) =>
-                onChange({
-                  ...draft,
-                  status: event.target.value as ProjectObjectiveTaskStatus,
-                })
-              }
-              className="w-full rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.55)] px-3 py-3 text-sm text-[var(--foreground)] outline-none transition-colors focus:border-sky-500/50"
-            >
-              <option value="todo">Todo</option>
-              <option value="in_progress">Working</option>
-              <option value="done">Done</option>
-            </select>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] px-5 py-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={isSaving}
-            className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-100 transition-colors hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isSaving ? "Saving..." : "Save task"}
           </button>
         </div>
       </div>

@@ -13,11 +13,9 @@ import {
   appendObjectiveActivityThreadMessage,
   createManualObjectiveActivity,
   createObjectiveActivityThreadMessage,
-  createObjectiveManualTask,
   createProjectObjective,
   readProjectObjectivesWorkspace,
   removeProjectObjective,
-  upsertObjectiveManualTask,
   upsertProjectObjective,
   writeProjectObjectivesWorkspace,
 } from "@/lib/project-objectives";
@@ -171,18 +169,6 @@ function buildProject({
   let workspace = upsertProjectObjective(
     readProjectObjectivesWorkspace(undefined),
     objective
-  );
-  workspace = upsertObjectiveManualTask(
-    workspace,
-    objective.id,
-    createObjectiveManualTask({
-      id: "task_refresh_cta",
-      title: "Refresh referral CTA",
-      notes: "Review landing page copy",
-      status: "in_progress",
-      now: "2026-04-09T12:15:00.000Z",
-    }),
-    "2026-04-09T12:15:00.000Z"
   );
   workspace = addObjectiveActivity(
     workspace,

@@ -4,10 +4,10 @@ import { db } from "@/lib/db-instance";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import {
   readProjectObjectivesWorkspace,
-  writeProjectObjectivesWorkspace,
   type ProjectObjective,
   type ProjectObjectiveWorkspaceState,
 } from "@/lib/project-objectives";
+import { getObjectiveRepository } from "@/src/objectives/repository";
 
 export interface ProjectObjectiveApiContext {
   project: NonNullable<Awaited<ReturnType<typeof db.getProjectWithRepos>>>;
@@ -24,7 +24,7 @@ export async function loadProjectObjectiveContext(
     return null;
   }
 
-  const workspace = readProjectObjectivesWorkspace(project.metadata);
+  const workspace = loadWorkspace(project);
   const objective = workspace.objectives.find((entry) => entry.id === objectiveId) ?? null;
   if (!objective) {
     return null;
@@ -37,11 +37,35 @@ export async function loadProjectObjectiveContext(
   };
 }
 
+function loadWorkspace(
+  project: NonNullable<Awaited<ReturnType<typeof db.getProjectWithRepos>>>,
+): ProjectObjectiveWorkspaceState {
+  const slug = project.slug ?? project.id;
+  const repo = getObjectiveRepository(slug);
+
+  // Primary: read from frontmatter files
+  if (repo.hasFiles()) {
+    return repo.readWorkspace();
+  }
+
+  // Fallback: read from database metadata (dual-read migration)
+  return readProjectObjectivesWorkspace(project.metadata);
+}
+
 export async function persistProjectObjectiveWorkspace(
   projectId: string,
   currentMetadata: Record<string, unknown> | undefined,
   workspace: ProjectObjectiveWorkspaceState
 ) {
+  const project = await db.getProjectWithRepos(projectId, LOCAL_USER.id);
+  const slug = project?.slug ?? projectId;
+  const repo = getObjectiveRepository(slug);
+
+  // Always write to files
+  repo.writeWorkspace(workspace);
+
+  // Also update DB metadata for backwards compatibility during migration
+  const { writeProjectObjectivesWorkspace } = await import("@/lib/project-objectives");
   return db.updateProject(projectId, LOCAL_USER.id, {
     metadata: writeProjectObjectivesWorkspace(currentMetadata ?? {}, workspace),
   });

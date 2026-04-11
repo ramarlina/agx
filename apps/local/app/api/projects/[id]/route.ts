@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db-instance";
 import { buildProjectUpdatePayload } from "../payload";
 import { LOCAL_USER } from "@/lib/auth-mode";
+import { PROJECT_OBJECTIVES_METADATA_KEY, readProjectObjectivesWorkspace } from "@/lib/project-objectives";
+import { getObjectiveRepository } from "@/src/objectives/repository";
 
 type ParamsArg = Promise<{ id: string }>;
 
@@ -65,6 +67,18 @@ export async function PATCH(request: NextRequest, { params }: { params: ParamsAr
     const project = await db.updateProject(projectId, user.id, updates);
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    }
+
+    // Sync objectives to frontmatter files when metadata is updated
+    if (updates.metadata && updates.metadata[PROJECT_OBJECTIVES_METADATA_KEY]) {
+      try {
+        const slug = project.slug ?? projectId;
+        const repo = getObjectiveRepository(slug);
+        const workspace = readProjectObjectivesWorkspace(updates.metadata);
+        repo.writeWorkspace(workspace);
+      } catch (error) {
+        console.error("[objectives] failed to sync to files:", error);
+      }
     }
 
     return NextResponse.json({ project });

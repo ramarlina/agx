@@ -3,18 +3,7 @@ export const LEGACY_PROJECT_GOALS_METADATA_KEY = "project_goals_workspace";
 export const CURRENT_OBJECTIVE_CHAT_SESSION_VERSION = 2;
 
 export type ProjectObjectiveHealth = "on_track" | "at_risk" | "off_track" | "done";
-export type ProjectObjectiveTaskStatus = "todo" | "in_progress" | "done";
-export type ProjectObjectiveActivitySource = "note" | "manual_task";
-
-export interface ProjectObjectiveManualTask {
-  id: string;
-  title: string;
-  notes: string;
-  status: ProjectObjectiveTaskStatus;
-  createdAt: string;
-  updatedAt: string;
-  completedAt: string | null;
-}
+export type ProjectObjectiveActivitySource = "note";
 
 export interface ProjectObjective {
   id: string;
@@ -29,7 +18,6 @@ export interface ProjectObjective {
   condition: string;
   progress: number;
   status: ProjectObjectiveHealth;
-  manualTasks: ProjectObjectiveManualTask[];
   createdAt: string;
   updatedAt: string;
 }
@@ -80,22 +68,12 @@ interface CreateProjectObjectiveInput {
   now: string;
 }
 
-interface CreateObjectiveManualTaskInput {
-  id?: string;
-  title: string;
-  notes?: string;
-  status?: ProjectObjectiveTaskStatus;
-  now: string;
-}
-
 interface CreateManualObjectiveActivityInput {
   id?: string;
   objectiveId: string;
   title: string;
   body?: string;
-  sourceType?: ProjectObjectiveActivitySource;
   sourceLabel?: string;
-  relatedTaskId?: string | null;
   now: string;
 }
 
@@ -114,12 +92,6 @@ const OBJECTIVE_HEALTH_VALUES = new Set<ProjectObjectiveHealth>([
   "off_track",
   "done",
 ]);
-const OBJECTIVE_TASK_STATUS_VALUES = new Set<ProjectObjectiveTaskStatus>([
-  "todo",
-  "in_progress",
-  "done",
-]);
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -184,12 +156,6 @@ function readObjectiveHealth(value: unknown): ProjectObjectiveHealth {
   return typeof value === "string" && OBJECTIVE_HEALTH_VALUES.has(value as ProjectObjectiveHealth)
     ? (value as ProjectObjectiveHealth)
     : "on_track";
-}
-
-function readTaskStatus(value: unknown): ProjectObjectiveTaskStatus {
-  return typeof value === "string" && OBJECTIVE_TASK_STATUS_VALUES.has(value as ProjectObjectiveTaskStatus)
-    ? (value as ProjectObjectiveTaskStatus)
-    : "todo";
 }
 
 function slugifyObjectiveKey(value: string, fallback = "objective"): string {
@@ -263,36 +229,10 @@ export function generateProjectObjectiveKey(
   return buildUniqueObjectiveKey(value, seenKeys, excludeObjectiveId ?? value);
 }
 
-function normalizeManualTask(raw: unknown): ProjectObjectiveManualTask | null {
-  if (!isRecord(raw)) return null;
-  const updatedAt = readTimestamp(raw.updatedAt ?? raw.createdAt);
-  const createdAt = readTimestamp(raw.createdAt, updatedAt);
-  const status = readTaskStatus(raw.status);
-  const completedAt =
-    status === "done"
-      ? readTimestamp(raw.completedAt, updatedAt)
-      : null;
-
-  return {
-    id: readString(raw.id, createId("objective_task")),
-    title: readString(raw.title, "Untitled manual task"),
-    notes: readString(raw.notes),
-    status,
-    createdAt,
-    updatedAt,
-    completedAt,
-  };
-}
-
 function normalizeObjective(raw: unknown): ProjectObjective | null {
   if (!isRecord(raw)) return null;
   const updatedAt = readTimestamp(raw.updatedAt ?? raw.createdAt);
   const createdAt = readTimestamp(raw.createdAt, updatedAt);
-  const manualTasks = Array.isArray(raw.manualTasks)
-    ? raw.manualTasks
-        .map((entry) => normalizeManualTask(entry))
-        .filter((entry): entry is ProjectObjectiveManualTask => entry !== null)
-    : [];
 
   return {
     id: readString(raw.id, createId("objective")),
@@ -310,7 +250,6 @@ function normalizeObjective(raw: unknown): ProjectObjective | null {
     condition: readString(raw.condition),
     progress: readProgress(raw.progress),
     status: readObjectiveHealth(raw.status),
-    manualTasks: sortByNewest(manualTasks),
     createdAt,
     updatedAt,
   };
@@ -326,12 +265,8 @@ function normalizeActivity(raw: unknown): ProjectObjectiveActivity | null {
   return {
     id: readString(raw.id, createId("objective_activity")),
     objectiveId,
-    sourceType:
-      raw.sourceType === "manual_task" ? "manual_task" : "note",
-    sourceLabel: readString(
-      raw.sourceLabel,
-      raw.sourceType === "manual_task" ? "Manual task" : "Update"
-    ),
+    sourceType: "note",
+    sourceLabel: readString(raw.sourceLabel, "Update"),
     title: readString(raw.title, "Untitled activity"),
     body: readString(raw.body),
     createdAt,
@@ -412,7 +347,6 @@ function normalizeLegacyGoal(raw: unknown): ProjectObjective | null {
     ...raw,
     summary: mergedSummary,
     cadence: "",
-    manualTasks: [],
   });
 }
 
@@ -507,24 +441,8 @@ export function createProjectObjective(
     condition: input.condition?.trim() ?? "",
     progress: readProgress(input.progress ?? 0),
     status: input.status ?? "on_track",
-    manualTasks: [],
     createdAt: input.now,
     updatedAt: input.now,
-  };
-}
-
-export function createObjectiveManualTask(
-  input: CreateObjectiveManualTaskInput
-): ProjectObjectiveManualTask {
-  const status = input.status ?? "todo";
-  return {
-    id: input.id ?? createId("objective_task"),
-    title: input.title.trim(),
-    notes: input.notes?.trim() ?? "",
-    status,
-    createdAt: input.now,
-    updatedAt: input.now,
-    completedAt: status === "done" ? input.now : null,
   };
 }
 
@@ -534,14 +452,13 @@ export function createManualObjectiveActivity(
   return {
     id: input.id ?? createId("objective_activity"),
     objectiveId: input.objectiveId,
-    sourceType: input.sourceType ?? "note",
-    sourceLabel:
-      input.sourceLabel ?? (input.sourceType === "manual_task" ? "Manual task" : "Update"),
+    sourceType: "note",
+    sourceLabel: input.sourceLabel ?? "Update",
     title: input.title.trim(),
     body: input.body?.trim() ?? "",
     createdAt: input.now,
     updatedAt: input.now,
-    relatedTaskId: input.relatedTaskId ?? null,
+    relatedTaskId: null,
   };
 }
 
@@ -593,44 +510,6 @@ export function removeProjectObjective(
     activities: workspace.activities.filter((activity) => activity.objectiveId !== objectiveId),
     activityThreads,
   };
-}
-
-export function upsertObjectiveManualTask(
-  workspace: ProjectObjectiveWorkspaceState,
-  objectiveId: string,
-  task: ProjectObjectiveManualTask,
-  now: string
-): ProjectObjectiveWorkspaceState {
-  const objective = workspace.objectives.find((entry) => entry.id === objectiveId);
-  if (!objective) return workspace;
-
-  const existingIndex = objective.manualTasks.findIndex((entry) => entry.id === task.id);
-  const manualTasks =
-    existingIndex >= 0
-      ? objective.manualTasks.map((entry) => (entry.id === task.id ? task : entry))
-      : [task, ...objective.manualTasks];
-
-  return upsertProjectObjective(workspace, {
-    ...objective,
-    manualTasks: sortByNewest(manualTasks),
-    updatedAt: now,
-  });
-}
-
-export function removeObjectiveManualTask(
-  workspace: ProjectObjectiveWorkspaceState,
-  objectiveId: string,
-  taskId: string,
-  now: string
-): ProjectObjectiveWorkspaceState {
-  const objective = workspace.objectives.find((entry) => entry.id === objectiveId);
-  if (!objective) return workspace;
-
-  return upsertProjectObjective(workspace, {
-    ...objective,
-    manualTasks: objective.manualTasks.filter((task) => task.id !== taskId),
-    updatedAt: now,
-  });
 }
 
 export function addObjectiveActivity(
