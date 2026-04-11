@@ -200,16 +200,25 @@ export function getAll(): AgentProcessEntry[] {
 
 export interface EnrichedProcessEntry extends AgentProcessEntry {
   threadTitle: string | null;
+  linearIssueId: string | null;
+  linearRunId: string | null;
 }
 
 export function getAllEnriched(): EnrichedProcessEntry[] {
   return withDb((db) => {
     const rows = db.prepare(`
-      SELECT ap.*, substr(m.content, 1, 120) AS thread_title
+      SELECT ap.*, substr(m.content, 1, 120) AS thread_title,
+             lr.issue_id AS linear_issue_id, lr.id AS linear_run_id
       FROM agent_processes ap
       LEFT JOIN messages m ON m.id = ap.thread_id AND m.thread_id = ap.workspace_id
-    `).all() as unknown as (Row & { thread_title: string | null })[];
-    return rows.map((r) => ({ ...toEntry(r), threadTitle: r.thread_title }));
+      LEFT JOIN linear_runs lr ON lr.thread_id = ap.workspace_id
+    `).all() as unknown as (Row & { thread_title: string | null; linear_issue_id: string | null; linear_run_id: string | null })[];
+    return rows.map((r) => ({
+      ...toEntry(r),
+      threadTitle: r.thread_title,
+      linearIssueId: r.linear_issue_id ?? null,
+      linearRunId: r.linear_run_id ?? null,
+    }));
   });
 }
 
