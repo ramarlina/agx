@@ -39,9 +39,19 @@ export async function GET(req: NextRequest) {
     const store = getPromptJobStore();
     const state = req.nextUrl.searchParams.get('state') as PromptJobState | null;
     const projectId = req.nextUrl.searchParams.get('projectId') ?? undefined;
-    const filter: { state?: PromptJobState; projectId?: string } = {};
+    const objectiveId = req.nextUrl.searchParams.get('objectiveId') ?? undefined;
+    const includeObjectiveJobs = req.nextUrl.searchParams.get('includeObjectiveJobs') === 'true';
+    const filter: {
+      state?: PromptJobState;
+      projectId?: string;
+      objectiveId?: string;
+      includeObjectiveJobs?: boolean;
+    } = {
+      includeObjectiveJobs,
+    };
     if (state) filter.state = state;
     if (projectId) filter.projectId = projectId;
+    if (objectiveId) filter.objectiveId = objectiveId;
     const jobs = store.listJobs(Object.keys(filter).length > 0 ? filter : undefined);
 
     // Auto-heal active jobs with null nextRunAt
@@ -91,6 +101,8 @@ export async function POST(req: NextRequest) {
       provider,
       model,
       cliArgs,
+      objectiveId,
+      objectiveKey,
       cadence,
       overlapPolicy,
       catchUpPolicy,
@@ -121,6 +133,8 @@ export async function POST(req: NextRequest) {
       prompt,
       agentId,
       projectId,
+      objectiveId,
+      objectiveKey,
       provider: provider ?? 'claude',
       model,
       cliArgs,

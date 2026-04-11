@@ -1,18 +1,20 @@
 "use client";
 
+import { useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { readProjectObjectivesWorkspace } from "@/lib/project-objectives";
 import { TeamsSummaryCard } from "./TeamsSummaryCard";
 import { ObjectivesSummaryCard } from "./ObjectivesSummaryCard";
-import { ActiveTasksSummaryCard } from "./ActiveTasksSummaryCard";
 import { ScheduledTasksSummaryCard } from "./ScheduledTasksSummaryCard";
 import { FoldersSummaryCard } from "./FoldersSummaryCard";
-import { RecentThreadsSummaryCard } from "./RecentThreadsSummaryCard";
+import { RecentThreadEntry, RecentThreadsSummaryCard } from "./RecentThreadsSummaryCard";
 
 interface ProjectOverviewProps {
   projectId: string;
   projectSlug: string;
   projectName: string;
   projectDescription?: string;
+  projectMetadata?: Record<string, unknown>;
   repos: Array<{ id: string; name: string; path?: string; git_url?: string }>;
   threadIds: string[];
 }
@@ -22,10 +24,39 @@ export function ProjectOverview({
   projectSlug,
   projectName,
   projectDescription,
+  projectMetadata,
   repos,
   threadIds,
 }: ProjectOverviewProps) {
   const router = useRouter();
+  const primaryThreadId = threadIds[0] ?? null;
+  const objectiveThreadHrefById = useMemo(() => {
+    const workspace = readProjectObjectivesWorkspace(projectMetadata);
+    const entries = workspace.objectives.flatMap((objective) => {
+      const href = `/projects/${projectSlug}/objectives/${encodeURIComponent(objective.id)}`;
+      const threadIdsForObjective = new Set(
+        [objective.threadId?.trim(), `objective-chat:${objective.id}`].filter(
+          (value): value is string => Boolean(value)
+        )
+      );
+
+      return Array.from(threadIdsForObjective).map((threadId) => [threadId, href] as const);
+    });
+
+    return new Map(entries);
+  }, [projectMetadata, projectSlug]);
+
+  const handleSelectThread = (thread: RecentThreadEntry) => {
+    const objectiveHref = objectiveThreadHrefById.get(thread.threadId);
+    if (objectiveHref) {
+      router.push(objectiveHref);
+      return;
+    }
+
+    router.push(
+      `/projects/${projectSlug}/thread/${encodeURIComponent(thread.threadId)}?open=${encodeURIComponent(thread.id)}`
+    );
+  };
 
   return (
     <div className="h-full overflow-y-auto">
@@ -44,21 +75,18 @@ export function ProjectOverview({
             projectSlug={projectSlug}
             onViewAll={() => router.push(`/projects/${projectSlug}/objectives`)}
           />
-          <ActiveTasksSummaryCard
-            projectId={projectId}
-            onViewAll={() => router.push(`/projects/${projectSlug}/automations`)}
-          />
           <ScheduledTasksSummaryCard
             projectId={projectId}
+            projectSlug={projectSlug}
             onViewAll={() => router.push(`/projects/${projectSlug}/automations`)}
           />
           <FoldersSummaryCard projectId={projectId} repos={repos} />
           <RecentThreadsSummaryCard
-            threadIds={threadIds}
-            projectSlug={projectSlug}
-            onSelectThread={(threadId) =>
-              router.push(`/projects/${projectSlug}/thread/${encodeURIComponent(threadId)}`)
-            }
+            projectId={projectId}
+            onSelectThread={handleSelectThread}
+            onViewAll={primaryThreadId ? () => {
+              router.push(`/projects/${projectSlug}/thread/${encodeURIComponent(primaryThreadId)}`);
+            } : undefined}
           />
         </div>
       </div>

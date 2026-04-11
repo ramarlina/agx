@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getLinearIssueContexts } from "@/lib/linear-issues";
 import { getLinearClient } from "@/lib/linear-client";
 import { updateCachedLinearIssueStatus } from "@/lib/linear-issue-store";
 
@@ -13,6 +14,42 @@ interface UpdateIssueBody {
 
 function toOptionalString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export async function GET(_request: NextRequest, context: RouteContext) {
+  try {
+    const { id } = await context.params;
+    const issueId = id.trim();
+
+    if (!issueId) {
+      return NextResponse.json({ error: "Issue id is required" }, { status: 400 });
+    }
+
+    const [issue] = await getLinearIssueContexts([issueId]);
+    if (!issue) {
+      return NextResponse.json({ error: "Issue not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({
+      issue: {
+        id: issue.id,
+        identifier: issue.identifier,
+        title: issue.title,
+        url: issue.url,
+        status: issue.status,
+        assignee: issue.assignee,
+        updatedAt: issue.updatedAt,
+        labels: issue.labels ?? [],
+      },
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error: error instanceof Error ? error.message : "Failed to fetch Linear issue",
+      },
+      { status: 500 },
+    );
+  }
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {

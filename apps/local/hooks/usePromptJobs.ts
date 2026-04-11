@@ -5,6 +5,8 @@ import type { PromptJob, PromptRun } from '@/src/prompt-scheduler/types';
 
 interface UsePromptJobsOptions {
   requireProjectId?: boolean;
+  includeObjectiveJobs?: boolean;
+  objectiveId?: string | null;
 }
 
 export function usePromptJobs(projectId?: string | null, options: UsePromptJobsOptions = {}) {
@@ -13,6 +15,8 @@ export function usePromptJobs(projectId?: string | null, options: UsePromptJobsO
   const [error, setError] = useState<string | null>(null);
   const initialFetchDone = useRef(false);
   const requireProjectId = options.requireProjectId ?? false;
+  const includeObjectiveJobs = options.includeObjectiveJobs ?? false;
+  const objectiveId = options.objectiveId?.trim() || null;
 
   const fetchJobs = useCallback(async () => {
     if (requireProjectId && !projectId) {
@@ -25,8 +29,18 @@ export function usePromptJobs(projectId?: string | null, options: UsePromptJobsO
 
     try {
       if (!initialFetchDone.current) setLoading(true);
-      const params = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
-      const res = await fetch(`/api/prompt-jobs${params}`);
+      const params = new URLSearchParams();
+      if (projectId) {
+        params.set('projectId', projectId);
+      }
+      if (objectiveId) {
+        params.set('objectiveId', objectiveId);
+      }
+      if (includeObjectiveJobs) {
+        params.set('includeObjectiveJobs', 'true');
+      }
+      const query = params.toString();
+      const res = await fetch(`/api/prompt-jobs${query ? `?${query}` : ''}`);
       if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
       const data = await res.json();
       setJobs(data.jobs ?? []);
@@ -37,7 +51,7 @@ export function usePromptJobs(projectId?: string | null, options: UsePromptJobsO
       setLoading(false);
       initialFetchDone.current = true;
     }
-  }, [projectId]);
+  }, [includeObjectiveJobs, objectiveId, projectId, requireProjectId]);
 
   useEffect(() => {
     initialFetchDone.current = false;

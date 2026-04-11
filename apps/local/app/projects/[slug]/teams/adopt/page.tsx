@@ -11,7 +11,7 @@ import {
 } from "@/lib/team-catalog";
 import SearchCombo, { type ComboOption } from "@/components/SearchCombo";
 import { useProjectsWithAgents } from "@/hooks/useProjects";
-import { ArrowLeft, Users, Loader2, Check, AlertCircle, X } from "lucide-react";
+import { Users, Loader2, Check, AlertCircle, X } from "lucide-react";
 
 interface UnassignedAgent {
   id: string;
@@ -210,16 +210,11 @@ export default function AdoptTeamPage({ params }: { params: Promise<{ slug: stri
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
-        <div className="flex items-center gap-3">
-          <button onClick={() => router.push(`/projects/${slug}/teams`)} className="p-2 -ml-2 rounded-xl hover:bg-[var(--muted)]/50 transition-colors">
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <div>
-            <h1 className="text-lg font-bold">Adopt Unassigned Agents</h1>
-            <p className="text-xs text-[var(--muted-foreground)]">
-              Group {unassignedAgents.length} unassigned agent{unassignedAgents.length !== 1 ? "s" : ""} into a team.
-            </p>
-          </div>
+        <div>
+          <h1 className="text-lg font-bold">Adopt Unassigned Agents</h1>
+          <p className="text-xs text-[var(--muted-foreground)]">
+            Group {unassignedAgents.length} unassigned agent{unassignedAgents.length !== 1 ? "s" : ""} into a team.
+          </p>
         </div>
 
         {error && (

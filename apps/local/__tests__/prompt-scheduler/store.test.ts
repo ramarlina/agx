@@ -3,7 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { pragmaSet } from '@/lib/sqlite-compat';
-import { PromptJobStore } from '@/src/prompt-scheduler/store';
+import { parseStoredTimestampMs, PromptJobStore } from '@/src/prompt-scheduler/store';
 import type { CreatePromptJobInput } from '@/src/prompt-scheduler/types';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -116,6 +116,23 @@ describe('PromptJobStore', () => {
       expect(markdown).not.toContain('type: condition');
     });
 
+    it('stores objective ownership metadata with the job', () => {
+      const job = store.createJob(makeInput({
+        objectiveId: 'objective-growth',
+        objectiveKey: 'growth-daily-visitors',
+      }));
+      const fetched = store.getJob(job.id);
+
+      expect(job.objectiveId).toBe('objective-growth');
+      expect(job.objectiveKey).toBe('growth-daily-visitors');
+      expect(fetched?.objectiveId).toBe('objective-growth');
+      expect(fetched?.objectiveKey).toBe('growth-daily-visitors');
+
+      const markdown = fs.readFileSync(path.join(automationsDir, 'active', `${job.id}.md`), 'utf8');
+      expect(markdown).toContain('objectiveId: objective-growth');
+      expect(markdown).toContain('objectiveKey: growth-daily-visitors');
+    });
+
     it('auto-converts legacy condition-trigger input into a schedule plus gate', () => {
       const job = store.createJob(makeInput({
         cadence: '',
@@ -172,6 +189,39 @@ describe('PromptJobStore', () => {
       expect(activeList[0].name).toBe('Also Active');
       expect(pausedList).toHaveLength(1);
       expect(pausedList[0].id).toBe(active.id);
+    });
+
+    it('excludes objective-owned jobs when requested', () => {
+      const globalJob = store.createJob(makeInput({ name: 'Global job' }));
+      store.createJob(makeInput({
+        name: 'Objective job',
+        objectiveId: 'objective-growth',
+        objectiveKey: 'growth-daily-visitors',
+      }));
+
+      const list = store.listJobs({ includeObjectiveJobs: false });
+
+      expect(list).toHaveLength(1);
+      expect(list[0].id).toBe(globalJob.id);
+    });
+
+    it('can list only the jobs for a specific objective', () => {
+      const objectiveJob = store.createJob(makeInput({
+        name: 'Objective job',
+        objectiveId: 'objective-growth',
+        objectiveKey: 'growth-daily-visitors',
+      }));
+      store.createJob(makeInput({
+        name: 'Other objective job',
+        objectiveId: 'objective-other',
+        objectiveKey: 'other-objective',
+      }));
+      store.createJob(makeInput({ name: 'Global job' }));
+
+      const list = store.listJobs({ objectiveId: 'objective-growth' });
+
+      expect(list).toHaveLength(1);
+      expect(list[0].id).toBe(objectiveJob.id);
     });
 
     it('returns empty array when no jobs exist', () => {
@@ -346,10 +396,14 @@ Check the inbox
   // ── deleteJob ───────────────────────────────────────────────────────────────
 
   describe('deleteJob', () => {
-    it('deletes the job', () => {
+    it('hides the job from the active list', () => {
       const job = store.createJob(makeInput());
       store.deleteJob(job.id);
+
       expect(store.getJob(job.id)).toBeNull();
+      expect(store.listJobs().some((entry) => entry.id === job.id)).toBe(false);
+      expect(fs.existsSync(path.join(automationsDir, 'active', `${job.id}.md`))).toBe(false);
+      expect(fs.existsSync(path.join(automationsDir, 'archived', `${job.id}.md`))).toBe(true);
     });
 
     it('cascades to runs on delete', () => {
@@ -450,6 +504,21 @@ Check the inbox
     });
   });
 
+  describe('listQueuedRuns', () => {
+    it('returns queued runs across jobs', () => {
+      const jobA = store.createJob(makeInput({ name: 'Job A' }));
+      const jobB = store.createJob(makeInput({ name: 'Job B' }));
+      const queuedA = store.createRun(jobA.id);
+      const runningB = store.createRun(jobB.id);
+      store.updateRun(runningB.id, { status: 'running' });
+
+      const queuedRuns = store.listQueuedRuns();
+
+      expect(queuedRuns.map((run) => run.id)).toContain(queuedA.id);
+      expect(queuedRuns.map((run) => run.id)).not.toContain(runningB.id);
+    });
+  });
+
   // ── updateRun ────────────────────────────────────────────────────────────────
 
   describe('updateRun', () => {
@@ -520,6 +589,45 @@ Check the inbox
       const run = store.createRun(job.id);
       store.updateRun(run.id, { status: 'success' });
       expect(store.hasRunningRun(job.id)).toBe(false);
+    });
+  });
+
+  describe('reapStaleRuns', () => {
+    it('leaves queued runs alone so they can be redispatched', async () => {
+      const job = store.createJob(makeInput());
+      const run = store.createRun(job.id);
+
+      db.prepare("UPDATE prompt_runs SET created_at = ? WHERE id = ?")
+        .run('2026-04-10 03:30:00', run.id);
+
+      const reaped = await store.reapStaleRuns(1);
+
+      expect(reaped).toBe(0);
+      expect(store.getRun(run.id)?.status).toBe('queued');
+    });
+
+    it('does not reap a fresh running run just because the wrapper pid disappeared', async () => {
+      const job = store.createJob(makeInput());
+      const run = store.createRun(job.id);
+
+      store.updateRun(run.id, {
+        status: 'running',
+        startedAt: new Date().toISOString(),
+        hostPid: 999999,
+        hostCommand: 'agx codex -y --print',
+      });
+
+      const reaped = await store.reapStaleRuns(60_000);
+
+      expect(reaped).toBe(0);
+      expect(store.getRun(run.id)?.status).toBe('running');
+    });
+  });
+
+  describe('parseStoredTimestampMs', () => {
+    it('treats bare SQLite datetime strings as UTC', () => {
+      expect(parseStoredTimestampMs('2026-04-11 03:30:00'))
+        .toBe(Date.parse('2026-04-11T03:30:00.000Z'));
     });
   });
 

@@ -63,6 +63,22 @@ export function getPromptJobStore(): PromptJobStore {
         }
       }
     }
+    const hasObjectiveId = db
+      .prepare("SELECT 1 FROM pragma_table_info('prompt_jobs') WHERE name='objective_id'")
+      .get();
+    if (!hasObjectiveId) {
+      const v4Migration = readFileSync(
+        path.join(process.cwd(), 'db/sqlite/005_prompt_jobs_objectives.sql'),
+        'utf-8',
+      );
+      for (const stmt of splitSqlStatements(v4Migration)) {
+        try {
+          db.exec(stmt);
+        } catch (err: any) {
+          if (!err.message?.includes('duplicate column')) throw err;
+        }
+      }
+    }
 
     _store = new PromptJobStore(db);
   }

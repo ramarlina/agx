@@ -26,6 +26,7 @@ export default function TeamsPage({
       projectId={project.id}
       projectSlug={project.slug}
       projectAgents={project.agents}
+      projectThreadIds={project.thread_ids}
     />
   );
 }

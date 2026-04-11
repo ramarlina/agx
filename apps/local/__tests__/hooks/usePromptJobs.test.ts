@@ -41,4 +41,24 @@ describe("usePromptJobs", () => {
 
     expect(mockFetch).toHaveBeenCalledWith("/api/prompt-jobs?projectId=project-1");
   });
+
+  test("can opt into objective-owned jobs for scoped views", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ jobs: [{ id: "job-2", name: "Objective job" }] }),
+    });
+
+    const { result } = renderHook(() => (
+      usePromptJobs("project-1", { requireProjectId: true, includeObjectiveJobs: true })
+    ));
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+      expect(result.current.jobs).toEqual([{ id: "job-2", name: "Objective job" }]);
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/prompt-jobs?projectId=project-1&includeObjectiveJobs=true"
+    );
+  });
 });

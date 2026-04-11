@@ -212,6 +212,8 @@ function normalizePromptTarget(value: unknown): PromptJobAutomationTarget {
   const prompt = typeof raw.prompt === "string" && raw.prompt.length > 0
     ? raw.prompt
     : undefined;
+  const objectiveId = asTrimmedString(raw.objectiveId);
+  const objectiveKey = asTrimmedString(raw.objectiveKey);
 
   if (!provider && !agentId) {
     throw new Error("Prompt-job target requires provider or agentId.");
@@ -222,6 +224,8 @@ function normalizePromptTarget(value: unknown): PromptJobAutomationTarget {
   if (model) target.model = model;
   if (cliArgs !== undefined) target.cliArgs = cliArgs;
   if (prompt !== undefined) target.prompt = prompt;
+  if (objectiveId) target.objectiveId = objectiveId;
+  if (objectiveKey) target.objectiveKey = objectiveKey;
   return target;
 }
 

@@ -7,6 +7,7 @@ import {
   isAutomationFrontmatterEnabled,
 } from '@/src/automations';
 import type { GraphSchedule } from '@/src/graph/types';
+import { resolveAutomationTitle } from '@/lib/project-overview-titles';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,11 +19,16 @@ interface ScheduleRow {
   execution_state: string;
   created_at: string;
   updated_at: string;
+  task_title: string | null;
+  task_content: string | null;
+  project_id: string | null;
 }
 
 export interface AutomationItem {
   taskId: string;
   graphId: string;
+  title: string;
+  projectId: string | null;
   schedule: GraphSchedule;
   executionState: string;
   createdAt: string;
@@ -38,10 +44,20 @@ export async function GET(request: NextRequest) {
     const stateFilter = request.nextUrl.searchParams.get('state');
     const db = getSQLiteDb();
     const rows = db.prepare(`
-      SELECT task_id, id, schedule, execution_state, created_at, updated_at
-      FROM execution_graphs
-      WHERE schedule IS NOT NULL
-      ORDER BY updated_at DESC
+      SELECT
+        eg.task_id,
+        eg.id,
+        eg.schedule,
+        eg.execution_state,
+        eg.created_at,
+        eg.updated_at,
+        t.title AS task_title,
+        t.content AS task_content,
+        t.project_id AS project_id
+      FROM execution_graphs eg
+      LEFT JOIN tasks t ON t.id = eg.task_id
+      WHERE eg.schedule IS NOT NULL
+      ORDER BY eg.updated_at DESC
     `).all() as unknown as ScheduleRow[];
 
     const rowByGraphId = new Map(rows.map((row) => [row.id, row]));
@@ -59,10 +75,26 @@ export async function GET(request: NextRequest) {
         const graphId = record.definition.target.graphId ?? record.definition.id;
         const legacyRow = rowByGraphId.get(graphId);
         const taskId = record.definition.target.taskId ?? legacyRow?.task_id ?? graphId;
+        const title = resolveAutomationTitle({
+          automationName: record.definition.name,
+          graphId,
+          taskTitle: legacyRow?.task_title,
+          taskContent: legacyRow?.task_content,
+        });
+        const schedule = automationRecordToGraphSchedule(
+          record,
+          legacyRow ? JSON.parse(legacyRow.schedule) as GraphSchedule : undefined,
+        );
+        const scheduleName = schedule.name?.trim();
+
         automationsByGraphId.set(graphId, {
           taskId,
           graphId,
-          schedule: automationRecordToGraphSchedule(record, legacyRow ? JSON.parse(legacyRow.schedule) as GraphSchedule : undefined),
+          title,
+          projectId: record.definition.projectId ?? legacyRow?.project_id ?? null,
+          schedule: scheduleName && scheduleName !== graphId
+            ? schedule
+            : { ...schedule, name: title },
           executionState: legacyRow?.execution_state ?? 'ready',
           createdAt: record.definition.createdAt ?? legacyRow?.created_at ?? record.runtimeState.updatedAt,
           updatedAt: record.runtimeState.updatedAt,
@@ -90,10 +122,22 @@ export async function GET(request: NextRequest) {
         continue;
       }
 
+      const title = resolveAutomationTitle({
+        automationName: schedule.name,
+        graphId: row.id,
+        taskTitle: row.task_title,
+        taskContent: row.task_content,
+      });
+      const scheduleName = schedule.name?.trim();
+
       automationsByGraphId.set(row.id, {
         taskId: row.task_id,
         graphId: row.id,
-        schedule,
+        title,
+        projectId: row.project_id ?? null,
+        schedule: scheduleName && scheduleName !== row.id
+          ? schedule
+          : { ...schedule, name: title },
         executionState: row.execution_state,
         createdAt: row.created_at,
         updatedAt: row.updated_at,

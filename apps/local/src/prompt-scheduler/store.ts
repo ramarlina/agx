@@ -40,6 +40,16 @@ function commandBasename(command: string): string {
   return basename(firstToken);
 }
 
+export function parseStoredTimestampMs(value: string | null | undefined): number {
+  if (!value) return Number.NaN;
+
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) {
+    return Date.parse(value.replace(" ", "T") + "Z");
+  }
+
+  return Date.parse(value);
+}
+
 /**
  * Batch-check which PIDs are still alive and running matching commands.
  * Runs a single `ps` call for all PIDs (async, non-blocking).
@@ -104,6 +114,8 @@ interface PromptJobRow {
   cli: string;
   agent_id: string | null;
   project_id: string | null;
+  objective_id: string | null;
+  objective_key: string | null;
   provider: string;
   model: string;
   cli_args: string;
@@ -138,6 +150,13 @@ interface PromptRunRow {
   created_at: string;
 }
 
+interface PromptJobListFilter {
+  state?: PromptJobState;
+  projectId?: string;
+  objectiveId?: string;
+  includeObjectiveJobs?: boolean;
+}
+
 function rowToJob(row: PromptJobRow): PromptJob {
   return {
     id: row.id,
@@ -145,6 +164,8 @@ function rowToJob(row: PromptJobRow): PromptJob {
     prompt: row.prompt,
     agentId: row.agent_id || "",
     projectId: row.project_id || "",
+    objectiveId: row.objective_id || null,
+    objectiveKey: row.objective_key || null,
     provider: row.provider || row.cli || "claude",
     model: row.model || "",
     cliArgs: row.cli_args || "",
@@ -288,6 +309,8 @@ export class PromptJobStore {
       target: {
         type: "prompt_job",
         ...(input.agentId ? { agentId: input.agentId } : {}),
+        ...(input.objectiveId ? { objectiveId: input.objectiveId } : {}),
+        ...(input.objectiveKey ? { objectiveKey: input.objectiveKey } : {}),
         ...(input.provider ? { provider: input.provider } : {}),
         ...(input.model ? { model: input.model } : {}),
         ...(input.cliArgs !== undefined ? { cliArgs: input.cliArgs } : {}),
@@ -307,6 +330,9 @@ export class PromptJobStore {
     }
 
     const record = this.getPromptJobRecord(id, false);
+    if (record?.archived) {
+      return null;
+    }
     if (record?.definition.target.type === "prompt_job") {
       const job = automationRecordToPromptJob(record);
       this.ensureLegacyJobRow(job);
@@ -316,7 +342,7 @@ export class PromptJobStore {
     return isAutomationDualReadEnabled() ? this.getLegacyJob(id) : null;
   }
 
-  listJobs(filter?: { state?: PromptJobState; projectId?: string }): PromptJob[] {
+  listJobs(filter?: PromptJobListFilter): PromptJob[] {
     if (!isAutomationFrontmatterEnabled()) {
       return this.listLegacyJobs(filter);
     }
@@ -332,6 +358,12 @@ export class PromptJobStore {
         continue;
       }
       const job = automationRecordToPromptJob(normalizedRecord);
+      if (filter?.objectiveId && job.objectiveId !== filter.objectiveId) {
+        continue;
+      }
+      if (filter?.includeObjectiveJobs === false && !filter.objectiveId && job.objectiveId) {
+        continue;
+      }
       jobsById.set(job.id, job);
       this.ensureLegacyJobRow(job);
     }
@@ -388,7 +420,10 @@ export class PromptJobStore {
 
   deleteJob(id: string): void {
     if (isAutomationFrontmatterEnabled()) {
-      this.getAutomationRepo().deleteAutomation(id);
+      const archived = this.getAutomationRepo().archiveAutomation(id);
+      if (!archived) {
+        this.getAutomationRepo().deleteAutomation(id);
+      }
     }
     this.db.prepare("DELETE FROM prompt_jobs WHERE id = ?").run(id);
   }
@@ -453,6 +488,13 @@ export class PromptJobStore {
     return rows.map(rowToRun);
   }
 
+  listQueuedRuns(limit = 50): PromptRun[] {
+    const rows = this.db
+      .prepare("SELECT * FROM prompt_runs WHERE status = 'queued' ORDER BY created_at ASC LIMIT ?")
+      .all(limit) as unknown as PromptRunRow[];
+    return rows.map(rowToRun);
+  }
+
   updateRun(id: string, updates: Partial<Omit<PromptRun, "id" | "jobId" | "createdAt">>): PromptRun | null {
     const fieldMap: Record<string, string> = {
       status: "status",
@@ -512,7 +554,7 @@ export class PromptJobStore {
       .prepare(
         `SELECT id, job_id, host_pid, host_command, started_at, created_at
          FROM prompt_runs
-         WHERE status IN ('queued', 'running')`,
+         WHERE status = 'running'`,
       )
       .all() as unknown as Array<{
         id: string;
@@ -536,13 +578,17 @@ export class PromptJobStore {
 
     for (const run of runs) {
       const startedAt = run.started_at || run.created_at;
-      const ageMs = now - new Date(startedAt).getTime();
+      const startedAtMs = parseStoredTimestampMs(startedAt);
+      const ageMs = Number.isFinite(startedAtMs) ? now - startedAtMs : 0;
 
       let shouldReap = false;
       let reason: string;
 
       if (run.host_pid != null && run.host_command) {
-        if (!alivePids.has(run.host_pid)) {
+        // The AGX wrapper can exit before the streamed descendant closes the
+        // inherited pipes, so a missing wrapper PID is only a stale hint once
+        // the run has exceeded the stale window.
+        if (!alivePids.has(run.host_pid) && ageMs > maxAgeMs) {
           shouldReap = true;
           reason = `Host process (pid ${run.host_pid}) is no longer running`;
         } else {
@@ -687,6 +733,8 @@ export class PromptJobStore {
     if (updates.condition !== undefined) executionPatch.condition = updates.condition || undefined;
 
     if (updates.agentId !== undefined) targetPatch.agentId = updates.agentId || undefined;
+    if (updates.objectiveId !== undefined) targetPatch.objectiveId = updates.objectiveId || undefined;
+    if (updates.objectiveKey !== undefined) targetPatch.objectiveKey = updates.objectiveKey || undefined;
     if (updates.provider !== undefined) targetPatch.provider = updates.provider || undefined;
     if (updates.model !== undefined) targetPatch.model = updates.model || undefined;
     if (updates.cliArgs !== undefined) targetPatch.cliArgs = updates.cliArgs;
@@ -734,17 +782,19 @@ export class PromptJobStore {
     this.db
       .prepare(
         `INSERT INTO prompt_jobs (
-          id, name, prompt, cli, agent_id, project_id, provider, model, cli_args,
+          id, name, prompt, cli, agent_id, project_id, objective_id, objective_key, provider, model, cli_args,
           cron_expr, cadence, state, overlap_policy, catch_up_policy, cancel_check_sec,
           trigger_type, condition, check_every_ms, next_run_at, last_run_at, last_outcome,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (id) DO UPDATE SET
           name = excluded.name,
           prompt = excluded.prompt,
           cli = excluded.cli,
           agent_id = excluded.agent_id,
           project_id = excluded.project_id,
+          objective_id = excluded.objective_id,
+          objective_key = excluded.objective_key,
           provider = excluded.provider,
           model = excluded.model,
           cli_args = excluded.cli_args,
@@ -770,6 +820,8 @@ export class PromptJobStore {
         job.provider || "claude",
         job.agentId || null,
         job.projectId || null,
+        job.objectiveId || null,
+        job.objectiveKey || null,
         job.provider || "claude",
         job.model || "",
         job.cliArgs || "",
@@ -798,10 +850,10 @@ export class PromptJobStore {
     this.db
       .prepare(
         `INSERT INTO prompt_jobs (
-          id, name, prompt, cli, agent_id, project_id, provider, model, cli_args,
+          id, name, prompt, cli, agent_id, project_id, objective_id, objective_key, provider, model, cli_args,
           cron_expr, cadence, overlap_policy, catch_up_policy, cancel_check_sec,
           trigger_type, condition, check_every_ms, next_run_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -810,6 +862,8 @@ export class PromptJobStore {
         provider,
         input.agentId || null,
         input.projectId || null,
+        input.objectiveId || null,
+        input.objectiveKey || null,
         provider,
         input.model ?? "",
         input.cliArgs ?? "",
@@ -865,7 +919,7 @@ export class PromptJobStore {
     return row ? rowToJob(this.normalizeLegacyJobRow(row)) : null;
   }
 
-  private listLegacyJobs(filter?: { state?: PromptJobState; projectId?: string }): PromptJob[] {
+  private listLegacyJobs(filter?: PromptJobListFilter): PromptJob[] {
     let sql = "SELECT * FROM prompt_jobs";
     const conditions: string[] = [];
     const params: string[] = [];
@@ -877,6 +931,12 @@ export class PromptJobStore {
     if (filter?.projectId) {
       conditions.push("project_id = ?");
       params.push(filter.projectId);
+    }
+    if (filter?.objectiveId) {
+      conditions.push("objective_id = ?");
+      params.push(filter.objectiveId);
+    } else if (filter?.includeObjectiveJobs === false) {
+      conditions.push("(objective_id IS NULL OR objective_id = '')");
     }
     if (conditions.length > 0) {
       sql += ` WHERE ${conditions.join(" AND ")}`;
@@ -894,6 +954,8 @@ export class PromptJobStore {
       cli: "cli",
       agentId: "agent_id",
       projectId: "project_id",
+      objectiveId: "objective_id",
+      objectiveKey: "objective_key",
       provider: "provider",
       cronExpr: "cron_expr",
       model: "model",

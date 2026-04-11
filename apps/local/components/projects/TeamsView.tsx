@@ -3,13 +3,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Activity,
   AlertTriangle,
+  ChevronRight,
   Loader2,
   Plus,
-  Settings,
   Users,
 } from "lucide-react";
-import TeamDetailView from "@/components/TeamDetailView";
 
 interface TeamAgent {
   team_id: string;
@@ -31,20 +31,41 @@ interface Participant {
   name: string;
 }
 
+interface EnrichedProcessEntry {
+  workspaceId: string;
+  threadId: string;
+  agentId: string;
+  state: "spawning" | "running" | "done" | "error" | "killed";
+  lastActivity: number;
+  projectSlug: string;
+  threadTitle: string | null;
+}
+
 interface TeamsViewProps {
   projectId: string;
   projectSlug: string;
   projectAgents: Array<{ agent_id: string; routing_order: number }>;
+  projectThreadIds?: string[];
 }
 
-export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewProps) {
+function formatActivityThread(process: EnrichedProcessEntry): string {
+  if (process.threadTitle?.trim()) return process.threadTitle.trim();
+  if (process.threadId?.trim()) return `Thread ${process.threadId.slice(0, 12)}...`;
+  return "Main thread";
+}
+
+export function TeamsView({
+  projectId,
+  projectSlug,
+  projectAgents,
+  projectThreadIds = [],
+}: TeamsViewProps) {
   const router = useRouter();
   const [teams, setTeams] = useState<Team[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [activeProcesses, setActiveProcesses] = useState<EnrichedProcessEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [manageTeamId, setManageTeamId] = useState<string | null>(null);
-
   const fetchTeams = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -65,7 +86,7 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
       const res = await fetch("/api/participants");
       if (!res.ok) return;
       const data = await res.json();
-      setParticipants(data.participants ?? []);
+      setParticipants(Array.isArray(data) ? data : data.participants ?? []);
     } catch {
       // silent
     }
@@ -76,15 +97,59 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
     fetchParticipants();
   }, [fetchTeams, fetchParticipants]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const normalizedProjectSlug = projectSlug.trim().toLowerCase();
+    const projectThreadIdSet = new Set(projectThreadIds.map((id) => id.trim()).filter(Boolean));
+
+    const poll = async () => {
+      try {
+        const res = await fetch("/api/processes?enrich=1");
+        if (!res.ok) return;
+        const data: EnrichedProcessEntry[] = await res.json();
+        if (cancelled) return;
+        const relevant = data
+          .filter((process) => process.state === "spawning" || process.state === "running")
+          .filter((process) => {
+            const processProjectSlug = process.projectSlug.trim().toLowerCase();
+            if (processProjectSlug && processProjectSlug === normalizedProjectSlug) return true;
+            return projectThreadIdSet.has(process.workspaceId) || projectThreadIdSet.has(process.threadId);
+          })
+          .sort((a, b) => b.lastActivity - a.lastActivity);
+        setActiveProcesses(relevant);
+      } catch {
+        // keep the last known activity state
+      }
+    };
+
+    void poll();
+    const interval = setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [projectSlug, projectThreadIds]);
+
   const participantMap = new Map(participants.map((p) => [p.id, p.name]));
 
   function agentName(agentId: string): string {
     return participantMap.get(agentId) || agentId.slice(0, 8);
   }
 
+  const activeAgentIds = new Set(activeProcesses.map((process) => process.agentId));
+  const activeAgentCount = activeAgentIds.size;
+
   // Compute unassigned agents
   const assignedAgentIds = new Set(teams.flatMap((t) => t.agents.map((a) => a.agent_id)));
   const unassignedAgents = projectAgents.filter((a) => !assignedAgentIds.has(a.agent_id));
+  const unassignedAgentIdSet = new Set(unassignedAgents.map((agent) => agent.agent_id));
+  const unassignedActiveProcesses = activeProcesses.filter((process) => unassignedAgentIdSet.has(process.agentId));
+  const unassignedActiveAgentCount = new Set(
+    unassignedActiveProcesses.map((process) => process.agentId)
+  ).size;
+  const activeTeamCount = teams.filter((team) =>
+    team.agents.some((agent) => activeAgentIds.has(agent.agent_id))
+  ).length;
 
   // --- Loading ---
   if (loading) {
@@ -113,9 +178,21 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
   }
 
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-8">
       {/* Header */}
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-zinc-500">
+            <Activity className="h-3.5 w-3.5" />
+            Live Team Activity
+          </div>
+          <p className="mt-1 text-sm text-zinc-400">
+            {activeAgentCount > 0
+              ? `${activeAgentCount} active ${activeAgentCount === 1 ? "agent" : "agents"} across ${activeTeamCount} ${activeTeamCount === 1 ? "team" : "teams"}`
+              : "No agents are active right now."}
+          </p>
+        </div>
         <button
           onClick={() => router.push(`/projects/${projectSlug}/teams/new`)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium transition-colors"
@@ -136,72 +213,106 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {teams.map((team) => (
-            <div
-              key={team.id}
-              className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4 flex flex-col gap-3"
-            >
-              {/* Team header */}
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Users className="w-4 h-4 text-zinc-400 shrink-0" />
-                  <span className="text-sm font-medium text-zinc-100 truncate">
-                    {team.name}
-                  </span>
+          {teams.map((team) => {
+            const teamAgentIds = new Set(team.agents.map((agent) => agent.agent_id));
+            const teamActiveProcesses = activeProcesses.filter((process) => teamAgentIds.has(process.agentId));
+            const liveAgentCount = new Set(teamActiveProcesses.map((process) => process.agentId)).size;
+
+            return (
+              <div
+                key={team.id}
+                className={`rounded-2xl border p-4 flex flex-col gap-3 cursor-pointer transition-colors group ${
+                  teamActiveProcesses.length > 0
+                    ? "border-emerald-700/70 bg-emerald-950/20 shadow-[0_0_0_1px_rgba(16,185,129,0.12)] hover:border-emerald-600"
+                    : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-700"
+                }`}
+                onClick={() => router.push(`/projects/${projectSlug}/teams/${team.id}`)}
+              >
+                {/* Team header */}
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Users className={`w-4 h-4 shrink-0 ${teamActiveProcesses.length > 0 ? "text-emerald-400" : "text-zinc-400"}`} />
+                    <span className="text-sm font-medium text-zinc-100 truncate">
+                      {team.name}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {liveAgentCount > 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-700/60 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        {liveAgentCount} live
+                      </span>
+                    )}
+                    {team.template_id && (
+                      <span className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
+                        {team.template_id}
+                      </span>
+                    )}
+                    <ChevronRight className="w-4 h-4 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
                 </div>
-                {team.template_id && (
-                  <span className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700 shrink-0">
-                    {team.template_id}
-                  </span>
+
+                {/* Agent count */}
+                <p className="text-xs text-zinc-500">
+                  {team.agents.length} agent{team.agents.length !== 1 ? "s" : ""}
+                  {liveAgentCount > 0 ? ` · ${liveAgentCount} active now` : ""}
+                </p>
+
+                {/* Agent avatars */}
+                {team.agents.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {team.agents
+                      .sort((a, b) => a.routing_order - b.routing_order)
+                      .map((agent) => {
+                        const isActive = activeAgentIds.has(agent.agent_id);
+                        return (
+                          <span
+                            key={agent.agent_id}
+                            title={`${agentName(agent.agent_id)} (${agent.role_key})`}
+                            className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border ${
+                              isActive
+                                ? "bg-emerald-500/10 text-emerald-200 border-emerald-700/60"
+                                : "bg-zinc-800 text-zinc-300 border-zinc-700"
+                            }`}
+                          >
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive ? "bg-emerald-400" : "bg-zinc-500"}`} />
+                            {agentName(agent.agent_id)}
+                          </span>
+                        );
+                      })}
+                  </div>
+                )}
+
+                {teamActiveProcesses.length > 0 && (
+                  <div className="rounded-xl border border-emerald-800/50 bg-emerald-900/10 p-3 flex flex-col gap-2">
+                    <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.18em] text-emerald-300">
+                      <Activity className="h-3.5 w-3.5" />
+                      Working Now
+                    </div>
+                    {teamActiveProcesses.slice(0, 3).map((process) => (
+                      <div key={`${team.id}-${process.workspaceId}-${process.threadId}-${process.agentId}`} className="flex items-start gap-2">
+                        <span className="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
+                        <div className="min-w-0">
+                          <p className="text-xs text-zinc-200 truncate">
+                            <span className="font-medium">{agentName(process.agentId)}</span>{" "}
+                            {process.state === "spawning" ? "is starting up" : "is working"}
+                          </p>
+                          <p className="text-[11px] text-zinc-500 truncate">
+                            {formatActivityThread(process)}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                    {teamActiveProcesses.length > 3 && (
+                      <p className="text-[11px] text-zinc-500">
+                        +{teamActiveProcesses.length - 3} more live activit{teamActiveProcesses.length - 3 === 1 ? "y" : "ies"}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
-
-              {/* Agent count */}
-              <p className="text-xs text-zinc-500">
-                {team.agents.length} agent{team.agents.length !== 1 ? "s" : ""}
-              </p>
-
-              {/* Agent avatars */}
-              {team.agents.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {team.agents
-                    .sort((a, b) => a.routing_order - b.routing_order)
-                    .map((agent) => (
-                      <span
-                        key={agent.agent_id}
-                        title={`${agentName(agent.agent_id)} (${agent.role_key})`}
-                        className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 border border-zinc-700"
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                        {agentName(agent.agent_id)}
-                      </span>
-                    ))}
-                </div>
-              )}
-
-              {/* Manage button */}
-              <div className="pt-2 border-t border-zinc-800 mt-auto">
-                <button
-                  type="button"
-                  onClick={() => setManageTeamId(manageTeamId === team.id ? null : team.id)}
-                  className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-                >
-                  <Settings className="w-3 h-3" />
-                  {manageTeamId === team.id ? "Close" : "Manage"}
-                </button>
-              </div>
-              {manageTeamId === team.id && (
-                <div className="mt-3 border-t border-zinc-800 pt-3">
-                  <TeamDetailView
-                    projectId={projectId}
-                    teamId={team.id}
-                    onTeamDeleted={() => { setManageTeamId(null); fetchTeams(); }}
-                    onTeamUpdated={fetchTeams}
-                  />
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -216,6 +327,12 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
             <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-400">
               {unassignedAgents.length}
             </span>
+            {unassignedActiveAgentCount > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-700/60 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                {unassignedActiveAgentCount} live
+              </span>
+            )}
           </div>
           <p className="text-xs text-zinc-500">
             These agents are in the project but not assigned to any team.
@@ -224,13 +341,43 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
             {unassignedAgents.map((agent) => (
               <span
                 key={agent.agent_id}
-                className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 border border-zinc-700"
+                className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border ${
+                  activeAgentIds.has(agent.agent_id)
+                    ? "bg-emerald-500/10 text-emerald-200 border-emerald-700/60"
+                    : "bg-zinc-800 text-zinc-300 border-zinc-700"
+                }`}
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 shrink-0" />
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                    activeAgentIds.has(agent.agent_id) ? "bg-emerald-400" : "bg-zinc-500"
+                  }`}
+                />
                 {agentName(agent.agent_id)}
               </span>
             ))}
           </div>
+          {unassignedActiveProcesses.length > 0 && (
+            <div className="rounded-xl border border-emerald-800/40 bg-emerald-900/10 p-3 flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.18em] text-emerald-300">
+                <Activity className="h-3.5 w-3.5" />
+                Unassigned Activity
+              </div>
+              {unassignedActiveProcesses.slice(0, 3).map((process) => (
+                <div key={`unassigned-${process.workspaceId}-${process.threadId}-${process.agentId}`} className="flex items-start gap-2">
+                  <span className="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs text-zinc-200 truncate">
+                      <span className="font-medium">{agentName(process.agentId)}</span>{" "}
+                      {process.state === "spawning" ? "is starting up" : "is working"}
+                    </p>
+                    <p className="text-[11px] text-zinc-500 truncate">
+                      {formatActivityThread(process)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="flex items-center gap-2 pt-1">
             <button
               className="text-xs px-3 py-1 rounded-lg border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
@@ -247,7 +394,7 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
           </div>
         </div>
       )}
-
+      </div>
     </div>
   );
 }

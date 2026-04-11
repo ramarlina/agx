@@ -15,6 +15,7 @@ const sortByCreatedAt = (threads: Thread[]) =>
 
 export function useThreadState(initialThreadId?: string) {
   const searchParams = useSearchParams();
+  const routeThreadId = (initialThreadId || searchParams.get("thread") || "").trim() || null;
   const isMounted = useRef(true);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
@@ -41,7 +42,6 @@ export function useThreadState(initialThreadId?: string) {
 
     (async () => {
       try {
-        const routeThreadId = (initialThreadId || searchParams.get("thread") || "").trim() || null;
         let fetched = await threadService.listThreads();
         if (routeThreadId && !fetched.some((thread) => thread.id === routeThreadId)) {
           const placeholder = await threadService.createThread({ id: routeThreadId });
@@ -82,7 +82,7 @@ export function useThreadState(initialThreadId?: string) {
     return () => {
       cancelled = true;
     };
-  }, [selectThread, searchParams, initialThreadId]);
+  }, [routeThreadId, selectThread]);
 
   useEffect(() => {
     if (!hasHydratedActiveThreadRef.current) {

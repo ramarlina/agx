@@ -1,106 +1,250 @@
 "use client";
 
-import { use, useState, useMemo } from "react";
+import { use, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  listTeamTemplates,
+  getAgentPresetBindings,
   listAgentPresets,
+  listTeamTemplates,
+  type AgentPreset,
   type AgentPresetId,
 } from "@/lib/team-catalog";
 import SearchCombo, { type ComboOption } from "@/components/SearchCombo";
 import { useProjectsWithAgents } from "@/hooks/useProjects";
-import { ArrowLeft, Plus, Search, Users, Loader2, Check, X } from "lucide-react";
+import {
+  AgentForm,
+  type AgentFormData,
+} from "@/components/chat-ui/ParticipantBar";
+import type { SkillBinding } from "@/lib/types";
+import { Check, Loader2, Pencil, Plus, Users, X } from "lucide-react";
+
+const AGENT_COLORS = ["#D97706", "#2563EB", "#059669", "#DC2626", "#7C3AED", "#DB2777", "#0891B2"];
+
+interface DraftAgent extends AgentFormData {
+  id: string;
+  roleId: AgentPresetId;
+}
+
+interface AgentEditorState {
+  key: string;
+  mode: "create" | "edit";
+  draftId: string | null;
+  initial: AgentFormData;
+}
+
+function toSkillBindings(preset: AgentPreset): SkillBinding[] {
+  return getAgentPresetBindings(preset).map((binding) => ({
+    repo: binding.repo,
+    skillId: binding.skillId,
+    ...(binding.condition ? { condition: binding.condition } : {}),
+  }));
+}
+
+function createAgentDraft(id: string, preset: AgentPreset, color: string): DraftAgent {
+  return {
+    id,
+    roleId: preset.id,
+    name: preset.name,
+    title: preset.title,
+    provider: "claude",
+    model: "",
+    identity: preset.identity,
+    color,
+    skills: [],
+    skillBindings: toSkillBindings(preset),
+  };
+}
+
+function applyPreset(rolePreset: AgentPreset, currentData: AgentFormData): AgentFormData {
+  return {
+    ...currentData,
+    roleId: rolePreset.id,
+    name: rolePreset.name,
+    title: rolePreset.title,
+    identity: rolePreset.identity,
+    skills: [],
+    skillBindings: toSkillBindings(rolePreset),
+  };
+}
 
 export default function NewTeamPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
   const router = useRouter();
   const { projects } = useProjectsWithAgents();
-  const project = projects.find((p) => p.slug === slug);
+  const project = projects.find((entry) => entry.slug === slug);
 
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
-  const [selectedPresetIds, setSelectedPresetIds] = useState<Set<AgentPresetId>>(new Set());
+  const [draftAgents, setDraftAgents] = useState<DraftAgent[]>([]);
   const [teamName, setTeamName] = useState("");
-  const [roleSearch, setRoleSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [agentEditor, setAgentEditor] = useState<AgentEditorState | null>(null);
 
   const templates = useMemo(() => listTeamTemplates(), []);
   const allPresets = useMemo(() => listAgentPresets(), []);
+  const nextDraftId = useRef(0);
+  const nextEditorId = useRef(0);
+
+  const presetMap = useMemo(
+    () => new Map(allPresets.map((preset) => [preset.id, preset])),
+    [allPresets],
+  );
 
   const selectedTemplate = useMemo(
-    () => templates.find((t) => t.id === selectedTemplateId) ?? null,
+    () => templates.find((template) => template.id === selectedTemplateId) ?? null,
     [templates, selectedTemplateId],
   );
 
   const templateOptions: ComboOption[] = useMemo(
-    () => templates.map((t) => ({
-      id: t.id,
-      label: t.name,
-      description: t.description,
-      meta: t.variants ? `${t.variants.length} specializations` : `${t.agents.length} roles`,
+    () => templates.map((template) => ({
+      id: template.id,
+      label: template.name,
+      description: template.description,
+      meta: template.variants ? `${template.variants.length} specializations` : `${template.agents.length} agents`,
     })),
     [templates],
   );
 
   const variantOptions: ComboOption[] = useMemo(() => {
     if (!selectedTemplate?.variants) return [];
-    return selectedTemplate.variants.map((v) => ({
-      id: v.id,
-      label: v.name,
-      description: v.description,
-      meta: `${v.agents.length} roles`,
+    return selectedTemplate.variants.map((variant) => ({
+      id: variant.id,
+      label: variant.name,
+      description: variant.description,
+      meta: `${variant.agents.length} agents`,
     }));
   }, [selectedTemplate]);
 
-  const selectedPresets = useMemo(
-    () => allPresets.filter((p) => selectedPresetIds.has(p.id)),
-    [allPresets, selectedPresetIds],
+  const roleOptions: ComboOption[] = useMemo(
+    () =>
+      allPresets.map((preset) => ({
+        id: preset.id,
+        label: preset.name,
+        description: preset.identity,
+        meta: preset.skillProfileId,
+      })),
+    [allPresets],
   );
 
-  const availablePresets = useMemo(() => {
-    const q = roleSearch.toLowerCase();
-    return allPresets.filter(
-      (p) =>
-        !selectedPresetIds.has(p.id) &&
-        (!q || p.name.toLowerCase().includes(q) || p.id.includes(q) || p.skillProfileId.includes(q)),
+  function createDraftId() {
+    const id = `draft-agent-${nextDraftId.current}`;
+    nextDraftId.current += 1;
+    return id;
+  }
+
+  function createEditorKey() {
+    const id = `agent-editor-${nextEditorId.current}`;
+    nextEditorId.current += 1;
+    return id;
+  }
+
+  function getNextColor(index: number) {
+    return AGENT_COLORS[index % AGENT_COLORS.length];
+  }
+
+  function seedDraftAgents(presets: AgentPreset[]) {
+    setDraftAgents(
+      presets.map((preset, index) =>
+        createAgentDraft(createDraftId(), preset, getNextColor(index)),
+      ),
     );
-  }, [allPresets, selectedPresetIds, roleSearch]);
+  }
+
+  function getDefaultPreset() {
+    return (
+      (selectedTemplate?.variants && selectedVariantId
+        ? selectedTemplate.variants.find((variant) => variant.id === selectedVariantId)?.agents[0]
+        : undefined) ??
+      selectedTemplate?.agents[0] ??
+      allPresets[0]
+    );
+  }
 
   function handleTemplateChange(id: string) {
     setSelectedTemplateId(id);
     setSelectedVariantId(null);
-    const t = templates.find((t) => t.id === id);
-    if (t) {
-      setTeamName(t.name);
-      if (!t.variants) {
-        setSelectedPresetIds(new Set(t.agents.map((a) => a.id)));
-      } else {
-        setSelectedPresetIds(new Set());
-      }
+    setError(null);
+
+    const template = templates.find((entry) => entry.id === id);
+    if (!template) return;
+
+    setTeamName(template.name);
+    if (template.variants?.length) {
+      setDraftAgents([]);
+      return;
     }
+
+    seedDraftAgents(template.agents);
   }
 
   function handleVariantChange(id: string) {
     setSelectedVariantId(id);
-    const v = selectedTemplate?.variants?.find((v) => v.id === id);
-    if (v) {
-      setTeamName(v.name);
-      setSelectedPresetIds(new Set(v.agents.map((a) => a.id)));
-    }
+    setError(null);
+
+    const variant = selectedTemplate?.variants?.find((entry) => entry.id === id);
+    if (!variant) return;
+
+    setTeamName(variant.name);
+    seedDraftAgents(variant.agents);
   }
 
-  function togglePreset(id: AgentPresetId) {
-    setSelectedPresetIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  function openAgentEditor(mode: "create" | "edit", draft?: DraftAgent) {
+    if (mode === "edit" && draft) {
+      setAgentEditor({
+        key: createEditorKey(),
+        mode,
+        draftId: draft.id,
+        initial: draft,
+      });
+      return;
+    }
+
+    const preset = getDefaultPreset();
+    if (!preset) return;
+
+    setAgentEditor({
+      key: createEditorKey(),
+      mode,
+      draftId: null,
+      initial: createAgentDraft(createDraftId(), preset, getNextColor(draftAgents.length)),
     });
   }
 
+  function handleSaveAgent(data: AgentFormData) {
+    const roleId = data.roleId as AgentPresetId | undefined;
+    if (!roleId || !presetMap.has(roleId) || !agentEditor) return;
+
+    const nextAgent: DraftAgent = {
+      id: agentEditor.draftId ?? createDraftId(),
+      roleId,
+      name: data.name.trim(),
+      title: data.title?.trim(),
+      provider: data.provider,
+      model: data.model.trim(),
+      identity: data.identity.trim(),
+      color: data.color,
+      skills: data.skills ?? [],
+      skillBindings: data.skillBindings ?? [],
+    };
+
+    setDraftAgents((current) => {
+      if (agentEditor.mode === "edit" && agentEditor.draftId) {
+        return current.map((draft) => (
+          draft.id === agentEditor.draftId ? nextAgent : draft
+        ));
+      }
+      return [...current, nextAgent];
+    });
+    setAgentEditor(null);
+  }
+
+  function handleRemoveAgent(id: string) {
+    setDraftAgents((current) => current.filter((draft) => draft.id !== id));
+  }
+
   async function handleCreate() {
-    if (!teamName.trim() || selectedPresetIds.size === 0) return;
+    if (!teamName.trim() || draftAgents.length === 0 || !project) return;
 
     setCreating(true);
     setError(null);
@@ -108,12 +252,23 @@ export default function NewTeamPage({ params }: { params: Promise<{ slug: string
     try {
       const body: Record<string, unknown> = {
         name: teamName.trim(),
-        agents: [...selectedPresetIds],
+        agents: draftAgents.map((agent) => ({
+          roleId: agent.roleId,
+          name: agent.name,
+          title: agent.title || undefined,
+          provider: agent.provider,
+          model: agent.model,
+          identity: agent.identity || undefined,
+          color: agent.color,
+          skills: agent.skills ?? [],
+          skillBindings: agent.skillBindings ?? [],
+        })),
       };
+
       if (selectedTemplateId) body.templateId = selectedTemplateId;
       if (selectedVariantId) body.variantId = selectedVariantId;
 
-      const res = await fetch(`/api/projects/${project?.id}/teams`, {
+      const res = await fetch(`/api/projects/${project.id}/teams`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -135,176 +290,193 @@ export default function NewTeamPage({ params }: { params: Promise<{ slug: string
     return <div className="flex items-center justify-center h-full text-sm text-zinc-500">Loading...</div>;
   }
 
-  const hasVariants = !!selectedTemplate?.variants;
-  const isConfigured = selectedPresetIds.size > 0;
+  const hasVariants = Boolean(selectedTemplate?.variants);
+  const isConfigured = draftAgents.length > 0;
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
-        {/* Back + title */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => router.push(`/projects/${slug}/teams`)}
-            className="p-2 -ml-2 rounded-xl hover:bg-[var(--muted)]/50 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
+    <>
+      <div className="h-full overflow-y-auto">
+        <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
           <div>
             <h1 className="text-lg font-bold">Add Team</h1>
-            <p className="text-xs text-[var(--muted-foreground)]">Pick a template, customize roles, and create.</p>
+            <p className="text-xs text-[var(--muted-foreground)]">Pick a template, customize agents, and create.</p>
           </div>
-        </div>
 
-        {error && (
-          <div className="p-3 rounded-xl bg-[var(--destructive-muted)] border border-[var(--destructive)]/20 text-sm text-[var(--destructive)]">
-            {error}
-          </div>
-        )}
-
-        {/* Team name */}
-        <div>
-          <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Team name</label>
-          <input
-            value={teamName}
-            onChange={(e) => setTeamName(e.target.value)}
-            placeholder="e.g. Core Engineering"
-            className="input w-full text-sm"
-            disabled={creating}
-            autoFocus
-          />
-        </div>
-
-        {/* Template */}
-        <div>
-          <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Template</label>
-          <SearchCombo
-            options={templateOptions}
-            value={selectedTemplateId}
-            onChange={handleTemplateChange}
-            placeholder="Select a team template..."
-            disabled={creating}
-          />
-        </div>
-
-        {/* Specialization */}
-        {hasVariants && (
-          <div>
-            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Specialization</label>
-            <SearchCombo
-              options={variantOptions}
-              value={selectedVariantId}
-              onChange={handleVariantChange}
-              placeholder="Select a specialization..."
-              disabled={creating}
-            />
-          </div>
-        )}
-
-        {/* Selected roles */}
-        {isConfigured && (
-          <div>
-            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-2">
-              Roles ({selectedPresets.length})
-            </label>
-            <div className="space-y-1.5">
-              {selectedPresets.map((preset) => (
-                <div
-                  key={preset.id}
-                  className="flex items-center justify-between py-2 px-3 rounded-xl"
-                  style={{ background: "var(--muted)", border: "1px solid var(--border)" }}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 bg-emerald-500/15">
-                      <Check className="w-3 h-3 text-emerald-400" />
-                    </div>
-                    <span className="text-sm font-medium truncate">{preset.name}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ background: "var(--card-bg)", color: "var(--muted-foreground)" }}>
-                      {preset.skillProfileId}
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => togglePreset(preset.id)}
-                    disabled={creating}
-                    className="p-1.5 rounded-lg hover:bg-red-500/15 text-[var(--muted-foreground)] hover:text-red-400 transition-colors"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
+          {error && (
+            <div className="p-3 rounded-xl bg-[var(--destructive-muted)] border border-[var(--destructive)]/20 text-sm text-[var(--destructive)]">
+              {error}
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Add roles */}
-        <div>
-          <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">
-            {isConfigured ? "Add more roles" : "Roles"}
-          </label>
-          <div className="relative mb-3">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+          <div>
+            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Team name</label>
             <input
-              value={roleSearch}
-              onChange={(e) => setRoleSearch(e.target.value)}
-              placeholder="Search all roles..."
+              value={teamName}
+              onChange={(e) => setTeamName(e.target.value)}
+              placeholder="e.g. Core Engineering"
               className="input w-full text-sm"
-              style={{ paddingLeft: "2.25rem" }}
+              disabled={creating}
+              autoFocus
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Template</label>
+            <SearchCombo
+              options={templateOptions}
+              value={selectedTemplateId}
+              onChange={handleTemplateChange}
+              placeholder="Select a team template..."
               disabled={creating}
             />
-            {roleSearch && (
-              <button onClick={() => setRoleSearch("")} className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
           </div>
-          <div className="flex flex-wrap gap-2">
-            {availablePresets.map((preset) => (
-              <button
-                key={preset.id}
-                onClick={() => togglePreset(preset.id)}
-                disabled={creating}
-                className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full transition-colors"
-                style={{ background: "var(--muted)", border: "1px solid var(--border)", color: "var(--muted-foreground)" }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--primary)"; e.currentTarget.style.color = "var(--primary)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--muted-foreground)"; }}
-              >
-                <Plus className="w-3 h-3" />
-                {preset.name}
-              </button>
-            ))}
-            {availablePresets.length === 0 && (
-              <span className="text-xs text-[var(--muted-foreground)] py-2">
-                {roleSearch ? "No matching roles" : "All roles selected"}
-              </span>
-            )}
-          </div>
-        </div>
 
-        {/* Actions */}
-        <div className="flex items-center gap-3 pt-4 border-t" style={{ borderColor: "var(--border)" }}>
-          <button
-            onClick={() => router.push(`/projects/${slug}/teams`)}
-            disabled={creating}
-            className="px-4 py-2 rounded-xl border hover:bg-[var(--muted)]/50 transition-colors text-sm"
-            style={{ borderColor: "var(--border)" }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleCreate}
-            disabled={!teamName.trim() || !isConfigured || creating}
-            className="btn-primary px-5 py-2 text-sm min-w-[120px] flex items-center justify-center gap-2"
-          >
-            {creating ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+          {hasVariants && (
+            <div>
+              <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Specialization</label>
+              <SearchCombo
+                options={variantOptions}
+                value={selectedVariantId}
+                onChange={handleVariantChange}
+                placeholder="Select a specialization..."
+                disabled={creating}
+              />
+            </div>
+          )}
+
+          <div>
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <label className="block text-xs font-medium text-[var(--muted-foreground)]">
+                Agents ({draftAgents.length})
+              </label>
+              <button
+                type="button"
+                onClick={() => openAgentEditor("create")}
+                disabled={creating}
+                className="inline-flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--muted)]/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ borderColor: "var(--border)" }}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Add Agent
+              </button>
+            </div>
+
+            {isConfigured ? (
+              <div className="space-y-2">
+                {draftAgents.map((agent) => {
+                  const preset = presetMap.get(agent.roleId);
+                  return (
+                    <div
+                      key={agent.id}
+                      className="flex items-start justify-between gap-3 rounded-xl px-3 py-3"
+                      style={{ background: "var(--muted)", border: "1px solid var(--border)" }}
+                    >
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        <div className="mt-0.5 w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 bg-emerald-500/15">
+                          <Check className="w-3 h-3 text-emerald-400" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-sm font-medium truncate">{agent.name}</div>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                            {preset && (
+                              <span
+                                className="text-[10px] px-1.5 py-0.5 rounded-full"
+                                style={{ background: "var(--card-bg)", color: "var(--muted-foreground)" }}
+                              >
+                                {preset.name}
+                              </span>
+                            )}
+                            {agent.title && (
+                              <span className="text-xs text-[var(--muted-foreground)] truncate">
+                                {agent.title}
+                              </span>
+                            )}
+                            {(agent.skillBindings?.length ?? 0) > 0 && (
+                              <span className="text-[10px] text-[var(--muted-foreground)]">
+                                {agent.skillBindings?.length} skills
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openAgentEditor("edit", agent)}
+                          disabled={creating}
+                          className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--card-bg)] transition-colors"
+                          title={`Edit ${agent.name}`}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAgent(agent.id)}
+                          disabled={creating}
+                          className="p-1.5 rounded-lg text-[var(--muted-foreground)] hover:text-red-400 hover:bg-red-500/15 transition-colors"
+                          title={`Remove ${agent.name}`}
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             ) : (
-              <>
-                <Users className="w-4 h-4" />
-                Create Team ({selectedPresetIds.size})
-              </>
+              <div
+                className="rounded-xl px-4 py-5 text-sm text-[var(--muted-foreground)]"
+                style={{ background: "var(--muted)", border: "1px dashed var(--border)" }}
+              >
+                Add your first agent using the full agent form, then assign its role from a preset.
+              </div>
             )}
-          </button>
+          </div>
+
+          <div className="flex items-center gap-3 pt-4 border-t" style={{ borderColor: "var(--border)" }}>
+            <button
+              onClick={() => router.push(`/projects/${slug}/teams`)}
+              disabled={creating}
+              className="px-4 py-2 rounded-xl border hover:bg-[var(--muted)]/50 transition-colors text-sm"
+              style={{ borderColor: "var(--border)" }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleCreate}
+              disabled={!teamName.trim() || !isConfigured || creating}
+              className="btn-primary px-5 py-2 text-sm min-w-[120px] flex items-center justify-center gap-2"
+            >
+              {creating ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Users className="w-4 h-4" />
+                  Create Team ({draftAgents.length})
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+
+      {agentEditor && (
+        <AgentForm
+          key={agentEditor.key}
+          title={agentEditor.mode === "edit" ? "Edit agent" : "Add agent"}
+          initial={agentEditor.initial}
+          submitLabel={agentEditor.mode === "edit" ? "Save" : "Add"}
+          onSubmit={(data) => handleSaveAgent(data)}
+          onCancel={() => setAgentEditor(null)}
+          roleOptions={roleOptions}
+          onRolePresetChange={(roleId, currentData) => {
+            const preset = presetMap.get(roleId as AgentPresetId);
+            if (!preset) return currentData;
+            return applyPreset(preset, currentData);
+          }}
+        />
+      )}
+    </>
   );
 }

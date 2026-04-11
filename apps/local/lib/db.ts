@@ -2792,13 +2792,23 @@ export async function getProjectThreads(projectId: string): Promise<ProjectThrea
 
 export async function addProjectThread(projectId: string, threadId: string): Promise<ProjectThread> {
   const db = createAdminDbClient();
-  const { data, error } = await db
+  const { error } = await db
     .from("project_threads")
-    .insert({ project_id: projectId, thread_id: threadId })
-    .select()
-    .single();
+    .upsert(
+      { project_id: projectId, thread_id: threadId },
+      { onConflict: "project_id,thread_id", ignoreDuplicates: true }
+    );
 
   if (error) throw error;
+
+  const { data, error: fetchError } = await db
+    .from("project_threads")
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("thread_id", threadId)
+    .single();
+
+  if (fetchError) throw fetchError;
   return data;
 }
 

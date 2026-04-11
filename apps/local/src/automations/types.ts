@@ -42,6 +42,8 @@ export interface PromptJobAutomationTarget {
   model?: string;
   cliArgs?: string;
   prompt?: string;
+  objectiveId?: string;
+  objectiveKey?: string;
 }
 
 export interface ExecutionGraphAutomationTarget {

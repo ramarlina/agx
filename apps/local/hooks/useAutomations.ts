@@ -4,6 +4,8 @@ import type { GraphSchedule } from '@/src/graph/types';
 export interface AutomationItem {
   taskId: string;
   graphId: string;
+  title: string;
+  projectId: string | null;
   schedule: GraphSchedule;
   executionState: string;
   createdAt: string;

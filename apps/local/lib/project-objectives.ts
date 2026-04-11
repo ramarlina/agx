@@ -1,5 +1,6 @@
 export const PROJECT_OBJECTIVES_METADATA_KEY = "project_objectives_workspace";
 export const LEGACY_PROJECT_GOALS_METADATA_KEY = "project_goals_workspace";
+export const CURRENT_OBJECTIVE_CHAT_SESSION_VERSION = 2;
 
 export type ProjectObjectiveHealth = "on_track" | "at_risk" | "off_track" | "done";
 export type ProjectObjectiveTaskStatus = "todo" | "in_progress" | "done";
@@ -19,6 +20,10 @@ export interface ProjectObjective {
   id: string;
   title: string;
   teamId: string;
+  key: string;
+  threadId: string | null;
+  chatSessionVersion: number;
+  scheduledTaskIds: string[];
   summary: string;
   cadence: string;
   condition: string;
@@ -63,6 +68,10 @@ interface CreateProjectObjectiveInput {
   id?: string;
   title: string;
   teamId: string;
+  key?: string;
+  threadId?: string | null;
+  chatSessionVersion?: number;
+  scheduledTaskIds?: string[];
   summary?: string;
   cadence?: string;
   condition?: string;
@@ -141,6 +150,17 @@ function readString(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
 }
 
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value
+        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+        .filter(Boolean)
+    )
+  );
+}
+
 function readTimestamp(value: unknown, fallback = DEFAULT_TIMESTAMP): string {
   if (typeof value !== "string") return fallback;
   const parsed = Date.parse(value);
@@ -150,6 +170,14 @@ function readTimestamp(value: unknown, fallback = DEFAULT_TIMESTAMP): string {
 function readProgress(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function readNonNegativeInteger(value: unknown, fallback = 0): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return fallback;
+  }
+
+  return Math.max(0, Math.floor(value));
 }
 
 function readObjectiveHealth(value: unknown): ProjectObjectiveHealth {
@@ -162,6 +190,77 @@ function readTaskStatus(value: unknown): ProjectObjectiveTaskStatus {
   return typeof value === "string" && OBJECTIVE_TASK_STATUS_VALUES.has(value as ProjectObjectiveTaskStatus)
     ? (value as ProjectObjectiveTaskStatus)
     : "todo";
+}
+
+function slugifyObjectiveKey(value: string, fallback = "objective"): string {
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-")
+    .slice(0, 32);
+
+  if (normalized) {
+    return normalized;
+  }
+
+  return fallback
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "objective";
+}
+
+function buildUniqueObjectiveKey(baseValue: string, seenKeys: Set<string>, fallback = "objective"): string {
+  const fallbackKey = slugifyObjectiveKey(fallback);
+  const baseKey = slugifyObjectiveKey(baseValue, fallbackKey);
+  let candidate = baseKey;
+  let suffix = 2;
+
+  while (seenKeys.has(candidate)) {
+    const suffixText = `-${suffix}`;
+    const maxBaseLength = Math.max(1, 32 - suffixText.length);
+    candidate = `${baseKey.slice(0, maxBaseLength)}${suffixText}`;
+    suffix += 1;
+  }
+
+  seenKeys.add(candidate);
+  return candidate;
+}
+
+function withUniqueObjectiveKeys(objectives: ProjectObjective[]): ProjectObjective[] {
+  const seenKeys = new Set<string>();
+  return objectives.map((objective) => {
+    const nextKey = buildUniqueObjectiveKey(
+      objective.key || objective.title || objective.id,
+      seenKeys,
+      objective.id || objective.title || "objective"
+    );
+
+    if (objective.key === nextKey) {
+      return objective;
+    }
+
+    return {
+      ...objective,
+      key: nextKey,
+    };
+  });
+}
+
+export function generateProjectObjectiveKey(
+  value: string,
+  objectives: Array<Pick<ProjectObjective, "id" | "title" | "key">>,
+  excludeObjectiveId?: string
+): string {
+  const seenKeys = new Set(
+    objectives
+      .filter((objective) => objective.id !== excludeObjectiveId)
+      .map((objective) => slugifyObjectiveKey(objective.key || objective.title || objective.id))
+  );
+
+  return buildUniqueObjectiveKey(value, seenKeys, excludeObjectiveId ?? value);
 }
 
 function normalizeManualTask(raw: unknown): ProjectObjectiveManualTask | null {
@@ -199,6 +298,13 @@ function normalizeObjective(raw: unknown): ProjectObjective | null {
     id: readString(raw.id, createId("objective")),
     title: readString(raw.title, "Untitled objective"),
     teamId: readString(raw.teamId ?? raw.team_id ?? raw.ownerTeamId),
+    key: slugifyObjectiveKey(
+      readString(raw.key ?? raw.slug ?? raw.label),
+      readString(raw.title ?? raw.id, "objective")
+    ),
+    threadId: readString(raw.threadId) || null,
+    chatSessionVersion: readNonNegativeInteger(raw.chatSessionVersion, 0),
+    scheduledTaskIds: readStringArray(raw.scheduledTaskIds ?? raw.promptJobIds),
     summary: readString(raw.summary),
     cadence: readString(raw.cadence),
     condition: readString(raw.condition),
@@ -288,7 +394,7 @@ function normalizeWorkspace(raw: unknown): ProjectObjectiveWorkspaceState {
     : {};
 
   return {
-    objectives: sortByNewest(objectives),
+    objectives: sortByNewest(withUniqueObjectiveKeys(objectives)),
     activities: sortByCreatedDesc(activities),
     activityThreads,
   };
@@ -389,6 +495,13 @@ export function createProjectObjective(
     id: input.id ?? createId("objective"),
     title: input.title.trim(),
     teamId: input.teamId.trim(),
+    key: slugifyObjectiveKey(input.key?.trim() ?? input.title.trim(), input.id ?? input.title),
+    threadId: typeof input.threadId === "string" && input.threadId.trim() ? input.threadId.trim() : null,
+    chatSessionVersion: readNonNegativeInteger(
+      input.chatSessionVersion ?? CURRENT_OBJECTIVE_CHAT_SESSION_VERSION,
+      CURRENT_OBJECTIVE_CHAT_SESSION_VERSION
+    ),
+    scheduledTaskIds: readStringArray(input.scheduledTaskIds ?? []),
     summary: input.summary?.trim() ?? "",
     cadence: input.cadence?.trim() ?? "",
     condition: input.condition?.trim() ?? "",

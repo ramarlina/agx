@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS prompt_jobs (
     cli TEXT NOT NULL DEFAULT 'claude',
     agent_id TEXT DEFAULT NULL REFERENCES agents(id) ON DELETE SET NULL,
     project_id TEXT DEFAULT NULL,
+    objective_id TEXT DEFAULT NULL,
+    objective_key TEXT DEFAULT NULL,
     provider TEXT NOT NULL DEFAULT 'claude',
     model TEXT NOT NULL DEFAULT '',
     cli_args TEXT NOT NULL DEFAULT '',
