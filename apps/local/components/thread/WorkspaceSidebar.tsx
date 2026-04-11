@@ -21,6 +21,7 @@ import {
   Users,
   Home,
   MessageSquare,
+  TerminalSquare,
 } from "lucide-react";
 import Link from "next/link";
 import type { Thread } from "@/lib/storage";
@@ -63,7 +64,7 @@ interface WorkspaceSidebarProps {
   onUpdateParticipant?: (participant: Participant) => Promise<unknown>;
   onSelectProject?: (projectId: string) => void;
   activeProjectId?: string | null;
-  activeProjectView?: "overview" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "settings" | null;
+  activeProjectView?: "overview" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "terminal" | "settings" | null;
   onAddTeam?: (projectId: string) => void;
 }
 
@@ -608,6 +609,7 @@ export function WorkspaceSidebar({
             const isActiveProjectThread = isActiveProject && activeProjectView === "thread" && primaryProjectThreadId === activeThreadId;
             const isActiveProjectAutomations = isActiveProject && activeProjectView === "automations";
             const isActiveProjectLinear = isActiveProject && activeProjectView === "linear";
+            const isActiveProjectTerminal = isActiveProject && activeProjectView === "terminal";
             const isActiveProjectSettings = isActiveProject && activeProjectView === "settings";
 
             return (
@@ -701,6 +703,18 @@ export function WorkspaceSidebar({
                       >
                         <Zap size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
                         <span className="workspace-sidebar__workspace-title text-xs">Scheduled Tasks</span>
+                      </Link>
+                    </div>
+
+                    {/* Terminal */}
+                    <div className="workspace-sidebar__workspace-item">
+                      <Link
+                        href={`/projects/${project.slug}/terminal`}
+                        className={`workspace-sidebar__nav-item ${isActiveProjectTerminal ? "workspace-sidebar__nav-item--active" : ""}`}
+                        aria-current={isActiveProjectTerminal ? "page" : undefined}
+                      >
+                        <TerminalSquare size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                        <span className="workspace-sidebar__workspace-title text-xs">Terminal</span>
                       </Link>
                     </div>
 
