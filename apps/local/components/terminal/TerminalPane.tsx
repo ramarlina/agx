@@ -8,14 +8,12 @@ import "@xterm/xterm/css/xterm.css";
 interface TerminalPaneProps {
   sessionId?: string;
   tabId: string;
-  isActive: boolean;
   onTitleChange?: (title: string) => void;
   onSessionReady?: (sessionId: string) => void;
 }
 
 export default function TerminalPane({
   tabId,
-  isActive,
   onTitleChange,
   onSessionReady,
 }: TerminalPaneProps) {
@@ -173,32 +171,14 @@ export default function TerminalPane({
     };
   }, [tabId, sendMessage, onSessionReady, onTitleChange]);
 
-  // Re-fit when becoming active
+  // Focus terminal on mount
   useEffect(() => {
-    if (isActive && fitAddonRef.current) {
-      requestAnimationFrame(() => {
-        try {
-          fitAddonRef.current?.fit();
-          if (connectedRef.current && terminalRef.current) {
-            sendMessage({
-              type: "resize",
-              cols: terminalRef.current.cols,
-              rows: terminalRef.current.rows,
-            });
-          }
-        } catch {
-          // Ignore
-        }
-      });
-      // Focus the terminal when tab becomes active
-      terminalRef.current?.focus();
-    }
-  }, [isActive, sendMessage]);
+    terminalRef.current?.focus();
+  }, []);
 
   return (
     <div
       ref={containerRef}
-      style={{ display: isActive ? "block" : "none" }}
       className="h-full w-full"
     />
   );
