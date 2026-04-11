@@ -6,12 +6,10 @@ import {
   buildObjectiveTimelineActivities,
   createManualObjectiveActivity,
   createObjectiveActivityThreadMessage,
-  createObjectiveManualTask,
   createProjectObjective,
   generateProjectObjectiveKey,
   readProjectObjectivesWorkspace,
   removeProjectObjective,
-  upsertObjectiveManualTask,
   upsertProjectObjective,
   writeProjectObjectivesWorkspace,
 } from "@/lib/project-objectives";
@@ -29,21 +27,9 @@ describe("project-objectives", () => {
       status: "at_risk",
       now: "2026-04-09T12:00:00.000Z",
     });
-    let workspace = upsertProjectObjective(
+    const workspace = upsertProjectObjective(
       readProjectObjectivesWorkspace(undefined),
       objective
-    );
-    workspace = upsertObjectiveManualTask(
-      workspace,
-      objective.id,
-      createObjectiveManualTask({
-        id: "task-1",
-        title: "Refresh referral CTA",
-        notes: "Needs a clearer offer.",
-        status: "in_progress",
-        now: "2026-04-09T12:15:00.000Z",
-      }),
-      "2026-04-09T12:15:00.000Z"
     );
 
     const metadata = writeProjectObjectivesWorkspace({ owner: "marketing" }, workspace);
@@ -52,7 +38,6 @@ describe("project-objectives", () => {
     expect(metadata.owner).toBe("marketing");
     expect(metadata[PROJECT_OBJECTIVES_METADATA_KEY]).toBeDefined();
     expect(roundTrip.objectives[0].title).toBe("Get 50 visitors daily");
-    expect(roundTrip.objectives[0].manualTasks).toHaveLength(1);
     expect(roundTrip.objectives[0].cadence).toBe("Every weekday morning");
     expect(roundTrip.objectives[0].condition).toBe("traffic is below target");
     expect(roundTrip.objectives[0].teamId).toBe("team-growth");
@@ -140,9 +125,7 @@ describe("project-objectives", () => {
         objectiveId: objective.id,
         title: "Refresh referral CTA",
         body: "Status changed to working.",
-        sourceType: "manual_task",
-        sourceLabel: "Manual task",
-        relatedTaskId: "task-1",
+        sourceLabel: "Update",
         now: "2026-04-09T14:00:00.000Z",
       })
     );
@@ -162,7 +145,7 @@ describe("project-objectives", () => {
       "activity-note",
     ]);
     expect(timeline[0].threadCount).toBe(1);
-    expect(timeline[0].sourceType).toBe("manual_task");
+    expect(timeline[0].sourceType).toBe("note");
   });
 
   test("removes objective-owned tasks, activities, and threads when deleting an objective", () => {
@@ -176,25 +159,12 @@ describe("project-objectives", () => {
       readProjectObjectivesWorkspace(undefined),
       objective
     );
-    workspace = upsertObjectiveManualTask(
-      workspace,
-      objective.id,
-      createObjectiveManualTask({
-        id: "task-1",
-        title: "Refresh CTA",
-        now: "2026-04-09T12:05:00.000Z",
-      }),
-      "2026-04-09T12:05:00.000Z"
-    );
     workspace = addObjectiveActivity(
       workspace,
       createManualObjectiveActivity({
         id: "activity-1",
         objectiveId: objective.id,
         title: "Refresh CTA",
-        sourceType: "manual_task",
-        sourceLabel: "Manual task",
-        relatedTaskId: "task-1",
         now: "2026-04-09T12:10:00.000Z",
       })
     );
