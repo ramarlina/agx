@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db-instance";
 import { buildProjectInput } from "./payload";
 import { LOCAL_USER } from "@/lib/auth-mode";
+import { hydrateProjectsObjectiveMetadata } from "./objective-metadata";
 
 function isMissingProjectsSchemaError(error: unknown): boolean {
 // ... (rest of helper)
@@ -27,7 +28,9 @@ export async function GET(request: NextRequest) {
     const includeArchived = request.nextUrl.searchParams.get("archived") === "true";
 
     const projects = await db.getProjects(userId, includeArchived);
-    return NextResponse.json({ projects });
+    return NextResponse.json({
+      projects: hydrateProjectsObjectiveMetadata(projects),
+    });
   } catch (error) {
     console.error("Error fetching projects:", error);
     return NextResponse.json({ error: "Failed to fetch projects" }, { status: 500 });
