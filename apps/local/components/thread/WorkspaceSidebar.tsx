@@ -740,11 +740,11 @@ export function WorkspaceSidebar({
                         <Target size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
                         <span className="workspace-sidebar__workspace-title text-xs">Objectives</span>
                         {navActivity?.objectives.length > 0 && (
-                          <span className="inline-flex items-center -space-x-1 ml-auto shrink-0">
+                          <span className="inline-flex items-center -space-x-1 ml-1 shrink-0">
                             {navActivity.objectives.slice(0, 3).map((dot) => {
                               const agent = participants.find((p) => p.id === dot.agentId);
                               return (
-                                <img key={dot.agentId} src={agentAvatarUrl(agent?.name ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} title={agent?.name} className="h-4 w-4 rounded-full ring-1 ring-[var(--sidebar-bg)] animate-pulse" />
+                                <img key={dot.agentId} src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} title={agent?.name} className="h-4 w-4 rounded-full ring-1 ring-[var(--sidebar-bg)]" />
                               );
                             })}
                           </span>
@@ -762,11 +762,11 @@ export function WorkspaceSidebar({
                         <ExternalLink size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
                         <span className="workspace-sidebar__workspace-title text-xs">Linear</span>
                         {navActivity?.linear.length > 0 && (
-                          <span className="inline-flex items-center -space-x-1 ml-auto shrink-0">
+                          <span className="inline-flex items-center -space-x-1 ml-1 shrink-0">
                             {navActivity.linear.slice(0, 3).map((dot) => {
                               const agent = participants.find((p) => p.id === dot.agentId);
                               return (
-                                <img key={dot.agentId} src={agentAvatarUrl(agent?.name ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} title={agent?.name} className="h-4 w-4 rounded-full ring-1 ring-[var(--sidebar-bg)] animate-pulse" />
+                                <img key={dot.agentId} src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} title={agent?.name} className="h-4 w-4 rounded-full ring-1 ring-[var(--sidebar-bg)]" />
                               );
                             })}
                           </span>
@@ -817,11 +817,11 @@ export function WorkspaceSidebar({
                           <MessageSquare size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
                           <span className="workspace-sidebar__workspace-title text-xs">Chat</span>
                           {navActivity?.chat.length > 0 && (
-                            <span className="inline-flex items-center -space-x-1 ml-auto shrink-0">
+                            <span className="inline-flex items-center -space-x-1 ml-1 shrink-0">
                               {navActivity.chat.slice(0, 3).map((dot) => {
                                 const agent = participants.find((p) => p.id === dot.agentId);
                                 return (
-                                  <img key={dot.agentId} src={agentAvatarUrl(agent?.name ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} title={agent?.name} className="h-4 w-4 rounded-full ring-1 ring-[var(--sidebar-bg)] animate-pulse" />
+                                  <img key={dot.agentId} src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} title={agent?.name} className="h-4 w-4 rounded-full ring-1 ring-[var(--sidebar-bg)]" />
                                 );
                               })}
                             </span>
