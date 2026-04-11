@@ -1,24 +1,39 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 
 interface TerminalPaneProps {
   sessionId?: string;
+  tabId: string;
   isActive: boolean;
   onTitleChange?: (title: string) => void;
+  onSessionReady?: (sessionId: string) => void;
 }
 
 export default function TerminalPane({
-  sessionId,
+  tabId,
   isActive,
   onTitleChange,
+  onSessionReady,
 }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const connectedRef = useRef(false);
+
+  const sendMessage = useCallback(
+    (msg: Record<string, unknown>) => {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(msg));
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const container = containerRef.current;
@@ -27,7 +42,8 @@ export default function TerminalPane({
     const terminal = new Terminal({
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
+      fontFamily:
+        "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
       theme: {
         background: "#0f1117",
         foreground: "#d4d4d8",
@@ -56,7 +72,6 @@ export default function TerminalPane({
     terminal.loadAddon(fitAddon);
     terminal.open(container);
 
-    // Initial fit after a frame so the container has dimensions
     requestAnimationFrame(() => {
       try {
         fitAddon.fit();
@@ -68,39 +83,79 @@ export default function TerminalPane({
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
-    // Welcome message
-    terminal.writeln("Welcome to AGX Terminal");
-    terminal.writeln("");
-    terminal.write("$ ");
+    // Connect to PTY WebSocket
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/terminal`);
+    wsRef.current = ws;
 
-    // Local echo for now (PTY will replace this)
-    let currentLine = "";
-    terminal.onKey(({ key, domEvent }) => {
-      const code = domEvent.keyCode;
-      if (code === 13) {
-        // Enter
-        terminal.writeln("");
-        if (currentLine.trim()) {
-          terminal.writeln(`\x1b[90m[no PTY] ${currentLine}\x1b[0m`);
-        }
-        currentLine = "";
-        terminal.write("$ ");
-      } else if (code === 8) {
-        // Backspace
-        if (currentLine.length > 0) {
-          currentLine = currentLine.slice(0, -1);
-          terminal.write("\b \b");
-        }
-      } else if (key.length === 1 && !domEvent.ctrlKey && !domEvent.altKey && !domEvent.metaKey) {
-        currentLine += key;
-        terminal.write(key);
+    ws.onopen = () => {
+      connectedRef.current = true;
+      // Request a PTY session
+      ws.send(
+        JSON.stringify({
+          type: "create",
+          id: tabId,
+        }),
+      );
+    };
+
+    ws.onmessage = (event) => {
+      let msg: { type: string; [key: string]: unknown };
+      try {
+        msg = JSON.parse(event.data);
+      } catch {
+        return;
       }
+
+      switch (msg.type) {
+        case "ready":
+          onSessionReady?.(msg.id as string);
+          // Send initial size
+          requestAnimationFrame(() => {
+            try {
+              fitAddon.fit();
+              sendMessage({
+                type: "resize",
+                cols: terminal.cols,
+                rows: terminal.rows,
+              });
+            } catch {
+              // ignore
+            }
+          });
+          break;
+        case "data":
+          terminal.write(msg.data as string);
+          break;
+        case "exit":
+          terminal.writeln(
+            `\r\n\x1b[90m[Process exited with code ${msg.exitCode}]\x1b[0m`,
+          );
+          break;
+      }
+    };
+
+    ws.onclose = () => {
+      connectedRef.current = false;
+      terminal.writeln("\r\n\x1b[90m[Disconnected]\x1b[0m");
+    };
+
+    // Forward terminal input to PTY
+    terminal.onData((data) => {
+      sendMessage({ type: "data", data });
     });
 
-    // ResizeObserver to auto-fit
+    // ResizeObserver to auto-fit and notify PTY
     const observer = new ResizeObserver(() => {
       try {
         fitAddon.fit();
+        if (connectedRef.current) {
+          sendMessage({
+            type: "resize",
+            cols: terminal.cols,
+            rows: terminal.rows,
+          });
+        }
       } catch {
         // Ignore fit errors when container is hidden
       }
@@ -109,11 +164,14 @@ export default function TerminalPane({
 
     return () => {
       observer.disconnect();
+      ws.close();
       terminal.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
+      wsRef.current = null;
+      connectedRef.current = false;
     };
-  }, []);
+  }, [tabId, sendMessage, onSessionReady, onTitleChange]);
 
   // Re-fit when becoming active
   useEffect(() => {
@@ -121,12 +179,21 @@ export default function TerminalPane({
       requestAnimationFrame(() => {
         try {
           fitAddonRef.current?.fit();
+          if (connectedRef.current && terminalRef.current) {
+            sendMessage({
+              type: "resize",
+              cols: terminalRef.current.cols,
+              rows: terminalRef.current.rows,
+            });
+          }
         } catch {
           // Ignore
         }
       });
+      // Focus the terminal when tab becomes active
+      terminalRef.current?.focus();
     }
-  }, [isActive]);
+  }, [isActive, sendMessage]);
 
   return (
     <div

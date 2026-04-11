@@ -12,6 +12,7 @@ export default function ProjectTerminal() {
   const closeTab = useTerminalTabsStore((s) => s.closeTab);
   const renameTab = useTerminalTabsStore((s) => s.renameTab);
   const setActiveTab = useTerminalTabsStore((s) => s.setActiveTab);
+  const setSessionId = useTerminalTabsStore((s) => s.setSessionId);
 
   // Auto-create first tab if none exist
   useEffect(() => {
@@ -35,9 +36,11 @@ export default function ProjectTerminal() {
         {tabs.map((tab) => (
           <TerminalPane
             key={tab.id}
+            tabId={tab.id}
             sessionId={tab.sessionId}
             isActive={tab.id === activeTabId}
             onTitleChange={(title) => renameTab(tab.id, title)}
+            onSessionReady={(sid) => setSessionId(tab.id, sid)}
           />
         ))}
       </div>
