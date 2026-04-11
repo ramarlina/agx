@@ -24,6 +24,7 @@
     "commands/**",
     "templates/**",
     "cloud-runtime/**",
+    "skills/**",
     "scripts/postinstall.js"
   ],
   "scripts": {
