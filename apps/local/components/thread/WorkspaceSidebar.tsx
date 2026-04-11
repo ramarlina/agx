@@ -704,18 +704,6 @@ export function WorkspaceSidebar({
                       </Link>
                     </div>
 
-                    {/* Teams */}
-                    <div className="workspace-sidebar__workspace-item">
-                      <Link
-                        href={`/projects/${project.slug}/teams`}
-                        className={`workspace-sidebar__nav-item ${isActiveProjectTeams ? "workspace-sidebar__nav-item--active" : ""}`}
-                        aria-current={isActiveProjectTeams ? "page" : undefined}
-                      >
-                        <Users size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                        <span className="workspace-sidebar__workspace-title text-xs">Teams</span>
-                      </Link>
-                    </div>
-
                     {/* Chat */}
                     <div className="workspace-sidebar__workspace-item">
                       {primaryProjectThreadId ? (
@@ -729,6 +717,20 @@ export function WorkspaceSidebar({
                           <span className="workspace-sidebar__workspace-title text-xs">Chat</span>
                         </button>
                       ) : null}
+                    </div>
+
+                    {/* Settings section */}
+                    <div className="mt-2 pt-2 border-t border-[var(--app-shell-border)]">
+                      <div className="workspace-sidebar__workspace-item">
+                        <Link
+                          href={`/projects/${project.slug}/teams`}
+                          className={`workspace-sidebar__nav-item ${isActiveProjectTeams ? "workspace-sidebar__nav-item--active" : ""}`}
+                          aria-current={isActiveProjectTeams ? "page" : undefined}
+                        >
+                          <Users size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                          <span className="workspace-sidebar__workspace-title text-xs">Teams</span>
+                        </Link>
+                      </div>
                     </div>
 
                   </div>
