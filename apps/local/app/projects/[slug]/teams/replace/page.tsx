@@ -9,7 +9,7 @@ import {
 } from "@/lib/team-catalog";
 import SearchCombo, { type ComboOption } from "@/components/SearchCombo";
 import { useProjectsWithAgents } from "@/hooks/useProjects";
-import { ArrowLeft, Plus, Search, Loader2, AlertTriangle, Check, X } from "lucide-react";
+import { Plus, Search, Loader2, AlertTriangle, Check, X } from "lucide-react";
 
 interface UnassignedAgentSummary { id: string; name: string; }
 
@@ -102,14 +102,9 @@ export default function ReplaceTeamPage({ params }: { params: Promise<{ slug: st
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
-        <div className="flex items-center gap-3">
-          <button onClick={() => router.push(`/projects/${slug}/teams`)} className="p-2 -ml-2 rounded-xl hover:bg-[var(--muted)]/50 transition-colors">
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <div>
-            <h1 className="text-lg font-bold">Replace Unassigned Agents</h1>
-            <p className="text-xs text-[var(--muted-foreground)]">Remove unassigned agents and create a new team.</p>
-          </div>
+        <div>
+          <h1 className="text-lg font-bold">Replace Unassigned Agents</h1>
+          <p className="text-xs text-[var(--muted-foreground)]">Remove unassigned agents and create a new team.</p>
         </div>
 
         {error && <div className="p-3 rounded-xl bg-[var(--destructive-muted)] border border-[var(--destructive)]/20 text-sm text-[var(--destructive)]">{error}</div>}

@@ -9,7 +9,7 @@ import {
 } from "@/lib/team-catalog";
 import SearchCombo, { type ComboOption } from "@/components/SearchCombo";
 import { useProjectsWithAgents } from "@/hooks/useProjects";
-import { ArrowLeft, Plus, Search, Users, Loader2, Check, X } from "lucide-react";
+import { Plus, Search, Users, Loader2, Check, X } from "lucide-react";
 
 export default function NewTeamPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params);
@@ -141,18 +141,9 @@ export default function NewTeamPage({ params }: { params: Promise<{ slug: string
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-2xl mx-auto px-6 py-8 space-y-6">
-        {/* Back + title */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => router.push(`/projects/${slug}/teams`)}
-            className="p-2 -ml-2 rounded-xl hover:bg-[var(--muted)]/50 transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <div>
-            <h1 className="text-lg font-bold">Add Team</h1>
-            <p className="text-xs text-[var(--muted-foreground)]">Pick a template, customize roles, and create.</p>
-          </div>
+        <div>
+          <h1 className="text-lg font-bold">Add Team</h1>
+          <p className="text-xs text-[var(--muted-foreground)]">Pick a template, customize roles, and create.</p>
         </div>
 
         {error && (

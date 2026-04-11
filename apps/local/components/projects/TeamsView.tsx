@@ -4,12 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  ChevronRight,
   Loader2,
   Plus,
-  Settings,
   Users,
 } from "lucide-react";
-import TeamDetailView from "@/components/TeamDetailView";
 
 interface TeamAgent {
   team_id: string;
@@ -43,8 +42,6 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [manageTeamId, setManageTeamId] = useState<string | null>(null);
-
   const fetchTeams = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -139,7 +136,8 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
           {teams.map((team) => (
             <div
               key={team.id}
-              className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4 flex flex-col gap-3"
+              className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4 flex flex-col gap-3 cursor-pointer hover:border-zinc-700 transition-colors group"
+              onClick={() => router.push(`/projects/${projectSlug}/teams/${team.id}`)}
             >
               {/* Team header */}
               <div className="flex items-start justify-between">
@@ -149,11 +147,14 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
                     {team.name}
                   </span>
                 </div>
-                {team.template_id && (
-                  <span className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700 shrink-0">
-                    {team.template_id}
-                  </span>
-                )}
+                <div className="flex items-center gap-2 shrink-0">
+                  {team.template_id && (
+                    <span className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
+                      {team.template_id}
+                    </span>
+                  )}
+                  <ChevronRight className="w-4 h-4 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
               </div>
 
               {/* Agent count */}
@@ -176,28 +177,6 @@ export function TeamsView({ projectId, projectSlug, projectAgents }: TeamsViewPr
                         {agentName(agent.agent_id)}
                       </span>
                     ))}
-                </div>
-              )}
-
-              {/* Manage button */}
-              <div className="pt-2 border-t border-zinc-800 mt-auto">
-                <button
-                  type="button"
-                  onClick={() => setManageTeamId(manageTeamId === team.id ? null : team.id)}
-                  className="flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
-                >
-                  <Settings className="w-3 h-3" />
-                  {manageTeamId === team.id ? "Close" : "Manage"}
-                </button>
-              </div>
-              {manageTeamId === team.id && (
-                <div className="mt-3 border-t border-zinc-800 pt-3">
-                  <TeamDetailView
-                    projectId={projectId}
-                    teamId={team.id}
-                    onTeamDeleted={() => { setManageTeamId(null); fetchTeams(); }}
-                    onTeamUpdated={fetchTeams}
-                  />
                 </div>
               )}
             </div>

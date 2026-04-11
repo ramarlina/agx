@@ -3,8 +3,9 @@
 import { Suspense, use, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
-import { Sun, Moon } from "lucide-react";
+import { ArrowLeft, Sun, Moon } from "lucide-react";
 import { StatusIndicator } from "@/components/chat-ui/StatusIndicator";
+import { ProjectSearchBar } from "@/components/projects/ProjectSearchBar";
 import { WorkspaceSidebar } from "@/components/thread/WorkspaceSidebar";
 import { useProjectsWithAgents } from "@/hooks/useProjects";
 import { useThreadState } from "@/hooks/useThreadState";
@@ -184,8 +185,17 @@ function ProjectLayoutContent({
       />
       <div className="flex-1 min-h-0 flex flex-col min-w-0 h-full overflow-hidden">
         <div className="flex items-center px-4 py-2 border-b border-[var(--app-shell-border)] bg-[var(--background)] shrink-0">
-          {/* Left: breadcrumb */}
+          {/* Left: back + breadcrumb */}
           <div className="flex items-center gap-1.5 min-w-0 flex-shrink-0">
+            {pathname !== `/projects/${slug}` && (
+              <button
+                type="button"
+                onClick={() => router.back()}
+                className="p-1 -ml-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--app-shell-subtle)] transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => router.push(`/projects/${slug}`)}
@@ -195,20 +205,22 @@ function ProjectLayoutContent({
             </button>
             {activeProjectView !== "overview" && (
               <>
-                <span className="text-xs text-[var(--muted-foreground)]">/</span>
-                <span className="text-xs text-[var(--foreground)]">{{ objectives: "Objectives", teams: "Teams", linear: "Linear", automations: "Scheduled Tasks", thread: "Chat", knowledge: "Knowledge", settings: "Settings" }[activeProjectView] ?? activeProjectView}</span>
+                <span className="text-xs text-[var(--muted-foreground)]">\</span>
+                <button
+                  type="button"
+                  onClick={() => router.push(`/projects/${slug}/${activeProjectView === "thread" ? "" : activeProjectView}`)}
+                  className="text-xs text-[var(--foreground)] hover:text-[var(--muted-foreground)] transition-colors"
+                >
+                  {{ objectives: "Objectives", teams: "Teams", linear: "Linear", automations: "Scheduled Tasks", thread: "Chat", knowledge: "Knowledge", settings: "Settings" }[activeProjectView] ?? activeProjectView}
+                </button>
+                <span id="topbar-breadcrumb" className="contents" />
               </>
             )}
           </div>
 
-          {/* Center: portal target for chat search, or page title for other views */}
+          {/* Center: persistent project search */}
           <div className="flex-1 flex justify-center min-w-0 px-4">
-            <div id="topbar-center" className="w-full max-w-xl" />
-            {activeProjectView !== "overview" && activeProjectView !== "thread" && (
-              <span className="text-sm font-medium text-[var(--foreground)]">
-                {{ objectives: "Objectives", teams: "Teams", linear: "Linear", automations: "Scheduled Tasks", knowledge: "Knowledge", settings: "Settings" }[activeProjectView] ?? ""}
-              </span>
-            )}
+            <ProjectSearchBar projectId={currentProject.id} />
           </div>
 
           {/* Right: status + theme */}
