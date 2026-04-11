@@ -4,6 +4,7 @@ import { getConfiguredBoardBaseUrl } from "./lib/app-config";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  serverExternalPackages: ["node-pty"],
   turbopack: {
     root: path.resolve(__dirname, "..", ".."),
   },

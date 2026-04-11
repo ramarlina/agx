@@ -173,6 +173,7 @@ export function TeamsView({
         key: `${team.id}-${process.workspaceId}-${process.threadId}-${process.agentId}`,
         teamId: team.id,
         teamName: team.name,
+        workspaceId: process.workspaceId,
         threadId: process.threadId,
         agentName: agentName(process.agentId),
         state: process.state,
@@ -357,7 +358,7 @@ export function TeamsView({
                       router.push(
                         row.linearIssueId && row.linearRunId
                           ? `/projects/${projectSlug}/linear?issue=${encodeURIComponent(row.linearIssueId)}&run=${encodeURIComponent(row.linearRunId)}`
-                          : `/projects/${projectSlug}/thread/${encodeURIComponent(row.threadId)}`
+                          : `/projects/${projectSlug}/thread/${encodeURIComponent(row.workspaceId)}${row.threadId ? `?open=${encodeURIComponent(row.threadId)}` : ""}`
                       )
                     }
                   >

@@ -1,0 +1,224 @@
+"use client";
+
+import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { Activity } from "lucide-react";
+
+interface EnrichedProcessEntry {
+  workspaceId: string;
+  threadId: string;
+  agentId: string;
+  state: "spawning" | "running" | "done" | "error" | "killed";
+  lastActivity: number;
+  projectSlug: string;
+  threadTitle: string | null;
+  linearIssueId: string | null;
+  linearRunId: string | null;
+}
+
+interface Participant {
+  id: string;
+  name: string;
+}
+
+interface WorkingNowCardProps {
+  projectSlug: string;
+  projectThreadIds?: string[];
+}
+
+function formatActivityThread(process: EnrichedProcessEntry): string {
+  if (process.threadTitle?.trim()) return process.threadTitle.trim();
+  if (process.threadId?.trim()) return `Thread ${process.threadId.slice(0, 12)}...`;
+  return "Main thread";
+}
+
+function formatLastActive(lastActivity: number): string {
+  const elapsedMs = Date.now() - lastActivity;
+  const elapsedSeconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  if (elapsedSeconds < 5) return "Just now";
+  if (elapsedSeconds < 60) return `${elapsedSeconds}s ago`;
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m ago`;
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `${elapsedHours}h ago`;
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  return `${elapsedDays}d ago`;
+}
+
+interface AgentGroup {
+  agentId: string;
+  agentName: string;
+  activities: Array<{
+    key: string;
+    workspaceId: string;
+    threadId: string;
+    state: "spawning" | "running";
+    threadLabel: string;
+    lastActiveLabel: string;
+    lastActivity: number;
+    linearIssueId: string | null;
+    linearRunId: string | null;
+  }>;
+}
+
+export function WorkingNowCard({
+  projectSlug,
+  projectThreadIds = [],
+}: WorkingNowCardProps) {
+  const router = useRouter();
+  const [activeProcesses, setActiveProcesses] = useState<EnrichedProcessEntry[]>([]);
+  const [participants, setParticipants] = useState<Participant[]>([]);
+
+  const fetchParticipants = useCallback(async () => {
+    try {
+      const res = await fetch("/api/participants");
+      if (!res.ok) return;
+      const data = await res.json();
+      setParticipants(Array.isArray(data) ? data : data.participants ?? []);
+    } catch {
+      // silent
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchParticipants();
+  }, [fetchParticipants]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const normalizedSlug = projectSlug.trim().toLowerCase();
+    const threadIdSet = new Set(
+      projectThreadIds.map((id) => id.trim()).filter(Boolean)
+    );
+
+    const poll = async () => {
+      try {
+        const res = await fetch("/api/processes?enrich=1");
+        if (!res.ok || cancelled) return;
+        const data: EnrichedProcessEntry[] = await res.json();
+        if (cancelled) return;
+        const relevant = data
+          .filter((p) => p.state === "spawning" || p.state === "running")
+          .filter((p) => {
+            const slug = p.projectSlug.trim().toLowerCase();
+            if (slug && slug === normalizedSlug) return true;
+            return threadIdSet.has(p.workspaceId) || threadIdSet.has(p.threadId);
+          })
+          .sort((a, b) => b.lastActivity - a.lastActivity);
+        setActiveProcesses(relevant);
+      } catch {
+        // keep last known state
+      }
+    };
+
+    void poll();
+    const interval = setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [projectSlug, projectThreadIds]);
+
+  const participantMap = new Map(participants.map((p) => [p.id, p.name]));
+  const getAgentName = (agentId: string) =>
+    participantMap.get(agentId) || agentId.slice(0, 8);
+
+  // Group by agent
+  const agentGroups: AgentGroup[] = [];
+  const agentMap = new Map<string, AgentGroup>();
+
+  for (const process of activeProcesses) {
+    let group = agentMap.get(process.agentId);
+    if (!group) {
+      group = {
+        agentId: process.agentId,
+        agentName: getAgentName(process.agentId),
+        activities: [],
+      };
+      agentMap.set(process.agentId, group);
+      agentGroups.push(group);
+    }
+    group.activities.push({
+      key: `${process.workspaceId}-${process.threadId}-${process.agentId}`,
+      workspaceId: process.workspaceId,
+      threadId: process.threadId,
+      state: process.state as "spawning" | "running",
+      threadLabel: formatActivityThread(process),
+      lastActiveLabel: formatLastActive(process.lastActivity),
+      lastActivity: process.lastActivity,
+      linearIssueId: process.linearIssueId,
+      linearRunId: process.linearRunId,
+    });
+  }
+
+  if (agentGroups.length === 0) return null;
+
+  const totalActivities = activeProcesses.length;
+
+  return (
+    <section className="col-span-full rounded-2xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
+      <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
+        <div>
+          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-zinc-500">
+            <Activity className="h-3.5 w-3.5" />
+            Working Now
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            {agentGroups.length} {agentGroups.length === 1 ? "agent" : "agents"} active across{" "}
+            {totalActivities} {totalActivities === 1 ? "thread" : "threads"}.
+          </p>
+        </div>
+        <span className="rounded-full border border-emerald-700/60 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
+          {totalActivities} live {totalActivities === 1 ? "entry" : "entries"}
+        </span>
+      </div>
+
+      <div className="divide-y divide-zinc-800/80">
+        {agentGroups.map((group) => (
+          <div key={group.agentId} className="px-4 py-3">
+            {/* Agent header */}
+            <div className="flex items-center gap-2 mb-2">
+              <span className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-100">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                {group.agentName}
+              </span>
+              {group.activities.length > 1 && (
+                <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-400">
+                  {group.activities.length} threads
+                </span>
+              )}
+            </div>
+
+            {/* Activity rows */}
+            <div className="space-y-1 ml-4">
+              {group.activities.map((activity) => (
+                <div
+                  key={activity.key}
+                  className="flex items-center gap-3 rounded-lg px-2 py-1.5 -mx-2 cursor-pointer text-sm transition-colors hover:bg-zinc-800/40"
+                  onClick={() =>
+                    router.push(
+                      activity.linearIssueId && activity.linearRunId
+                        ? `/projects/${projectSlug}/linear?issue=${encodeURIComponent(activity.linearIssueId)}&run=${encodeURIComponent(activity.linearRunId)}`
+                        : `/projects/${projectSlug}/thread/${encodeURIComponent(activity.workspaceId)}${activity.threadId ? `?open=${encodeURIComponent(activity.threadId)}` : ""}`
+                    )
+                  }
+                >
+                  <span className="inline-flex items-center gap-1.5 shrink-0 rounded-full border border-emerald-700/60 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    {activity.state === "spawning" ? "Starting" : "Working"}
+                  </span>
+                  <span className="text-zinc-400 truncate min-w-0 flex-1">
+                    {activity.threadLabel}
+                  </span>
+                  <span className="text-zinc-500 text-xs shrink-0">
+                    {activity.lastActiveLabel}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}

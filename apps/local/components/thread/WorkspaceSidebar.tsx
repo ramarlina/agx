@@ -21,6 +21,7 @@ import {
   Users,
   Home,
   MessageSquare,
+  TerminalSquare,
 } from "lucide-react";
 import Link from "next/link";
 import type { Thread } from "@/lib/storage";
@@ -63,7 +64,7 @@ interface WorkspaceSidebarProps {
   onUpdateParticipant?: (participant: Participant) => Promise<unknown>;
   onSelectProject?: (projectId: string) => void;
   activeProjectId?: string | null;
-  activeProjectView?: "overview" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "settings" | null;
+  activeProjectView?: "overview" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "terminal" | "settings" | null;
   onAddTeam?: (projectId: string) => void;
 }
 
@@ -176,6 +177,74 @@ export function WorkspaceSidebar({
     isSaving: boolean;
     error: string | null;
   } | null>(null);
+
+  // Active agent processes for sidebar nav indicators
+  interface ActiveAgentDot { agentId: string; color: string }
+  interface ProjectNavActivity {
+    objectives: ActiveAgentDot[];
+    linear: ActiveAgentDot[];
+    chat: ActiveAgentDot[];
+  }
+  const [navActivityByProject, setNavActivityByProject] = useState<Record<string, ProjectNavActivity>>({});
+
+  useEffect(() => {
+    if (!projectsProp?.length) return;
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const res = await fetch("/api/processes?enrich=1");
+        if (!res.ok || cancelled) return;
+        const data: Array<{
+          agentId: string; state: string; projectSlug: string;
+          workspaceId: string; threadId: string;
+          linearIssueId?: string | null; linearRunId?: string | null;
+        }> = await res.json();
+        if (cancelled) return;
+
+        const active = data.filter((p) => p.state === "spawning" || p.state === "running");
+        const result: Record<string, ProjectNavActivity> = {};
+
+        for (const project of projectsProp) {
+          const slug = project.slug.trim().toLowerCase();
+          const threadIdSet = new Set((project.thread_ids ?? []).map((id: string) => id.trim()).filter(Boolean));
+          const objectives: ActiveAgentDot[] = [];
+          const linear: ActiveAgentDot[] = [];
+          const chat: ActiveAgentDot[] = [];
+          const seenObj = new Set<string>();
+          const seenLinear = new Set<string>();
+          const seenChat = new Set<string>();
+
+          for (const proc of active) {
+            const procSlug = proc.projectSlug?.trim().toLowerCase();
+            const matches = (procSlug && procSlug === slug) || threadIdSet.has(proc.workspaceId) || threadIdSet.has(proc.threadId);
+            if (!matches) continue;
+
+            const participant = participants.find((p) => p.id === proc.agentId);
+            const dot: ActiveAgentDot = { agentId: proc.agentId, color: participant?.color ?? "#10b981" };
+
+            if (proc.linearIssueId) {
+              if (!seenLinear.has(proc.agentId)) { seenLinear.add(proc.agentId); linear.push(dot); }
+            } else if (proc.threadId?.startsWith("objective-chat:") || proc.workspaceId?.startsWith("objective-chat:")) {
+              if (!seenObj.has(proc.agentId)) { seenObj.add(proc.agentId); objectives.push(dot); }
+            } else {
+              if (!seenChat.has(proc.agentId)) { seenChat.add(proc.agentId); chat.push(dot); }
+            }
+          }
+
+          if (objectives.length || linear.length || chat.length) {
+            result[project.id] = { objectives, linear, chat };
+          }
+        }
+
+        setNavActivityByProject(result);
+      } catch { /* silent */ }
+    };
+
+    void poll();
+    const interval = setInterval(poll, 3000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [projectsProp, participants]);
 
   // Team grouping state
   interface TeamAgent { team_id: string; agent_id: string; role_key: string; routing_order: number }
@@ -608,7 +677,9 @@ export function WorkspaceSidebar({
             const isActiveProjectThread = isActiveProject && activeProjectView === "thread" && primaryProjectThreadId === activeThreadId;
             const isActiveProjectAutomations = isActiveProject && activeProjectView === "automations";
             const isActiveProjectLinear = isActiveProject && activeProjectView === "linear";
+            const isActiveProjectTerminal = isActiveProject && activeProjectView === "terminal";
             const isActiveProjectSettings = isActiveProject && activeProjectView === "settings";
+            const navActivity = navActivityByProject[project.id];
 
             return (
               <div key={project.id}>
@@ -670,6 +741,16 @@ export function WorkspaceSidebar({
                       >
                         <Target size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
                         <span className="workspace-sidebar__workspace-title text-xs">Objectives</span>
+                        {navActivity?.objectives.length > 0 && (
+                          <span className="inline-flex items-center -space-x-1 ml-1 shrink-0">
+                            {navActivity.objectives.slice(0, 3).map((dot) => {
+                              const agent = participants.find((p) => p.id === dot.agentId);
+                              return (
+                                <img key={dot.agentId} src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} title={agent?.name} className="h-4 w-4 rounded-full ring-1 ring-[var(--sidebar-bg)]" />
+                              );
+                            })}
+                          </span>
+                        )}
                       </Link>
                     </div>
 
@@ -682,6 +763,16 @@ export function WorkspaceSidebar({
                       >
                         <ExternalLink size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
                         <span className="workspace-sidebar__workspace-title text-xs">Linear</span>
+                        {navActivity?.linear.length > 0 && (
+                          <span className="inline-flex items-center -space-x-1 ml-1 shrink-0">
+                            {navActivity.linear.slice(0, 3).map((dot) => {
+                              const agent = participants.find((p) => p.id === dot.agentId);
+                              return (
+                                <img key={dot.agentId} src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} title={agent?.name} className="h-4 w-4 rounded-full ring-1 ring-[var(--sidebar-bg)]" />
+                              );
+                            })}
+                          </span>
+                        )}
                       </Link>
                       <Link
                         href={`/projects/${project.slug}/linear?settings=true`}
@@ -704,6 +795,18 @@ export function WorkspaceSidebar({
                       </Link>
                     </div>
 
+                    {/* Terminal */}
+                    <div className="workspace-sidebar__workspace-item">
+                      <Link
+                        href={`/projects/${project.slug}/terminal`}
+                        className={`workspace-sidebar__nav-item ${isActiveProjectTerminal ? "workspace-sidebar__nav-item--active" : ""}`}
+                        aria-current={isActiveProjectTerminal ? "page" : undefined}
+                      >
+                        <TerminalSquare size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                        <span className="workspace-sidebar__workspace-title text-xs">Terminal</span>
+                      </Link>
+                    </div>
+
                     {/* Chat */}
                     <div className="workspace-sidebar__workspace-item">
                       {primaryProjectThreadId ? (
@@ -715,6 +818,16 @@ export function WorkspaceSidebar({
                         >
                           <MessageSquare size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
                           <span className="workspace-sidebar__workspace-title text-xs">Chat</span>
+                          {navActivity?.chat.length > 0 && (
+                            <span className="inline-flex items-center -space-x-1 ml-1 shrink-0">
+                              {navActivity.chat.slice(0, 3).map((dot) => {
+                                const agent = participants.find((p) => p.id === dot.agentId);
+                                return (
+                                  <img key={dot.agentId} src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} title={agent?.name} className="h-4 w-4 rounded-full ring-1 ring-[var(--sidebar-bg)]" />
+                                );
+                              })}
+                            </span>
+                          )}
                         </button>
                       ) : null}
                     </div>
