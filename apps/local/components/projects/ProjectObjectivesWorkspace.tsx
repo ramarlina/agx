@@ -7,12 +7,14 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  Check,
   Clock,
   Pencil,
   Plus,
   Trash2,
   User,
   Users,
+  X,
 } from "lucide-react";
 import { useProjects } from "@/hooks/useProjects";
 import { useGroupChat } from "@/hooks/useGroupChat";
@@ -21,6 +23,7 @@ import { Composer } from "@/components/chat-ui/Composer";
 import { Markdown } from "@/components/chat-ui/Markdown";
 import { agentAvatarUrl } from "@/components/chat-ui/ParticipantBar";
 import RichTextEditor from "@/components/RichTextEditor";
+import SearchCombo, { type ComboOption } from "@/components/SearchCombo";
 import { ScheduleConditionPicker } from "@/components/scheduling/ScheduleConditionPicker";
 import { ObjectiveScheduledTasksPanel } from "@/components/projects/ObjectiveScheduledTasksPanel";
 import { cronToHuman } from "@/src/graph/nl-schedule";
@@ -115,8 +118,8 @@ const HEALTH_META: Record<
 };
 
 const OBJECTIVE_CHAT_MIN_WIDTH = 320;
-const OBJECTIVE_CHAT_MAX_WIDTH = 720;
-const OBJECTIVE_CHAT_DEFAULT_WIDTH = 440;
+const OBJECTIVE_CHAT_MAX_WIDTH = 1200;
+const OBJECTIVE_CHAT_DEFAULT_WIDTH = 800;
 
 function ObjectiveChatResizeHandle({
   onResize,
@@ -1723,18 +1726,49 @@ export function ProjectObjectiveDetail({
                 </span>
               </div>
 
-              <div className="flex items-center gap-4 mb-12">
-                <h1 className="text-[28px] leading-tight font-semibold text-zinc-100">
-                  {objective.title}
-                </h1>
-                <button
-                  type="button"
-                  onClick={() => setObjectiveEditor(buildObjectiveDraft(objective))}
-                  aria-label={`Edit objective ${objective.title}`}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-zinc-700/80 text-zinc-300 text-sm font-medium hover:bg-zinc-800/50 transition-colors bg-[#1a1a1c]"
-                >
-                  <Pencil size={14} /> Edit
-                </button>
+              <div className="mb-12">
+                {objectiveEditor ? (
+                  <div className="flex items-center gap-2">
+                    <input
+                      autoFocus
+                      value={objectiveEditor.title}
+                      onChange={(e) => setObjectiveEditor({ ...objectiveEditor, title: e.target.value })}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") void handleObjectiveSave();
+                        if (e.key === "Escape") setObjectiveEditor(null);
+                      }}
+                      className="flex-1 text-[28px] leading-tight font-semibold text-zinc-100 bg-transparent border-b-2 border-sky-500/50 outline-none px-0 py-1"
+                      placeholder="Objective statement"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void handleObjectiveSave()}
+                      disabled={isSaving}
+                      className="p-1.5 rounded-md text-sky-400 hover:bg-sky-500/10 transition-colors"
+                      aria-label="Save objective"
+                    >
+                      <Check size={18} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setObjectiveEditor(null)}
+                      className="p-1.5 rounded-md text-zinc-400 hover:bg-zinc-800/50 transition-colors"
+                      aria-label="Cancel editing"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    className="flex items-center gap-3 group cursor-pointer"
+                    onClick={() => setObjectiveEditor(buildObjectiveDraft(objective))}
+                  >
+                    <h1 className="text-[28px] leading-tight font-semibold text-zinc-100">
+                      {objective.title}
+                    </h1>
+                    <Pencil size={16} className="text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                  </div>
+                )}
               </div>
 
               {/* Two-Column Layout */}
@@ -1870,23 +1904,56 @@ export function ProjectObjectiveDetail({
                         <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
                           <Users size={14} /> Team
                         </h2>
-                        <button
-                          type="button"
+                        {!teamEditor && (
+                          <button
+                            type="button"
+                            onClick={() => setTeamEditor({ teamId: objective.teamId })}
+                            aria-label={`Edit team for ${objective.title}`}
+                            className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                        )}
+                      </div>
+                      {teamEditor ? (
+                        <SearchCombo
+                          options={availableTeams.map((t) => ({ id: t.id, label: t.name }))}
+                          value={teamEditor.teamId}
+                          onChange={(id) => {
+                            const next = { teamId: id };
+                            setTeamEditor(next);
+                            // Auto-save on selection
+                            const teamId = id.trim();
+                            if (!teamId || !objective) return;
+                            const conflict = findObjectiveAssignedToTeam(workspace, teamId, objective.id);
+                            if (conflict) {
+                              setSaveError(`Team is already assigned to "${conflict.title}".`);
+                              return;
+                            }
+                            void runPersist(
+                              upsertProjectObjective(workspace, {
+                                ...objective,
+                                teamId,
+                                updatedAt: new Date().toISOString(),
+                              })
+                            );
+                            setTeamEditor(null);
+                          }}
+                          placeholder="Select a team…"
+                        />
+                      ) : (
+                        <div
+                          className="flex items-center gap-2 cursor-pointer group"
                           onClick={() => setTeamEditor({ teamId: objective.teamId })}
-                          aria-label={`Edit team for ${objective.title}`}
-                          className="text-zinc-500 hover:text-zinc-300 transition-colors"
                         >
-                          <Pencil size={12} />
-                        </button>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs font-bold border border-blue-500/30">
-                          {(teamName ?? "?").charAt(0).toUpperCase()}
+                          <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs font-bold border border-blue-500/30">
+                            {(teamName ?? "?").charAt(0).toUpperCase()}
+                          </div>
+                          <span className="text-sm font-medium text-zinc-200 group-hover:text-zinc-50 transition-colors">
+                            {teamName ?? "Missing team"}
+                          </span>
                         </div>
-                        <span className="text-sm font-medium text-zinc-200">
-                          {teamName ?? "Missing team"}
-                        </span>
-                      </div>
+                      )}
                     </div>
 
                     <div className="h-px bg-zinc-800/80 w-full" />
@@ -1933,28 +2000,6 @@ export function ProjectObjectiveDetail({
           />
         </div>
       </div>
-
-      {objectiveEditor ? (
-        <ObjectiveEditorModal
-          mode="edit"
-          draft={objectiveEditor}
-          isSaving={isSaving}
-          onChange={setObjectiveEditor}
-          onClose={() => setObjectiveEditor(null)}
-          onSave={() => void handleObjectiveSave()}
-        />
-      ) : null}
-
-      {teamEditor ? (
-        <ObjectiveTeamModal
-          draft={teamEditor}
-          teams={availableTeams}
-          isSaving={isSaving}
-          onChange={setTeamEditor}
-          onClose={() => setTeamEditor(null)}
-          onSave={() => void handleTeamSave()}
-        />
-      ) : null}
 
       {wakeEditor ? (
         <ObjectiveWakeModal
@@ -2065,79 +2110,6 @@ function ObjectiveEditorModal({
             className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-100 transition-colors hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSaving ? "Saving..." : mode === "edit" ? "Save objective" : "Create objective"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ObjectiveTeamModal({
-  draft,
-  teams,
-  isSaving,
-  onChange,
-  onClose,
-  onSave,
-}: {
-  draft: ObjectiveTeamDraft;
-  teams: ProjectTeamSummary[];
-  isSaving: boolean;
-  onChange: (draft: ObjectiveTeamDraft) => void;
-  onClose: () => void;
-  onSave: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Edit team"
-        className="w-full max-w-2xl overflow-hidden rounded-[32px] border border-[var(--border)] bg-[rgba(6,10,16,0.96)] shadow-2xl"
-      >
-        <div className="border-b border-[var(--border)] px-5 py-4">
-          <h3 className="text-lg font-semibold text-[var(--foreground)]">Edit team</h3>
-          <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-            Pick the single team responsible for this objective.
-          </p>
-        </div>
-
-        <div className="space-y-4 px-5 py-5">
-          <div>
-            <FieldLabel label="Team" />
-            <select
-              value={draft.teamId}
-              onChange={(event) => onChange({ teamId: event.target.value })}
-              className="w-full rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.55)] px-3 py-3 text-sm text-[var(--foreground)] outline-none transition-colors focus:border-sky-500/50"
-            >
-              <option value="">Select a team</option>
-              {teams.map((team) => (
-                <option key={team.id} value={team.id}>
-                  {team.name}
-                </option>
-              ))}
-            </select>
-            <p className="mt-2 text-xs text-[var(--muted-foreground)]">
-              Teams can only own one objective at a time.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] px-5 py-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={isSaving}
-            className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-100 transition-colors hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isSaving ? "Saving..." : "Save team"}
           </button>
         </div>
       </div>
