@@ -39,6 +39,8 @@ interface EnrichedProcessEntry {
   lastActivity: number;
   projectSlug: string;
   threadTitle: string | null;
+  linearIssueId: string | null;
+  linearRunId: string | null;
 }
 
 interface TeamsViewProps {
@@ -176,6 +178,8 @@ export function TeamsView({
         state: process.state,
         threadLabel: formatActivityThread(process),
         lastActiveLabel: formatLastActive(process.lastActivity),
+        linearIssueId: process.linearIssueId,
+        linearRunId: process.linearRunId,
       }));
   });
 
@@ -351,7 +355,9 @@ export function TeamsView({
                     className="cursor-pointer border-t border-zinc-800/80 text-zinc-300 transition-colors hover:bg-zinc-800/30"
                     onClick={() =>
                       router.push(
-                        `/projects/${projectSlug}/thread/${encodeURIComponent(row.threadId)}`
+                        row.linearIssueId && row.linearRunId
+                          ? `/projects/${projectSlug}/linear?issue=${encodeURIComponent(row.linearIssueId)}&run=${encodeURIComponent(row.linearRunId)}`
+                          : `/projects/${projectSlug}/thread/${encodeURIComponent(row.threadId)}`
                       )
                     }
                   >
