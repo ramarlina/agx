@@ -9,6 +9,10 @@ Push the current branch and open a pull request.
 
 ## Steps
 
+### 0. Pre-check: uncommitted changes?
+
+If there are staged/unstaged changes or untracked files, run the `/commit` workflow first (branch from default if needed, stage, commit). Then continue below.
+
 ### 1. Gather context (parallel)
 
 - `git branch --show-current` — current branch

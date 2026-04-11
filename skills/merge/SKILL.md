@@ -9,6 +9,12 @@ Merge the PR for the current branch, clean up, and pull latest.
 
 ## Steps
 
+### 0. Pre-check: ensure committed and PR exists
+
+1. If there are staged/unstaged changes or untracked files, run the `/commit` workflow first.
+2. If no PR exists for the current branch (`gh pr view` fails), run the `/pr` workflow first.
+3. Then continue below.
+
 ### 1. Gather context
 
 - `git branch --show-current` — current branch
