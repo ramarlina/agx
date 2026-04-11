@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { readProjectObjectivesWorkspace } from "@/lib/project-objectives";
+import { WorkingNowCard } from "./WorkingNowCard";
 import { TeamsSummaryCard } from "./TeamsSummaryCard";
 import { ObjectivesSummaryCard } from "./ObjectivesSummaryCard";
 import { ScheduledTasksSummaryCard } from "./ScheduledTasksSummaryCard";
@@ -87,6 +88,14 @@ export function ProjectOverview({
             onViewAll={primaryThreadId ? () => {
               router.push(`/projects/${projectSlug}/thread/${encodeURIComponent(primaryThreadId)}`);
             } : undefined}
+          />
+        </div>
+
+        {/* Working Now */}
+        <div className="mt-4">
+          <WorkingNowCard
+            projectSlug={projectSlug}
+            projectThreadIds={threadIds}
           />
         </div>
       </div>
