@@ -351,6 +351,9 @@ function buildObjectiveChatPrefix(
   const scheduledTasksRoute = `${objectiveRoute}/scheduled-tasks`;
   const linearIssuesRoute = `${objectiveRoute}/linear-issues`;
 
+  const objectiveFilePath = `~/.agx/projects/${projectSlug}/objectives/${objective.key}.md`;
+  const validateRoute = `${objectiveRoute}/validate`;
+
   return [
     "You are working inside a strategy session for this project objective.",
     `Project slug: ${projectSlug}`,
@@ -362,17 +365,21 @@ function buildObjectiveChatPrefix(
       ? `Wake schedule: ${formatObjectiveCadence(objective.cadence)}`
       : "Wake schedule: not set yet.",
     objective.condition ? `Wake condition: ${objective.condition}` : "",
+
+    `## Objective file (source of truth)\n\nThis objective is stored as a frontmatter markdown file at:\n\`${objectiveFilePath}\`\n\nFile format:\n- YAML frontmatter between \`---\` delimiters contains all metadata (title, teamId, key, status, progress, cadence, condition, scheduledTaskIds, threadId, chatSessionVersion, createdAt, updatedAt).\n- \`## Notes\` section in the body is the objective summary/strategy notes.\n- \`## Activities\` section contains the activity timeline; each activity is a \`### Title\` block with metadata lines (\`- **id:**\`, \`- **source:**\`, \`- **created:**\`, \`- **body:**\`) and optional \`#### Replies\` sub-section.\n\nWhen updating the objective, you can edit this file directly. Rules:\n- NEVER remove or break the \`---\` frontmatter delimiters.\n- NEVER change the \`id\` or \`createdAt\` fields.\n- Always update \`updatedAt\` to the current ISO timestamp when making changes.\n- After any edit, call \`GET ${validateRoute}\` to verify the file is still valid.\n- If validation fails, fix the errors immediately before doing anything else.`,
+
     "Scheduled tasks live in the shared scheduled-task list and are filtered by this objective label.",
     "Your job is to help the team develop the strategy needed to reach the goal, including the right combination of objective notes, wake cadence/condition, scheduled tasks, and Linear tickets.",
     "Use the current session history to build on prior reasoning. Only reset and start from scratch when the user explicitly starts a new session.",
     "Use this thread to pressure-test strategy, suggest better tactics, rewrite the objective when asked, propose the right operational cadence, and take concrete follow-up actions when the user wants them applied.",
-    "When suggesting edits, be explicit about the exact replacement text. When the user asks you to make the change, use the local objective APIs instead of only describing what should happen.",
-    "Local objective APIs:",
+    "When suggesting edits, prefer editing the frontmatter file directly. When the user asks you to make a change, edit the file, validate, then confirm. Fall back to the API only if file access is unavailable.",
+    "Local objective APIs (fallback):",
     `- PATCH ${objectiveRoute} with JSON fields such as {"title","summary","cadence","condition","teamId","key"} to update the objective itself.`,
     `- GET ${scheduledTasksRoute} to inspect the scheduled tasks already tracked for this objective.`,
     `- POST ${scheduledTasksRoute} with {"name","prompt","cadence","condition","agentId","syncObjectiveSchedule":true} to create a scheduled task for this objective.`,
     `- GET ${linearIssuesRoute} to inspect Linear tickets carrying the objective label "${objective.key}".`,
     `- POST ${linearIssuesRoute} with {"title","description","teamId","assigneeId","cycleId","stateId","priority"} to create a Linear ticket labeled "${objective.key}".`,
+    `- GET ${validateRoute} to validate the objective file on disk. Returns {"valid":true} or {"valid":false,"errors":[...]}.`,
   ]
     .filter(Boolean)
     .join("\n\n");
