@@ -72,6 +72,7 @@ export interface GroupMessage {
   depth?: number; // 0 = main, 1+ = thread reply level
   threadStatus?: ThreadStatus;
   outcomeNote?: string;
+  sendFailed?: boolean;
 }
 
 export interface ThreadInfo {
