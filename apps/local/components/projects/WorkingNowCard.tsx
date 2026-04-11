@@ -50,6 +50,7 @@ interface AgentGroup {
   agentName: string;
   activities: Array<{
     key: string;
+    workspaceId: string;
     threadId: string;
     state: "spawning" | "running";
     threadLabel: string;
@@ -139,6 +140,7 @@ export function WorkingNowCard({
     }
     group.activities.push({
       key: `${process.workspaceId}-${process.threadId}-${process.agentId}`,
+      workspaceId: process.workspaceId,
       threadId: process.threadId,
       state: process.state as "spawning" | "running",
       threadLabel: formatActivityThread(process),
@@ -197,7 +199,7 @@ export function WorkingNowCard({
                     router.push(
                       activity.linearIssueId && activity.linearRunId
                         ? `/projects/${projectSlug}/linear?issue=${encodeURIComponent(activity.linearIssueId)}&run=${encodeURIComponent(activity.linearRunId)}`
-                        : `/projects/${projectSlug}/thread/${encodeURIComponent(activity.threadId)}`
+                        : `/projects/${projectSlug}/thread/${encodeURIComponent(activity.workspaceId)}${activity.threadId ? `?open=${encodeURIComponent(activity.threadId)}` : ""}`
                     )
                   }
                 >
