@@ -5,7 +5,7 @@ import { Markdown } from "./Markdown";
 import { agentAvatarUrl } from "./ParticipantBar";
 import { MessageReactionsBar } from "./MessageReactionsBar";
 import { MessageAttachments } from "./MessageAttachments";
-import { MessageSquare, User, FileText, Loader2 } from "lucide-react";
+import { MessageSquare, User, FileText, Loader2, AlertCircle, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import { stripMarkers } from "@/lib/chat-utils";
 
@@ -17,6 +17,7 @@ interface Props {
   onReply?: (messageId: string) => void;
   onOpenThread?: (rootMessageId: string) => void;
   onSummarize?: (rootMessageId: string) => void;
+  onResend?: (messageId: string) => void;
   summarizing?: boolean;
   isRoot?: boolean;
   highlighted?: boolean;
@@ -31,6 +32,7 @@ export function MessageBubble({
   onReply,
   onOpenThread,
   onSummarize,
+  onResend,
   summarizing,
   isRoot = false,
   highlighted = false,
@@ -103,6 +105,23 @@ export function MessageBubble({
             <MessageAttachments attachments={message.attachments} />
           )}
         </div>
+
+        {message.sendFailed && (
+          <div className="flex items-center gap-2 mt-1.5 text-red-500 text-xs">
+            <AlertCircle className="w-3.5 h-3.5" />
+            <span>Failed to send</span>
+            {onResend && (
+              <button
+                type="button"
+                onClick={() => onResend(message.id)}
+                className="flex items-center gap-1 text-red-500 hover:text-red-700 underline"
+              >
+                <RotateCcw className="w-3 h-3" />
+                Retry
+              </button>
+            )}
+          </div>
+        )}
 
         {isRoot && (
           <div className="mt-4 flex gap-2">

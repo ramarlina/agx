@@ -152,7 +152,7 @@ export function useGroupChat(threadId: string | null) {
             routing,
           }),
         });
-        const payload = await response.json().catch((err) => { console.warn('[useGroupChat] failed to parse run response:', err); return null; }) as { chatRunId?: string } | null;
+        const payload = await response.json().catch((err) => { console.warn('[useGroupChat] failed to parse run response:', err); return null; }) as { chatRunId?: string; error?: string } | null;
         if (response.ok && payload?.chatRunId) {
           setChatRuns((prev) => [
             {
@@ -165,9 +165,17 @@ export function useGroupChat(threadId: string | null) {
             },
             ...prev.filter((run) => run.chatRunId !== payload.chatRunId),
           ]);
+        } else if (!response.ok) {
+          console.error(`[useGroupChat] POST /api/chat failed (${response.status}):`, payload?.error || response.statusText);
+          setMessages((prev) =>
+            prev.map((m) => (m.id === userMessageId ? { ...m, sendFailed: true } : m))
+          );
         }
-      } catch {
-        // network error — message was already added optimistically
+      } catch (err) {
+        console.error("[useGroupChat] network error sending message:", err);
+        setMessages((prev) =>
+          prev.map((m) => (m.id === userMessageId ? { ...m, sendFailed: true } : m))
+        );
       }
 
       return userMessageId;
