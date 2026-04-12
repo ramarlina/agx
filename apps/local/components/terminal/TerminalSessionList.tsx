@@ -1,8 +1,12 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { Plus, X, Terminal } from "lucide-react";
-import type { TerminalSession } from "@/lib/terminal-types";
+import { useState, useRef, useEffect, useMemo } from "react";
+import { Plus, X, Terminal, Search } from "lucide-react";
+import {
+  getTerminalSessionStatus,
+  type TerminalStatus,
+  type TerminalSession,
+} from "@/lib/terminal-types";
 
 interface TerminalSessionListProps {
   sessions: TerminalSession[];
@@ -13,6 +17,7 @@ interface TerminalSessionListProps {
   onCreate: () => void;
 }
 
+
 function timeAgo(epochMs: number): string {
   const diff = Date.now() - epochMs;
   if (diff < 60_000) return "just now";
@@ -21,10 +26,15 @@ function timeAgo(epochMs: number): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-function statusDotClass(status: TerminalSession["status"]): string {
+function statusDotClass(status: TerminalStatus): string {
   if (status === "active") return "bg-emerald-400";
   if (status === "connecting") return "bg-amber-400";
+  if (status === "error") return "bg-rose-500";
   return "bg-zinc-500";
+}
+
+function terminalCountLabel(count: number): string {
+  return `${count} terminal${count === 1 ? "" : "s"}`;
 }
 
 export default function TerminalSessionList({
@@ -37,6 +47,7 @@ export default function TerminalSessionList({
 }: TerminalSessionListProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  const [search, setSearch] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -58,34 +69,79 @@ export default function TerminalSessionList({
     setEditingId(null);
   };
 
+  const filteredSessions = useMemo(() => {
+    if (!search.trim()) return sessions;
+    const q = search.toLowerCase().trim();
+    return sessions.filter(
+      (s) =>
+        s.title.toLowerCase().includes(q) ||
+        s.terminals.some(
+          (terminal) =>
+            terminal.title.toLowerCase().includes(q) ||
+            terminal.cwd?.toLowerCase().includes(q) ||
+            terminal.command?.toLowerCase().includes(q),
+        ),
+    );
+  }, [sessions, search]);
+
   return (
     <div className="flex h-full flex-col border-r border-[var(--app-shell-border)] bg-[var(--background)]">
-      {/* Header */}
-      <div className="flex items-center justify-between px-6 py-4">
-        <h2 className="text-sm font-semibold text-[var(--foreground)]">
-          Terminal
-        </h2>
-        <button
-          type="button"
-          onClick={onCreate}
-          className="rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--sidebar-hover)] hover:text-[var(--foreground)]"
-          aria-label="New terminal session"
-        >
-          <Plus size={16} />
-        </button>
+      {/* Header + search */}
+      <div className="px-6 pb-0 pt-6">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-[14px] font-semibold text-[var(--foreground)]">
+            Sessions
+          </span>
+          <button
+            type="button"
+            onClick={onCreate}
+            className="text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+            title="New terminal session"
+            aria-label="New terminal session"
+          >
+            <Plus size={18} />
+          </button>
+        </div>
+
+        {/* Search */}
+        <div className="relative mb-2">
+          <Search
+            size={14}
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
+          />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search sessions..."
+            className="w-full rounded-md border border-[var(--card-border)] bg-transparent py-1.5 pl-8 pr-7 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]/50 outline-none transition-colors focus:border-[var(--foreground)]/30"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Session list */}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {sessions.length === 0 ? (
+        {filteredSessions.length === 0 ? (
           <div className="px-6 py-12 text-center text-sm text-[var(--muted-foreground)]">
-            No sessions. Click + to create one.
+            {sessions.length === 0
+              ? "No sessions. Click + to create one."
+              : "No sessions match your search."}
           </div>
         ) : (
           <div className="overflow-hidden">
-            {sessions.map((session) => {
+            {filteredSessions.map((session) => {
               const isSelected = session.id === selectedId;
               const isEditing = session.id === editingId;
+              const status = getTerminalSessionStatus(session);
 
               return (
                 <div
@@ -100,8 +156,8 @@ export default function TerminalSessionList({
                 >
                   <div className="flex items-start gap-3">
                     <span
-                      className={`mt-1.5 inline-block size-2 shrink-0 rounded-full ${statusDotClass(session.status)}`}
-                      title={session.status}
+                      className={`mt-1.5 inline-block size-2 shrink-0 rounded-full ${statusDotClass(status)}`}
+                      title={status}
                     />
 
                     <div className="min-w-0 flex-1">
@@ -128,7 +184,7 @@ export default function TerminalSessionList({
                       )}
 
                       <div className="mt-1 text-[12px] text-[var(--muted-foreground)]">
-                        {timeAgo(session.createdAt)}
+                        {terminalCountLabel(session.terminals.length)} · {timeAgo(session.createdAt)}
                       </div>
                     </div>
 
