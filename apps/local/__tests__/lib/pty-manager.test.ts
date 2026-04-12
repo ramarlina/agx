@@ -116,8 +116,8 @@ describe("pty-manager", () => {
     destroySession("session-2");
   });
 
-  it("cleans up detached live sessions after the grace period", async () => {
-    const { createSession, getSession, subscribeToSession } = await import("@/lib/pty-manager");
+  it("keeps detached live sessions until they are explicitly destroyed", async () => {
+    const { createSession, getSession, subscribeToSession, destroySession } = await import("@/lib/pty-manager");
 
     createSession("session-3", "/tmp");
     const session = getSession("session-3");
@@ -128,14 +128,18 @@ describe("pty-manager", () => {
 
     expect(getSession("session-3")).toBeDefined();
 
-    jest.advanceTimersByTime(5 * 60_000);
+    jest.advanceTimersByTime(24 * 60 * 60_000);
 
+    expect(nodePtyProcesses[0]?.kill).not.toHaveBeenCalled();
+    expect(getSession("session-3")).toBeDefined();
+
+    destroySession("session-3");
     expect(nodePtyProcesses[0]?.kill).toHaveBeenCalledTimes(1);
     expect(getSession("session-3")).toBeUndefined();
   });
 
-  it("retains exited sessions only for the shorter exit window", async () => {
-    const { createSession, getSession, subscribeToSession } = await import("@/lib/pty-manager");
+  it("keeps exited sessions available until they are explicitly removed", async () => {
+    const { createSession, getSession, subscribeToSession, destroySession } = await import("@/lib/pty-manager");
 
     createSession("session-4", "/tmp");
     getSession("session-4");
@@ -145,11 +149,12 @@ describe("pty-manager", () => {
     proc.__emitExit(0);
     unsubscribe();
 
-    jest.advanceTimersByTime(59_000);
+    jest.advanceTimersByTime(24 * 60 * 60_000);
     expect(getSession("session-4")).toBeDefined();
 
-    jest.advanceTimersByTime(1_000);
     expect(proc.kill).not.toHaveBeenCalled();
+
+    destroySession("session-4");
     expect(getSession("session-4")).toBeUndefined();
   });
 
