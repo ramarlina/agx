@@ -22,6 +22,7 @@ import {
   Home,
   MessageSquare,
   TerminalSquare,
+  KeyRound,
 } from "lucide-react";
 import Link from "next/link";
 import type { Thread } from "@/lib/storage";
@@ -64,7 +65,7 @@ interface WorkspaceSidebarProps {
   onUpdateParticipant?: (participant: Participant) => Promise<unknown>;
   onSelectProject?: (projectId: string) => void;
   activeProjectId?: string | null;
-  activeProjectView?: "overview" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "terminal" | "settings" | null;
+  activeProjectView?: "overview" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "terminal" | "settings" | "env-vars" | null;
   onAddTeam?: (projectId: string) => void;
 }
 
@@ -678,6 +679,7 @@ export function WorkspaceSidebar({
             const isActiveProjectAutomations = isActiveProject && activeProjectView === "automations";
             const isActiveProjectLinear = isActiveProject && activeProjectView === "linear";
             const isActiveProjectTerminal = isActiveProject && activeProjectView === "terminal";
+            const isActiveProjectEnvVars = isActiveProject && activeProjectView === "env-vars";
             const isActiveProjectSettings = isActiveProject && activeProjectView === "settings";
             const navActivity = navActivityByProject[project.id];
 
@@ -842,6 +844,16 @@ export function WorkspaceSidebar({
                         >
                           <Users size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
                           <span className="workspace-sidebar__workspace-title text-xs">Teams</span>
+                        </Link>
+                      </div>
+                      <div className="workspace-sidebar__workspace-item">
+                        <Link
+                          href={`/projects/${project.slug}/env-vars`}
+                          className={`workspace-sidebar__nav-item ${isActiveProjectEnvVars ? "workspace-sidebar__nav-item--active" : ""}`}
+                          aria-current={isActiveProjectEnvVars ? "page" : undefined}
+                        >
+                          <KeyRound size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                          <span className="workspace-sidebar__workspace-title text-xs">Environment Variables</span>
                         </Link>
                       </div>
                     </div>
