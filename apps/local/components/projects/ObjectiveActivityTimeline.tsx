@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, Activity, Filter } from "lucide-react";
+import { ChevronDown, ChevronRight, Filter } from "lucide-react";
 import { Markdown } from "@/components/chat-ui/Markdown";
 import type {
   ObjectiveActivityFile,
@@ -12,6 +12,7 @@ import type {
 interface ObjectiveActivityTimelineProps {
   projectId: string;
   objectiveId: string;
+  onTotalChange?: (total: number) => void;
 }
 
 const TYPE_META: Record<ObjectiveActivityType, { label: string; className: string }> = {
@@ -109,6 +110,7 @@ function ActivityEntry({ activity }: { activity: ObjectiveActivityFile }) {
 export function ObjectiveActivityTimeline({
   projectId,
   objectiveId,
+  onTotalChange,
 }: ObjectiveActivityTimelineProps) {
   const [activities, setActivities] = useState<ObjectiveActivityFile[]>([]);
   const [total, setTotal] = useState(0);
@@ -133,6 +135,7 @@ export function ObjectiveActivityTimeline({
         const data = (await response.json()) as ObjectiveActivityPage;
         setActivities((prev) => (append ? [...prev, ...data.activities] : data.activities));
         setTotal(data.total);
+        onTotalChange?.(data.total);
         setHasMore(data.hasMore);
       } catch (error) {
         console.error("Failed to fetch activities:", error);
@@ -157,19 +160,9 @@ export function ObjectiveActivityTimeline({
   return (
     <section>
       <div className="flex items-center justify-between mb-3">
-        <div>
-          <h2 className="text-sm font-semibold text-zinc-200 flex items-center gap-2">
-            <Activity size={14} /> Activity Timeline
-            {total > 0 && (
-              <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
-                {total}
-              </span>
-            )}
-          </h2>
-          <p className="text-sm text-zinc-500 mt-0.5">
-            Time-ordered log of outputs from scheduled tasks and manual entries.
-          </p>
-        </div>
+        <p className="text-sm text-zinc-500">
+          Time-ordered log of outputs from scheduled tasks and manual entries.
+        </p>
         <button
           type="button"
           onClick={() => setShowFilter(!showFilter)}
