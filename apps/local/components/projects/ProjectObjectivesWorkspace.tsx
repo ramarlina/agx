@@ -1618,6 +1618,11 @@ export function ProjectObjectiveDetail({
   }, [project?.id, objective?.id]);
 
   useEffect(() => {
+    fetchNotes();
+  }, [fetchNotes]);
+
+  // Refetch when switching to notes tab (in case notes changed elsewhere)
+  useEffect(() => {
     if (activeTab === "notes") {
       fetchNotes();
     }
@@ -2255,7 +2260,7 @@ export function ProjectObjectiveDetail({
                   const dedupedIssues = linearIssues.filter(
                     (issue, idx, arr) => arr.findIndex((i) => i.id === issue.id) === idx
                   );
-                  const DONE_STATUSES = ["done", "canceled", "cancelled", "completed"];
+                  const DONE_STATUSES = ["done", "canceled", "cancelled", "completed", "duplicate"];
                   const activeIssues = dedupedIssues.filter(
                     (i) => !DONE_STATUSES.includes(i.status.toLowerCase())
                   );
