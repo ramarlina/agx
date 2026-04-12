@@ -31,9 +31,8 @@ app.prepare().then(() => {
       wss.handleUpgrade(req, socket, head, (ws) => {
         wss.emit("connection", ws, req);
       });
-    } else {
-      socket.destroy();
     }
+    // Let Next.js handle its own WebSocket upgrades (HMR, etc.)
   });
 
   wss.on("connection", (ws: WebSocket) => {
