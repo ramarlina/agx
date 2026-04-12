@@ -1540,6 +1540,7 @@ export function ProjectObjectiveDetail({
   const [wakeEditor, setWakeEditor] = useState<ObjectiveEditorDraft | null>(null);
 
   const [activeTab, setActiveTab] = useState<ObjectiveDetailTab>("activity");
+  const [activityTotal, setActivityTotal] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [notes, setNotes] = useState<ObjectiveNoteItem[]>([]);
@@ -2079,6 +2080,11 @@ export function ProjectObjectiveDetail({
                     >
                       <tab.icon size={14} />
                       {tab.label}
+                      {tab.id === "activity" && activityTotal > 0 && (
+                        <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
+                          {activityTotal}
+                        </span>
+                      )}
                       {tab.id === "notes" && notes.length > 0 && (
                         <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
                           {notes.length}
@@ -2252,6 +2258,7 @@ export function ProjectObjectiveDetail({
                   <ObjectiveActivityTimeline
                     projectId={project.id}
                     objectiveId={objective.id}
+                    onTotalChange={setActivityTotal}
                   />
                 )}
 
