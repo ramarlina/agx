@@ -4,14 +4,18 @@ import { getProjectVariables, setProjectVariable, deleteProjectVariable } from "
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const KEY_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
+
 type RouteContext = { params: Promise<{ id: string }> };
 
-/** GET /api/projects/[id]/variables — list all variables for a project */
+/** GET /api/projects/[id]/variables — list keys with isSet flag (no values) */
 export async function GET(_request: NextRequest, context: RouteContext) {
   try {
     const { id: projectId } = await context.params;
     const variables = await getProjectVariables(projectId);
-    return NextResponse.json({ variables });
+    return NextResponse.json({
+      variables: variables.map((v) => ({ key: v.key, isSet: true })),
+    });
   } catch (error) {
     console.error("Error fetching project variables:", error);
     return NextResponse.json({ error: "Failed to fetch project variables" }, { status: 500 });
@@ -28,6 +32,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     if (!key) {
       return NextResponse.json({ error: "key is required" }, { status: 400 });
+    }
+
+    if (!KEY_PATTERN.test(key)) {
+      return NextResponse.json(
+        { error: "Key must match [A-Z_][A-Z0-9_]* (uppercase letters, digits, and underscores only)" },
+        { status: 400 },
+      );
     }
 
     const variable = await setProjectVariable(projectId, key, value);
