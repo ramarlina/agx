@@ -400,8 +400,6 @@ export interface StreamProjectContext {
   mentionedProjects?: StreamProjectDetail[];
   /** Project-level knowledge references injected to all agents */
   skills?: Array<{ file: string; condition?: string }>;
-  /** Project-level variables injected at runtime */
-  variables?: Array<{ key: string; value: string }>;
   /** Project-level knowledge notes */
   memory?: Array<{ content: string; source?: string }>;
   /** Repo-level knowledge notes */
@@ -412,7 +410,6 @@ export interface StreamProjectContext {
     {
       skills: Array<{ file: string; condition?: string; source: "agent" | "project" }>;
       memory: Array<{ content: string; source: "agent" | "project"; id?: string }>;
-      variables: Array<{ key: string; value: string; source: "project" }>;
     }
   >;
 }
@@ -677,15 +674,6 @@ Do NOT repeat, rephrase, or summarize your own previous messages. If you have no
       }
     }
 
-    // Inject project-level variables
-    const projVars = projectContext?.variables;
-    if (projVars && projVars.length > 0) {
-      context += `\nProject variables:`;
-      for (const v of projVars) {
-        context += `\n- ${v.key}: ${v.value}`;
-      }
-    }
-
     // Inject project-level knowledge notes
     const projMem = projectContext?.memory;
     if (projMem && projMem.length > 0) {
@@ -738,29 +726,15 @@ async function runAgent(
 
   write({ type: "participant-thinking", participantId: p.id });
 
-  // Interpolate {{key}} template variables
-  const vars = Object.fromEntries(
-    (projectContext?.provenanceByAgentId?.[p.id]?.variables ?? projectContext?.variables ?? []).map((entry) => [
-      entry.key,
-      entry.value,
-    ])
-  );
-  const interpolate = (text: string): string =>
-    Object.keys(vars).length > 0
-      ? text.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? `{{${key}}}`)
-      : text;
-
   // Resolve identity from the canonical DB-backed fields only.
-  const interpolatedIdentity = p.identity ? interpolate(p.identity) : p.identity;
-  const interpolatedSeed = p.seed ? interpolate(p.seed) : p.seed;
   let resolvedIdentity = buildParticipantIdentity(
-    { ...p, identity: interpolatedIdentity, seed: interpolatedSeed },
-    interpolatedIdentity,
+    p,
+    p.identity,
   );
 
   // Resolve self-model and knowledge as separate prompt inputs.
   let selfContent: string | undefined;
-  ensureAgentArtifacts({ ...p, seed: interpolatedSeed }, resolvedIdentity);
+  ensureAgentArtifacts(p, resolvedIdentity);
   const agentSelf = readSelf(p.id);
   if (agentSelf?.content) {
     selfContent = `[Self-Model]\n${agentSelf.content}`;
@@ -781,8 +755,8 @@ async function runAgent(
   if (resolvedSkills.length > 0) {
     const parts = await Promise.all(
       resolvedSkills.map(async (skill) => {
-        const reference = interpolate(skill.file);
-        const condition = skill.condition ? interpolate(skill.condition) : skill.condition;
+        const reference = skill.file;
+        const condition = skill.condition;
         const resolved = await readReferenceContent(reference);
         const header = condition
           ? `--- ${resolved.label} [${skill.source}] ---\nUse when: ${condition}`
@@ -809,7 +783,6 @@ async function runAgent(
     executionProvenance
       ? `<execution-provenance>
 Resolved skills: ${executionProvenance.skills.map((skill) => `${skill.file} (${skill.source})`).join(", ") || "none"}
-Resolved variables: ${executionProvenance.variables.map((variable) => `${variable.key} (${variable.source})`).join(", ") || "none"}
 Resolved memory entries: ${executionProvenance.memory.map((entry) => `${entry.source}${entry.id ? `:${entry.id}` : ""}`).join(", ") || "none"}
 </execution-provenance>`
       : null,

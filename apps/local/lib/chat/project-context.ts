@@ -1,7 +1,7 @@
 import { type StreamProjectContext, type StreamProjectDetail } from "@/lib/stream-multiplexer";
 import { getSQLiteDb } from "@/lib/sqlite-query-adapter";
 import { db } from "@/lib/db-instance";
-import { buildExecutionProvenance, getProjectSkills, getProjectVariables, getProjectMemory } from "@/lib/db";
+import { buildExecutionProvenance, getProjectSkills, getProjectMemory } from "@/lib/db";
 import { listResolvedRepoKnowledge } from "@/lib/repo-knowledge";
 import { getKnowledgeNote } from "@/lib/knowledge-notes";
 import { LOCAL_USER } from "@/lib/auth-mode";
@@ -87,16 +87,14 @@ export async function resolveProjectContext(
   }
 
   let skills: Array<{ file: string; condition?: string }> | undefined;
-  let variables: Array<{ key: string; value: string }> | undefined;
   let memory: Array<{ content: string; source?: string }> | undefined;
   let repoKnowledge: StreamProjectContext["repoKnowledge"];
   let provenanceByAgentId: StreamProjectContext["provenanceByAgentId"];
 
   if (activeProject) {
     try {
-      const [projectSkills, projectVars, projectMem] = await Promise.all([
+      const [projectSkills, projectMem] = await Promise.all([
         getProjectSkills(activeProject.id),
-        getProjectVariables(activeProject.id),
         getProjectMemory(activeProject.id, "human"),
       ]);
       const projectSystemNote = getKnowledgeNote("project", activeProject.id);
@@ -105,9 +103,6 @@ export async function resolveProjectContext(
           file: skill.file,
           ...(skill.condition ? { condition: skill.condition } : {}),
         }));
-      }
-      if (projectVars.length > 0) {
-        variables = projectVars.map((variable) => ({ key: variable.key, value: variable.value }));
       }
       if (projectMem.length > 0) {
         memory = projectMem.map((entry) => ({
@@ -161,7 +156,6 @@ export async function resolveProjectContext(
       : undefined,
     mentionedProjects: mentionedProjects.length > 0 ? mentionedProjects : undefined,
     skills,
-    variables,
     memory,
     repoKnowledge,
     provenanceByAgentId,
