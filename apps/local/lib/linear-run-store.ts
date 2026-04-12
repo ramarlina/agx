@@ -462,3 +462,37 @@ export async function getIssueActivityMap(
     return map;
   });
 }
+
+export interface IssueActiveAgent {
+  issueId: string;
+  agentId: string;
+  agentName: string;
+}
+
+export async function getIssueActiveAgents(
+  projectId?: string | null
+): Promise<IssueActiveAgent[]> {
+  return withLinearRunDatabase((db) => {
+    const hasProject = projectId?.trim();
+    const sql = hasProject
+      ? `SELECT DISTINCT lr.issue_id, lr.agent_id, lr.agent_name
+         FROM linear_runs lr
+         LEFT JOIN chat_runs cr ON cr.id = lr.chat_run_id
+         WHERE (lr.status IN ('queued', 'running') OR cr.status IN ('queued', 'running'))
+           AND lr.project_id = ?`
+      : `SELECT DISTINCT lr.issue_id, lr.agent_id, lr.agent_name
+         FROM linear_runs lr
+         LEFT JOIN chat_runs cr ON cr.id = lr.chat_run_id
+         WHERE (lr.status IN ('queued', 'running') OR cr.status IN ('queued', 'running'))`;
+
+    const rows = hasProject
+      ? (db.prepare(sql).all(projectId!.trim()) as unknown as Array<{ issue_id: string; agent_id: string; agent_name: string }>)
+      : (db.prepare(sql).all() as unknown as Array<{ issue_id: string; agent_id: string; agent_name: string }>);
+
+    return rows.map((row) => ({
+      issueId: row.issue_id,
+      agentId: row.agent_id,
+      agentName: row.agent_name,
+    }));
+  });
+}

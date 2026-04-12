@@ -1388,6 +1388,38 @@ export async function updateChatRunStep(input: {
   });
 }
 
+export async function getActiveAgentsByThreads(
+  threadIds: string[]
+): Promise<Map<string, string[]>> {
+  const filtered = threadIds.map((id) => id.trim()).filter(Boolean);
+  if (filtered.length === 0) return new Map();
+
+  return withDatabase((db) => {
+    const placeholders = filtered.map(() => "?").join(",");
+    const rows = db
+      .prepare(
+        `SELECT thread_id, active_participant_ids
+         FROM chat_runs
+         WHERE thread_id IN (${placeholders})
+           AND status IN ('queued', 'running')`
+      )
+      .all(...filtered) as unknown as Array<{ thread_id: string; active_participant_ids: string }>;
+
+    const map = new Map<string, string[]>();
+    for (const row of rows) {
+      const ids = parseJsonStringArray(row.active_participant_ids);
+      if (ids.length > 0) {
+        const existing = map.get(row.thread_id) ?? [];
+        for (const id of ids) {
+          if (!existing.includes(id)) existing.push(id);
+        }
+        map.set(row.thread_id, existing);
+      }
+    }
+    return map;
+  });
+}
+
 export async function listChatRunSteps(chatRunId: string): Promise<ChatRunStepRecord[]> {
   return withDatabase((db) => {
     const rows = db

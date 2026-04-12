@@ -15,7 +15,6 @@ import {
   Search,
   Trash2,
   X,
-  ExternalLink,
   Settings,
   Target,
   Users,
@@ -32,6 +31,7 @@ import { useFocusManagement } from "@/hooks/useFocusManagement";
 import { agentAvatarUrl, AgentForm, type AgentFormData } from "@/components/chat-ui/ParticipantBar";
 import ProjectModal, { createProjectPayload, useProjectFormState } from "@/components/ProjectModal";
 import { readProjectObjectivesWorkspace } from "@/lib/project-objectives";
+import { LinearIcon } from "@/components/linear/LinearIcon";
 
 interface WorkspaceSidebarProps {
   threads: Thread[];
@@ -748,7 +748,10 @@ export function WorkspaceSidebar({
                             {navActivity.objectives.slice(0, 3).map((dot) => {
                               const agent = participants.find((p) => p.id === dot.agentId);
                               return (
-                                <img key={dot.agentId} src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} title={agent?.name} className="h-4 w-4 rounded-full ring-1 ring-[var(--sidebar-bg)]" />
+                                <span key={dot.agentId} className="relative inline-block" title={agent?.name}>
+                                  <img src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} className="h-3 w-3 rounded-full ring-[1.5px] ring-[var(--app-shell-pane)]" />
+                                  <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--app-shell-pane)]" />
+                                </span>
                               );
                             })}
                           </span>
@@ -763,14 +766,17 @@ export function WorkspaceSidebar({
                         className={`workspace-sidebar__nav-item flex-1 ${isActiveProjectLinear ? "workspace-sidebar__nav-item--active" : ""}`}
                         aria-current={isActiveProjectLinear ? "page" : undefined}
                       >
-                        <ExternalLink size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                        <LinearIcon size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
                         <span className="workspace-sidebar__workspace-title text-xs">Linear</span>
                         {navActivity?.linear.length > 0 && (
                           <span className="inline-flex items-center -space-x-1 ml-1 shrink-0">
                             {navActivity.linear.slice(0, 3).map((dot) => {
                               const agent = participants.find((p) => p.id === dot.agentId);
                               return (
-                                <img key={dot.agentId} src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} title={agent?.name} className="h-4 w-4 rounded-full ring-1 ring-[var(--sidebar-bg)]" />
+                                <span key={dot.agentId} className="relative inline-block" title={agent?.name}>
+                                  <img src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} className="h-3 w-3 rounded-full ring-[1.5px] ring-[var(--app-shell-pane)]" />
+                                  <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--app-shell-pane)]" />
+                                </span>
                               );
                             })}
                           </span>
@@ -825,7 +831,10 @@ export function WorkspaceSidebar({
                               {navActivity.chat.slice(0, 3).map((dot) => {
                                 const agent = participants.find((p) => p.id === dot.agentId);
                                 return (
-                                  <img key={dot.agentId} src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} title={agent?.name} className="h-4 w-4 rounded-full ring-1 ring-[var(--sidebar-bg)]" />
+                                  <span key={dot.agentId} className="relative inline-block" title={agent?.name}>
+                                  <img src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} className="h-3 w-3 rounded-full ring-[1.5px] ring-[var(--app-shell-pane)]" />
+                                  <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--app-shell-pane)]" />
+                                </span>
                                 );
                               })}
                             </span>

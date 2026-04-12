@@ -1057,10 +1057,14 @@ function TicketRow({
   issue,
   selected,
   onSelect,
+  activeAgents,
+  participants,
 }: {
   issue: LinearIssue;
   selected: boolean;
   onSelect: () => void;
+  activeAgents?: Array<{ agentId: string; agentName: string }>;
+  participants?: Participant[];
 }) {
   const [copied, setCopied] = useState(false);
   const copyResetTimeoutRef = useRef<number | null>(null);
@@ -1132,6 +1136,19 @@ function TicketRow({
       <span className="shrink-0 text-xs text-[var(--muted-foreground)]">
         {shortStatus}
       </span>
+      {activeAgents && activeAgents.length > 0 && (
+        <span className="inline-flex items-center -space-x-1 shrink-0">
+          {activeAgents.slice(0, 3).map((agent) => {
+            const participant = participants?.find((p) => p.id === agent.agentId);
+            return (
+              <span key={agent.agentId} className="relative inline-block" title={participant?.name ?? agent.agentName}>
+                <img src={agentAvatarUrl(agent.agentId, participant?.color, 16)} alt={participant?.name ?? agent.agentName} className="h-3 w-3 rounded-full ring-[1.5px] ring-[var(--app-shell-pane)]" />
+                <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--app-shell-pane)]" />
+              </span>
+            );
+          })}
+        </span>
+      )}
       <div className="flex shrink-0 items-center gap-1">
         <button
           type="button"
@@ -1205,6 +1222,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
   const [selectedIssueFallback, setSelectedIssueFallback] = useState<LinearIssue | null>(null);
   const [updatingIssueId, setUpdatingIssueId] = useState<string | null>(null);
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [issueActiveAgents, setIssueActiveAgents] = useState<Map<string, Array<{ agentId: string; agentName: string }>>>(new Map());
   const [pickerIssue, setPickerIssue] = useState<LinearIssue | null>(null);
   const [pickerAnchor, setPickerAnchor] = useState<{ top: number; left: number } | null>(null);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1599,6 +1617,33 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
   }, [projectId]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    async function fetchActiveAgents() {
+      try {
+        const params = new URLSearchParams();
+        if (projectId) params.set("projectId", projectId);
+        const res = await fetch(`/api/linear/issues/active-agents?${params}`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        const map = new Map<string, Array<{ agentId: string; agentName: string }>>();
+        for (const entry of data.agents ?? []) {
+          const list = map.get(entry.issueId) ?? [];
+          list.push({ agentId: entry.agentId, agentName: entry.agentName });
+          map.set(entry.issueId, list);
+        }
+        if (!cancelled) setIssueActiveAgents(map);
+      } catch {
+        // ignore
+      }
+    }
+
+    void fetchActiveAgents();
+    const interval = setInterval(() => void fetchActiveAgents(), 5000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [projectId]);
+
+  useEffect(() => {
     if (!showRunScripts) {
       return;
     }
@@ -1897,6 +1942,8 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
                   key={issue.id}
                   issue={issue}
                   selected={selectedIssue?.id === issue.id}
+                  activeAgents={issueActiveAgents.get(issue.id)}
+                  participants={participants}
                   onSelect={() =>
                     pushSelection({
                       issue: issue.id,
