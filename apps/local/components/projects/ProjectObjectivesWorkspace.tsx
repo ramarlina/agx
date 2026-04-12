@@ -26,6 +26,7 @@ import RichTextEditor from "@/components/RichTextEditor";
 import SearchCombo, { type ComboOption } from "@/components/SearchCombo";
 import { ScheduleConditionPicker } from "@/components/scheduling/ScheduleConditionPicker";
 import { ObjectiveScheduledTasksPanel } from "@/components/projects/ObjectiveScheduledTasksPanel";
+import { ObjectiveActivityTimeline } from "@/components/projects/ObjectiveActivityTimeline";
 import { cronToHuman } from "@/src/graph/nl-schedule";
 import { threadService } from "@/services/threadService";
 import {
@@ -264,10 +265,17 @@ function prependObjectiveLabelToPrompt(
     return trimmedPrompt;
   }
 
+  const activityInstruction = [
+    `Write your output as an activity file at ~/.agx/projects/<project>/objectives/${objective.key}/activities/<timestamp>-<slug>.md`,
+    `The file must have YAML frontmatter with: id (unique), source (your task ID), objectiveLabel: "${objective.key}", createdAt (ISO), type (one of: metric-check, status-update, milestone, note).`,
+    `The markdown body below the frontmatter contains your output.`,
+  ].join("\n");
+
   return [
     objectiveLabelLine,
+    activityInstruction,
     trimmedPrompt,
-  ].join("\n");
+  ].join("\n\n");
 }
 
 function useProjectObjectivesWorkspace(projectSlug: string) {
@@ -1797,6 +1805,14 @@ export function ProjectObjectiveDetail({
                       placeholder="Use this space to explain what better looks like."
                     />
                   </section>
+
+                  {/* Activity Timeline */}
+                  {project.id && objective.id && (
+                    <ObjectiveActivityTimeline
+                      projectId={project.id}
+                      objectiveId={objective.id}
+                    />
+                  )}
 
                   {/* Scheduled Tasks */}
                   <section>
