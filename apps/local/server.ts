@@ -8,10 +8,22 @@ import {
   destroySession,
   resizeSession,
   destroyAll,
+  subscribeToSession,
 } from "./lib/pty-manager";
 
 const dev = process.env.NODE_ENV !== "production";
 const port = parseInt(process.env.PORT || "41741", 10);
+const heartbeatIntervalMs = parsePositiveInt(
+  process.env.AGX_TERMINAL_HEARTBEAT_MS,
+  30_000,
+);
+
+type HeartbeatWebSocket = WebSocket & { isAlive?: boolean };
+
+function parsePositiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value || "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 const app = next({ dev, port });
 const handle = app.getRequestHandler();
@@ -23,6 +35,22 @@ app.prepare().then(() => {
   });
 
   const wss = new WebSocketServer({ noServer: true });
+  const heartbeatInterval = setInterval(() => {
+    for (const client of wss.clients) {
+      const heartbeatClient = client as HeartbeatWebSocket;
+
+      if (heartbeatClient.isAlive === false) {
+        client.terminate();
+        continue;
+      }
+
+      heartbeatClient.isAlive = false;
+      if (client.readyState === WebSocket.OPEN) {
+        client.ping();
+      }
+    }
+  }, heartbeatIntervalMs);
+  heartbeatInterval.unref?.();
 
   server.on("upgrade", (req, socket, head) => {
     const { pathname } = parse(req.url!, true);
@@ -36,7 +64,14 @@ app.prepare().then(() => {
   });
 
   wss.on("connection", (ws: WebSocket) => {
+    const heartbeatSocket = ws as HeartbeatWebSocket;
+    heartbeatSocket.isAlive = true;
     let sessionId: string | null = null;
+    let unsubscribe: (() => void) | null = null;
+
+    ws.on("pong", () => {
+      heartbeatSocket.isAlive = true;
+    });
 
     ws.on("message", (raw) => {
       let msg: { type: string; [key: string]: unknown };
@@ -51,28 +86,37 @@ app.prepare().then(() => {
           const id = msg.id as string;
           const cwd = (msg.cwd as string) || undefined;
 
-          // Reuse existing session or create new one
-          let session = getSession(id);
-          if (!session) {
-            session = createSession(id, cwd);
+          try {
+            // Reuse existing session or create new one
+            let session = getSession(id);
+            if (!session) {
+              session = createSession(id, cwd);
+            }
+            sessionId = id;
+
+            unsubscribe?.();
+            unsubscribe = subscribeToSession(id, {
+              onData(data: string) {
+                if (ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({ type: "data", data }));
+                }
+              },
+              onExit({ exitCode }) {
+                if (ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify({ type: "exit", exitCode }));
+                }
+              },
+            });
+
+            ws.send(JSON.stringify({ type: "ready", id, backend: session.backend }));
+          } catch (error) {
+            const message =
+              error instanceof Error ? error.message : "Failed to start terminal session";
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: "error", message }));
+              ws.close(1011, "terminal-create-failed");
+            }
           }
-          sessionId = id;
-
-          session.process.onData((data: string) => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: "data", data }));
-            }
-          });
-
-          session.process.onExit(({ exitCode }) => {
-            if (ws.readyState === WebSocket.OPEN) {
-              ws.send(
-                JSON.stringify({ type: "exit", exitCode }),
-              );
-            }
-          });
-
-          ws.send(JSON.stringify({ type: "ready", id }));
           break;
         }
 
@@ -94,16 +138,35 @@ app.prepare().then(() => {
         }
 
         case "destroy": {
-          if (sessionId) {
-            destroySession(sessionId);
-            sessionId = null;
+          const id = (msg.id as string) || sessionId;
+          if (id) {
+            if (id === sessionId) {
+              unsubscribe?.();
+              unsubscribe = null;
+              sessionId = null;
+            }
+            destroySession(id);
           }
+          break;
+        }
+
+        case "destroy-all": {
+          unsubscribe?.();
+          unsubscribe = null;
+          sessionId = null;
+          destroyAll();
+          break;
+        }
+
+        default: {
           break;
         }
       }
     });
 
     ws.on("close", () => {
+      unsubscribe?.();
+      unsubscribe = null;
       // Don't destroy session on disconnect — allow reconnect
     });
   });
@@ -114,6 +177,7 @@ app.prepare().then(() => {
 
   // Cleanup on exit
   const cleanup = () => {
+    clearInterval(heartbeatInterval);
     destroyAll();
     process.exit();
   };
