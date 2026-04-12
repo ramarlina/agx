@@ -7,8 +7,10 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  CalendarClock,
   Check,
   Clock,
+  FileText,
   Pencil,
   Plus,
   Trash2,
@@ -27,6 +29,8 @@ import SearchCombo, { type ComboOption } from "@/components/SearchCombo";
 import { ScheduleConditionPicker } from "@/components/scheduling/ScheduleConditionPicker";
 import { ObjectiveScheduledTasksPanel } from "@/components/projects/ObjectiveScheduledTasksPanel";
 import { ObjectiveActivityTimeline } from "@/components/projects/ObjectiveActivityTimeline";
+import { LinearIcon } from "@/components/linear/LinearIcon";
+import { usePromptJobs } from "@/hooks/usePromptJobs";
 import { cronToHuman } from "@/src/graph/nl-schedule";
 import { threadService } from "@/services/threadService";
 import {
@@ -407,6 +411,8 @@ interface ObjectiveChatSession {
 }
 
 type ObjectiveChatView = "list" | "detail";
+
+type ObjectiveDetailTab = "activity" | "notes" | "linear" | "scheduled-tasks";
 
 function summarizeSessionTitle(content: string): string {
   const normalized = content.replace(/\s+/g, " ").trim();
@@ -1241,7 +1247,7 @@ function ObjectiveNotesEditor({
   if (!editable && !hasContent) return null;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--app-shell-subtle)] transition-all focus-within:border-indigo-500 focus-within:ring-2 focus-within:ring-indigo-500/20">
+    <div className="overflow-hidden border-l-2 border-zinc-700/60 pl-4 transition-all focus-within:border-indigo-500/60">
       {editable || hasContent ? (
         <RichTextEditor
           content={content}
@@ -1259,11 +1265,15 @@ function ObjectiveListCard({
   objective,
   activityCount,
   lastActivityAt,
+  activeAgentIds,
+  participants,
 }: {
   projectSlug: string;
   objective: ProjectObjective;
   activityCount: number;
   lastActivityAt: string | null;
+  activeAgentIds?: string[];
+  participants?: Participant[];
 }) {
   const activityMeta = buildActivityMeta(activityCount, lastActivityAt);
 
@@ -1289,6 +1299,20 @@ function ObjectiveListCard({
           <div>{activityMeta}</div>
         </div>
 
+        {activeAgentIds && activeAgentIds.length > 0 && (
+          <span className="inline-flex items-center -space-x-1 shrink-0">
+            {activeAgentIds.slice(0, 3).map((agentId) => {
+              const participant = participants?.find((p) => p.id === agentId);
+              return (
+                <span key={agentId} className="relative inline-block" title={participant?.name ?? agentId}>
+                  <img src={agentAvatarUrl(agentId, 16, participant?.color ?? undefined)} alt={participant?.name ?? agentId} className="h-3 w-3 rounded-full ring-[1.5px] ring-[var(--background)]" />
+                  <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--background)]" />
+                </span>
+              );
+            })}
+          </span>
+        )}
+
         <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors group-hover:bg-white/5 group-hover:text-[var(--foreground)] group-focus-visible:bg-white/5 group-focus-visible:text-[var(--foreground)]">
           <ArrowRight className="h-4 w-4" />
         </span>
@@ -1311,6 +1335,50 @@ export function ProjectObjectivesOverview({
   const [objectiveEditor, setObjectiveEditor] = useState<ObjectiveEditorDraft | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [activeAgentsByObjective, setActiveAgentsByObjective] = useState<Map<string, string[]>>(new Map());
+  const [participants, setParticipants] = useState<Participant[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const res = await fetch("/api/participants");
+        if (res.ok && !cancelled) setParticipants(await res.json());
+      } catch { /* ignore */ }
+    }
+    void load();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    const threadMap = new Map<string, string>();
+    for (const obj of objectives) {
+      if (obj.threadId) threadMap.set(obj.threadId, obj.id);
+    }
+    if (threadMap.size === 0) return;
+
+    let cancelled = false;
+    async function poll() {
+      try {
+        const threadIds = Array.from(threadMap.keys()).join(",");
+        const res = await fetch(`/api/chat-runs/active-agents?threadIds=${encodeURIComponent(threadIds)}`);
+        if (!res.ok || cancelled) return;
+        const data = await res.json();
+        const map = new Map<string, string[]>();
+        for (const [threadId, agentIds] of Object.entries(data.activeAgents ?? {})) {
+          const objectiveId = threadMap.get(threadId);
+          if (objectiveId && Array.isArray(agentIds) && agentIds.length > 0) {
+            map.set(objectiveId, agentIds as string[]);
+          }
+        }
+        if (!cancelled) setActiveAgentsByObjective(map);
+      } catch { /* ignore */ }
+    }
+
+    void poll();
+    const interval = setInterval(() => void poll(), 5000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [objectives]);
 
   const handleObjectiveSave = async () => {
     if (!objectiveEditor) return;
@@ -1358,7 +1426,7 @@ export function ProjectObjectivesOverview({
     }
   };
 
-  if (isLoading) {
+  if (isLoading && !project) {
     return <LoadingState label="Loading objectives..." />;
   }
 
@@ -1413,6 +1481,8 @@ export function ProjectObjectivesOverview({
                   objective={objective}
                   activityCount={objectiveActivities.length}
                   lastActivityAt={objectiveActivities[0]?.createdAt ?? null}
+                  activeAgentIds={activeAgentsByObjective.get(objective.id)}
+                  participants={participants}
                 />
               );
             })}
@@ -1455,12 +1525,23 @@ export function ProjectObjectiveDetail({
   const [teamEditor, setTeamEditor] = useState<ObjectiveTeamDraft | null>(null);
   const [wakeEditor, setWakeEditor] = useState<ObjectiveEditorDraft | null>(null);
 
+  const [activeTab, setActiveTab] = useState<ObjectiveDetailTab>("activity");
   const [isSaving, setIsSaving] = useState(false);
   const [isNotesSaving, setIsNotesSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [objectiveNotesDraft, setObjectiveNotesDraft] = useState("");
   const [linearIssues, setLinearIssues] = useState<ObjectiveLinearIssueSummary[]>([]);
   const [linearConnected, setLinearConnected] = useState(true);
+
+  const { jobs: scheduledJobs } = usePromptJobs(project?.id ?? null, {
+    requireProjectId: true,
+    includeObjectiveJobs: true,
+    objectiveId,
+  });
+  const scheduledTaskCount = useMemo(
+    () => scheduledJobs.filter((job) => job.objectiveId === objectiveId).length,
+    [scheduledJobs, objectiveId]
+  );
 
   const runPersist = async (nextWorkspace: ProjectObjectiveWorkspaceState) => {
     setIsSaving(true);
@@ -1688,7 +1769,7 @@ export function ProjectObjectiveDetail({
     };
   }, [objective?.id, objective?.key, project?.id]);
 
-  if (isLoading) {
+  if (isLoading && !project) {
     return <LoadingState label="Loading objective..." />;
   }
 
@@ -1734,7 +1815,7 @@ export function ProjectObjectiveDetail({
                 </span>
               </div>
 
-              <div className="mb-12">
+              <div className="mb-6">
                 {objectiveEditor ? (
                   <div className="flex items-center gap-2">
                     <input
@@ -1779,21 +1860,123 @@ export function ProjectObjectiveDetail({
                 )}
               </div>
 
-              {/* Two-Column Layout */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
+              {/* Horizontal Metadata Row */}
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-3 mb-10">
+                {/* Team Property */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <Users size={12} /> Team
+                  </span>
+                  <span className="text-zinc-600">·</span>
+                  {teamEditor ? (
+                    <div className="min-w-[180px]">
+                      <SearchCombo
+                        options={availableTeams.map((t) => ({ id: t.id, label: t.name }))}
+                        value={teamEditor.teamId}
+                        onChange={(id) => {
+                          const next = { teamId: id };
+                          setTeamEditor(next);
+                          const teamId = id.trim();
+                          if (!teamId || !objective) return;
+                          const conflict = findObjectiveAssignedToTeam(workspace, teamId, objective.id);
+                          if (conflict) {
+                            setSaveError(`Team is already assigned to "${conflict.title}".`);
+                            return;
+                          }
+                          void runPersist(
+                            upsertProjectObjective(workspace, {
+                              ...objective,
+                              teamId,
+                              updatedAt: new Date().toISOString(),
+                            })
+                          );
+                          setTeamEditor(null);
+                        }}
+                        placeholder="Select a team…"
+                      />
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setTeamEditor({ teamId: objective.teamId })}
+                      className="flex items-center gap-2 group rounded px-1.5 py-0.5 -mx-1.5 -my-0.5 hover:bg-zinc-800 transition-colors"
+                    >
+                      <div className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-[10px] font-bold border border-blue-500/30">
+                        {(teamName ?? "?").charAt(0).toUpperCase()}
+                      </div>
+                      <span className="text-sm text-zinc-200 group-hover:text-zinc-50 transition-colors">
+                        {teamName ?? "Not assigned"}
+                      </span>
+                    </button>
+                  )}
+                </div>
 
-                {/* Left Column: Main Content */}
-                <div className="lg:col-span-2 space-y-10">
+                {/* Check-in Frequency Property */}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <Clock size={12} /> Check-in
+                  </span>
+                  <span className="text-zinc-600">·</span>
+                  <button
+                    type="button"
+                    onClick={() => setWakeEditor(buildObjectiveDraft(objective))}
+                    className="text-sm text-zinc-200 hover:text-zinc-50 rounded px-1.5 py-0.5 -my-0.5 hover:bg-zinc-800 transition-colors"
+                  >
+                    {formatObjectiveCadence(objective.cadence)}
+                  </button>
+                  {objective.condition ? (
+                    <span className="text-xs text-zinc-500 truncate max-w-[200px]">
+                      · {objective.condition}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
 
-                  {/* Notes */}
+              {/* Tabs */}
+              <div className="border-b border-zinc-800/80 mb-8">
+                <nav className="flex gap-1 -mb-px" aria-label="Objective sections">
+                  {([
+                    { id: "activity" as const, label: "Activity", icon: Clock },
+                    { id: "notes" as const, label: "Notes", icon: FileText },
+                    { id: "linear" as const, label: "Linear", icon: LinearIcon },
+                    { id: "scheduled-tasks" as const, label: "Scheduled Tasks", icon: CalendarClock },
+                  ]).map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`flex items-center gap-2 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                        activeTab === tab.id
+                          ? "border-sky-500 text-zinc-100"
+                          : "border-transparent text-zinc-500 hover:text-zinc-300 hover:border-zinc-700"
+                      }`}
+                    >
+                      <tab.icon size={14} />
+                      {tab.label}
+                      {tab.id === "linear" && linearIssues.length > 0 && (
+                        <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
+                          {linearIssues.length}
+                        </span>
+                      )}
+                      {tab.id === "scheduled-tasks" && scheduledTaskCount > 0 && (
+                        <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
+                          {scheduledTaskCount}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </nav>
+              </div>
+
+              {/* Tab Content */}
+              <div className="space-y-10">
+                {/* Notes Tab */}
+                {activeTab === "notes" && (
                   <section>
                     <div className="flex justify-between items-end mb-3">
-                      <div>
-                        <h2 className="text-sm font-semibold text-zinc-200">Notes</h2>
-                        <p className="text-sm text-zinc-500 mt-0.5">
-                          Capture the strategy, constraints, and what better looks like.
-                        </p>
-                      </div>
+                      <p className="text-sm text-zinc-500">
+                        Capture the strategy, constraints, and what better looks like.
+                      </p>
                       <span className="text-xs text-zinc-500">
                         {isNotesSaving ? "Saving..." : "Auto-saves"}
                       </span>
@@ -1805,41 +1988,25 @@ export function ProjectObjectiveDetail({
                       placeholder="Use this space to explain what better looks like."
                     />
                   </section>
+                )}
 
-                  {/* Activity Timeline */}
-                  {project.id && objective.id && (
-                    <ObjectiveActivityTimeline
-                      projectId={project.id}
-                      objectiveId={objective.id}
-                    />
-                  )}
+                {/* Activity Tab */}
+                {activeTab === "activity" && project.id && objective.id && (
+                  <ObjectiveActivityTimeline
+                    projectId={project.id}
+                    objectiveId={objective.id}
+                  />
+                )}
 
-                  {/* Scheduled Tasks */}
+                {/* Linear Tickets Tab */}
+                {activeTab === "linear" && (
                   <section>
-                    <ObjectiveScheduledTasksPanel
-                      projectId={project.id}
-                      objectiveId={objective.id}
-                      objectiveKey={objective.key}
-                      createDefaults={{
-                        name: `Work on ${objective.title}`,
-                        cadence: objective.cadence,
-                        condition: objective.condition,
-                      }}
-                      onCreateTask={handleScheduledTaskCreate}
-                    />
-                  </section>
-
-                  {/* Linear Tickets */}
-                  <section>
-                    <div className="mb-3">
-                      <h2 className="text-sm font-semibold text-zinc-200">Linear Tickets</h2>
-                      <p className="text-sm text-zinc-500 mt-0.5">
-                        Tickets are tracked by the objective label{" "}
-                        <code className="font-mono text-[11px] bg-zinc-800/80 px-1.5 py-0.5 rounded text-zinc-300">
-                          {objective.key}
-                        </code>.
-                      </p>
-                    </div>
+                    <p className="text-sm text-zinc-500 mb-4">
+                      Tickets tracked by the objective label{" "}
+                      <code className="font-mono text-[11px] bg-zinc-800/80 px-1.5 py-0.5 rounded text-zinc-300">
+                        {objective.key}
+                      </code>.
+                    </p>
                     {!linearConnected ? (
                       <EmptyState label="Connect Linear to create and track tickets for this objective." />
                     ) : linearIssues.length === 0 ? (
@@ -1884,124 +2051,47 @@ export function ProjectObjectiveDetail({
                       </div>
                     )}
                   </section>
+                )}
 
-                  {/* Danger Zone */}
-                  <section className="pt-10">
-                    <div className="mb-4">
-                      <h2 className="text-sm font-semibold text-red-400">Danger Zone</h2>
-                    </div>
-                    <div className="border border-red-900/30 rounded-xl p-5 flex items-center justify-between bg-red-950/5">
-                      <div>
-                        <h3 className="text-sm font-medium text-zinc-200">Delete Objective</h3>
-                        <p className="text-sm text-zinc-500 mt-1">
-                          Once you delete an objective, there is no going back.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => void handleObjectiveDelete()}
-                        aria-label={`Delete objective ${objective.title}`}
-                        className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-red-900/40 text-red-400 text-sm font-medium hover:bg-red-950/40 transition-colors bg-red-950/20 whitespace-nowrap"
-                      >
-                        <Trash2 size={14} /> Delete
-                      </button>
-                    </div>
+                {/* Scheduled Tasks Tab */}
+                {activeTab === "scheduled-tasks" && (
+                  <section>
+                    <ObjectiveScheduledTasksPanel
+                      projectId={project.id}
+                      objectiveId={objective.id}
+                      objectiveKey={objective.key}
+                      createDefaults={{
+                        name: `Work on ${objective.title}`,
+                        cadence: objective.cadence,
+                        condition: objective.condition,
+                      }}
+                      onCreateTask={handleScheduledTaskCreate}
+                    />
                   </section>
+                )}
 
-                </div>
-
-                {/* Right Column: Sidebar Metadata */}
-                <div className="space-y-8">
-                  <div className="bg-[#18181b] border border-zinc-800/80 rounded-xl p-5 space-y-6">
-
-                    {/* Team Property */}
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-                          <Users size={14} /> Team
-                        </h2>
-                        {!teamEditor && (
-                          <button
-                            type="button"
-                            onClick={() => setTeamEditor({ teamId: objective.teamId })}
-                            aria-label={`Edit team for ${objective.title}`}
-                            className="text-zinc-500 hover:text-zinc-300 transition-colors"
-                          >
-                            <Pencil size={12} />
-                          </button>
-                        )}
-                      </div>
-                      {teamEditor ? (
-                        <SearchCombo
-                          options={availableTeams.map((t) => ({ id: t.id, label: t.name }))}
-                          value={teamEditor.teamId}
-                          onChange={(id) => {
-                            const next = { teamId: id };
-                            setTeamEditor(next);
-                            // Auto-save on selection
-                            const teamId = id.trim();
-                            if (!teamId || !objective) return;
-                            const conflict = findObjectiveAssignedToTeam(workspace, teamId, objective.id);
-                            if (conflict) {
-                              setSaveError(`Team is already assigned to "${conflict.title}".`);
-                              return;
-                            }
-                            void runPersist(
-                              upsertProjectObjective(workspace, {
-                                ...objective,
-                                teamId,
-                                updatedAt: new Date().toISOString(),
-                              })
-                            );
-                            setTeamEditor(null);
-                          }}
-                          placeholder="Select a team…"
-                        />
-                      ) : (
-                        <div
-                          className="flex items-center gap-2 cursor-pointer group"
-                          onClick={() => setTeamEditor({ teamId: objective.teamId })}
-                        >
-                          <div className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-xs font-bold border border-blue-500/30">
-                            {(teamName ?? "?").charAt(0).toUpperCase()}
-                          </div>
-                          <span className="text-sm font-medium text-zinc-200 group-hover:text-zinc-50 transition-colors">
-                            {teamName ?? "Missing team"}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="h-px bg-zinc-800/80 w-full" />
-
-                    {/* Check-in Frequency Property */}
-                    <div>
-                      <div className="flex items-center justify-between mb-2">
-                        <h2 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-                          <Clock size={14} /> Check-in
-                        </h2>
-                        <button
-                          type="button"
-                          onClick={() => setWakeEditor(buildObjectiveDraft(objective))}
-                          aria-label={`Edit cadence for ${objective.title}`}
-                          className="text-zinc-500 hover:text-zinc-300 transition-colors"
-                        >
-                          <Pencil size={12} />
-                        </button>
-                      </div>
-                      <div className="text-sm text-zinc-200">
-                        {formatObjectiveCadence(objective.cadence)}
-                      </div>
-                      {objective.condition ? (
-                        <p className="mt-1 text-xs text-zinc-500 truncate">
-                          Condition: {objective.condition}
-                        </p>
-                      ) : null}
-                    </div>
-
+                {/* Danger Zone */}
+                <section className="pt-10">
+                  <div className="mb-4">
+                    <h2 className="text-sm font-semibold text-red-400">Danger Zone</h2>
                   </div>
-                </div>
-
+                  <div className="border border-red-900/30 rounded-xl p-5 flex items-center justify-between bg-red-950/5">
+                    <div>
+                      <h3 className="text-sm font-medium text-zinc-200">Delete Objective</h3>
+                      <p className="text-sm text-zinc-500 mt-1">
+                        Once you delete an objective, there is no going back.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleObjectiveDelete()}
+                      aria-label={`Delete objective ${objective.title}`}
+                      className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-red-900/40 text-red-400 text-sm font-medium hover:bg-red-950/40 transition-colors bg-red-950/20 whitespace-nowrap"
+                    >
+                      <Trash2 size={14} /> Delete
+                    </button>
+                  </div>
+                </section>
               </div>
             </div>
           </div>

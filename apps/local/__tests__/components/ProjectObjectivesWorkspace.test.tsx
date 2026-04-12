@@ -792,6 +792,162 @@ describe("ProjectObjectivesWorkspace", () => {
     expect(screen.queryByText("Test referral loops first.")).not.toBeInTheDocument();
   });
 
+  test("keeps the selected strategy session open during background objective refreshes", async () => {
+    mockedUseGroupChat.mockReturnValue({
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          participantId: null,
+          content: "How should we get there?",
+          timestamp: Date.parse("2026-04-10T04:23:00.000Z"),
+          rootMessageId: null,
+          parentMessageId: null,
+          depth: 0,
+        },
+        {
+          id: "assistant-1",
+          role: "assistant",
+          participantId: "agent-growth",
+          content: "Start with referral experiments and measure conversion weekly.",
+          timestamp: Date.parse("2026-04-10T04:24:00.000Z"),
+          rootMessageId: "user-1",
+          parentMessageId: "user-1",
+          depth: 1,
+        },
+      ],
+      setMessages: jest.fn(),
+      logs: [],
+      sendMessage: jest.fn(),
+      loadHistory: jest.fn(),
+      clearHistory: jest.fn(),
+      clearLogs: jest.fn(),
+      chatRuns: [],
+      setChatRuns: jest.fn(),
+      stop: jest.fn(),
+      stopThread: jest.fn(),
+    });
+
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.includes("/teams")) {
+        return {
+          ok: true,
+          json: async () => teamsResponse,
+        };
+      }
+
+      if (url.includes("/participants")) {
+        return {
+          ok: true,
+          json: async () => [
+            {
+              id: "agent-growth",
+              name: "Growth Agent",
+              provider: "claude",
+              model: "sonnet",
+              color: "#22c55e",
+            },
+          ],
+        };
+      }
+
+      if (url.includes("/agents")) {
+        return {
+          ok: true,
+          json: async () => ({
+            agents: [{ agent_id: "agent-growth", routing_order: 0 }],
+          }),
+        };
+      }
+
+      if (url.includes("/scheduled-tasks")) {
+        return {
+          ok: true,
+          json: async () => ({ jobs: [] }),
+        };
+      }
+
+      if (url.includes("/linear-issues")) {
+        return {
+          ok: true,
+          json: async () => ({
+            connected: true,
+            label: "get-50-visitors-daily",
+            issues: [],
+          }),
+        };
+      }
+
+      if (url.includes("/api/history") || url.includes("/api/logs") || url.includes("/api/chat-runs")) {
+        return {
+          ok: true,
+          json: async () => [],
+        };
+      }
+
+      if (url.includes("/api/processes")) {
+        return {
+          ok: true,
+          json: async () => [],
+        };
+      }
+
+      return {
+        ok: true,
+        json: async () => ({}),
+      };
+    });
+
+    mockedUseProjects
+      .mockReturnValueOnce({
+        projects: [buildProject()],
+        isLoading: false,
+        error: null,
+        refetch: jest.fn(),
+        createProject: jest.fn(),
+        updateProject: updateProjectMock,
+        deleteProject: jest.fn(),
+      })
+      .mockReturnValueOnce({
+        projects: [buildProject()],
+        isLoading: true,
+        error: null,
+        refetch: jest.fn(),
+        createProject: jest.fn(),
+        updateProject: updateProjectMock,
+        deleteProject: jest.fn(),
+      });
+
+    const { rerender } = render(
+      <ProjectObjectiveDetail
+        projectSlug="alpha"
+        objectiveId="objective_growth"
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /How should we get there\?/i }));
+
+    expect(
+      screen.getByText("Start with referral experiments and measure conversion weekly.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Back to sessions/i })).toBeInTheDocument();
+
+    rerender(
+      <ProjectObjectiveDetail
+        projectSlug="alpha"
+        objectiveId="objective_growth"
+      />
+    );
+
+    expect(
+      screen.getByText("Start with referral experiments and measure conversion weekly.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Back to sessions/i })).toBeInTheDocument();
+    expect(screen.queryByText("Loading objective...")).not.toBeInTheDocument();
+  });
+
   test("list-view composer starts a new session and detail-view composer continues the selected session", async () => {
     const sendMessageMock = jest.fn().mockResolvedValue("user-fresh");
     mockedUseGroupChat.mockReturnValue({
