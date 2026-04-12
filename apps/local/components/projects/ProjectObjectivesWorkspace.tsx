@@ -370,9 +370,15 @@ function buildObjectiveChatPrefix(
   const objectiveRoute = appOrigin ? `${appOrigin}${basePath}` : basePath;
   const scheduledTasksRoute = `${objectiveRoute}/scheduled-tasks`;
   const linearIssuesRoute = `${objectiveRoute}/linear-issues`;
+  const notesRoute = `${objectiveRoute}/notes`;
 
   const objectiveFilePath = `~/.agx/projects/${projectSlug}/objectives/${objective.key}.md`;
+  const notesDir = `~/.agx/projects/${projectSlug}/objectives/${objective.key}/notes/`;
   const validateRoute = `${objectiveRoute}/validate`;
+
+  const notesPreview = objective.notes?.length
+    ? objective.notes.map((n) => `- **${n.title}**: ${n.body.slice(0, 120)}${n.body.length > 120 ? "..." : ""}`).join("\n")
+    : null;
 
   return [
     "You are working inside a strategy session for this project objective.",
@@ -380,21 +386,26 @@ function buildObjectiveChatPrefix(
     `Objective: ${objective.title}`,
     `Objective label: ${objective.key}`,
     teamName ? `Owning team: ${teamName}` : "",
-    objective.summary ? `Current notes:\n${objective.summary}` : "Current notes: none yet.",
+    notesPreview ? `Current notes:\n${notesPreview}` : "Current notes: none yet.",
     objective.cadence
       ? `Wake schedule: ${formatObjectiveCadence(objective.cadence)}`
       : "Wake schedule: not set yet.",
     objective.condition ? `Wake condition: ${objective.condition}` : "",
 
-    `## Objective file (source of truth)\n\nThis objective is stored as a frontmatter markdown file at:\n\`${objectiveFilePath}\`\n\nFile format:\n- YAML frontmatter between \`---\` delimiters contains all metadata (title, teamId, key, status, progress, cadence, condition, scheduledTaskIds, threadId, chatSessionVersion, createdAt, updatedAt).\n- \`## Notes\` section in the body is the objective summary/strategy notes.\n- \`## Activities\` section contains the activity timeline; each activity is a \`### Title\` block with metadata lines (\`- **id:**\`, \`- **source:**\`, \`- **created:**\`, \`- **body:**\`) and optional \`#### Replies\` sub-section.\n\nWhen updating the objective, you can edit this file directly. Rules:\n- NEVER remove or break the \`---\` frontmatter delimiters.\n- NEVER change the \`id\` or \`createdAt\` fields.\n- Always update \`updatedAt\` to the current ISO timestamp when making changes.\n- After any edit, call \`GET ${validateRoute}\` to verify the file is still valid.\n- If validation fails, fix the errors immediately before doing anything else.`,
+    `## Objective file (source of truth)\n\nThis objective is stored as a frontmatter markdown file at:\n\`${objectiveFilePath}\`\n\nFile format:\n- YAML frontmatter between \`---\` delimiters contains all metadata (title, teamId, key, status, progress, cadence, condition, scheduledTaskIds, threadId, chatSessionVersion, createdAt, updatedAt).\n- \`## Activities\` section contains the activity timeline; each activity is a \`### Title\` block with metadata lines (\`- **id:**\`, \`- **source:**\`, \`- **created:**\`, \`- **body:**\`) and optional \`#### Replies\` sub-section.\n\nNotes are stored as separate files in \`${notesDir}\`. Each note is a markdown file with YAML frontmatter (id, title, objectiveId, createdAt, updatedAt) and a markdown body.\n\nWhen updating the objective, you can edit this file directly. Rules:\n- NEVER remove or break the \`---\` frontmatter delimiters.\n- NEVER change the \`id\` or \`createdAt\` fields.\n- Always update \`updatedAt\` to the current ISO timestamp when making changes.\n- After any edit, call \`GET ${validateRoute}\` to verify the file is still valid.\n- If validation fails, fix the errors immediately before doing anything else.`,
 
     "Scheduled tasks live in the shared scheduled-task list and are filtered by this objective label.",
     "Your job is to help the team develop the strategy needed to reach the goal, including the right combination of objective notes, wake cadence/condition, scheduled tasks, and Linear tickets.",
     "Use the current session history to build on prior reasoning. Only reset and start from scratch when the user explicitly starts a new session.",
     "Use this thread to pressure-test strategy, suggest better tactics, rewrite the objective when asked, propose the right operational cadence, and take concrete follow-up actions when the user wants them applied.",
-    "When suggesting edits, prefer editing the frontmatter file directly. When the user asks you to make a change, edit the file, validate, then confirm. Fall back to the API only if file access is unavailable.",
-    "Local objective APIs (fallback):",
-    `- PATCH ${objectiveRoute} with JSON fields such as {"title","summary","cadence","condition","teamId","key"} to update the objective itself.`,
+    "When suggesting edits, prefer editing the frontmatter file directly or using the notes API. When the user asks you to make a change, edit the file, validate, then confirm.",
+    "Local objective APIs:",
+    `- PATCH ${objectiveRoute} with JSON fields such as {"title","cadence","condition","teamId","key"} to update the objective itself.`,
+    `- GET ${notesRoute} to list all notes for this objective. Returns {"notes":[...],"total","page","limit","hasMore"}.`,
+    `- POST ${notesRoute} with {"title","body"} to create a new note.`,
+    `- GET ${notesRoute}/{noteId} to read a single note.`,
+    `- PATCH ${notesRoute}/{noteId} with {"title","body"} to update a note.`,
+    `- DELETE ${notesRoute}/{noteId} to delete a note.`,
     `- GET ${scheduledTasksRoute} to inspect the scheduled tasks already tracked for this objective.`,
     `- POST ${scheduledTasksRoute} with {"name","prompt","cadence","condition","agentId","syncObjectiveSchedule":true} to create a scheduled task for this objective.`,
     `- GET ${linearIssuesRoute} to inspect Linear tickets carrying the objective label "${objective.key}".`,
@@ -1535,6 +1546,7 @@ export function ProjectObjectiveDetail({
   const [isNotesLoading, setIsNotesLoading] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
+  const [noteTitleDrafts, setNoteTitleDrafts] = useState<Record<string, string>>({});
   const [savingNoteIds, setSavingNoteIds] = useState<Set<string>>(new Set());
   const [newNoteTitle, setNewNoteTitle] = useState("");
   const [isCreatingNote, setIsCreatingNote] = useState(false);
@@ -1611,18 +1623,36 @@ export function ProjectObjectiveDetail({
     }
   }, [activeTab, fetchNotes]);
 
-  // Per-note auto-save with debounce
+  // Per-note auto-save with debounce (body + title)
   useEffect(() => {
     if (!project?.id || !objective?.id) return;
 
-    const entries = Object.entries(noteDrafts);
-    if (entries.length === 0) return;
+    // Collect notes that have changed body or title
+    const changedNoteIds = new Set<string>();
+    for (const [noteId, body] of Object.entries(noteDrafts)) {
+      const existing = notes.find((n) => n.id === noteId);
+      if (existing && existing.body !== body) changedNoteIds.add(noteId);
+    }
+    for (const [noteId, title] of Object.entries(noteTitleDrafts)) {
+      const existing = notes.find((n) => n.id === noteId);
+      if (existing && existing.title !== title) changedNoteIds.add(noteId);
+    }
+
+    if (changedNoteIds.size === 0) return;
 
     const timeouts: number[] = [];
 
-    for (const [noteId, body] of entries) {
+    for (const noteId of changedNoteIds) {
+      const patch: Record<string, string> = {};
+      const draftBody = noteDrafts[noteId];
+      const draftTitle = noteTitleDrafts[noteId];
       const existing = notes.find((n) => n.id === noteId);
-      if (!existing || existing.body === body) continue;
+      if (!existing) continue;
+
+      if (draftBody !== undefined && draftBody !== existing.body) patch.body = draftBody;
+      if (draftTitle !== undefined && draftTitle !== existing.title && draftTitle.trim()) patch.title = draftTitle.trim();
+
+      if (Object.keys(patch).length === 0) continue;
 
       const timeoutId = window.setTimeout(async () => {
         setSavingNoteIds((prev) => new Set(prev).add(noteId));
@@ -1632,7 +1662,7 @@ export function ProjectObjectiveDetail({
             {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ body }),
+              body: JSON.stringify(patch),
             },
           );
           if (res.ok) {
@@ -1658,7 +1688,7 @@ export function ProjectObjectiveDetail({
     return () => {
       for (const id of timeouts) window.clearTimeout(id);
     };
-  }, [noteDrafts, notes, project?.id, objective?.id]);
+  }, [noteDrafts, noteTitleDrafts, notes, project?.id, objective?.id]);
 
   const handleCreateNote = async () => {
     if (!project?.id || !objective?.id) return;
@@ -2111,6 +2141,7 @@ export function ProjectObjectiveDetail({
                           const isEditing = editingNoteId === note.id;
                           const isSavingNote = savingNoteIds.has(note.id);
                           const draftBody = noteDrafts[note.id] ?? note.body;
+                          const draftTitle = noteTitleDrafts[note.id] ?? note.title;
 
                           return (
                             <div
@@ -2119,16 +2150,33 @@ export function ProjectObjectiveDetail({
                             >
                               {/* Note Header */}
                               <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-900/50">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setEditingNoteId(isEditing ? null : note.id)
-                                  }
-                                  className="flex items-center gap-2 text-sm font-medium text-zinc-200 hover:text-zinc-50 transition-colors"
-                                >
-                                  <FileText size={14} className="text-zinc-500" />
-                                  {note.title}
-                                </button>
+                                {isEditing ? (
+                                  <div className="flex items-center gap-2 flex-1 mr-2">
+                                    <FileText size={14} className="text-zinc-500 shrink-0" />
+                                    <input
+                                      type="text"
+                                      value={draftTitle}
+                                      onChange={(e) =>
+                                        setNoteTitleDrafts((prev) => ({
+                                          ...prev,
+                                          [note.id]: e.target.value,
+                                        }))
+                                      }
+                                      className="flex-1 bg-transparent border-b border-zinc-700 text-sm font-medium text-zinc-200 focus:outline-none focus:border-zinc-400 py-0.5"
+                                    />
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setEditingNoteId(note.id)
+                                    }
+                                    className="flex items-center gap-2 text-sm font-medium text-zinc-200 hover:text-zinc-50 transition-colors"
+                                  >
+                                    <FileText size={14} className="text-zinc-500" />
+                                    {note.title}
+                                  </button>
+                                )}
                                 <div className="flex items-center gap-2">
                                   <span className="text-[11px] text-zinc-600">
                                     {isSavingNote
