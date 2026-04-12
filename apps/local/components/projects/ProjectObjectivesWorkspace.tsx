@@ -1999,59 +1999,99 @@ export function ProjectObjectiveDetail({
                 )}
 
                 {/* Linear Tickets Tab */}
-                {activeTab === "linear" && (
-                  <section>
-                    <p className="text-sm text-zinc-500 mb-4">
-                      Tickets tracked by the objective label{" "}
-                      <code className="font-mono text-[11px] bg-zinc-800/80 px-1.5 py-0.5 rounded text-zinc-300">
-                        {objective.key}
-                      </code>.
-                    </p>
-                    {!linearConnected ? (
-                      <EmptyState label="Connect Linear to create and track tickets for this objective." />
-                    ) : linearIssues.length === 0 ? (
-                      <EmptyState label={`No Linear tickets with label ${objective.key} yet.`} />
-                    ) : (
-                      <div className="space-y-3">
-                        {linearIssues.map((issue) => (
-                          <div
-                            key={issue.id}
-                            className="bg-[#1c212b] border border-[#2d3748] rounded-xl p-4"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                  {issue.identifier}
-                                </p>
-                                {issue.url ? (
+                {activeTab === "linear" && (() => {
+                  const dedupedIssues = linearIssues.filter(
+                    (issue, idx, arr) => arr.findIndex((i) => i.id === issue.id) === idx
+                  );
+                  const DONE_STATUSES = ["done", "canceled", "cancelled", "completed"];
+                  const activeIssues = dedupedIssues.filter(
+                    (i) => !DONE_STATUSES.includes(i.status.toLowerCase())
+                  );
+                  const doneIssues = dedupedIssues
+                    .filter((i) => DONE_STATUSES.includes(i.status.toLowerCase()))
+                    .slice(-5);
+
+                  return (
+                    <section>
+                      <p className="text-sm text-zinc-500 mb-4">
+                        Tickets tracked by the objective label{" "}
+                        <code className="font-mono text-[11px] bg-zinc-800/80 px-1.5 py-0.5 rounded text-zinc-300">
+                          {objective.key}
+                        </code>.
+                      </p>
+                      {!linearConnected ? (
+                        <EmptyState label="Connect Linear to create and track tickets for this objective." />
+                      ) : dedupedIssues.length === 0 ? (
+                        <EmptyState label={`No Linear tickets with label ${objective.key} yet.`} />
+                      ) : (
+                        <>
+                          {activeIssues.length > 0 && (
+                            <div className="space-y-3">
+                              {activeIssues.map((issue) => (
+                                <div
+                                  key={issue.id}
+                                  className="bg-[#1c212b] border border-[#2d3748] rounded-xl p-4"
+                                >
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                        {issue.identifier}
+                                      </p>
+                                      {issue.url ? (
+                                        <a
+                                          href={issue.url}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="mt-1 block text-sm font-medium text-zinc-200 transition-colors hover:text-sky-200"
+                                        >
+                                          {issue.title}
+                                        </a>
+                                      ) : (
+                                        <p className="mt-1 text-sm font-medium text-zinc-200">
+                                          {issue.title}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <span className="rounded-full border border-zinc-700 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                      {issue.status}
+                                    </span>
+                                  </div>
+                                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+                                    <span>Updated {formatDateTime(issue.updatedAt)}</span>
+                                    <span>{issue.assignee ? `Assigned to ${issue.assignee}` : "Unassigned"}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {doneIssues.length > 0 && (
+                            <div className={activeIssues.length > 0 ? "mt-6" : ""}>
+                              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-600 mb-2">
+                                Completed
+                              </p>
+                              <div className="space-y-0.5">
+                                {doneIssues.map((issue) => (
                                   <a
-                                    href={issue.url}
+                                    key={issue.id}
+                                    href={issue.url ?? "#"}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="mt-1 block text-sm font-medium text-zinc-200 transition-colors hover:text-sky-200"
+                                    className="flex items-center gap-3 py-1.5 px-2 rounded-md text-zinc-500 hover:text-zinc-400 hover:bg-zinc-800/40 transition-colors group"
                                   >
-                                    {issue.title}
+                                    <span className="text-[11px] font-mono shrink-0">{issue.identifier}</span>
+                                    <span className="text-[12px] truncate">{issue.title}</span>
+                                    <span className="ml-auto text-[10px] shrink-0 text-zinc-600 group-hover:text-zinc-500">{issue.status}</span>
                                   </a>
-                                ) : (
-                                  <p className="mt-1 text-sm font-medium text-zinc-200">
-                                    {issue.title}
-                                  </p>
-                                )}
+                                ))}
                               </div>
-                              <span className="rounded-full border border-zinc-700 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
-                                {issue.status}
-                              </span>
                             </div>
-                            <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
-                              <span>Updated {formatDateTime(issue.updatedAt)}</span>
-                              <span>{issue.assignee ? `Assigned to ${issue.assignee}` : "Unassigned"}</span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-                )}
+                          )}
+                        </>
+                      )}
+                    </section>
+                  );
+                })()}
 
                 {/* Scheduled Tasks Tab */}
                 {activeTab === "scheduled-tasks" && (
