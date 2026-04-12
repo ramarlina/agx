@@ -4,6 +4,8 @@ import { homedir } from "os";
 
 import { parseObjectiveMarkdown } from "./parser";
 import { serializeObjectiveFile } from "./serializer";
+import { NoteRepository } from "./notes";
+import type { ObjectiveNoteFile } from "./notes";
 import type {
   ProjectObjective,
   ProjectObjectiveActivity,
@@ -49,7 +51,37 @@ export class ObjectiveRepository {
       try {
         const raw = fs.readFileSync(filePath, "utf8");
         const parsed = parseObjectiveMarkdown(raw, { filePath });
-        objectives.push(parsed.objective);
+        const objective = parsed.objective;
+
+        // Read notes from per-file storage
+        const noteRepo = new NoteRepository(
+          path.join(this.rootDir, objective.key, "notes"),
+        );
+        let notes = noteRepo.readAll();
+
+        // Lazy migration: if no note files exist but summary has content,
+        // create the first note from the legacy summary field
+        if (notes.length === 0 && objective.summary.trim()) {
+          const now = new Date().toISOString();
+          const migratedNote: ObjectiveNoteFile = {
+            id: `note_${Math.random().toString(36).slice(2, 10)}`,
+            title: "Notes",
+            objectiveId: objective.id,
+            createdAt: now,
+            updatedAt: now,
+            body: objective.summary,
+          };
+          noteRepo.append(migratedNote);
+          notes = [migratedNote];
+        }
+
+        objective.notes = notes;
+        // Keep summary in sync for backward compat
+        if (notes.length > 0) {
+          objective.summary = notes[0].body;
+        }
+
+        objectives.push(objective);
         activities.push(...parsed.activities);
         Object.assign(activityThreads, parsed.activityThreads);
       } catch (error) {
@@ -89,15 +121,20 @@ export class ObjectiveRepository {
         try {
           const raw = fs.readFileSync(filePath, "utf8");
           const parsed = parseObjectiveMarkdown(raw, { filePath });
-          const stillExists = workspace.objectives.some(
+          const oldKey = existing.replace(/\.md$/, "");
+          const renamedObjective = workspace.objectives.find(
             (o) => o.id === parsed.objective.id,
           );
-          if (!stillExists) {
-            fs.rmSync(filePath, { force: true });
-          } else {
-            // Key was renamed — old file is now stale, remove it
-            fs.rmSync(filePath, { force: true });
+          if (renamedObjective && renamedObjective.key !== oldKey) {
+            // Key was renamed — move the subdirectory (notes/ and activities/)
+            const oldDir = path.join(this.rootDir, oldKey);
+            const newDir = path.join(this.rootDir, renamedObjective.key);
+            if (fs.existsSync(oldDir)) {
+              fs.renameSync(oldDir, newDir);
+            }
           }
+          // Remove stale objective file (either deleted or key renamed)
+          fs.rmSync(filePath, { force: true });
         } catch {
           fs.rmSync(filePath, { force: true });
         }

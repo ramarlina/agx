@@ -5,6 +5,9 @@ export const CURRENT_OBJECTIVE_CHAT_SESSION_VERSION = 2;
 export type ProjectObjectiveHealth = "on_track" | "at_risk" | "off_track" | "done";
 export type ProjectObjectiveActivitySource = "note";
 
+import type { ObjectiveNoteFile } from "@/src/objectives/notes/types";
+export type { ObjectiveNoteFile as ProjectObjectiveNote } from "@/src/objectives/notes/types";
+
 export interface ProjectObjective {
   id: string;
   title: string;
@@ -13,7 +16,9 @@ export interface ProjectObjective {
   threadId: string | null;
   chatSessionVersion: number;
   scheduledTaskIds: string[];
+  /** @deprecated Use notes instead. Derived from the first note for backward compat. */
   summary: string;
+  notes?: ObjectiveNoteFile[];
   cadence: string;
   condition: string;
   progress: number;

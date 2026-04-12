@@ -1,6 +1,7 @@
 import fs from "fs";
 
 import { parseObjectiveMarkdown } from "./parser";
+import { parseNoteFile } from "./notes/parser";
 
 export interface ValidationResult {
   valid: boolean;
@@ -77,6 +78,51 @@ export function validateObjectiveFile(filePath: string): ValidationResult {
     if (activity.createdAt && !isValidISOTimestamp(activity.createdAt)) {
       errors.push(`Activity "${activity.title}" has invalid createdAt: "${activity.createdAt}"`);
     }
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+const NOTE_REQUIRED_FIELDS = ["id", "title", "objectiveId", "createdAt", "updatedAt"] as const;
+
+export function validateNoteFile(filePath: string): ValidationResult {
+  const errors: string[] = [];
+
+  if (!fs.existsSync(filePath)) {
+    return { valid: false, errors: [`File not found: ${filePath}`] };
+  }
+
+  let raw: string;
+  try {
+    raw = fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    return { valid: false, errors: [`Cannot read file: ${error instanceof Error ? error.message : String(error)}`] };
+  }
+
+  if (!raw.startsWith("---")) {
+    errors.push("File must start with --- (YAML frontmatter delimiter).");
+  }
+
+  let parsed;
+  try {
+    parsed = parseNoteFile(raw, { filePath });
+  } catch (error) {
+    return { valid: false, errors: [`Parse error: ${error instanceof Error ? error.message : String(error)}`] };
+  }
+
+  for (const field of NOTE_REQUIRED_FIELDS) {
+    const value = parsed[field];
+    if (value === undefined || value === null || value === "") {
+      errors.push(`Missing required field: ${field}`);
+    }
+  }
+
+  if (parsed.createdAt && !isValidISOTimestamp(parsed.createdAt)) {
+    errors.push(`createdAt is not a valid ISO timestamp: "${parsed.createdAt}"`);
+  }
+
+  if (parsed.updatedAt && !isValidISOTimestamp(parsed.updatedAt)) {
+    errors.push(`updatedAt is not a valid ISO timestamp: "${parsed.updatedAt}"`);
   }
 
   return { valid: errors.length === 0, errors };

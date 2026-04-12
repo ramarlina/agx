@@ -49,6 +49,7 @@ import {
   removeProjectObjective,
   type ProjectObjective,
   type ProjectObjectiveHealth,
+  type ProjectObjectiveNote,
   type ProjectObjectiveWorkspaceState,
   upsertProjectObjective,
   writeProjectObjectivesWorkspace,
@@ -74,6 +75,8 @@ interface ObjectiveEditorDraft {
 interface ObjectiveTeamDraft {
   teamId: string;
 }
+
+type ObjectiveNoteItem = ProjectObjectiveNote;
 
 interface ProjectTeamSummary {
   id: string;
@@ -1527,9 +1530,14 @@ export function ProjectObjectiveDetail({
 
   const [activeTab, setActiveTab] = useState<ObjectiveDetailTab>("activity");
   const [isSaving, setIsSaving] = useState(false);
-  const [isNotesSaving, setIsNotesSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [objectiveNotesDraft, setObjectiveNotesDraft] = useState("");
+  const [notes, setNotes] = useState<ObjectiveNoteItem[]>([]);
+  const [isNotesLoading, setIsNotesLoading] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
+  const [savingNoteIds, setSavingNoteIds] = useState<Set<string>>(new Set());
+  const [newNoteTitle, setNewNoteTitle] = useState("");
+  const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [linearIssues, setLinearIssues] = useState<ObjectiveLinearIssueSummary[]>([]);
   const [linearConnected, setLinearConnected] = useState(true);
 
@@ -1578,38 +1586,121 @@ export function ProjectObjectiveDetail({
     setObjectiveEditor(null);
   };
 
-  useEffect(() => {
-    setObjectiveNotesDraft(objective?.summary ?? "");
-  }, [objective?.id, objective?.summary]);
-
-  useEffect(() => {
-    if (!objective) return;
-    if (objectiveNotesDraft === objective.summary) return;
-
-    const timeoutId = window.setTimeout(async () => {
-      setIsNotesSaving(true);
-      setSaveError(null);
-      try {
-        await persistWorkspace(
-          upsertProjectObjective(workspace, {
-            ...objective,
-            summary: objectiveNotesDraft,
-            updatedAt: new Date().toISOString(),
-          })
-        );
-      } catch (error) {
-        setSaveError(
-          error instanceof Error ? error.message : "Failed to save objective notes."
-        );
-      } finally {
-        setIsNotesSaving(false);
+  // Fetch notes when the notes tab is active
+  const fetchNotes = useCallback(async () => {
+    if (!project?.id || !objective?.id) return;
+    setIsNotesLoading(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${project.id}/objectives/${objective.id}/notes?limit=100`,
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setNotes(data.notes ?? []);
       }
-    }, 700);
+    } catch {
+      // Silently fail — notes will show empty
+    } finally {
+      setIsNotesLoading(false);
+    }
+  }, [project?.id, objective?.id]);
+
+  useEffect(() => {
+    if (activeTab === "notes") {
+      fetchNotes();
+    }
+  }, [activeTab, fetchNotes]);
+
+  // Per-note auto-save with debounce
+  useEffect(() => {
+    if (!project?.id || !objective?.id) return;
+
+    const entries = Object.entries(noteDrafts);
+    if (entries.length === 0) return;
+
+    const timeouts: number[] = [];
+
+    for (const [noteId, body] of entries) {
+      const existing = notes.find((n) => n.id === noteId);
+      if (!existing || existing.body === body) continue;
+
+      const timeoutId = window.setTimeout(async () => {
+        setSavingNoteIds((prev) => new Set(prev).add(noteId));
+        try {
+          const res = await fetch(
+            `/api/projects/${project.id}/objectives/${objective.id}/notes/${noteId}`,
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ body }),
+            },
+          );
+          if (res.ok) {
+            const data = await res.json();
+            setNotes((prev) =>
+              prev.map((n) => (n.id === noteId ? data.note : n)),
+            );
+          }
+        } catch {
+          setSaveError("Failed to save note.");
+        } finally {
+          setSavingNoteIds((prev) => {
+            const next = new Set(prev);
+            next.delete(noteId);
+            return next;
+          });
+        }
+      }, 700);
+
+      timeouts.push(timeoutId);
+    }
 
     return () => {
-      window.clearTimeout(timeoutId);
+      for (const id of timeouts) window.clearTimeout(id);
     };
-  }, [objective, objectiveNotesDraft, persistWorkspace, workspace]);
+  }, [noteDrafts, notes, project?.id, objective?.id]);
+
+  const handleCreateNote = async () => {
+    if (!project?.id || !objective?.id) return;
+    const title = newNoteTitle.trim() || "Untitled";
+    setIsCreatingNote(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${project.id}/objectives/${objective.id}/notes`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title, body: "" }),
+        },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setNotes((prev) => [data.note, ...prev]);
+        setEditingNoteId(data.note.id);
+        setNewNoteTitle("");
+      }
+    } catch {
+      setSaveError("Failed to create note.");
+    } finally {
+      setIsCreatingNote(false);
+    }
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    if (!project?.id || !objective?.id) return;
+    try {
+      const res = await fetch(
+        `/api/projects/${project.id}/objectives/${objective.id}/notes/${noteId}`,
+        { method: "DELETE" },
+      );
+      if (res.ok || res.status === 204) {
+        setNotes((prev) => prev.filter((n) => n.id !== noteId));
+        if (editingNoteId === noteId) setEditingNoteId(null);
+      }
+    } catch {
+      setSaveError("Failed to delete note.");
+    }
+  };
 
   const handleTeamSave = async () => {
     if (!teamEditor || !objective) return;
@@ -1953,6 +2044,11 @@ export function ProjectObjectiveDetail({
                     >
                       <tab.icon size={14} />
                       {tab.label}
+                      {tab.id === "notes" && notes.length > 0 && (
+                        <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
+                          {notes.length}
+                        </span>
+                      )}
                       {tab.id === "linear" && linearIssues.length > 0 && (
                         <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
                           {linearIssues.length}
@@ -1972,21 +2068,129 @@ export function ProjectObjectiveDetail({
               <div className="space-y-10">
                 {/* Notes Tab */}
                 {activeTab === "notes" && (
-                  <section>
-                    <div className="flex justify-between items-end mb-3">
+                  <section className="space-y-4">
+                    <div className="flex justify-between items-end">
                       <p className="text-sm text-zinc-500">
                         Capture the strategy, constraints, and what better looks like.
                       </p>
-                      <span className="text-xs text-zinc-500">
-                        {isNotesSaving ? "Saving..." : "Auto-saves"}
-                      </span>
                     </div>
-                    <ObjectiveNotesEditor
-                      content={objectiveNotesDraft}
-                      editable
-                      onChange={setObjectiveNotesDraft}
-                      placeholder="Use this space to explain what better looks like."
-                    />
+
+                    {/* Create Note */}
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={newNoteTitle}
+                        onChange={(e) => setNewNoteTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleCreateNote();
+                        }}
+                        placeholder="New note title..."
+                        className="flex-1 bg-zinc-900 border border-zinc-800 rounded-md px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleCreateNote}
+                        disabled={isCreatingNote}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-md transition-colors disabled:opacity-50"
+                      >
+                        <Plus size={14} />
+                        Add
+                      </button>
+                    </div>
+
+                    {/* Notes List */}
+                    {isNotesLoading ? (
+                      <p className="text-sm text-zinc-500 py-4">Loading notes...</p>
+                    ) : notes.length === 0 ? (
+                      <p className="text-sm text-zinc-600 py-4">
+                        No notes yet. Add one above.
+                      </p>
+                    ) : (
+                      <div className="space-y-3">
+                        {notes.map((note) => {
+                          const isEditing = editingNoteId === note.id;
+                          const isSavingNote = savingNoteIds.has(note.id);
+                          const draftBody = noteDrafts[note.id] ?? note.body;
+
+                          return (
+                            <div
+                              key={note.id}
+                              className="border border-zinc-800/80 rounded-lg overflow-hidden"
+                            >
+                              {/* Note Header */}
+                              <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-900/50">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setEditingNoteId(isEditing ? null : note.id)
+                                  }
+                                  className="flex items-center gap-2 text-sm font-medium text-zinc-200 hover:text-zinc-50 transition-colors"
+                                >
+                                  <FileText size={14} className="text-zinc-500" />
+                                  {note.title}
+                                </button>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[11px] text-zinc-600">
+                                    {isSavingNote
+                                      ? "Saving..."
+                                      : new Date(note.updatedAt).toLocaleDateString()}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setEditingNoteId(isEditing ? null : note.id)
+                                    }
+                                    className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors"
+                                  >
+                                    <Pencil size={12} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteNote(note.id)}
+                                    className="p-1 text-zinc-500 hover:text-red-400 transition-colors"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Note Body */}
+                              {isEditing ? (
+                                <div className="px-4 py-3">
+                                  <ObjectiveNotesEditor
+                                    content={draftBody}
+                                    editable
+                                    onChange={(value) =>
+                                      setNoteDrafts((prev) => ({
+                                        ...prev,
+                                        [note.id]: value,
+                                      }))
+                                    }
+                                    placeholder="Write your note..."
+                                  />
+                                </div>
+                              ) : note.body.trim() ? (
+                                <div
+                                  className="px-4 py-3 text-sm text-zinc-400 cursor-pointer hover:bg-zinc-900/30 transition-colors"
+                                  onClick={() => setEditingNoteId(note.id)}
+                                >
+                                  <div className="line-clamp-3">
+                                    <Markdown content={note.body} />
+                                  </div>
+                                </div>
+                              ) : (
+                                <div
+                                  className="px-4 py-3 text-sm text-zinc-600 italic cursor-pointer hover:bg-zinc-900/30 transition-colors"
+                                  onClick={() => setEditingNoteId(note.id)}
+                                >
+                                  Empty note — click to edit
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </section>
                 )}
 
