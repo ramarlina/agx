@@ -11,6 +11,8 @@ import {
   readOptionalString,
   readStringArray,
 } from "../_shared";
+import { getNoteRepository } from "@/src/objectives/notes";
+import type { ObjectiveNoteFile } from "@/src/objectives/notes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -134,6 +136,34 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         : objective.key;
 
     const scheduledTaskIds = readStringArray(body.scheduledTaskIds);
+
+    // Handle legacy summary field: create or update a note
+    let summaryValue = objective.summary;
+    if (body.summary !== undefined) {
+      const newSummary = readNullableString(body.summary) ?? "";
+      const slug = project.slug ?? project.id;
+      const noteRepo = getNoteRepository(slug, nextKey);
+      const existingNotes = noteRepo.readAll();
+
+      if (existingNotes.length > 0) {
+        // Update the first (most recent) note
+        noteRepo.update(existingNotes[0].id, { body: newSummary });
+      } else if (newSummary) {
+        // Create a new note from the summary
+        const now = new Date().toISOString();
+        const note: ObjectiveNoteFile = {
+          id: `note_${Math.random().toString(36).slice(2, 10)}`,
+          title: "Notes",
+          objectiveId: objective.id,
+          createdAt: now,
+          updatedAt: now,
+          body: newSummary,
+        };
+        noteRepo.append(note);
+      }
+      summaryValue = newSummary;
+    }
+
     const nextObjective = {
       ...objective,
       title: nextTitle,
@@ -145,10 +175,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
           : objective.threadId,
       chatSessionVersion: chatSessionVersion ?? objective.chatSessionVersion,
       scheduledTaskIds: scheduledTaskIds ?? objective.scheduledTaskIds,
-      summary:
-        body.summary !== undefined
-          ? readNullableString(body.summary) ?? ""
-          : objective.summary,
+      summary: summaryValue,
       cadence:
         body.cadence !== undefined
           ? readNullableString(body.cadence) ?? ""

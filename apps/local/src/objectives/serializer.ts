@@ -73,9 +73,8 @@ export function serializeObjectiveFile(
   const frontmatter = serializeObjectiveFrontmatter(objective);
   const bodyParts: string[] = [];
 
-  if (objective.summary) {
-    bodyParts.push(`## Notes\n\n${objective.summary}`);
-  }
+  // Notes are now stored as separate files in objectives/{key}/notes/
+  // The ## Notes section is no longer written to the objective file.
 
   const objectiveActivities = activities
     .filter((a) => a.objectiveId === objective.id)
