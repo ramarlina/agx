@@ -826,7 +826,6 @@ function ThreadMessageList({
   issueStatusUpdating: boolean;
   onIssueStatusChange: (issue: LinearIssue, status: string) => void;
 }) {
-  const runDisplay = getRunDisplayState(run);
   const { messages, setMessages, sendMessage, loadHistory, stop } = useGroupChat(
     run.threadId
   );
@@ -836,6 +835,24 @@ function ThreadMessageList({
       : { workspaceId: run.threadId },
     { messages, setMessages }
   );
+
+  // Derive display status from the most recent chat run (reflects last agent message),
+  // falling back to the overall run status.
+  const runDisplay = useMemo(() => {
+    const latestChatRun = chatRuns[0];
+    if (!latestChatRun) return getRunDisplayState(run);
+    const mappedStatus: Record<string, LinearRun["status"]> = {
+      queued: "queued",
+      running: "running",
+      awaiting_user: "running",
+      blocked: "running",
+      completed: "success",
+      failed: "failed",
+      cancelled: "cancelled",
+    };
+    const status = mappedStatus[latestChatRun.status] ?? run.status;
+    return getRunDisplayState({ ...run, status });
+  }, [chatRuns, run]);
 
   useEffect(() => {
     void loadHistory();
