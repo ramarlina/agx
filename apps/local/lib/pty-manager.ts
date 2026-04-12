@@ -20,20 +20,11 @@ export interface PtySession {
   outputBuffer: string;
   exitCode?: number;
   listeners: Set<SessionListener>;
-  cleanupTimer: ReturnType<typeof setTimeout> | null;
   backend: TerminalBackend;
 }
 
 const sessions = new Map<string, PtySession>();
 const MAX_OUTPUT_BUFFER = 64_000;
-const DETACHED_SESSION_GRACE_MS = readPositiveInt(
-  "AGX_TERMINAL_SESSION_GRACE_MS",
-  5 * 60_000,
-);
-const EXITED_SESSION_RETENTION_MS = readPositiveInt(
-  "AGX_TERMINAL_EXITED_SESSION_RETENTION_MS",
-  60_000,
-);
 
 interface SessionListener {
   onData?: (data: string) => void;
@@ -46,46 +37,12 @@ const defaultShell =
     : process.env.SHELL || "/bin/zsh";
 let nodePtyHelperPrepared = false;
 
-function readPositiveInt(name: string, fallback: number): number {
-  const value = Number.parseInt(process.env[name] || "", 10);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
 function appendOutput(buffer: string, chunk: string): string {
   const nextBuffer = buffer + chunk;
   if (nextBuffer.length <= MAX_OUTPUT_BUFFER) {
     return nextBuffer;
   }
   return nextBuffer.slice(-MAX_OUTPUT_BUFFER);
-}
-
-function clearCleanupTimer(session: PtySession): void {
-  if (session.cleanupTimer) {
-    clearTimeout(session.cleanupTimer);
-    session.cleanupTimer = null;
-  }
-}
-
-function scheduleCleanup(session: PtySession): void {
-  clearCleanupTimer(session);
-
-  if (session.listeners.size > 0 || !sessions.has(session.id)) {
-    return;
-  }
-
-  const delay =
-    typeof session.exitCode === "number"
-      ? EXITED_SESSION_RETENTION_MS
-      : DETACHED_SESSION_GRACE_MS;
-
-  session.cleanupTimer = setTimeout(() => {
-    const currentSession = sessions.get(session.id);
-    if (!currentSession || currentSession !== session || currentSession.listeners.size > 0) {
-      return;
-    }
-    destroySession(session.id);
-  }, delay);
-  session.cleanupTimer.unref?.();
 }
 
 function getNodePtySpawnHelperPaths(): string[] {
@@ -274,7 +231,6 @@ export function createSession(
     createdAt: Date.now(),
     outputBuffer: startupMessage || "",
     listeners: new Set(),
-    cleanupTimer: null,
     backend,
   };
 
@@ -292,7 +248,6 @@ export function createSession(
     for (const listener of session.listeners) {
       listener.onExit?.({ exitCode });
     }
-    scheduleCleanup(session);
   });
 
   sessions.set(id, session);
@@ -312,7 +267,6 @@ export function subscribeToSession(
     return () => {};
   }
 
-  clearCleanupTimer(session);
   session.listeners.add(listener);
 
   if (session.outputBuffer) {
@@ -325,7 +279,6 @@ export function subscribeToSession(
 
   return () => {
     session.listeners.delete(listener);
-    scheduleCleanup(session);
   };
 }
 
@@ -333,7 +286,6 @@ export function destroySession(id: string): boolean {
   const session = sessions.get(id);
   if (!session) return false;
 
-  clearCleanupTimer(session);
   session.listeners.clear();
   sessions.delete(id);
 
