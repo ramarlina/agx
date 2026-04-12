@@ -86,6 +86,119 @@ function WorkspaceSidebarBrandLogo({ compact = false }: { compact?: boolean }) {
   );
 }
 
+function ProjectDropdown({
+  projects,
+  activeProjectId,
+  onSelectProject,
+  onCreateProject,
+}: {
+  projects: ProjectWithAgents[];
+  activeProjectId: string | null;
+  onSelectProject?: (projectId: string) => void;
+  onCreateProject: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const activeProject = projects.find((p) => p.id === activeProjectId) ?? projects[0];
+  const filtered = search.trim()
+    ? projects.filter((p) => p.name.toLowerCase().includes(search.toLowerCase()))
+    : projects;
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setSearch("");
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  useEffect(() => {
+    if (open && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [open]);
+
+  return (
+    <div className="px-3 pt-3 pb-2" ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-2 rounded-lg border border-[var(--app-shell-border)] bg-[var(--app-shell-elevated)] px-2.5 py-2 text-sm text-[var(--foreground)] transition-all hover:border-[var(--app-shell-border-strong)]"
+      >
+        <Folder size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+        <span className="flex-1 truncate text-left font-medium">{activeProject?.name ?? "Select project"}</span>
+        <ChevronDown size={14} className={`flex-shrink-0 text-[var(--muted-foreground)] transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="mt-1 rounded-lg border border-[var(--app-shell-border)] bg-[var(--app-shell-elevated)] shadow-lg overflow-hidden">
+          <div className="p-2 border-b border-[var(--app-shell-border)]">
+            <div className="flex items-center gap-2 rounded-md border border-[var(--app-shell-border)] bg-[var(--app-shell-subtle)] px-2 py-1.5">
+              <Search size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search projects..."
+                className="flex-1 bg-transparent text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] outline-none"
+              />
+              {search && (
+                <button type="button" onClick={() => setSearch("")} className="text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+                  <X size={10} />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="max-h-52 overflow-y-auto py-1">
+            {filtered.map((project) => (
+              <button
+                key={project.id}
+                type="button"
+                onClick={() => {
+                  onSelectProject?.(project.id);
+                  setOpen(false);
+                  setSearch("");
+                }}
+                className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm transition-colors hover:bg-[var(--app-shell-subtle)] ${
+                  project.id === activeProject?.id ? "text-[var(--foreground)] font-medium" : "text-[var(--muted-foreground)]"
+                }`}
+              >
+                <Folder size={12} className="flex-shrink-0" />
+                <span className="truncate">{project.name}</span>
+              </button>
+            ))}
+            {filtered.length === 0 && (
+              <p className="px-3 py-2 text-xs text-[var(--muted-foreground)]">No projects found</p>
+            )}
+          </div>
+          <div className="border-t border-[var(--app-shell-border)] p-1">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                setSearch("");
+                onCreateProject();
+              }}
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--app-shell-subtle)] hover:text-[var(--foreground)]"
+            >
+              <Plus size={12} />
+              <span>New project</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function WorkspaceSidebar({
   threads,
   participants = [],
@@ -634,245 +747,199 @@ export function WorkspaceSidebar({
       </div>
 
       <div className="workspace-sidebar__content">
-        {onSearch && (
-          <div className="px-3 pt-2 pb-1">
-            <button
-              type="button"
-              onClick={onSearch}
-              className="flex h-8 w-full items-center gap-2 rounded-lg border border-[var(--app-shell-border)] bg-[var(--app-shell-elevated)] px-2.5 text-xs text-[var(--app-shell-soft-text)] transition-all hover:border-[var(--app-shell-border-strong)] hover:text-[var(--app-shell-muted)]"
-            >
-              <Search className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
-              <span>Search...</span>
-              <kbd className="ml-auto rounded border border-[var(--app-shell-border)] bg-[var(--app-shell-subtle)] px-1 py-0.5 font-sans text-[10px] font-medium text-[var(--app-shell-soft-text)]">&#8984;K</kbd>
-            </button>
-          </div>
-        )}
+        {/* Project dropdown */}
+        <ProjectDropdown
+          projects={nonDefaultProjects}
+          activeProjectId={activeProjectId}
+          onSelectProject={onSelectProject}
+          onCreateProject={() => handleCreateProject()}
+        />
 
-        <nav className="workspace-sidebar__section">
-          <div className="workspace-sidebar__section-header group/projects-header">
-            <p className="workspace-sidebar__section-label">Projects</p>
-            <div className="workspace-sidebar__header-actions">
-              <button
-                type="button"
-                className="workspace-sidebar__action opacity-0 transition-opacity group-hover/projects-header:opacity-100"
-                onClick={() => handleCreateProject()}
-                aria-label="Create project"
-                title="Create project"
-              >
-                <Plus size={14} />
-              </button>
-            </div>
-          </div>
-          {nonDefaultProjects.map((project) => {
-            const projectIsExpanded = expandedProjects.has(project.id);
-            const projectThreads = sortedWorkspaces.filter((thread) => project.thread_ids?.includes(thread.id));
-            const isActiveProject = project.id === activeProjectId;
-            const primaryProjectThreadId =
-              project.thread_ids?.find((threadId) => threadById.has(threadId)) ??
-              project.thread_ids?.[0] ??
-              projectThreads[0]?.id ??
-              null;
-            const isActiveProjectOverview = isActiveProject && activeProjectView === "overview";
-            const isActiveProjectObjectives = isActiveProject && activeProjectView === "objectives";
-            const isActiveProjectTeams = isActiveProject && activeProjectView === "teams";
-            const isActiveProjectThread = isActiveProject && activeProjectView === "thread" && primaryProjectThreadId === activeThreadId;
-            const isActiveProjectAutomations = isActiveProject && activeProjectView === "automations";
-            const isActiveProjectLinear = isActiveProject && activeProjectView === "linear";
-            const isActiveProjectTerminal = isActiveProject && activeProjectView === "terminal";
-            const isActiveProjectEnvVars = isActiveProject && activeProjectView === "env-vars";
-            const isActiveProjectSettings = isActiveProject && activeProjectView === "settings";
-            const navActivity = navActivityByProject[project.id];
+        {(() => {
+          const selectedProject = nonDefaultProjects.find((p) => p.id === activeProjectId) ?? nonDefaultProjects[0];
+          if (!selectedProject) return null;
 
-            return (
-              <div key={project.id}>
-                <div className="workspace-sidebar__workspace-item group">
-                  <div className="workspace-sidebar__nav-item workspace-sidebar__workspace-nav-item">
-                    <button
-                      type="button"
-                      className="inline-flex items-center justify-center rounded-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-                      onClick={() => toggleProjectExpanded(project.id)}
-                      aria-label={projectIsExpanded ? `Collapse ${project.name}` : `Expand ${project.name}`}
-                      title={projectIsExpanded ? "Collapse project" : "Expand project"}
-                    >
-                      {projectIsExpanded ? (
-                        <ChevronDown size={14} className="flex-shrink-0" />
-                      ) : (
-                        <ChevronRight size={14} className="flex-shrink-0" />
-                      )}
-                    </button>
+          const projectThreads = sortedWorkspaces.filter((thread) => selectedProject.thread_ids?.includes(thread.id));
+          const primaryProjectThreadId =
+            selectedProject.thread_ids?.find((threadId) => threadById.has(threadId)) ??
+            selectedProject.thread_ids?.[0] ??
+            projectThreads[0]?.id ??
+            null;
+          const isActiveProject = selectedProject.id === activeProjectId;
+          const isActiveProjectOverview = isActiveProject && activeProjectView === "overview";
+          const isActiveProjectObjectives = isActiveProject && activeProjectView === "objectives";
+          const isActiveProjectLinear = isActiveProject && activeProjectView === "linear";
+          const isActiveProjectAutomations = isActiveProject && activeProjectView === "automations";
+          const isActiveProjectTerminal = isActiveProject && activeProjectView === "terminal";
+          const isActiveProjectThread = isActiveProject && activeProjectView === "thread" && primaryProjectThreadId === activeThreadId;
+          const isActiveProjectTeams = isActiveProject && activeProjectView === "teams";
+          const isActiveProjectEnvVars = isActiveProject && activeProjectView === "env-vars";
+          const navActivity = navActivityByProject[selectedProject.id];
+
+          return (
+            <nav className="workspace-sidebar__section">
+              {/* Overview (standalone) */}
+              <div className="px-2 mb-3">
+                <div className="workspace-sidebar__workspace-item">
+                  <Link
+                    href={`/projects/${selectedProject.slug}`}
+                    className={`workspace-sidebar__nav-item ${isActiveProjectOverview ? "workspace-sidebar__nav-item--active" : ""}`}
+                    aria-current={isActiveProjectOverview ? "page" : undefined}
+                  >
+                    <Home size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                    <span className="workspace-sidebar__workspace-title text-sm">Overview</span>
+                  </Link>
+                </div>
+              </div>
+
+              {/* Work group */}
+              <div className="mb-3">
+                <div className="workspace-sidebar__section-header">
+                  <p className="workspace-sidebar__section-label">Work</p>
+                </div>
+                <div className="px-2 flex flex-col gap-0.5">
+                  <div className="workspace-sidebar__workspace-item">
                     <Link
-                      href={`/projects/${project.slug}`}
-                      className="flex items-center gap-1.5 min-w-0 flex-1"
-                      onClick={(e) => { e.stopPropagation(); }}
+                      href={`/projects/${selectedProject.slug}/objectives`}
+                      className={`workspace-sidebar__nav-item ${isActiveProjectObjectives ? "workspace-sidebar__nav-item--active" : ""}`}
+                      aria-current={isActiveProjectObjectives ? "page" : undefined}
                     >
-                      <Folder size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                      <span className="workspace-sidebar__workspace-title">{project.name}</span>
+                      <Target size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                      <span className="workspace-sidebar__workspace-title text-sm">Objectives</span>
+                      {navActivity?.objectives.length > 0 && (
+                        <span className="inline-flex items-center -space-x-1 ml-auto shrink-0">
+                          {navActivity.objectives.slice(0, 3).map((dot) => {
+                            const agent = participants.find((p) => p.id === dot.agentId);
+                            return (
+                              <span key={dot.agentId} className="relative inline-block" title={agent?.name}>
+                                <img src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} className="h-3.5 w-3.5 rounded-full ring-[1.5px] ring-[var(--app-shell-pane)]" />
+                                <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--app-shell-pane)]" />
+                              </span>
+                            );
+                          })}
+                        </span>
+                      )}
                     </Link>
                   </div>
-                  <div className="workspace-sidebar__workspace-actions">
+                  <div className="workspace-sidebar__workspace-item group/linear flex items-center">
                     <Link
-                      href={`/projects/${project.slug}/settings`}
-                      className="workspace-sidebar__workspace-action"
-                      aria-label={`Settings for ${project.name}`}
-                      title="Project settings"
+                      href={`/projects/${selectedProject.slug}/linear`}
+                      className={`workspace-sidebar__nav-item flex-1 ${isActiveProjectLinear ? "workspace-sidebar__nav-item--active" : ""}`}
+                      aria-current={isActiveProjectLinear ? "page" : undefined}
                     >
-                      <Settings size={12} />
+                      <LinearIcon size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                      <span className="workspace-sidebar__workspace-title text-sm">Linear</span>
+                      {navActivity?.linear.length > 0 && (
+                        <span className="inline-flex items-center -space-x-1 ml-auto shrink-0">
+                          {navActivity.linear.slice(0, 3).map((dot) => {
+                            const agent = participants.find((p) => p.id === dot.agentId);
+                            return (
+                              <span key={dot.agentId} className="relative inline-block" title={agent?.name}>
+                                <img src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} className="h-3.5 w-3.5 rounded-full ring-[1.5px] ring-[var(--app-shell-pane)]" />
+                                <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--app-shell-pane)]" />
+                              </span>
+                            );
+                          })}
+                        </span>
+                      )}
+                    </Link>
+                    <Link
+                      href={`/projects/${selectedProject.slug}/linear?settings=true`}
+                      className="flex h-5 w-5 items-center justify-center rounded opacity-0 group-hover/linear:opacity-100 hover:bg-[var(--sidebar-hover)] transition-opacity"
+                      title="Linear settings"
+                    >
+                      <Settings size={11} className="text-[var(--muted-foreground)]" />
+                    </Link>
+                  </div>
+                  <div className="workspace-sidebar__workspace-item">
+                    <Link
+                      href={`/projects/${selectedProject.slug}/automations`}
+                      className={`workspace-sidebar__nav-item ${isActiveProjectAutomations ? "workspace-sidebar__nav-item--active" : ""}`}
+                      aria-current={isActiveProjectAutomations ? "page" : undefined}
+                    >
+                      <Zap size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                      <span className="workspace-sidebar__workspace-title text-sm">Scheduled Tasks</span>
                     </Link>
                   </div>
                 </div>
-                {projectIsExpanded && (
-                  <div className="ml-4 my-1 flex flex-col gap-0.5 border-l border-[var(--app-shell-border)] pl-3">
-                    {/* Overview */}
-                    <div className="workspace-sidebar__workspace-item">
-                      <Link
-                        href={`/projects/${project.slug}`}
-                        className={`workspace-sidebar__nav-item ${isActiveProjectOverview ? "workspace-sidebar__nav-item--active" : ""}`}
-                        aria-current={isActiveProjectOverview ? "page" : undefined}
-                      >
-                        <Home size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                        <span className="workspace-sidebar__workspace-title text-xs">Overview</span>
-                      </Link>
-                    </div>
-
-                    {/* Objectives */}
-                    <div className="workspace-sidebar__workspace-item">
-                      <Link
-                        href={`/projects/${project.slug}/objectives`}
-                        className={`workspace-sidebar__nav-item ${isActiveProjectObjectives ? "workspace-sidebar__nav-item--active" : ""}`}
-                        aria-current={isActiveProjectObjectives ? "page" : undefined}
-                      >
-                        <Target size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                        <span className="workspace-sidebar__workspace-title text-xs">Objectives</span>
-                        {navActivity?.objectives.length > 0 && (
-                          <span className="inline-flex items-center -space-x-1 ml-1 shrink-0">
-                            {navActivity.objectives.slice(0, 3).map((dot) => {
-                              const agent = participants.find((p) => p.id === dot.agentId);
-                              return (
-                                <span key={dot.agentId} className="relative inline-block" title={agent?.name}>
-                                  <img src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} className="h-3 w-3 rounded-full ring-[1.5px] ring-[var(--app-shell-pane)]" />
-                                  <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--app-shell-pane)]" />
-                                </span>
-                              );
-                            })}
-                          </span>
-                        )}
-                      </Link>
-                    </div>
-
-                    {/* Linear */}
-                    <div className="workspace-sidebar__workspace-item group/linear flex items-center">
-                      <Link
-                        href={`/projects/${project.slug}/linear`}
-                        className={`workspace-sidebar__nav-item flex-1 ${isActiveProjectLinear ? "workspace-sidebar__nav-item--active" : ""}`}
-                        aria-current={isActiveProjectLinear ? "page" : undefined}
-                      >
-                        <LinearIcon size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                        <span className="workspace-sidebar__workspace-title text-xs">Linear</span>
-                        {navActivity?.linear.length > 0 && (
-                          <span className="inline-flex items-center -space-x-1 ml-1 shrink-0">
-                            {navActivity.linear.slice(0, 3).map((dot) => {
-                              const agent = participants.find((p) => p.id === dot.agentId);
-                              return (
-                                <span key={dot.agentId} className="relative inline-block" title={agent?.name}>
-                                  <img src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} className="h-3 w-3 rounded-full ring-[1.5px] ring-[var(--app-shell-pane)]" />
-                                  <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--app-shell-pane)]" />
-                                </span>
-                              );
-                            })}
-                          </span>
-                        )}
-                      </Link>
-                      <Link
-                        href={`/projects/${project.slug}/linear?settings=true`}
-                        className="flex h-5 w-5 items-center justify-center rounded opacity-0 group-hover/linear:opacity-100 hover:bg-[var(--sidebar-hover)] transition-opacity"
-                        title="Linear settings"
-                      >
-                        <Settings size={11} className="text-[var(--muted-foreground)]" />
-                      </Link>
-                    </div>
-
-                    {/* Automations */}
-                    <div className="workspace-sidebar__workspace-item">
-                      <Link
-                        href={`/projects/${project.slug}/automations`}
-                        className={`workspace-sidebar__nav-item ${isActiveProjectAutomations ? "workspace-sidebar__nav-item--active" : ""}`}
-                        aria-current={isActiveProjectAutomations ? "page" : undefined}
-                      >
-                        <Zap size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                        <span className="workspace-sidebar__workspace-title text-xs">Scheduled Tasks</span>
-                      </Link>
-                    </div>
-
-                    {/* Terminal */}
-                    <div className="workspace-sidebar__workspace-item">
-                      <Link
-                        href={`/projects/${project.slug}/terminal`}
-                        className={`workspace-sidebar__nav-item ${isActiveProjectTerminal ? "workspace-sidebar__nav-item--active" : ""}`}
-                        aria-current={isActiveProjectTerminal ? "page" : undefined}
-                      >
-                        <TerminalSquare size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                        <span className="workspace-sidebar__workspace-title text-xs">Terminal</span>
-                      </Link>
-                    </div>
-
-                    {/* Chat */}
-                    <div className="workspace-sidebar__workspace-item">
-                      {primaryProjectThreadId ? (
-                        <button
-                          type="button"
-                          className={`workspace-sidebar__nav-item ${isActiveProjectThread ? "workspace-sidebar__nav-item--active" : ""}`}
-                          onClick={() => onSelectThread(primaryProjectThreadId)}
-                          aria-current={isActiveProjectThread ? "page" : undefined}
-                        >
-                          <MessageSquare size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                          <span className="workspace-sidebar__workspace-title text-xs">Chat</span>
-                          {navActivity?.chat.length > 0 && (
-                            <span className="inline-flex items-center -space-x-1 ml-1 shrink-0">
-                              {navActivity.chat.slice(0, 3).map((dot) => {
-                                const agent = participants.find((p) => p.id === dot.agentId);
-                                return (
-                                  <span key={dot.agentId} className="relative inline-block" title={agent?.name}>
-                                  <img src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} className="h-3 w-3 rounded-full ring-[1.5px] ring-[var(--app-shell-pane)]" />
-                                  <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--app-shell-pane)]" />
-                                </span>
-                                );
-                              })}
-                            </span>
-                          )}
-                        </button>
-                      ) : null}
-                    </div>
-
-                    {/* Settings section */}
-                    <div className="mt-2 pt-2 border-t border-[var(--app-shell-border)]">
-                      <div className="workspace-sidebar__workspace-item">
-                        <Link
-                          href={`/projects/${project.slug}/teams`}
-                          className={`workspace-sidebar__nav-item ${isActiveProjectTeams ? "workspace-sidebar__nav-item--active" : ""}`}
-                          aria-current={isActiveProjectTeams ? "page" : undefined}
-                        >
-                          <Users size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                          <span className="workspace-sidebar__workspace-title text-xs">Teams</span>
-                        </Link>
-                      </div>
-                      <div className="workspace-sidebar__workspace-item">
-                        <Link
-                          href={`/projects/${project.slug}/env-vars`}
-                          className={`workspace-sidebar__nav-item ${isActiveProjectEnvVars ? "workspace-sidebar__nav-item--active" : ""}`}
-                          aria-current={isActiveProjectEnvVars ? "page" : undefined}
-                        >
-                          <KeyRound size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                          <span className="workspace-sidebar__workspace-title text-xs">Environment Variables</span>
-                        </Link>
-                      </div>
-                    </div>
-
-                  </div>
-                )}
               </div>
-            );
-          })}
-        </nav>
+
+              {/* Tools group */}
+              <div className="mb-3">
+                <div className="workspace-sidebar__section-header">
+                  <p className="workspace-sidebar__section-label">Tools</p>
+                </div>
+                <div className="px-2 flex flex-col gap-0.5">
+                  <div className="workspace-sidebar__workspace-item">
+                    <Link
+                      href={`/projects/${selectedProject.slug}/terminal`}
+                      className={`workspace-sidebar__nav-item ${isActiveProjectTerminal ? "workspace-sidebar__nav-item--active" : ""}`}
+                      aria-current={isActiveProjectTerminal ? "page" : undefined}
+                    >
+                      <TerminalSquare size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                      <span className="workspace-sidebar__workspace-title text-sm">Terminal</span>
+                    </Link>
+                  </div>
+                  <div className="workspace-sidebar__workspace-item">
+                    {primaryProjectThreadId ? (
+                      <button
+                        type="button"
+                        className={`workspace-sidebar__nav-item ${isActiveProjectThread ? "workspace-sidebar__nav-item--active" : ""}`}
+                        onClick={() => onSelectThread(primaryProjectThreadId)}
+                        aria-current={isActiveProjectThread ? "page" : undefined}
+                      >
+                        <MessageSquare size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                        <span className="workspace-sidebar__workspace-title text-sm">Chat</span>
+                        {navActivity?.chat.length > 0 && (
+                          <span className="inline-flex items-center -space-x-1 ml-auto shrink-0">
+                            {navActivity.chat.slice(0, 3).map((dot) => {
+                              const agent = participants.find((p) => p.id === dot.agentId);
+                              return (
+                                <span key={dot.agentId} className="relative inline-block" title={agent?.name}>
+                                  <img src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} className="h-3.5 w-3.5 rounded-full ring-[1.5px] ring-[var(--app-shell-pane)]" />
+                                  <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--app-shell-pane)]" />
+                                </span>
+                              );
+                            })}
+                          </span>
+                        )}
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              {/* Settings group */}
+              <div className="mb-3">
+                <div className="workspace-sidebar__section-header">
+                  <p className="workspace-sidebar__section-label">Settings</p>
+                </div>
+                <div className="px-2 flex flex-col gap-0.5">
+                  <div className="workspace-sidebar__workspace-item">
+                    <Link
+                      href={`/projects/${selectedProject.slug}/teams`}
+                      className={`workspace-sidebar__nav-item ${isActiveProjectTeams ? "workspace-sidebar__nav-item--active" : ""}`}
+                      aria-current={isActiveProjectTeams ? "page" : undefined}
+                    >
+                      <Users size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                      <span className="workspace-sidebar__workspace-title text-sm">Teams</span>
+                    </Link>
+                  </div>
+                  <div className="workspace-sidebar__workspace-item">
+                    <Link
+                      href={`/projects/${selectedProject.slug}/env-vars`}
+                      className={`workspace-sidebar__nav-item ${isActiveProjectEnvVars ? "workspace-sidebar__nav-item--active" : ""}`}
+                      aria-current={isActiveProjectEnvVars ? "page" : undefined}
+                    >
+                      <KeyRound size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                      <span className="workspace-sidebar__workspace-title text-sm">Environment Variables</span>
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </nav>
+          );
+        })()}
 
       </div>
 
