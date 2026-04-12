@@ -298,7 +298,9 @@ export async function createLinearRun(input: {
           cr.completed_at AS chat_completed_at,
           msg.content AS root_content
          FROM linear_runs lr
-         LEFT JOIN chat_runs cr ON cr.id = lr.chat_run_id
+         LEFT JOIN chat_runs cr ON cr.id = (
+           SELECT id FROM chat_runs WHERE thread_id = lr.thread_id ORDER BY updated_at DESC LIMIT 1
+         )
          LEFT JOIN messages msg ON msg.thread_id = lr.thread_id AND msg.id = lr.root_message_id
          WHERE lr.id = ?
          LIMIT 1`
@@ -358,7 +360,9 @@ export async function updateLinearRun(input: {
           cr.completed_at AS chat_completed_at,
           msg.content AS root_content
          FROM linear_runs lr
-         LEFT JOIN chat_runs cr ON cr.id = lr.chat_run_id
+         LEFT JOIN chat_runs cr ON cr.id = (
+           SELECT id FROM chat_runs WHERE thread_id = lr.thread_id ORDER BY updated_at DESC LIMIT 1
+         )
          LEFT JOIN messages msg ON msg.thread_id = lr.thread_id AND msg.id = lr.root_message_id
          WHERE lr.id = ?
          LIMIT 1`
@@ -382,7 +386,9 @@ export async function getLinearRun(id: string): Promise<LinearRunRecord | null> 
           cr.completed_at AS chat_completed_at,
           msg.content AS root_content
          FROM linear_runs lr
-         LEFT JOIN chat_runs cr ON cr.id = lr.chat_run_id
+         LEFT JOIN chat_runs cr ON cr.id = (
+           SELECT id FROM chat_runs WHERE thread_id = lr.thread_id ORDER BY updated_at DESC LIMIT 1
+         )
          LEFT JOIN messages msg ON msg.thread_id = lr.thread_id AND msg.id = lr.root_message_id
          WHERE lr.id = ?
          LIMIT 1`
@@ -425,7 +431,9 @@ export async function listLinearRuns(input: {
           cr.completed_at AS chat_completed_at,
           msg.content AS root_content
          FROM linear_runs lr
-         LEFT JOIN chat_runs cr ON cr.id = lr.chat_run_id
+         LEFT JOIN chat_runs cr ON cr.id = (
+           SELECT id FROM chat_runs WHERE thread_id = lr.thread_id ORDER BY updated_at DESC LIMIT 1
+         )
          LEFT JOIN messages msg ON msg.thread_id = lr.thread_id AND msg.id = lr.root_message_id
          WHERE ${clauses.join(" AND ")}
          ORDER BY lr.created_at DESC
@@ -477,12 +485,16 @@ export async function getIssueActiveAgents(
     const sql = hasProject
       ? `SELECT DISTINCT lr.issue_id, lr.agent_id, lr.agent_name
          FROM linear_runs lr
-         LEFT JOIN chat_runs cr ON cr.id = lr.chat_run_id
+         LEFT JOIN chat_runs cr ON cr.id = (
+           SELECT id FROM chat_runs WHERE thread_id = lr.thread_id ORDER BY updated_at DESC LIMIT 1
+         )
          WHERE (lr.status IN ('queued', 'running') OR cr.status IN ('queued', 'running'))
            AND lr.project_id = ?`
       : `SELECT DISTINCT lr.issue_id, lr.agent_id, lr.agent_name
          FROM linear_runs lr
-         LEFT JOIN chat_runs cr ON cr.id = lr.chat_run_id
+         LEFT JOIN chat_runs cr ON cr.id = (
+           SELECT id FROM chat_runs WHERE thread_id = lr.thread_id ORDER BY updated_at DESC LIMIT 1
+         )
          WHERE (lr.status IN ('queued', 'running') OR cr.status IN ('queued', 'running'))`;
 
     const rows = hasProject
