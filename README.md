@@ -29,7 +29,7 @@
 
 ## What is AGX?
 
-AGX is a **local-first command center for AI agents**. Drop an idea into a multi-agent chat, let agents debate and plan, route work onto a task board, and approve before they act. Everything runs on your machine.
+AGX is a **local-first command center for AI agents**. Set up projects, organize agent teams, define objectives, chat with agents, and run tasks — all from one app on your machine.
 
 <p align="center">
   <a href="https://github.com/ramarlina/agx">
@@ -37,25 +37,31 @@ AGX is a **local-first command center for AI agents**. Drop an idea into a multi
   </a>
 </p>
 
-AGX ships three surfaces that work together:
+Everything lives in one repo — CLI, web dashboard, and desktop app. Clone it and you have the full stack.
 
 | Surface | What it does |
 |---------|-------------|
-| **UI** | Local web dashboard — multi-agent chat, Linear integration, task management |
+| **UI** | Local web dashboard — project home, teams, objectives, chat, terminal, Linear integration |
 | **Desktop** | macOS app — bundles the UI, CLI, and Node runtime in one install |
-| **CLI** | Terminal interface — create tasks, run agents, manage projects, one-shot prompts |
+| **CLI** | Terminal interface — create tasks, run agents, manage projects, environment variables |
 
-All three share the same local SQLite database. The UI is where you chat and track work; the CLI is the execution engine; the desktop app wraps both.
+All three share the same local SQLite database and ship from the same repo.
 
 ---
 
 ## Get AGX
 
-### Desktop App (macOS)
+### From Source
 
-Download from [Releases](https://github.com/ramarlina/agx/releases). The desktop app bundles the UI, CLI, and a Node runtime — install and go.
+```bash
+git clone https://github.com/ramarlina/agx.git
+cd agx && npm install
+npm run local:dev          # Run the dashboard in dev mode
+```
 
-### CLI via npm
+This gives you the full stack — CLI, web dashboard, and desktop app source. See [Development](#development) for more.
+
+### npm
 
 ```bash
 npm install -g @mndrk/agx
@@ -63,40 +69,73 @@ cd my-project
 agx init
 ```
 
-The CLI ships with the UI built in. No separate install needed.
+Installs the CLI with the dashboard bundled in. Run `agx board start` to open the UI.
+
+### Desktop App (macOS)
+
+Download from [Releases](https://github.com/ramarlina/agx/releases). The desktop app bundles the UI, CLI, and a Node runtime — install and go.
+
+Or build from source:
+
+```bash
+cd apps/desktop
+npm run build:mac          # Build the macOS .app + .dmg
+```
 
 ---
 
 ## UI
 
-The local web dashboard is the primary interface. It runs as a Next.js app on your machine.
+The local web dashboard runs as a Next.js app on your machine. Source lives in `apps/local`.
 
 ```bash
 agx board start        # Open the dashboard in your browser
 agx daemon start       # Start the background worker
 ```
 
-**Multi-agent chat** — Talk to Claude, Codex, Gemini, or Ollama in the same thread. @mention specific agents or let the router pick. Push conversation outcomes directly to tasks.
+### Setup
 
-```bash
-agx chat               # Start server + open in browser
-agx chat start         # Start server only (headless)
-agx chat stop          # Stop the chat server
-```
+First launch walks you through a guided setup: detect and authenticate providers, create your first project, and configure agent teams. You land in Home when you're done.
 
-**Linear integration** — Connect your Linear workspace to browse issues, track cycles, mention issues in chat, and route execution results back to Linear.
+### Home
+
+Home is the persistent home base for each project, organized in three tiers:
+
+- **Direction** — Objectives define where the project is going. Track health, progress, and link to scheduled work.
+- **Paths** — Launch into Chat, Terminal, or Linear from here. Chat is the primary work surface; Terminal gives you PTY sessions with split panes.
+- **Momentum** — Running agents, recent scheduled task results, and an activity feed. Shows what's actively happening.
+
+### Teams
+
+Projects are organized around agent teams. Pick from preset templates (engineering, research, ops, etc.) or build custom teams. Tasks route to team agents automatically based on tags.
+
+### Objectives
+
+File-based objectives stored as frontmatter markdown in `~/.agx`. Each objective has an activity timeline, notes, health status, and can drive scheduled Linear work.
+
+### Terminal
+
+Built-in terminal with PTY sessions, WebSocket bridge, and split panes. Sessions persist and show active agent presence.
+
+### Chat
+
+Talk to Claude, Codex, Gemini, or Ollama. Push conversation outcomes to tasks or objectives.
+
+### Linear Integration
+
+Connect your Linear workspace to browse issues, track cycles, and route execution results back. Issues show active agent presence when work is running.
 
 ---
 
 ## Desktop App
 
-The macOS desktop app bundles the UI, CLI, and a Node runtime into a single install. Download from [Releases](https://github.com/ramarlina/agx/releases) — no npm or Node.js required.
+The macOS desktop app bundles the UI, CLI, and a Node runtime into a single install. Download from [Releases](https://github.com/ramarlina/agx/releases) or [build from source](#get-agx).
 
 ---
 
 ## CLI
 
-The CLI is the execution engine and the glue between chat, board, and agents.
+The CLI manages tasks, runs agents, and controls the dashboard and daemon.
 
 ### Setup
 
@@ -123,6 +162,14 @@ agx deps <task> [--depends-on <task> ... | --clear]    # Manage dependencies
 agx project list                           # List projects
 agx repo add . --project my-project        # Analyze current repo and attach it
 agx repo add ../service --project my-project --name API
+```
+
+### Environment Variables
+
+```bash
+agx vars set API_URL https://example.com    # Set a variable
+agx vars get API_URL                        # Get a variable
+agx vars list                               # List all variables
 ```
 
 ### One-Shot Mode
@@ -157,11 +204,15 @@ agx codex -p "Propose a migration plan"
 
 ## Features
 
-- **Execution graphs** — Tasks run as dynamic graphs, not fixed linear stages. Branch, fork, join — the graph is a map of decisions, not a to-do list.
-- **Human-in-the-loop gates** — Critical nodes pause for your explicit `approve` / `reject`. Agents do the heavy lifting; you stay in control.
+- **Project home** — Objectives, chat, terminal, and Linear in one view. See what's running, what's on track, and where to jump in.
+- **Agent teams** — Preset templates for engineering, research, ops. Tasks route to team agents by tag. YAML export/import for portable config.
+- **Objectives** — File-based goals with activity timelines, health tracking, and notes. Drive scheduled work from objectives.
+- **Built-in terminal** — PTY sessions with split panes and agent presence indicators. Sessions persist across restarts.
+- **Execution graphs** — Tasks run as dynamic graphs with branch, fork, and join. Human-in-the-loop gates pause for your explicit `approve` / `reject`.
 - **Durable, resumable execution** — Tasks survive restarts, crashes, and reboots. State is checkpointed, not rebuilt from history.
 - **Multi-provider** — Claude, Codex, Gemini, Ollama. Use whatever fits.
 - **Local & inspectable** — Runs entirely on your machine. Full execution logs, task signing, safeguards for destructive commands.
+- **Live agent presence** — See which agents are active on the sidebar, project overview, and Linear issues in real time.
 
 ---
 
@@ -212,33 +263,30 @@ No external database required. AGX uses SQLite locally.
 
 ## Development
 
-This repo is an npm workspace with the following structure:
+This repo is an npm workspace. CLI, dashboard, and desktop app all live here — clone once, run everything.
 
 ```text
 agx/
   apps/
-    local/          # Next.js dashboard + chat (ships with CLI and desktop app)
+    local/          # Next.js dashboard (Home, chat, terminal, teams, objectives, Linear)
     desktop/        # Electron macOS app (bundles dashboard, CLI, and Node runtime)
   lib/              # CLI and runtime source
   commands/         # CLI command implementations
   cloud-runtime/    # Packaged standalone dashboard bundled into the npm artifact
 ```
 
-The npm package (`@mndrk/agx`) is published from the repo root. `apps/local` and `apps/desktop` are private workspaces — they are not published to npm.
-
-### Getting started
+### Run the dashboard
 
 ```bash
 npm install
+npm run local:dev        # Start the dashboard at localhost
+```
 
-# Run the dashboard in development mode
-npm run local:dev
+### Build the dashboard
 
-# Build the dashboard
-npm run local:build
-
-# Package the standalone dashboard runtime for the CLI
-npm run board:bundle
+```bash
+npm run local:build      # Production build
+npm run board:bundle     # Package standalone runtime for the CLI
 ```
 
 ### Desktop app
