@@ -15,7 +15,19 @@ import {
   isObjectiveLinearTerminalStatus,
   listObjectiveLinearIssues,
 } from '@/lib/objective-linear-issues';
-import { loadProjectObjectiveContext } from '@/lib/project-objective-context';
+import {
+  loadProjectObjectiveContext,
+  persistProjectHealthSnapshot,
+  persistProjectObjectiveWorkspace,
+} from '@/lib/project-objective-context';
+import {
+  normalizeProjectHealthProgress,
+  normalizeProjectHealthStatus,
+  upsertProjectObjective,
+  writeProjectHealthSnapshot,
+  type ProjectHealthSnapshot,
+  type ProjectObjectiveHealth,
+} from '@/lib/project-objectives';
 import { getActivityRepository } from '@/src/objectives/activities/repository';
 import type { ChatProvider } from '@/lib/types';
 import type { LinearIssueSummary } from '@/lib/linear-issues';
@@ -32,9 +44,18 @@ const OBJECTIVE_LINEAR_CONTROLLER_SYSTEM_CONTEXT = [
   'You are deciding whether a scheduled objective worker should start exactly one Linear work session.',
   'Return ONLY raw JSON with no markdown fences or commentary.',
   'Valid responses:',
-  '{"decision":"stop","reason":"short reason"}',
-  '{"decision":"work","ticketId":"ticket-id-from-list","reason":"short reason"}',
+  '{"decision":"stop","reason":"short reason","objectiveProgress":42,"objectiveStatus":"at_risk","projectProgress":35,"projectStatus":"at_risk"}',
+  '{"decision":"work","ticketId":"ticket-id-from-list","reason":"short reason","objectiveProgress":42,"objectiveStatus":"at_risk","projectProgress":35,"projectStatus":"at_risk"}',
+  'Percentages must be integers from 0 to 100.',
+  'Statuses must be one of: on_track, at_risk, off_track, done.',
 ].join('\n');
+
+const HEALTH_LABELS: Record<ProjectObjectiveHealth, string> = {
+  on_track: 'On track',
+  at_risk: 'At risk',
+  off_track: 'Off track',
+  done: 'Done',
+};
 
 /** Build a short command string for process identification (used by stale-run reaper). */
 function buildHostCommand(provider: ChatProvider, model: string | null): string {
@@ -208,13 +229,35 @@ function formatIssueLine(issue: LinearIssueSummary): string {
     .join('\n');
 }
 
+function formatObjectiveSummaryLine(input: {
+  title: string;
+  key: string;
+  progress: number;
+  status: ProjectObjectiveHealth;
+}): string {
+  return `- ${input.title} (${input.key}) | ${input.progress}% | ${input.status}`;
+}
+
+function formatHealthSummary(scope: string, progress: number, status: ProjectObjectiveHealth): string {
+  return `${scope}: ${progress}% ${HEALTH_LABELS[status]}`;
+}
+
 function buildObjectiveLinearControllerPrompt(input: {
   jobPrompt: string;
   objective: {
     title: string;
     key: string;
     summary: string;
+    progress: number;
+    status: ProjectObjectiveHealth;
   };
+  projectObjectives: Array<{
+    title: string;
+    key: string;
+    progress: number;
+    status: ProjectObjectiveHealth;
+  }>;
+  allIssues: LinearIssueSummary[];
   eligibleIssues: LinearIssueSummary[];
   activeIssueNotes: string[];
 }): string {
@@ -223,12 +266,26 @@ function buildObjectiveLinearControllerPrompt(input: {
     `- Title: ${input.objective.title}`,
     `- Label key: ${input.objective.key}`,
     `- Summary: ${input.objective.summary.trim() || 'No summary provided.'}`,
+    `- Current progress: ${input.objective.progress}%`,
+    `- Current health: ${input.objective.status}`,
+    '',
+    'PROJECT OBJECTIVES',
+    input.projectObjectives.length > 0
+      ? input.projectObjectives.map((objective) => formatObjectiveSummaryLine(objective)).join('\n')
+      : '- No project objectives found.',
+    '',
+    'ALL OBJECTIVE TICKETS',
+    input.allIssues.length > 0
+      ? input.allIssues.map((issue) => formatIssueLine(issue)).join('\n\n')
+      : '- None.',
     '',
     'SCHEDULER GUIDANCE',
     input.jobPrompt.trim() || 'No additional guidance provided.',
     '',
     'ELIGIBLE TICKETS',
-    input.eligibleIssues.map((issue) => formatIssueLine(issue)).join('\n\n'),
+    input.eligibleIssues.length > 0
+      ? input.eligibleIssues.map((issue) => formatIssueLine(issue)).join('\n\n')
+      : '- None.',
   ];
 
   if (input.activeIssueNotes.length > 0) {
@@ -243,6 +300,20 @@ function buildObjectiveLinearControllerPrompt(input: {
   );
 
   return sections.join('\n');
+}
+
+function normalizeAssessmentProgress(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null;
+  }
+  return normalizeProjectHealthProgress(value);
+}
+
+function normalizeAssessmentStatus(value: unknown): ProjectObjectiveHealth | null {
+  if (typeof value !== 'string' || !value.trim()) {
+    return null;
+  }
+  return normalizeProjectHealthStatus(value);
 }
 
 async function resolveObjectiveWorkerAgent(job: PromptJob): Promise<Participant> {
@@ -334,35 +405,22 @@ async function executeObjectiveLinearWorker(opts: {
       activeObjectiveAgents.map((entry) => entry.issueId),
     );
 
-    if (eligibleIssues.length === 0) {
-      const hasNonTerminalIssues = issues.some((issue) => !isObjectiveLinearTerminalStatus(issue.status));
-      const reason =
-        issues.length === 0
-          ? 'No objective-labeled Linear tickets were found.'
-          : hasNonTerminalIssues
-            ? 'All actionable objective tickets already have active sessions.'
-            : 'All objective tickets are already in a terminal state.';
-      await appendObjectiveWorkerActivity({
-        jobId: opts.job.id,
-        projectSlug: objectiveContext.project.slug,
-        objectiveKey: objectiveContext.objective.key,
-        body: `No actionable objective tickets.\n\nReason: ${reason}`,
-      });
-      return {
-        output: `No actionable objective tickets.\nReason: ${reason}`,
-        error: '',
-        durationMs: Date.now() - startMs,
-        status: 'success',
-      };
-    }
-
     const controllerPrompt = buildObjectiveLinearControllerPrompt({
       jobPrompt: opts.job.prompt,
       objective: {
         title: objectiveContext.objective.title,
         key: objectiveContext.objective.key,
         summary: objectiveContext.objective.summary,
+        progress: objectiveContext.objective.progress,
+        status: objectiveContext.objective.status,
       },
+      projectObjectives: objectiveContext.workspace.objectives.map((objective) => ({
+        title: objective.title,
+        key: objective.key,
+        progress: objective.progress,
+        status: objective.status,
+      })),
+      allIssues: issues,
       eligibleIssues,
       activeIssueNotes,
     });
@@ -384,17 +442,102 @@ async function executeObjectiveLinearWorker(opts: {
     const parsed = extractFirstJsonObject(controllerResult.output);
     const decision = typeof parsed?.decision === 'string' ? parsed.decision.trim().toLowerCase() : '';
     const reason = typeof parsed?.reason === 'string' ? parsed.reason.trim() : '';
+    const objectiveProgress = normalizeAssessmentProgress(parsed?.objectiveProgress);
+    const objectiveStatus = normalizeAssessmentStatus(parsed?.objectiveStatus);
+    const projectProgress = normalizeAssessmentProgress(parsed?.projectProgress);
+    const projectStatus = normalizeAssessmentStatus(parsed?.projectStatus);
+    const projectNote = typeof parsed?.projectNote === 'string' ? parsed.projectNote.trim() : '';
+    const objectiveNote = typeof parsed?.objectiveNote === 'string' ? parsed.objectiveNote.trim() : '';
+    const nowIso = new Date().toISOString();
+
+    const objectiveHealthSummary =
+      objectiveProgress !== null && objectiveStatus
+        ? formatHealthSummary('Objective health', objectiveProgress, objectiveStatus)
+        : null;
+    const projectHealthSummary =
+      projectProgress !== null && projectStatus
+        ? formatHealthSummary('Project health', projectProgress, projectStatus)
+        : null;
+
+    const objectiveChanged =
+      objectiveProgress !== null &&
+      objectiveStatus !== null &&
+      (
+        objectiveProgress !== objectiveContext.objective.progress ||
+        objectiveStatus !== objectiveContext.objective.status
+      );
+    const nextWorkspace = objectiveChanged
+      ? upsertProjectObjective(objectiveContext.workspace, {
+          ...objectiveContext.objective,
+          progress: objectiveProgress!,
+          status: objectiveStatus!,
+          updatedAt: nowIso,
+        })
+      : objectiveContext.workspace;
+    const projectSnapshot: ProjectHealthSnapshot | null =
+      projectProgress !== null && projectStatus !== null
+        ? {
+            progress: projectProgress,
+            status: projectStatus,
+            updatedAt: nowIso,
+            source: `scheduled-task:${opts.job.id}`,
+            objectiveId: objectiveContext.objective.id,
+            objectiveKey: objectiveContext.objective.key,
+            note: projectNote || undefined,
+          }
+        : null;
+
+    if (objectiveChanged) {
+      await persistProjectObjectiveWorkspace({
+        projectId: objectiveContext.project.id,
+        currentMetadata: objectiveContext.project.metadata,
+        workspace: nextWorkspace,
+        transformMetadata: (metadata) =>
+          projectSnapshot ? writeProjectHealthSnapshot(metadata, projectSnapshot) : metadata,
+      });
+    } else if (projectSnapshot) {
+      await persistProjectHealthSnapshot({
+        projectId: objectiveContext.project.id,
+        currentMetadata: objectiveContext.project.metadata,
+        snapshot: projectSnapshot,
+      });
+    }
 
     if (decision === 'stop') {
-      const stopReason = reason || 'The controller decided that no ticket should be started right now.';
+      const hasNonTerminalIssues = issues.some((issue) => !isObjectiveLinearTerminalStatus(issue.status));
+      const fallbackReason =
+        issues.length === 0
+          ? 'No objective-labeled Linear tickets were found.'
+          : eligibleIssues.length === 0
+            ? hasNonTerminalIssues
+              ? 'All actionable objective tickets already have active sessions.'
+              : 'All objective tickets are already in a terminal state.'
+            : 'The controller decided that no ticket should be started right now.';
+      const stopReason = reason || fallbackReason;
       await appendObjectiveWorkerActivity({
         jobId: opts.job.id,
         projectSlug: objectiveContext.project.slug,
         objectiveKey: objectiveContext.objective.key,
-        body: `No actionable objective tickets.\n\nReason: ${stopReason}`,
+        body: [
+          'No actionable objective tickets.',
+          `Reason: ${stopReason}`,
+          objectiveHealthSummary,
+          objectiveNote || null,
+          projectHealthSummary,
+          projectNote || null,
+        ]
+          .filter((line): line is string => Boolean(line))
+          .join('\n\n'),
       });
       return {
-        output: `No actionable objective tickets.\nReason: ${stopReason}`,
+        output: [
+          'No actionable objective tickets.',
+          `Reason: ${stopReason}`,
+          objectiveHealthSummary,
+          projectHealthSummary,
+        ]
+          .filter((line): line is string => Boolean(line))
+          .join('\n'),
         error: '',
         durationMs: Date.now() - startMs,
         status: 'success',
@@ -434,6 +577,10 @@ async function executeObjectiveLinearWorker(opts: {
       body: [
         `Started work on ${issueLink}: ${selectedIssue.title}`,
         reason ? `Reason: ${reason}` : null,
+        objectiveHealthSummary,
+        objectiveNote || null,
+        projectHealthSummary,
+        projectNote || null,
         `Linear run: ${launch.run.id}`,
       ]
         .filter((line): line is string => Boolean(line))
@@ -444,6 +591,8 @@ async function executeObjectiveLinearWorker(opts: {
       output: [
         `Started work on ${selectedIssue.identifier}: ${selectedIssue.title}`,
         reason ? `Reason: ${reason}` : null,
+        objectiveHealthSummary,
+        projectHealthSummary,
         `Linear run: ${launch.run.id}`,
         `Chat run: ${launch.chatRunId}`,
       ]

@@ -187,11 +187,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       updatedAt: new Date().toISOString(),
     };
 
-    const updatedProject = await persistProjectObjectiveWorkspace(
-      resolved.projectId,
-      project.metadata,
-      upsertProjectObjective(workspace, nextObjective)
-    );
+    const updatedProject = await persistProjectObjectiveWorkspace({
+      projectId: resolved.projectId,
+      currentMetadata: project.metadata,
+      workspace: upsertProjectObjective(workspace, nextObjective),
+    });
 
     if (!updatedProject) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });

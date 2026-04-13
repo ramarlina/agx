@@ -6,31 +6,19 @@ import { type ProjectObjective, type ProjectObjectiveWorkspaceState } from "@/li
 import {
   loadProjectObjectiveContext,
   loadProjectObjectiveWorkspace,
+  persistProjectHealthSnapshot,
+  persistProjectObjectiveWorkspace,
   type ProjectObjectiveContext,
 } from "@/lib/project-objective-context";
 import { getObjectiveRepository } from "@/src/objectives/repository";
 
 export type ProjectObjectiveApiContext = ProjectObjectiveContext;
-export { loadProjectObjectiveContext, loadProjectObjectiveWorkspace };
-
-export async function persistProjectObjectiveWorkspace(
-  projectId: string,
-  currentMetadata: Record<string, unknown> | undefined,
-  workspace: ProjectObjectiveWorkspaceState
-) {
-  const project = await db.getProjectWithRepos(projectId, LOCAL_USER.id);
-  const slug = project?.slug ?? projectId;
-  const repo = getObjectiveRepository(slug);
-
-  // Always write to files
-  repo.writeWorkspace(workspace);
-
-  // Also update DB metadata for backwards compatibility during migration
-  const { writeProjectObjectivesWorkspace } = await import("@/lib/project-objectives");
-  return db.updateProject(projectId, LOCAL_USER.id, {
-    metadata: writeProjectObjectivesWorkspace(currentMetadata ?? {}, workspace),
-  });
-}
+export {
+  loadProjectObjectiveContext,
+  loadProjectObjectiveWorkspace,
+  persistProjectHealthSnapshot,
+  persistProjectObjectiveWorkspace,
+};
 
 export function findObjectiveAssignedToTeam(
   workspace: ProjectObjectiveWorkspaceState,

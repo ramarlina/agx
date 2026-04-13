@@ -27,6 +27,7 @@ import {
   orderParticipantIds,
   type ComposerRoutingMetadata,
 } from "@/lib/chat/composer-routing";
+import { buildLinearExecutionPrompt } from "@/lib/linear-execution-prompt";
 import type { Participant } from "@/lib/types";
 import LinearSetup from "@/components/LinearSetup";
 

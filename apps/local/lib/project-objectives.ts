@@ -1,5 +1,6 @@
 export const PROJECT_OBJECTIVES_METADATA_KEY = "project_objectives_workspace";
 export const LEGACY_PROJECT_GOALS_METADATA_KEY = "project_goals_workspace";
+export const PROJECT_HEALTH_METADATA_KEY = "project_health_snapshot";
 export const CURRENT_OBJECTIVE_CHAT_SESSION_VERSION = 2;
 
 export type ProjectObjectiveHealth = "on_track" | "at_risk" | "off_track" | "done";
@@ -55,6 +56,16 @@ export interface ProjectObjectiveWorkspaceState {
   objectives: ProjectObjective[];
   activities: ProjectObjectiveActivity[];
   activityThreads: Record<string, ProjectObjectiveActivityThreadMessage[]>;
+}
+
+export interface ProjectHealthSnapshot {
+  progress: number;
+  status: ProjectObjectiveHealth;
+  updatedAt: string;
+  source?: string;
+  objectiveId?: string | null;
+  objectiveKey?: string | null;
+  note?: string;
 }
 
 interface CreateProjectObjectiveInput {
@@ -161,6 +172,14 @@ function readObjectiveHealth(value: unknown): ProjectObjectiveHealth {
   return typeof value === "string" && OBJECTIVE_HEALTH_VALUES.has(value as ProjectObjectiveHealth)
     ? (value as ProjectObjectiveHealth)
     : "on_track";
+}
+
+export function normalizeProjectHealthStatus(value: unknown): ProjectObjectiveHealth {
+  return readObjectiveHealth(value);
+}
+
+export function normalizeProjectHealthProgress(value: unknown): number {
+  return readProgress(value);
 }
 
 function slugifyObjectiveKey(value: string, fallback = "objective"): string {
@@ -424,6 +443,48 @@ export function writeProjectObjectivesWorkspace(
   const nextMetadata = { ...metadata };
   delete nextMetadata[LEGACY_PROJECT_GOALS_METADATA_KEY];
   nextMetadata[PROJECT_OBJECTIVES_METADATA_KEY] = normalizeWorkspace(workspace);
+  return nextMetadata;
+}
+
+export function readProjectHealthSnapshot(
+  metadata: Record<string, unknown> | undefined
+): ProjectHealthSnapshot | null {
+  if (!isRecord(metadata)) return null;
+
+  const raw = metadata[PROJECT_HEALTH_METADATA_KEY];
+  if (!isRecord(raw)) return null;
+
+  return {
+    progress: readProgress(raw.progress),
+    status: readObjectiveHealth(raw.status),
+    updatedAt: readTimestamp(raw.updatedAt),
+    source: readString(raw.source) || undefined,
+    objectiveId: readString(raw.objectiveId) || null,
+    objectiveKey: readString(raw.objectiveKey) || null,
+    note: readString(raw.note) || undefined,
+  };
+}
+
+export function writeProjectHealthSnapshot(
+  metadata: Record<string, unknown>,
+  snapshot: ProjectHealthSnapshot | null
+): Record<string, unknown> {
+  const nextMetadata = { ...metadata };
+
+  if (!snapshot) {
+    delete nextMetadata[PROJECT_HEALTH_METADATA_KEY];
+    return nextMetadata;
+  }
+
+  nextMetadata[PROJECT_HEALTH_METADATA_KEY] = {
+    progress: readProgress(snapshot.progress),
+    status: readObjectiveHealth(snapshot.status),
+    updatedAt: readTimestamp(snapshot.updatedAt),
+    ...(snapshot.source ? { source: snapshot.source.trim() } : {}),
+    ...(snapshot.objectiveId ? { objectiveId: snapshot.objectiveId } : {}),
+    ...(snapshot.objectiveKey ? { objectiveKey: snapshot.objectiveKey } : {}),
+    ...(snapshot.note ? { note: snapshot.note.trim() } : {}),
+  };
   return nextMetadata;
 }
 

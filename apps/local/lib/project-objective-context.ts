@@ -4,6 +4,9 @@ import { db } from "@/lib/db-instance";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import {
   readProjectObjectivesWorkspace,
+  writeProjectHealthSnapshot,
+  writeProjectObjectivesWorkspace,
+  type ProjectHealthSnapshot,
   type ProjectObjective,
   type ProjectObjectiveWorkspaceState,
 } from "@/lib/project-objectives";
@@ -48,4 +51,39 @@ export function loadProjectObjectiveWorkspace(
   }
 
   return readProjectObjectivesWorkspace(project.metadata);
+}
+
+export async function persistProjectObjectiveWorkspace(input: {
+  projectId: string;
+  currentMetadata: Record<string, unknown> | undefined;
+  workspace: ProjectObjectiveWorkspaceState;
+  transformMetadata?: (metadata: Record<string, unknown>) => Record<string, unknown>;
+}) {
+  const project = await db.getProjectWithRepos(input.projectId, LOCAL_USER.id);
+  const slug = project?.slug ?? input.projectId;
+  const repo = getObjectiveRepository(slug);
+
+  repo.writeWorkspace(input.workspace);
+
+  const nextMetadataBase = writeProjectObjectivesWorkspace(
+    input.currentMetadata ?? {},
+    input.workspace,
+  );
+  const nextMetadata = input.transformMetadata
+    ? input.transformMetadata(nextMetadataBase)
+    : nextMetadataBase;
+
+  return db.updateProject(input.projectId, LOCAL_USER.id, {
+    metadata: nextMetadata,
+  });
+}
+
+export async function persistProjectHealthSnapshot(input: {
+  projectId: string;
+  currentMetadata: Record<string, unknown> | undefined;
+  snapshot: ProjectHealthSnapshot;
+}) {
+  return db.updateProject(input.projectId, LOCAL_USER.id, {
+    metadata: writeProjectHealthSnapshot(input.currentMetadata ?? {}, input.snapshot),
+  });
 }

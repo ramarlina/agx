@@ -129,6 +129,44 @@ describe('/api/prompt-jobs routes', () => {
     }));
   });
 
+  test('POST supports objective Linear worker jobs and fills the default prompt when omitted', async () => {
+    const createJob = jest.fn().mockImplementation((input) => ({ id: 'job-3', ...input }));
+    mockGetPromptJobStore.mockReturnValue({ createJob });
+
+    const { POST } = await import('@/app/api/prompt-jobs/route');
+    const request = new NextRequest('http://localhost/api/prompt-jobs', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Work objective Linear tickets',
+        projectId: 'project-1',
+        objectiveId: 'objective-1',
+        objectiveKey: 'growth-daily-visitors',
+        executionMode: 'objective_linear_ticket',
+        cadence: '0 9 * * *',
+      }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const response = await POST(request);
+    const payload = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(createJob).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'project-1',
+      objectiveId: 'objective-1',
+      objectiveKey: 'growth-daily-visitors',
+      executionMode: 'objective_linear_ticket',
+      prompt: expect.stringContaining('Review the outstanding Linear tickets'),
+      cadence: 'Daily at 9 AM',
+    }));
+    expect(payload.job).toEqual(expect.objectContaining({
+      id: 'job-3',
+      cadence: 'Daily at 9 AM',
+      cronExpr: '0 9 * * *',
+      executionMode: 'objective_linear_ticket',
+    }));
+  });
+
   test('PATCH rejects clearing cadence because prompt jobs always require a schedule', async () => {
     mockGetPromptJobStore.mockReturnValue({
       getJob: jest.fn().mockReturnValue({ id: 'job-1' }),

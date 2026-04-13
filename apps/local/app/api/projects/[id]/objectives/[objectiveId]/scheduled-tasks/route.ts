@@ -163,11 +163,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
       updatedAt: new Date().toISOString(),
     };
 
-    const updatedProject = await persistProjectObjectiveWorkspace(
-      resolved.projectId,
-      objectiveContext.project.metadata,
-      upsertProjectObjective(objectiveContext.workspace, nextObjective)
-    );
+    const updatedProject = await persistProjectObjectiveWorkspace({
+      projectId: resolved.projectId,
+      currentMetadata: objectiveContext.project.metadata,
+      workspace: upsertProjectObjective(objectiveContext.workspace, nextObjective),
+    });
 
     if (!updatedProject) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
