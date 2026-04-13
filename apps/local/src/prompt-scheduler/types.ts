@@ -3,6 +3,16 @@ export type OverlapPolicy = 'skip' | 'queue' | 'allow';
 export type CatchUpPolicy = 'fire_once' | 'replay_all' | 'skip';
 export type RunStatus = 'queued' | 'running' | 'success' | 'failed' | 'cancelled';
 export type TriggerType = 'scheduled' | 'condition';
+export type PromptJobExecutionMode = 'prompt' | 'objective_linear_ticket';
+
+export const DEFAULT_PROMPT_JOB_EXECUTION_MODE: PromptJobExecutionMode = 'prompt';
+export const DEFAULT_OBJECTIVE_LINEAR_WORKER_NAME = 'Work objective Linear tickets';
+export const DEFAULT_OBJECTIVE_LINEAR_WORKER_PROMPT = [
+  'Review the outstanding Linear tickets for this objective and decide whether one should be worked now.',
+  'Prefer the single next concrete ticket that most advances the objective.',
+  'Prefer tickets already in progress or otherwise clearly actionable.',
+  'Do not start a session when there is no useful work to do right now.',
+].join('\n');
 
 export interface PromptJob {
   id: string;
@@ -21,6 +31,7 @@ export interface PromptJob {
   overlapPolicy: OverlapPolicy;
   catchUpPolicy: CatchUpPolicy;
   cancelCheckSec: number;
+  executionMode: PromptJobExecutionMode;
   condition: string;
   nextRunAt: number | null;
   lastRunAt: number | null;
@@ -59,6 +70,7 @@ export interface CreatePromptJobInput {
   overlapPolicy?: OverlapPolicy;
   catchUpPolicy?: CatchUpPolicy;
   cancelCheckSec?: number;
+  executionMode?: PromptJobExecutionMode;
   // Legacy compatibility only. New callers should always send cadence.
   triggerType?: TriggerType;
   condition?: string;
@@ -81,6 +93,7 @@ export interface UpdatePromptJobInput {
   overlapPolicy?: OverlapPolicy;
   catchUpPolicy?: CatchUpPolicy;
   cancelCheckSec?: number;
+  executionMode?: PromptJobExecutionMode;
   // Legacy compatibility only. New callers should always send cadence.
   triggerType?: TriggerType;
   condition?: string;

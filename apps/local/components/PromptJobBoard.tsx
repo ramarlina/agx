@@ -28,7 +28,11 @@ import {
   type ComposerRoutingMetadata,
 } from "@/lib/chat/composer-routing";
 import type { GroupMessage } from "@/lib/types";
-import type { PromptJob, PromptRun } from "@/src/prompt-scheduler/types";
+import type {
+  PromptJob,
+  PromptRun,
+  PromptJobExecutionMode,
+} from "@/src/prompt-scheduler/types";
 import { cronToHuman } from "@/src/graph/nl-schedule";
 import { ScheduleConditionPicker } from "@/components/scheduling/ScheduleConditionPicker";
 
@@ -108,6 +112,7 @@ export interface CreateJobData {
   catchUpPolicy: string;
   cadence: string;
   condition: string;
+  executionMode?: PromptJobExecutionMode;
 }
 
 function Label({ children }: { children: React.ReactNode }) {

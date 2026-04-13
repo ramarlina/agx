@@ -32,6 +32,10 @@ import { ObjectiveActivityTimeline } from "@/components/projects/ObjectiveActivi
 import { LinearIcon } from "@/components/linear/LinearIcon";
 import { usePromptJobs } from "@/hooks/usePromptJobs";
 import { cronToHuman } from "@/src/graph/nl-schedule";
+import {
+  DEFAULT_OBJECTIVE_LINEAR_WORKER_NAME,
+  type PromptJobExecutionMode,
+} from "@/src/prompt-scheduler/types";
 import { threadService } from "@/services/threadService";
 import {
   loadObjectiveChatPanelWidth,
@@ -1811,6 +1815,7 @@ export function ProjectObjectiveDetail({
       catchUpPolicy: string;
       cadence: string;
       condition: string;
+      executionMode?: PromptJobExecutionMode;
     }) => {
       if (!project?.id || !objective?.id) {
         setSaveError("Objective not found.");
@@ -1827,7 +1832,10 @@ export function ProjectObjectiveDetail({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               ...data,
-              prompt: prependObjectiveLabelToPrompt(objective, data.prompt),
+              prompt:
+                data.executionMode === "objective_linear_ticket"
+                  ? data.prompt
+                  : prependObjectiveLabelToPrompt(objective, data.prompt),
             }),
           }
         );
@@ -1848,6 +1856,42 @@ export function ProjectObjectiveDetail({
     },
     [objective, project?.id, refetchProject]
   );
+
+  const handleObjectiveLinearWorkerCreate = useCallback(async () => {
+    if (!project?.id || !objective?.id) {
+      setSaveError("Objective not found.");
+      return false;
+    }
+
+    setSaveError(null);
+
+    try {
+      const response = await fetch(
+        `/api/projects/${project.id}/objectives/${objective.id}/scheduled-tasks`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: DEFAULT_OBJECTIVE_LINEAR_WORKER_NAME,
+            executionMode: "objective_linear_ticket",
+          }),
+        }
+      );
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+
+      if (!response.ok) {
+        throw new Error(payload.error || "Failed to create objective Linear worker.");
+      }
+
+      await refetchProject();
+      return true;
+    } catch (error) {
+      setSaveError(
+        error instanceof Error ? error.message : "Failed to create objective Linear worker."
+      );
+      return false;
+    }
+  }, [objective, project?.id, refetchProject]);
 
   useEffect(() => {
     if (!project?.id || !objective?.id) {
@@ -2370,6 +2414,7 @@ export function ProjectObjectiveDetail({
                         condition: objective.condition,
                       }}
                       onCreateTask={handleScheduledTaskCreate}
+                      onCreateObjectiveLinearWorker={handleObjectiveLinearWorkerCreate}
                     />
                   </section>
                 )}

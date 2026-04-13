@@ -24,11 +24,13 @@ import { normalizeLegacyConditionSchedule, parseCadence } from "./cron";
 import type {
   CreatePromptJobInput,
   PromptJob,
+  PromptJobExecutionMode,
   PromptJobState,
   PromptRun,
   RunStatus,
   UpdatePromptJobInput,
 } from "./types";
+import { DEFAULT_PROMPT_JOB_EXECUTION_MODE } from "./types";
 
 /**
  * Extract the basename of the first token (the binary) from a command string.
@@ -119,6 +121,7 @@ interface PromptJobRow {
   provider: string;
   model: string;
   cli_args: string;
+  execution_mode: string | null;
   cron_expr: string;
   cadence: string;
   state: string;
@@ -158,6 +161,10 @@ interface PromptJobListFilter {
 }
 
 function rowToJob(row: PromptJobRow): PromptJob {
+  const executionMode =
+    row.execution_mode === "objective_linear_ticket"
+      ? "objective_linear_ticket"
+      : DEFAULT_PROMPT_JOB_EXECUTION_MODE;
   return {
     id: row.id,
     name: row.name,
@@ -175,6 +182,7 @@ function rowToJob(row: PromptJobRow): PromptJob {
     overlapPolicy: row.overlap_policy as PromptJob["overlapPolicy"],
     catchUpPolicy: (row.catch_up_policy || "fire_once") as PromptJob["catchUpPolicy"],
     cancelCheckSec: row.cancel_check_sec,
+    executionMode,
     condition: row.condition || "",
     nextRunAt: row.next_run_at,
     lastRunAt: row.last_run_at,
@@ -311,6 +319,9 @@ export class PromptJobStore {
         ...(input.agentId ? { agentId: input.agentId } : {}),
         ...(input.objectiveId ? { objectiveId: input.objectiveId } : {}),
         ...(input.objectiveKey ? { objectiveKey: input.objectiveKey } : {}),
+        ...(input.executionMode && input.executionMode !== DEFAULT_PROMPT_JOB_EXECUTION_MODE
+          ? { executionMode: input.executionMode }
+          : {}),
         ...(input.provider ? { provider: input.provider } : {}),
         ...(input.model ? { model: input.model } : {}),
         ...(input.cliArgs !== undefined ? { cliArgs: input.cliArgs } : {}),
@@ -735,6 +746,12 @@ export class PromptJobStore {
     if (updates.agentId !== undefined) targetPatch.agentId = updates.agentId || undefined;
     if (updates.objectiveId !== undefined) targetPatch.objectiveId = updates.objectiveId || undefined;
     if (updates.objectiveKey !== undefined) targetPatch.objectiveKey = updates.objectiveKey || undefined;
+    if (updates.executionMode !== undefined) {
+      targetPatch.executionMode =
+        updates.executionMode === DEFAULT_PROMPT_JOB_EXECUTION_MODE
+          ? undefined
+          : updates.executionMode;
+    }
     if (updates.provider !== undefined) targetPatch.provider = updates.provider || undefined;
     if (updates.model !== undefined) targetPatch.model = updates.model || undefined;
     if (updates.cliArgs !== undefined) targetPatch.cliArgs = updates.cliArgs;
@@ -783,10 +800,11 @@ export class PromptJobStore {
       .prepare(
         `INSERT INTO prompt_jobs (
           id, name, prompt, cli, agent_id, project_id, objective_id, objective_key, provider, model, cli_args,
+          execution_mode,
           cron_expr, cadence, state, overlap_policy, catch_up_policy, cancel_check_sec,
           trigger_type, condition, check_every_ms, next_run_at, last_run_at, last_outcome,
           created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (id) DO UPDATE SET
           name = excluded.name,
           prompt = excluded.prompt,
@@ -798,6 +816,7 @@ export class PromptJobStore {
           provider = excluded.provider,
           model = excluded.model,
           cli_args = excluded.cli_args,
+          execution_mode = excluded.execution_mode,
           cron_expr = excluded.cron_expr,
           cadence = excluded.cadence,
           state = excluded.state,
@@ -825,6 +844,7 @@ export class PromptJobStore {
         job.provider || "claude",
         job.model || "",
         job.cliArgs || "",
+        job.executionMode || DEFAULT_PROMPT_JOB_EXECUTION_MODE,
         job.cronExpr || "",
         job.cadence || "",
         job.state,
@@ -851,9 +871,10 @@ export class PromptJobStore {
       .prepare(
         `INSERT INTO prompt_jobs (
           id, name, prompt, cli, agent_id, project_id, objective_id, objective_key, provider, model, cli_args,
+          execution_mode,
           cron_expr, cadence, overlap_policy, catch_up_policy, cancel_check_sec,
           trigger_type, condition, check_every_ms, next_run_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -867,6 +888,7 @@ export class PromptJobStore {
         provider,
         input.model ?? "",
         input.cliArgs ?? "",
+        input.executionMode ?? DEFAULT_PROMPT_JOB_EXECUTION_MODE,
         scheduled.cronExpr,
         scheduled.cadence,
         input.overlapPolicy ?? "skip",
@@ -956,6 +978,7 @@ export class PromptJobStore {
       projectId: "project_id",
       objectiveId: "objective_id",
       objectiveKey: "objective_key",
+      executionMode: "execution_mode",
       provider: "provider",
       cronExpr: "cron_expr",
       model: "model",

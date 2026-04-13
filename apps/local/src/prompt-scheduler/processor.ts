@@ -4,10 +4,22 @@ import { homedir } from 'os';
 
 import { getPromptJobStore } from './get-store';
 import { pollDueJobs } from './engine';
-import { getAgent, getAgentSkills } from '@/lib/db';
+import { getAgent, getAgentSkills, getProjectAgents } from '@/lib/db';
 import { LOCAL_USER } from '@/lib/auth-mode';
+import { loadDbParticipants } from '@/lib/agent-participants';
 import { runCliResponse, buildCliAttempts } from '@/lib/cli-runner';
+import { startScriptedLinearSession } from '@/lib/linear-scripted-session';
+import { getIssueActiveAgents } from '@/lib/linear-run-store';
+import {
+  filterObjectiveLinearIssuesForAction,
+  isObjectiveLinearTerminalStatus,
+  listObjectiveLinearIssues,
+} from '@/lib/objective-linear-issues';
+import { loadProjectObjectiveContext } from '@/lib/project-objective-context';
+import { getActivityRepository } from '@/src/objectives/activities/repository';
 import type { ChatProvider } from '@/lib/types';
+import type { LinearIssueSummary } from '@/lib/linear-issues';
+import type { Participant } from '@/lib/types';
 import type { PromptJob, PromptRun } from './types';
 
 let registeredPump: (() => Promise<void>) | null = null;
@@ -16,6 +28,13 @@ let pumpScheduled = false;
 let pumpRunning = false;
 
 const AGENTS_DIR = join(homedir(), '.agx', 'agents');
+const OBJECTIVE_LINEAR_CONTROLLER_SYSTEM_CONTEXT = [
+  'You are deciding whether a scheduled objective worker should start exactly one Linear work session.',
+  'Return ONLY raw JSON with no markdown fences or commentary.',
+  'Valid responses:',
+  '{"decision":"stop","reason":"short reason"}',
+  '{"decision":"work","ticketId":"ticket-id-from-list","reason":"short reason"}',
+].join('\n');
 
 /** Build a short command string for process identification (used by stale-run reaper). */
 function buildHostCommand(provider: ChatProvider, model: string | null): string {
@@ -90,8 +109,18 @@ async function resolveJobContext(job: PromptJob): Promise<{
   self: string | undefined;
   skills: string | undefined;
 }> {
-  if (job.agentId) {
-    return hydrateAgent(job.agentId);
+  return resolveJobContextForAgent(job, job.agentId);
+}
+
+async function resolveJobContextForAgent(job: PromptJob, agentId?: string | null): Promise<{
+  provider: ChatProvider;
+  model: string | null;
+  identity: string | undefined;
+  self: string | undefined;
+  skills: string | undefined;
+}> {
+  if (agentId) {
+    return hydrateAgent(agentId);
   }
   return {
     provider: (job.provider || 'claude') as ChatProvider,
@@ -109,6 +138,7 @@ async function executePrompt(opts: {
   identity?: string;
   self?: string;
   skills?: string;
+  systemContext?: string;
   cliArgs?: string;
   onSpawn?: (pid: number) => void;
 }): Promise<{ output: string; error: string; durationMs: number; status: 'success' | 'failed' }> {
@@ -123,6 +153,7 @@ async function executePrompt(opts: {
       identity: opts.identity,
       self: opts.self,
       skills: opts.skills,
+      systemContext: opts.systemContext,
       passthroughArgs: opts.cliArgs ? opts.cliArgs.split(/\s+/).filter(Boolean) : undefined,
       onDelta: (chunk) => { output += chunk; },
       onSpawn: opts.onSpawn,
@@ -131,6 +162,338 @@ async function executePrompt(opts: {
   } catch (err) {
     return { output, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - startMs, status: 'failed' };
   }
+}
+
+function extractFirstJsonObject(raw: string): Record<string, unknown> | null {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const directParse = tryParseJsonObject(trimmed);
+  if (directParse) {
+    return directParse;
+  }
+
+  const start = trimmed.indexOf('{');
+  const end = trimmed.lastIndexOf('}');
+  if (start === -1 || end <= start) {
+    return null;
+  }
+
+  return tryParseJsonObject(trimmed.slice(start, end + 1));
+}
+
+function tryParseJsonObject(raw: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatIssueLine(issue: LinearIssueSummary): string {
+  return [
+    `- id: ${issue.id}`,
+    `  identifier: ${issue.identifier}`,
+    `  title: ${issue.title}`,
+    `  status: ${issue.status}`,
+    `  assignee: ${issue.assignee ?? 'Unassigned'}`,
+    issue.url ? `  url: ${issue.url}` : null,
+  ]
+    .filter((line): line is string => Boolean(line))
+    .join('\n');
+}
+
+function buildObjectiveLinearControllerPrompt(input: {
+  jobPrompt: string;
+  objective: {
+    title: string;
+    key: string;
+    summary: string;
+  };
+  eligibleIssues: LinearIssueSummary[];
+  activeIssueNotes: string[];
+}): string {
+  const sections = [
+    'OBJECTIVE',
+    `- Title: ${input.objective.title}`,
+    `- Label key: ${input.objective.key}`,
+    `- Summary: ${input.objective.summary.trim() || 'No summary provided.'}`,
+    '',
+    'SCHEDULER GUIDANCE',
+    input.jobPrompt.trim() || 'No additional guidance provided.',
+    '',
+    'ELIGIBLE TICKETS',
+    input.eligibleIssues.map((issue) => formatIssueLine(issue)).join('\n\n'),
+  ];
+
+  if (input.activeIssueNotes.length > 0) {
+    sections.push('', 'ALREADY ACTIVE ELSEWHERE', input.activeIssueNotes.join('\n'));
+  }
+
+  sections.push(
+    '',
+    'Choose "work" only when one listed ticket is clearly the right next ticket to start now.',
+    'Choose "stop" when none of the listed tickets should be worked right now.',
+    'If you choose "work", ticketId must exactly match one of the listed ids.',
+  );
+
+  return sections.join('\n');
+}
+
+async function resolveObjectiveWorkerAgent(job: PromptJob): Promise<Participant> {
+  const participants = await loadDbParticipants();
+
+  if (job.agentId) {
+    const assigned = participants.find((participant) => participant.id === job.agentId) ?? null;
+    if (!assigned) {
+      throw new Error(`Objective worker agent "${job.agentId}" is no longer available.`);
+    }
+    return assigned;
+  }
+
+  if (!job.projectId) {
+    throw new Error('Objective Linear worker requires a project context to resolve an agent.');
+  }
+
+  const projectAgents = await getProjectAgents(job.projectId);
+  for (const projectAgent of projectAgents) {
+    const participant = participants.find((entry) => entry.id === projectAgent.agent_id) ?? null;
+    if (participant) {
+      return participant;
+    }
+  }
+
+  throw new Error('No project agent is available to work objective Linear tickets.');
+}
+
+async function appendObjectiveWorkerActivity(input: {
+  jobId: string;
+  projectSlug: string;
+  objectiveKey: string;
+  body: string;
+}): Promise<void> {
+  getActivityRepository(input.projectSlug, input.objectiveKey).append({
+    id: crypto.randomUUID(),
+    source: `scheduled-task:${input.jobId}`,
+    objectiveLabel: input.objectiveKey,
+    createdAt: new Date().toISOString(),
+    type: 'status-update',
+    body: input.body,
+  });
+}
+
+async function executeObjectiveLinearWorker(opts: {
+  job: PromptJob;
+  controllerContext: {
+    provider: ChatProvider;
+    model: string | null;
+    identity: string | undefined;
+    self: string | undefined;
+    skills: string | undefined;
+  };
+  sessionAgent: Participant;
+  cliArgs?: string;
+  onSpawn?: (pid: number) => void;
+}): Promise<{ output: string; error: string; durationMs: number; status: 'success' | 'failed' }> {
+  const startMs = Date.now();
+
+  try {
+    if (!opts.job.projectId || !opts.job.objectiveId) {
+      throw new Error('Objective Linear worker jobs require projectId and objectiveId.');
+    }
+
+    const objectiveContext = await loadProjectObjectiveContext(
+      opts.job.projectId,
+      opts.job.objectiveId,
+    );
+    if (!objectiveContext) {
+      throw new Error('Objective context could not be resolved for this scheduled task.');
+    }
+
+    const [{ issues }, activeIssueAgents] = await Promise.all([
+      listObjectiveLinearIssues({
+        objectiveKey: objectiveContext.objective.key,
+        projectSlug: objectiveContext.project.slug,
+        refresh: true,
+      }),
+      getIssueActiveAgents(opts.job.projectId),
+    ]);
+
+    const objectiveIssueIds = new Set(issues.map((issue) => issue.id));
+    const activeObjectiveAgents = activeIssueAgents.filter((entry) => objectiveIssueIds.has(entry.issueId));
+    const activeIssueNotes = activeObjectiveAgents.map(
+      (entry) => `- ${entry.issueId}: already running with ${entry.agentName}`,
+    );
+    const eligibleIssues = filterObjectiveLinearIssuesForAction(
+      issues,
+      activeObjectiveAgents.map((entry) => entry.issueId),
+    );
+
+    if (eligibleIssues.length === 0) {
+      const hasNonTerminalIssues = issues.some((issue) => !isObjectiveLinearTerminalStatus(issue.status));
+      const reason =
+        issues.length === 0
+          ? 'No objective-labeled Linear tickets were found.'
+          : hasNonTerminalIssues
+            ? 'All actionable objective tickets already have active sessions.'
+            : 'All objective tickets are already in a terminal state.';
+      await appendObjectiveWorkerActivity({
+        jobId: opts.job.id,
+        projectSlug: objectiveContext.project.slug,
+        objectiveKey: objectiveContext.objective.key,
+        body: `No actionable objective tickets.\n\nReason: ${reason}`,
+      });
+      return {
+        output: `No actionable objective tickets.\nReason: ${reason}`,
+        error: '',
+        durationMs: Date.now() - startMs,
+        status: 'success',
+      };
+    }
+
+    const controllerPrompt = buildObjectiveLinearControllerPrompt({
+      jobPrompt: opts.job.prompt,
+      objective: {
+        title: objectiveContext.objective.title,
+        key: objectiveContext.objective.key,
+        summary: objectiveContext.objective.summary,
+      },
+      eligibleIssues,
+      activeIssueNotes,
+    });
+    const controllerResult = await executePrompt({
+      ...opts.controllerContext,
+      prompt: controllerPrompt,
+      systemContext: OBJECTIVE_LINEAR_CONTROLLER_SYSTEM_CONTEXT,
+      cliArgs: opts.cliArgs,
+      onSpawn: opts.onSpawn,
+    });
+
+    if (controllerResult.status !== 'success') {
+      return {
+        ...controllerResult,
+        output: controllerResult.output || 'Objective controller failed before selecting a ticket.',
+      };
+    }
+
+    const parsed = extractFirstJsonObject(controllerResult.output);
+    const decision = typeof parsed?.decision === 'string' ? parsed.decision.trim().toLowerCase() : '';
+    const reason = typeof parsed?.reason === 'string' ? parsed.reason.trim() : '';
+
+    if (decision === 'stop') {
+      const stopReason = reason || 'The controller decided that no ticket should be started right now.';
+      await appendObjectiveWorkerActivity({
+        jobId: opts.job.id,
+        projectSlug: objectiveContext.project.slug,
+        objectiveKey: objectiveContext.objective.key,
+        body: `No actionable objective tickets.\n\nReason: ${stopReason}`,
+      });
+      return {
+        output: `No actionable objective tickets.\nReason: ${stopReason}`,
+        error: '',
+        durationMs: Date.now() - startMs,
+        status: 'success',
+      };
+    }
+
+    if (decision !== 'work') {
+      throw new Error(`Objective worker controller returned an invalid decision: ${controllerResult.output}`);
+    }
+
+    const ticketId = typeof parsed?.ticketId === 'string' ? parsed.ticketId.trim() : '';
+    const selectedIssue = eligibleIssues.find((issue) => issue.id === ticketId) ?? null;
+    if (!selectedIssue) {
+      throw new Error(`Objective worker controller selected an unknown ticket: ${ticketId || '(empty)'}`);
+    }
+
+    const launch = await startScriptedLinearSession({
+      projectId: objectiveContext.project.id,
+      projectSlug: objectiveContext.project.slug,
+      issue: {
+        id: selectedIssue.id,
+        identifier: selectedIssue.identifier,
+        title: selectedIssue.title,
+        status: selectedIssue.status,
+        assignee: selectedIssue.assignee,
+      },
+      agentId: opts.sessionAgent.id,
+    });
+
+    const issueLink = selectedIssue.url
+      ? `[${selectedIssue.identifier}](${selectedIssue.url})`
+      : selectedIssue.identifier;
+    await appendObjectiveWorkerActivity({
+      jobId: opts.job.id,
+      projectSlug: objectiveContext.project.slug,
+      objectiveKey: objectiveContext.objective.key,
+      body: [
+        `Started work on ${issueLink}: ${selectedIssue.title}`,
+        reason ? `Reason: ${reason}` : null,
+        `Linear run: ${launch.run.id}`,
+      ]
+        .filter((line): line is string => Boolean(line))
+        .join('\n\n'),
+    });
+
+    return {
+      output: [
+        `Started work on ${selectedIssue.identifier}: ${selectedIssue.title}`,
+        reason ? `Reason: ${reason}` : null,
+        `Linear run: ${launch.run.id}`,
+        `Chat run: ${launch.chatRunId}`,
+      ]
+        .filter((line): line is string => Boolean(line))
+        .join('\n'),
+      error: '',
+      durationMs: Date.now() - startMs,
+      status: 'success',
+    };
+  } catch (err) {
+    return {
+      output: '',
+      error: err instanceof Error ? err.message : String(err),
+      durationMs: Date.now() - startMs,
+      status: 'failed',
+    };
+  }
+}
+
+async function executeJobAction(
+  job: PromptJob,
+  ctx: {
+    provider: ChatProvider;
+    model: string | null;
+    identity: string | undefined;
+    self: string | undefined;
+    skills: string | undefined;
+  },
+  opts: {
+    onSpawn?: (pid: number) => void;
+  } = {},
+): Promise<{ output: string; error: string; durationMs: number; status: 'success' | 'failed' }> {
+  if (job.executionMode === 'objective_linear_ticket') {
+    const sessionAgent = await resolveObjectiveWorkerAgent(job);
+    const controllerContext = await resolveJobContextForAgent(job, sessionAgent.id);
+    return executeObjectiveLinearWorker({
+      job,
+      controllerContext,
+      sessionAgent,
+      cliArgs: job.cliArgs,
+      onSpawn: opts.onSpawn,
+    });
+  }
+
+  return executePrompt({
+    ...ctx,
+    prompt: job.prompt,
+    cliArgs: job.cliArgs,
+    onSpawn: opts.onSpawn,
+  });
 }
 
 async function fireConditionGate(job: PromptJob, run: PromptRun) {
@@ -170,10 +533,7 @@ async function fireConditionGate(job: PromptJob, run: PromptRun) {
   }
 
   store.updateRun(run.id, { output: `Gate: yes\nExecuting action prompt...`, hostPid: null });
-  const actionResult = await executePrompt({
-    ...ctx,
-    prompt: job.prompt,
-    cliArgs: job.cliArgs,
+  const actionResult = await executeJobAction(job, ctx, {
     onSpawn: (pid) => { store.updateRun(run.id, { hostPid: pid }); },
   });
 
@@ -202,10 +562,7 @@ async function fireRun(job: PromptJob, run: PromptRun) {
     store.updateRun(run.id, { hostCommand });
   }
 
-  const result = await executePrompt({
-    ...ctx,
-    prompt: job.prompt,
-    cliArgs: job.cliArgs,
+  const result = await executeJobAction(job, ctx, {
     onSpawn: (pid) => { store.updateRun(run.id, { hostPid: pid }); },
   });
 

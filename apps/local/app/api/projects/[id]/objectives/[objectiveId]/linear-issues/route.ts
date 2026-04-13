@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db-instance";
-import { ensureLinearIssueCache, listLinearIssueSummaries } from "@/lib/linear-issues";
+import { ensureLinearIssueCache } from "@/lib/linear-issues";
 import { getLinearClient } from "@/lib/linear-client";
+import {
+  listObjectiveLinearIssues,
+  matchesObjectiveLabel,
+} from "@/lib/objective-linear-issues";
 import {
   loadProjectObjectiveContext,
   readOptionalString,
@@ -11,10 +15,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ id: string; objectiveId: string }> };
-
-function matchesObjectiveLabel(label: string, objectiveKey: string): boolean {
-  return label.trim().toLowerCase() === objectiveKey.trim().toLowerCase();
-}
 
 async function resolveParams(params: RouteContext["params"]) {
   const resolved = await params;
@@ -45,21 +45,17 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     }
 
     const client = getLinearClient();
-    const pullResult = await ensureLinearIssueCache({
+    const { issues, refreshedAt } = await listObjectiveLinearIssues({
+      objectiveKey: objectiveContext.objective.key,
       projectSlug: objectiveContext.project.slug,
+      refresh: false,
     });
-    const { issues } = await listLinearIssueSummaries({ limit: 500 });
-    const objectiveIssues = issues.filter((issue) =>
-      (issue.labels ?? []).some((label) =>
-        matchesObjectiveLabel(label, objectiveContext.objective.key)
-      )
-    );
 
     return NextResponse.json({
       connected: Boolean(client),
       label: objectiveContext.objective.key,
-      issues: objectiveIssues,
-      refreshedAt: pullResult?.pulledAt ?? null,
+      issues,
+      refreshedAt,
     });
   } catch (error) {
     console.error("Failed to load objective Linear issues:", error);

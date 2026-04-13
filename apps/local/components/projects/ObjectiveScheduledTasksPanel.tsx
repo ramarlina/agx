@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Clock, Plus, Trash2, X } from "lucide-react";
+import { Clock, Plus, Sparkles, Trash2, X } from "lucide-react";
 import { usePromptJobs } from "@/hooks/usePromptJobs";
 import { cronToHuman } from "@/src/graph/nl-schedule";
 import type { PromptJob } from "@/src/prompt-scheduler/types";
@@ -15,6 +15,7 @@ interface ObjectiveScheduledTasksPanelProps {
   objectiveKey: string;
   createDefaults?: Partial<ObjectiveScheduledTaskDraft>;
   onCreateTask: (draft: ObjectiveScheduledTaskDraft) => Promise<boolean>;
+  onCreateObjectiveLinearWorker: () => Promise<boolean>;
 }
 
 function formatCadence(job: Pick<PromptJob, "cadence" | "cronExpr">): string {
@@ -170,6 +171,7 @@ export function ObjectiveScheduledTasksPanel({
   objectiveKey,
   createDefaults,
   onCreateTask,
+  onCreateObjectiveLinearWorker,
 }: ObjectiveScheduledTasksPanelProps) {
   const { jobs, loading, refresh, deleteJob } = usePromptJobs(projectId, {
     requireProjectId: true,
@@ -177,6 +179,7 @@ export function ObjectiveScheduledTasksPanel({
     objectiveId,
   });
   const [showCreate, setShowCreate] = useState(false);
+  const [creatingLinearWorker, setCreatingLinearWorker] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -214,6 +217,18 @@ export function ObjectiveScheduledTasksPanel({
     return ok;
   };
 
+  const handleCreateObjectiveLinearWorker = async () => {
+    setCreatingLinearWorker(true);
+    setError(null);
+    const ok = await onCreateObjectiveLinearWorker();
+    setCreatingLinearWorker(false);
+    if (!ok) {
+      setError("Failed to create the objective Linear worker.");
+      return;
+    }
+    await refresh();
+  };
+
   return (
     <>
       {showCreate ? (
@@ -246,14 +261,25 @@ export function ObjectiveScheduledTasksPanel({
               <span className="font-mono text-[var(--foreground)]">{objectiveKey}</span>.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--card-hover-border)]"
-          >
-            <Plus className="h-4 w-4" />
-            New task
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleCreateObjectiveLinearWorker()}
+              disabled={creatingLinearWorker}
+              className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100 transition-colors hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Sparkles className="h-4 w-4" />
+              {creatingLinearWorker ? "Creating..." : "Work Linear tickets"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCreate(true)}
+              className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--card-hover-border)]"
+            >
+              <Plus className="h-4 w-4" />
+              New task
+            </button>
+          </div>
         </div>
 
         {error ? (
