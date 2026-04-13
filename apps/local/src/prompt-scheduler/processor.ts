@@ -40,12 +40,17 @@ let pumpScheduled = false;
 let pumpRunning = false;
 
 const AGENTS_DIR = join(homedir(), '.agx', 'agents');
-const OBJECTIVE_LINEAR_CONTROLLER_SYSTEM_CONTEXT = [
-  'You are deciding whether a scheduled objective worker should start exactly one Linear work session.',
+const OBJECTIVE_CONTROLLER_SYSTEM_CONTEXT = [
+  'You are deciding what action an objective worker should take next.',
   'Return ONLY raw JSON with no markdown fences or commentary.',
   'Valid responses:',
-  '{"decision":"stop","reason":"short reason","objectiveProgress":42,"objectiveStatus":"at_risk","projectProgress":35,"projectStatus":"at_risk"}',
-  '{"decision":"work","ticketId":"ticket-id-from-list","reason":"short reason","objectiveProgress":42,"objectiveStatus":"at_risk","projectProgress":35,"projectStatus":"at_risk"}',
+  '{"action":"work_ticket","ticketId":"ticket-id-from-list","reason":"short reason","objectiveProgress":42,"objectiveStatus":"at_risk","projectProgress":35,"projectStatus":"at_risk"}',
+  '{"action":"run_prompt","prompt":"detailed instructions for the agent to execute","reason":"short reason","objectiveProgress":42,"objectiveStatus":"at_risk","projectProgress":35,"projectStatus":"at_risk"}',
+  '{"action":"stop","reason":"short reason","objectiveProgress":42,"objectiveStatus":"at_risk","projectProgress":35,"projectStatus":"at_risk"}',
+  'Rules:',
+  '- "work_ticket": Use when a specific eligible Linear ticket should be worked now. ticketId must exactly match one of the listed ids in ELIGIBLE TICKETS.',
+  '- "run_prompt": Use when the objective needs work not captured by an existing ticket — creating new tickets, drafting docs, reviewing PRs, research, or other non-ticket work. Provide a detailed prompt.',
+  '- "stop": Use when no action should be taken right now.',
   'Percentages must be integers from 0 to 100.',
   'Statuses must be one of: on_track, at_risk, off_track, done.',
 ].join('\n');
@@ -294,9 +299,11 @@ function buildObjectiveLinearControllerPrompt(input: {
 
   sections.push(
     '',
-    'Choose "work" only when one listed ticket is clearly the right next ticket to start now.',
-    'Choose "stop" when none of the listed tickets should be worked right now.',
-    'If you choose "work", ticketId must exactly match one of the listed ids.',
+    'Choose "work_ticket" when one listed ticket is clearly the right next ticket to start now.',
+    'Choose "run_prompt" when the objective needs work not captured by an existing ticket (e.g. creating tickets, drafting docs, reviewing PRs).',
+    'Choose "stop" when no action should be taken right now.',
+    'If you choose "work_ticket", ticketId must exactly match one of the listed ids.',
+    'If you choose "run_prompt", provide a detailed prompt the executing agent will follow.',
   );
 
   return sections.join('\n');
@@ -356,6 +363,43 @@ async function appendObjectiveWorkerActivity(input: {
     type: 'status-update',
     body: input.body,
   });
+}
+
+export async function logActionReceipt(
+  receipt: import('./types').ActionReceipt,
+  context: { jobId: string; projectId: string; objectiveId: string },
+): Promise<void> {
+  try {
+    const objectiveContext = await loadProjectObjectiveContext(
+      context.projectId,
+      context.objectiveId,
+    );
+    if (!objectiveContext) return;
+
+    const lines: string[] = [
+      `**${receipt.jobName}** — ${receipt.status}`,
+      '',
+      receipt.result,
+    ];
+    if (receipt.reason) {
+      lines.push('', `Reason: ${receipt.reason}`);
+    }
+    if (receipt.linearRunId) {
+      lines.push('', `Linear run: ${receipt.linearRunId}`);
+    }
+    if (receipt.chatRunId) {
+      lines.push('', `Chat run: ${receipt.chatRunId}`);
+    }
+
+    await appendObjectiveWorkerActivity({
+      jobId: context.jobId,
+      projectSlug: objectiveContext.project.slug,
+      objectiveKey: objectiveContext.objective.key,
+      body: lines.join('\n'),
+    });
+  } catch {
+    // Activity logging is best-effort
+  }
 }
 
 async function executeObjectiveLinearWorker(opts: {
@@ -427,7 +471,7 @@ async function executeObjectiveLinearWorker(opts: {
     const controllerResult = await executePrompt({
       ...opts.controllerContext,
       prompt: controllerPrompt,
-      systemContext: OBJECTIVE_LINEAR_CONTROLLER_SYSTEM_CONTEXT,
+      systemContext: OBJECTIVE_CONTROLLER_SYSTEM_CONTEXT,
       cliArgs: opts.cliArgs,
       onSpawn: opts.onSpawn,
     });
