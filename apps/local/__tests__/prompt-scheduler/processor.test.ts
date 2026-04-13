@@ -446,4 +446,73 @@ describe('prompt scheduler processor', () => {
 
     expect(pump).toHaveBeenCalledTimes(1);
   });
+
+  test('logActionReceipt writes formatted activity for objective-linked receipts', async () => {
+    mockLoadProjectObjectiveContext.mockResolvedValue({
+      project: { id: 'project-1', slug: 'alpha', metadata: {} },
+      workspace: { objectives: [] },
+      objective: {
+        id: 'objective-1',
+        title: 'Grow daily visitors',
+        key: 'growth-daily-visitors',
+        summary: '',
+        progress: 20,
+        status: 'on_track',
+      },
+    });
+
+    const { logActionReceipt } = await import('@/src/prompt-scheduler/processor');
+    await logActionReceipt(
+      {
+        action: 'run_prompt',
+        jobName: 'Draft design doc',
+        reason: 'No tickets ready, drafting spec instead',
+        result: 'Created design doc at docs/spec.md',
+        durationMs: 5000,
+        status: 'success',
+      },
+      {
+        jobId: 'job-1',
+        projectId: 'project-1',
+        objectiveId: 'objective-1',
+      },
+    );
+
+    expect(mockActivityAppend).toHaveBeenCalledTimes(1);
+    expect(mockActivityAppend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'scheduled-task:job-1',
+        type: 'status-update',
+        body: expect.stringContaining('Draft design doc'),
+      }),
+    );
+    expect(mockActivityAppend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining('Created design doc at docs/spec.md'),
+      }),
+    );
+  });
+
+  test('logActionReceipt is a no-op when objective context cannot be loaded', async () => {
+    mockLoadProjectObjectiveContext.mockResolvedValue(null);
+
+    const { logActionReceipt } = await import('@/src/prompt-scheduler/processor');
+    await logActionReceipt(
+      {
+        action: 'stop',
+        jobName: 'Some worker',
+        reason: 'Nothing to do',
+        result: 'Skipped',
+        durationMs: 100,
+        status: 'success',
+      },
+      {
+        jobId: 'job-1',
+        projectId: 'project-1',
+        objectiveId: 'objective-1',
+      },
+    );
+
+    expect(mockActivityAppend).not.toHaveBeenCalled();
+  });
 });
