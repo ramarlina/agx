@@ -1,7 +1,8 @@
+import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { loadProjectObjectiveContext } from "../../_shared";
 import { getActivityRepository } from "@/src/objectives/activities";
-import type { ObjectiveActivityType } from "@/src/objectives/activities";
+import type { ObjectiveActivityType, ObjectiveActivityFile } from "@/src/objectives/activities";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,5 +59,56 @@ export async function GET(request: NextRequest, context: RouteContext) {
   } catch (error) {
     console.error("Failed to load activities:", error);
     return NextResponse.json({ error: "Failed to load activities" }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest, context: RouteContext) {
+  try {
+    const resolved = await resolveParams(context.params);
+    if (!resolved) {
+      return NextResponse.json({ error: "Objective not found" }, { status: 404 });
+    }
+
+    const objectiveContext = await loadProjectObjectiveContext(
+      resolved.projectId,
+      resolved.objectiveId,
+    );
+    if (!objectiveContext) {
+      return NextResponse.json({ error: "Objective not found" }, { status: 404 });
+    }
+
+    const body = await request.json();
+    const type = body?.type as string;
+    const content = typeof body?.body === "string" ? body.body.trim() : "";
+
+    if (!type || !VALID_TYPES.has(type as ObjectiveActivityType)) {
+      return NextResponse.json(
+        { error: "Invalid type. Must be one of: metric-check, status-update, milestone, note" },
+        { status: 400 },
+      );
+    }
+    if (!content) {
+      return NextResponse.json({ error: "Body is required" }, { status: 400 });
+    }
+
+    const { project, objective } = objectiveContext;
+    const slug = project.slug ?? project.id;
+    const repo = getActivityRepository(slug, objective.key);
+
+    const activity: ObjectiveActivityFile = {
+      id: randomUUID(),
+      source: "manual",
+      objectiveLabel: objective.key,
+      createdAt: new Date().toISOString(),
+      type: type as ObjectiveActivityType,
+      body: content,
+    };
+
+    repo.append(activity);
+
+    return NextResponse.json(activity, { status: 201 });
+  } catch (error) {
+    console.error("Failed to create activity:", error);
+    return NextResponse.json({ error: "Failed to create activity" }, { status: 500 });
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { ChevronDown, ChevronRight, Filter } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronRight, Filter, Plus, X } from "lucide-react";
 import { Markdown } from "@/components/chat-ui/Markdown";
 import type {
   ObjectiveActivityFile,
@@ -107,6 +107,101 @@ function ActivityEntry({ activity }: { activity: ObjectiveActivityFile }) {
   );
 }
 
+function LogActivityForm({
+  projectId,
+  objectiveId,
+  onCreated,
+  onCancel,
+}: {
+  projectId: string;
+  objectiveId: string;
+  onCreated: (activity: ObjectiveActivityFile) => void;
+  onCancel: () => void;
+}) {
+  const [type, setType] = useState<ObjectiveActivityType>("note");
+  const [body, setBody] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+
+  const handleSubmit = async () => {
+    const trimmed = body.trim();
+    if (!trimmed || isSubmitting) return;
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(
+        `/api/projects/${projectId}/objectives/${objectiveId}/activities`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ type, body: trimmed }),
+        },
+      );
+      if (!response.ok) throw new Error("Failed to create activity");
+      const activity = (await response.json()) as ObjectiveActivityFile;
+      onCreated(activity);
+    } catch (error) {
+      console.error("Failed to create activity:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-zinc-700/60 bg-zinc-900/50 p-3 mb-4">
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {ALL_TYPES.map((t) => {
+          const meta = TYPE_META[t];
+          const isActive = type === t;
+          return (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setType(t)}
+              className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] transition-colors ${
+                isActive
+                  ? "bg-zinc-200 text-zinc-900 border-zinc-200"
+                  : `${meta.className} hover:opacity-80`
+              }`}
+            >
+              {meta.label}
+            </button>
+          );
+        })}
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        placeholder="What did you do?"
+        rows={3}
+        className="w-full rounded-md border border-zinc-700/60 bg-zinc-800/50 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 resize-none"
+      />
+      <div className="flex items-center justify-end gap-2 mt-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={!body.trim() || isSubmitting}
+          className="px-3 py-1.5 text-xs font-medium rounded-md bg-sky-600 text-white hover:bg-sky-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {isSubmitting ? "Saving..." : "Log activity"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function ObjectiveActivityTimeline({
   projectId,
   objectiveId,
@@ -119,6 +214,7 @@ export function ObjectiveActivityTimeline({
   const [isLoading, setIsLoading] = useState(true);
   const [typeFilter, setTypeFilter] = useState<ObjectiveActivityType | "all">("all");
   const [showFilter, setShowFilter] = useState(false);
+  const [showLogForm, setShowLogForm] = useState(false);
 
   const fetchActivities = useCallback(
     async (pageNum: number, type: ObjectiveActivityType | "all", append: boolean) => {
@@ -163,18 +259,32 @@ export function ObjectiveActivityTimeline({
         <p className="text-sm text-zinc-500">
           Time-ordered log of outputs from scheduled tasks and manual entries.
         </p>
-        <button
-          type="button"
-          onClick={() => setShowFilter(!showFilter)}
-          className={`p-1.5 rounded-md transition-colors ${
-            showFilter || typeFilter !== "all"
-              ? "text-sky-400 bg-sky-500/10"
-              : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
-          }`}
-          aria-label="Filter activities"
-        >
-          <Filter size={14} />
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setShowLogForm(!showLogForm)}
+            className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+              showLogForm
+                ? "text-sky-400 bg-sky-500/10"
+                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+            }`}
+          >
+            {showLogForm ? <X size={12} /> : <Plus size={12} />}
+            Log activity
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowFilter(!showFilter)}
+            className={`p-1.5 rounded-md transition-colors ${
+              showFilter || typeFilter !== "all"
+                ? "text-sky-400 bg-sky-500/10"
+                : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+            }`}
+            aria-label="Filter activities"
+          >
+            <Filter size={14} />
+          </button>
+        </div>
       </div>
 
       {showFilter && (
@@ -209,6 +319,23 @@ export function ObjectiveActivityTimeline({
             );
           })}
         </div>
+      )}
+
+      {showLogForm && (
+        <LogActivityForm
+          projectId={projectId}
+          objectiveId={objectiveId}
+          onCreated={(activity) => {
+            setActivities((prev) => [activity, ...prev]);
+            setTotal((prev) => {
+              const next = prev + 1;
+              onTotalChange?.(next);
+              return next;
+            });
+            setShowLogForm(false);
+          }}
+          onCancel={() => setShowLogForm(false)}
+        />
       )}
 
       {isLoading && activities.length === 0 ? (
