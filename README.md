@@ -17,6 +17,8 @@
 </p>
 
 <p align="center">
+  <a href="https://runagx.com">Website</a> •
+  <a href="https://runagx.com/blog">Blog</a> •
   <a href="#get-agx">Get AGX</a> •
   <a href="#ui">UI</a> •
   <a href="#desktop-app">Desktop</a> •
