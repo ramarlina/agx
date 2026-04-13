@@ -5,6 +5,24 @@ export type RunStatus = 'queued' | 'running' | 'success' | 'failed' | 'cancelled
 export type TriggerType = 'scheduled' | 'condition';
 export type PromptJobExecutionMode = 'prompt' | 'objective_linear_ticket';
 
+export type ObjectiveActionType = 'work_ticket' | 'run_prompt' | 'stop';
+
+export type ObjectiveAction =
+  | { action: 'work_ticket'; ticketId: string; reason: string }
+  | { action: 'run_prompt'; prompt: string; reason: string }
+  | { action: 'stop'; reason: string };
+
+export interface ActionReceipt {
+  action: string;
+  jobName: string;
+  reason: string;
+  result: string;
+  linearRunId?: string;
+  chatRunId?: string;
+  durationMs: number;
+  status: 'success' | 'failed';
+}
+
 export const DEFAULT_PROMPT_JOB_EXECUTION_MODE: PromptJobExecutionMode = 'prompt';
 export const DEFAULT_OBJECTIVE_LINEAR_WORKER_NAME = 'Work objective Linear tickets';
 export const DEFAULT_OBJECTIVE_LINEAR_WORKER_PROMPT = [
