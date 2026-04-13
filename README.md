@@ -90,8 +90,11 @@ The local web dashboard runs as a Next.js app on your machine. Source lives in `
 
 ```bash
 agx board start        # Open the dashboard in your browser
+agx ui open            # Alias for agx board open
 agx daemon start       # Start the background worker
 ```
+
+Older `agx chat`, `agx chat start`, `agx chat open`, and `agx chat stop` commands still work as compatibility wrappers, but `agx board` is now the canonical UI command group.
 
 ### Setup
 

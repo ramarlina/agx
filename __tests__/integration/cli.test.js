@@ -156,6 +156,19 @@ describe('AGX CLI Integration Tests', () => {
       expect(output).toMatch(/URL:/i);
       expect(output).toMatch(/Logs:/i);
     });
+
+    test('agx ui show prints URL and logs path', () => {
+      const output = runAgx('ui show');
+      expect(output).toMatch(/Board/i);
+      expect(output).toMatch(/URL:/i);
+      expect(output).toMatch(/Logs:/i);
+    });
+
+    test('agx chat stop warns that board is the canonical command', () => {
+      const output = runAgx('chat stop');
+      expect(output).toMatch(/Deprecated:/i);
+      expect(output).toMatch(/agx board stop/i);
+    });
   });
 
   describe('Engine Selection', () => {
