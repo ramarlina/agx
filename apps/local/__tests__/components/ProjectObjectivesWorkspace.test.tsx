@@ -1448,6 +1448,21 @@ describe("ProjectObjectivesWorkspace", () => {
     expect(chatPanel).not.toBeNull();
   });
 
+  test("uses theme tokens for the objective chat panel surfaces", () => {
+    const { container } = render(
+      <ProjectObjectiveDetail
+        projectSlug="alpha"
+        objectiveId="objective_growth"
+      />
+    );
+
+    const chatPanel = container.querySelector(
+      '[style*="--objective-chat-panel-width"]'
+    );
+    expect(chatPanel).toHaveClass("bg-[var(--overlay-panel)]");
+    expect(chatPanel).not.toHaveClass("bg-[rgba(8,12,18,0.72)]");
+  });
+
   test("creates the objective chat lazily on first send instead of on load", async () => {
     const sendMessageMock = jest.fn();
     mockedUseGroupChat.mockReturnValue({

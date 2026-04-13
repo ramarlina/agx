@@ -62,8 +62,6 @@ function formatRelativeTime(isoDate: string): string {
 function ActivityEntry({ activity }: { activity: ObjectiveActivityFile }) {
   const [expanded, setExpanded] = useState(false);
   const meta = TYPE_META[activity.type] ?? TYPE_META.note;
-  const preview =
-    activity.body.length > 200 ? `${activity.body.slice(0, 200).trim()}…` : activity.body;
   const hasMore = activity.body.length > 200;
 
   return (
@@ -90,7 +88,13 @@ function ActivityEntry({ activity }: { activity: ObjectiveActivityFile }) {
           <Markdown content={activity.body} />
         </div>
       ) : (
-        <p className="text-sm leading-relaxed text-[var(--muted-foreground)]">{preview}</p>
+        <div
+          className={`text-sm leading-relaxed text-[var(--muted-foreground)] ${
+            hasMore ? "max-h-24 overflow-hidden [mask-image:linear-gradient(to_bottom,black_72%,transparent)]" : ""
+          }`}
+        >
+          <Markdown content={activity.body} />
+        </div>
       )}
 
       {hasMore && (
