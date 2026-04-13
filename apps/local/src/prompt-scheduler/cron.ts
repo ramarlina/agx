@@ -40,6 +40,17 @@ export function computeNextRun(cronExpr: string, fromMs?: number): number | null
   }
 }
 
+export function computePrevRun(cronExpr: string, fromMs?: number): number | null {
+  try {
+    const expr = CronExpressionParser.parse(cronExpr, {
+      currentDate: fromMs ? new Date(fromMs) : new Date(),
+    });
+    return expr.prev().toDate().getTime();
+  } catch {
+    return null;
+  }
+}
+
 export function formatIntervalCadence(intervalMs: number): string {
   const normalizedMs = Math.max(60_000, intervalMs);
 

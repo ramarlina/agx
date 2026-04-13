@@ -8,6 +8,7 @@ import {
 } from '@/src/automations';
 import type { GraphSchedule } from '@/src/graph/types';
 import { resolveAutomationTitle } from '@/lib/project-overview-titles';
+import { computePrevRun } from '@/src/prompt-scheduler/cron';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -33,6 +34,13 @@ export interface AutomationItem {
   executionState: string;
   createdAt: string;
   updatedAt: string;
+}
+
+function enrichPrevScheduledAt(item: AutomationItem): AutomationItem {
+  const cronExpr = item.schedule.cronExpr ?? item.schedule.cadence;
+  if (!cronExpr) return item;
+  const prevScheduledAt = computePrevRun(cronExpr) ?? undefined;
+  return { ...item, schedule: { ...item.schedule, prevScheduledAt } };
 }
 
 /**
@@ -107,7 +115,7 @@ export async function GET(request: NextRequest) {
         ));
         return NextResponse.json({
           count: automations.length,
-          automations,
+          automations: automations.map(enrichPrevScheduledAt),
         });
       }
     }
@@ -150,7 +158,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       count: automations.length,
-      automations,
+      automations: automations.map(enrichPrevScheduledAt),
     });
   } catch (error) {
     console.error('Failed to list automations:', error);

@@ -359,6 +359,8 @@ export interface GraphSchedule {
   name?: string;
   /** Optional description */
   description?: string;
+  /** Computed: previous cron occurrence (not persisted) */
+  prevScheduledAt?: number;
 }
 
 export interface ExecutionGraph {

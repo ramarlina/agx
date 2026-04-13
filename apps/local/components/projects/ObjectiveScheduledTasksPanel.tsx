@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Clock, Plus, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Check, Clock, Pause, Play, Plus, Trash2, X, XCircle } from "lucide-react";
 import { usePromptJobs } from "@/hooks/usePromptJobs";
 import { cronToHuman } from "@/src/graph/nl-schedule";
-import type { PromptJob } from "@/src/prompt-scheduler/types";
+import type { PromptJob, PromptRun } from "@/src/prompt-scheduler/types";
 import { CreateJobModal, type CreateJobData } from "@/components/PromptJobBoard";
 
 export type ObjectiveScheduledTaskDraft = CreateJobData;
@@ -23,11 +23,16 @@ function formatCadence(job: Pick<PromptJob, "cadence" | "cronExpr">): string {
   return cronToHuman(job.cronExpr || source) ?? source;
 }
 
-function isJobOverdue(nextRunAt: number | null, state: PromptJob["state"], lastRunAt?: number | null): boolean {
-  if (state !== "active" || nextRunAt === null) return false;
-  if (nextRunAt - Date.now() >= 0) return false;
-  if (lastRunAt && lastRunAt >= nextRunAt) return false;
-  return true;
+function isJobOverdue(job: Pick<PromptJob, "nextRunAt" | "lastRunAt" | "prevScheduledAt" | "state">): boolean {
+  if (job.state !== "active") return false;
+  if (job.nextRunAt !== null && job.nextRunAt - Date.now() < 0) {
+    if (job.lastRunAt && job.lastRunAt >= job.nextRunAt) return false;
+    return true;
+  }
+  if (job.prevScheduledAt && job.lastRunAt) {
+    return job.lastRunAt > job.prevScheduledAt + 5 * 60_000;
+  }
+  return false;
 }
 
 function formatNextRun(epochMs: number | null, state: PromptJob["state"]): string {
@@ -178,7 +183,7 @@ export function ObjectiveScheduledTasksPanel({
   createDefaults,
   onCreateTask,
 }: ObjectiveScheduledTasksPanelProps) {
-  const { jobs, loading, refresh, deleteJob } = usePromptJobs(projectId, {
+  const { jobs, loading, refresh, deleteJob, toggleJob, fetchRuns, runNow } = usePromptJobs(projectId, {
     requireProjectId: true,
     includeObjectiveJobs: true,
     objectiveId,
@@ -187,6 +192,7 @@ export function ObjectiveScheduledTasksPanel({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [recentRuns, setRecentRuns] = useState<(PromptRun & { jobName: string })[]>([]);
 
   const visibleJobs = useMemo(
     () => jobs.filter((job) => job.objectiveId === objectiveId),
@@ -196,6 +202,32 @@ export function ObjectiveScheduledTasksPanel({
     () => visibleJobs.find((job) => job.id === selectedJobId) ?? null,
     [selectedJobId, visibleJobs]
   );
+
+  const loadRecentRuns = useCallback(async () => {
+    if (visibleJobs.length === 0) {
+      setRecentRuns([]);
+      return;
+    }
+    const allRuns: (PromptRun & { jobName: string })[] = [];
+    await Promise.all(
+      visibleJobs.map(async (job) => {
+        const runs = await fetchRuns(job.id);
+        for (const run of runs) {
+          allRuns.push({ ...run, jobName: job.name });
+        }
+      })
+    );
+    allRuns.sort(
+      (a, b) =>
+        new Date(b.startedAt ?? b.createdAt).getTime() -
+        new Date(a.startedAt ?? a.createdAt).getTime()
+    );
+    setRecentRuns(allRuns.slice(0, 10));
+  }, [visibleJobs, fetchRuns]);
+
+  useEffect(() => {
+    void loadRecentRuns();
+  }, [loadRecentRuns]);
 
   const handleHide = async (job: PromptJob) => {
     setBusyId(job.id);
@@ -293,7 +325,7 @@ export function ObjectiveScheduledTasksPanel({
                 role="button"
                 tabIndex={0}
                 className={`block w-full rounded-2xl border px-4 py-4 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--card-hover-border)] ${
-                  isJobOverdue(job.nextRunAt, job.state, job.lastRunAt)
+                  isJobOverdue(job)
                     ? "border-amber-500/40 bg-amber-500/5 hover:border-amber-500/60"
                     : "border-[var(--border)] bg-[rgba(15,23,42,0.28)] hover:border-[var(--card-hover-border)]"
                 }`}
@@ -318,7 +350,7 @@ export function ObjectiveScheduledTasksPanel({
                       >
                         {formatState(job.state)}
                       </span>
-                      {isJobOverdue(job.nextRunAt, job.state, job.lastRunAt) && (
+                      {isJobOverdue(job) && (
                         <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 inline-flex items-center gap-1">
                           <Clock className="h-3 w-3" />
                           overdue
@@ -326,7 +358,7 @@ export function ObjectiveScheduledTasksPanel({
                       )}
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[var(--muted-foreground)]">
-                      <span className={`inline-flex items-center gap-1.5 ${isJobOverdue(job.nextRunAt, job.state, job.lastRunAt) ? "text-amber-400 font-medium" : ""}`}>
+                      <span className={`inline-flex items-center gap-1.5 ${isJobOverdue(job) ? "text-amber-400 font-medium" : ""}`}>
                         <Clock className="h-3.5 w-3.5" />
                         Next run {formatNextRun(job.nextRunAt, job.state)}
                       </span>
@@ -349,23 +381,120 @@ export function ObjectiveScheduledTasksPanel({
                     ) : null}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void handleHide(job);
-                    }}
-                    disabled={busyId === job.id}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-2 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-red-400/40 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    {busyId === job.id ? "Hiding..." : "Hide"}
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      title="Run now"
+                      onClick={async (event) => {
+                        event.stopPropagation();
+                        setBusyId(job.id);
+                        await runNow(job.id);
+                        setBusyId(null);
+                        await refresh();
+                        await loadRecentRuns();
+                      }}
+                      disabled={busyId === job.id}
+                      className="rounded-lg border border-[var(--border)] p-2 text-[var(--muted-foreground)] transition-colors hover:border-emerald-400/40 hover:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Play className="h-3.5 w-3.5 fill-current" />
+                    </button>
+                    <button
+                      type="button"
+                      title={job.state === "active" ? "Pause" : "Resume"}
+                      onClick={async (event) => {
+                        event.stopPropagation();
+                        setBusyId(job.id);
+                        await toggleJob(job);
+                        setBusyId(null);
+                      }}
+                      disabled={busyId === job.id}
+                      className={`rounded-lg border p-2 transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                        job.state === "active"
+                          ? "border-[var(--border)] text-[var(--muted-foreground)] hover:border-amber-400/40 hover:text-amber-300"
+                          : "border-emerald-500/30 text-emerald-400 hover:border-emerald-400/50 hover:text-emerald-300"
+                      }`}
+                    >
+                      {job.state === "active" ? (
+                        <Pause className="h-3.5 w-3.5" />
+                      ) : (
+                        <Play className="h-3.5 w-3.5 fill-current" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      title="Delete"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (!confirm(`Delete "${job.name}"? This cannot be undone.`)) return;
+                        void handleHide(job);
+                      }}
+                      disabled={busyId === job.id}
+                      className="rounded-lg border border-[var(--border)] p-2 text-[var(--muted-foreground)] transition-colors hover:border-red-400/40 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
               </div>
             ))
           )}
         </div>
+
+        {/* Recent Executions */}
+        {recentRuns.length > 0 && (
+          <div className="mt-8">
+            <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--muted-foreground)] mb-3">
+              Recent executions
+            </p>
+            <div className="space-y-0.5">
+              {recentRuns.map((run) => {
+                const ts = run.startedAt ?? run.createdAt;
+                const isSuccess = run.status === "success";
+                const isFailed = run.status === "failed";
+                const isRunning = run.status === "running";
+                return (
+                  <div
+                    key={run.id}
+                    className="flex items-center gap-3 py-2 px-2 rounded-md text-xs"
+                  >
+                    <span
+                      className={`flex size-5 shrink-0 items-center justify-center rounded-full border ${
+                        isSuccess
+                          ? "border-emerald-500/40 text-emerald-400"
+                          : isFailed
+                            ? "border-red-500/40 text-red-400"
+                            : isRunning
+                              ? "border-sky-500/40 text-sky-400"
+                              : "border-[var(--border)] text-[var(--muted-foreground)]"
+                      }`}
+                    >
+                      {isSuccess ? (
+                        <Check className="h-3 w-3" />
+                      ) : isFailed ? (
+                        <XCircle className="h-3 w-3" />
+                      ) : (
+                        <span className={`block size-1.5 rounded-full ${isRunning ? "bg-sky-400 animate-pulse" : "bg-current"}`} />
+                      )}
+                    </span>
+                    <span className="truncate text-[var(--muted-foreground)]">
+                      {run.jobName}
+                    </span>
+                    <span className="ml-auto shrink-0 text-[11px] text-[var(--muted-foreground)]">
+                      {formatDateTime(ts)}
+                    </span>
+                    {run.durationMs != null && (
+                      <span className="shrink-0 font-mono text-[11px] text-[var(--muted-foreground)]">
+                        {run.durationMs < 1000
+                          ? `${run.durationMs}ms`
+                          : `${Math.round(run.durationMs / 1000)}s`}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

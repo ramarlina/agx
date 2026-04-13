@@ -34,11 +34,19 @@ function formatCadence(schedule: GraphSchedule): string {
 
 function isScheduleOverdue(schedule: GraphSchedule): boolean {
   if (schedule.state !== "active" || schedule.tickInProgress) return false;
+  // Case 1: next tick is in the past and hasn't run yet
   if (schedule.nextTickAt) {
     if (schedule.nextTickAt - Date.now() >= 0) return false;
-    if (schedule.lastTickAt && schedule.lastTickAt >= schedule.nextTickAt) return false;
+    if (schedule.lastTickAt && schedule.lastTickAt >= schedule.nextTickAt) {
+      // Task ran, but check if it ran late vs previous scheduled time
+      if (schedule.prevScheduledAt && schedule.lastTickAt > schedule.prevScheduledAt + 5 * 60_000) {
+        return true;
+      }
+      return false;
+    }
     return true;
   }
+  // Case 2: interval-based — check if overdue
   if (schedule.lastTickAt) return schedule.lastTickAt + schedule.intervalMs - Date.now() < 0;
   return false;
 }

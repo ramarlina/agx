@@ -2136,11 +2136,17 @@ export function ProjectObjectiveDetail({
                           {notes.length}
                         </span>
                       )}
-                      {tab.id === "linear" && linearIssues.length > 0 && (
-                        <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
-                          {linearIssues.length}
-                        </span>
-                      )}
+                      {tab.id === "linear" && (() => {
+                        const DONE = ["done", "canceled", "cancelled", "completed", "duplicate"];
+                        const active = linearIssues.filter(
+                          (i, idx, arr) => arr.findIndex((x) => x.id === i.id) === idx && !DONE.includes(i.status.toLowerCase())
+                        );
+                        return active.length > 0 ? (
+                          <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
+                            {active.length}
+                          </span>
+                        ) : null;
+                      })()}
                       {tab.id === "scheduled-tasks" && scheduledTaskCount > 0 && (
                         <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
                           {scheduledTaskCount}

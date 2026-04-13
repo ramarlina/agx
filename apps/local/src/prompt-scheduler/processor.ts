@@ -694,6 +694,26 @@ async function fireConditionGate(job: PromptJob, run: PromptRun) {
     finishedAt: new Date().toISOString(),
   });
   store.updateJob(job.id, { lastOutcome: actionResult.status, lastRunAt: Date.now() });
+
+  // Log activity for objective-linked gated jobs
+  if (job.objectiveId && job.projectId) {
+    try {
+      const objectiveContext = await loadProjectObjectiveContext(job.projectId, job.objectiveId);
+      if (objectiveContext) {
+        const summary = actionResult.status === 'success'
+          ? (actionResult.output || '').split('\n').filter(Boolean).slice(0, 3).join('\n') || 'Task completed successfully.'
+          : `Task failed: ${actionResult.error || 'unknown error'}`;
+        await appendObjectiveWorkerActivity({
+          jobId: job.id,
+          projectSlug: objectiveContext.project.slug,
+          objectiveKey: objectiveContext.objective.key,
+          body: `**${job.name}** — ${actionResult.status}\n\n${summary}`,
+        });
+      }
+    } catch {
+      // Activity logging is best-effort
+    }
+  }
 }
 
 async function fireRun(job: PromptJob, run: PromptRun) {
@@ -723,6 +743,26 @@ async function fireRun(job: PromptJob, run: PromptRun) {
     finishedAt: new Date().toISOString(),
   });
   store.updateJob(job.id, { lastOutcome: result.status, lastRunAt: Date.now() });
+
+  // Log activity for objective-linked prompt jobs
+  if (job.objectiveId && job.projectId) {
+    try {
+      const objectiveContext = await loadProjectObjectiveContext(job.projectId, job.objectiveId);
+      if (objectiveContext) {
+        const summary = result.status === 'success'
+          ? (result.output || '').split('\n').filter(Boolean).slice(0, 3).join('\n') || 'Task completed successfully.'
+          : `Task failed: ${result.error || 'unknown error'}`;
+        await appendObjectiveWorkerActivity({
+          jobId: job.id,
+          projectSlug: objectiveContext.project.slug,
+          objectiveKey: objectiveContext.objective.key,
+          body: `**${job.name}** — ${result.status}\n\n${summary}`,
+        });
+      }
+    } catch {
+      // Activity logging is best-effort; don't fail the run
+    }
+  }
 }
 
 function dispatchRun(job: PromptJob, run: PromptRun) {

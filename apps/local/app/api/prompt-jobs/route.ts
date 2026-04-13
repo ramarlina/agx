@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPromptJobStore } from '@/src/prompt-scheduler/get-store';
 import {
   computeNextRun,
+  computePrevRun,
   normalizeLegacyConditionSchedule,
   parseCadence,
 } from '@/src/prompt-scheduler/cron';
@@ -78,7 +79,13 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ count: jobs.length, jobs });
+    const enriched = jobs.map((job) => {
+      const cronExpr = job.cronExpr || job.cadence;
+      const prevScheduledAt = cronExpr ? computePrevRun(cronExpr) : null;
+      return { ...job, prevScheduledAt };
+    });
+
+    return NextResponse.json({ count: enriched.length, jobs: enriched });
   } catch (error) {
     console.error('Failed to list prompt jobs:', error);
     return NextResponse.json(
