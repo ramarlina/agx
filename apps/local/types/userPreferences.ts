@@ -2,7 +2,6 @@ export interface UserPreferences {
   threadSidebarVisible: boolean;
   workspaceRoots: string[];
   homeSearchConsent: boolean;
-  hasCompletedFirstRun: boolean;
   fileIgnorePatterns: string[];
 }
 
@@ -10,7 +9,6 @@ export const DEFAULT_USER_PREFERENCES: UserPreferences = {
   threadSidebarVisible: false,
   workspaceRoots: [],
   homeSearchConsent: false,
-  hasCompletedFirstRun: false,
   fileIgnorePatterns: [],
 };
 
@@ -32,10 +30,6 @@ export function sanitizeUserPreferences(input: unknown): UserPreferences {
       typeof candidate.homeSearchConsent === "boolean"
         ? candidate.homeSearchConsent
         : DEFAULT_USER_PREFERENCES.homeSearchConsent,
-    hasCompletedFirstRun:
-      typeof candidate.hasCompletedFirstRun === "boolean"
-        ? candidate.hasCompletedFirstRun
-        : DEFAULT_USER_PREFERENCES.hasCompletedFirstRun,
     fileIgnorePatterns: Array.isArray(candidate.fileIgnorePatterns)
       ? candidate.fileIgnorePatterns.filter((p) => typeof p === "string")
       : DEFAULT_USER_PREFERENCES.fileIgnorePatterns,
@@ -60,10 +54,6 @@ export function sanitizePartialUserPreferences(input: unknown): Partial<UserPref
 
   if (typeof candidate.homeSearchConsent === "boolean") {
     normalized.homeSearchConsent = candidate.homeSearchConsent;
-  }
-
-  if (typeof candidate.hasCompletedFirstRun === "boolean") {
-    normalized.hasCompletedFirstRun = candidate.hasCompletedFirstRun;
   }
 
   if (Array.isArray(candidate.fileIgnorePatterns)) {
