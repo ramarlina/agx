@@ -296,7 +296,7 @@ describe('prompt scheduler processor', () => {
     }));
     expect(mockActivityAppend).toHaveBeenCalledWith(expect.objectContaining({
       source: 'scheduled-task:job-objective-stop',
-      body: expect.stringContaining('No actionable objective tickets'),
+      body: expect.stringContaining('No action taken'),
     }));
     expect(updateJob).toHaveBeenCalledWith(
       job.id,
@@ -429,6 +429,94 @@ describe('prompt scheduler processor', () => {
     expect(updateJob).toHaveBeenCalledWith(
       job.id,
       expect.objectContaining({ lastOutcome: 'success' }),
+    );
+  });
+
+  test('objective worker executes run_prompt action from controller', async () => {
+    const updateRun = jest.fn();
+    const updateJob = jest.fn();
+    const job = {
+      ...baseJob,
+      id: 'job-objective-prompt',
+      prompt: 'Decide what to do next for this objective.',
+      projectId: 'project-1',
+      objectiveId: 'objective-1',
+      objectiveKey: 'growth-daily-visitors',
+      executionMode: 'objective_linear_ticket',
+    };
+    const run = { id: 'run-objective-prompt', jobId: job.id, status: 'queued' };
+    store = {
+      listQueuedRuns: jest.fn().mockReturnValue([run]),
+      getJob: jest.fn().mockReturnValue(job),
+      updateRun,
+      updateJob,
+    };
+    mockGetPromptJobStore.mockReturnValue(store);
+    mockLoadDbParticipants.mockResolvedValue([
+      { id: 'agent-1', name: 'Growth Agent', provider: 'claude', model: null, color: '#000000' },
+    ]);
+    mockGetProjectAgents.mockResolvedValue([
+      { project_id: 'project-1', agent_id: 'agent-1', routing_order: 0 },
+    ]);
+    mockGetAgent.mockResolvedValue({
+      id: 'agent-1',
+      name: 'Growth Agent',
+      provider: 'claude',
+      model: null,
+      description: 'Helps with growth work.',
+      voice: '',
+    });
+    mockLoadProjectObjectiveContext.mockResolvedValue({
+      project: { id: 'project-1', slug: 'alpha', metadata: {} },
+      workspace: {
+        objectives: [
+          {
+            id: 'objective-1',
+            title: 'Grow daily visitors',
+            key: 'growth-daily-visitors',
+            summary: 'Increase daily visitors.',
+            progress: 10,
+            status: 'at_risk',
+          },
+        ],
+      },
+      objective: {
+        id: 'objective-1',
+        title: 'Grow daily visitors',
+        key: 'growth-daily-visitors',
+        summary: 'Increase daily visitors.',
+        progress: 10,
+        status: 'at_risk',
+      },
+    });
+    mockListObjectiveLinearIssues.mockResolvedValue({ issues: [], refreshedAt: null });
+
+    // First call: controller returns run_prompt action
+    // Second call: agent executes the prompt
+    mockRunCliResponse
+      .mockImplementationOnce(async ({ onDelta }: { onDelta?: (chunk: string) => void }) => {
+        onDelta?.('{"action":"run_prompt","prompt":"Create a Linear ticket for SEO audit of landing pages.","reason":"No tickets exist yet, need to create initial work items.","objectiveProgress":10,"objectiveStatus":"at_risk"}');
+      })
+      .mockImplementationOnce(async ({ onDelta }: { onDelta?: (chunk: string) => void }) => {
+        onDelta?.('Created ticket ESO-5: SEO audit of landing pages');
+      });
+
+    const { processPromptJobs } = await import('@/src/prompt-scheduler/processor');
+    await processPromptJobs();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockStartScriptedLinearSession).not.toHaveBeenCalled();
+    expect(mockRunCliResponse).toHaveBeenCalledTimes(2);
+    // Verify the second call received the controller's prompt
+    expect(mockRunCliResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('Create a Linear ticket for SEO audit'),
+      }),
+    );
+    expect(mockActivityAppend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining('Created ticket ESO-5'),
+      }),
     );
   });
 

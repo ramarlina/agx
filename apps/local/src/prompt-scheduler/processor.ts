@@ -449,6 +449,7 @@ async function executeObjectiveLinearWorker(opts: {
       activeObjectiveAgents.map((entry) => entry.issueId),
     );
 
+    // Phase 1: Controller decides what action to take
     const controllerPrompt = buildObjectiveLinearControllerPrompt({
       jobPrompt: opts.job.prompt,
       objective: {
@@ -479,12 +480,18 @@ async function executeObjectiveLinearWorker(opts: {
     if (controllerResult.status !== 'success') {
       return {
         ...controllerResult,
-        output: controllerResult.output || 'Objective controller failed before selecting a ticket.',
+        output: controllerResult.output || 'Objective controller failed before selecting an action.',
       };
     }
 
     const parsed = extractFirstJsonObject(controllerResult.output);
-    const decision = typeof parsed?.decision === 'string' ? parsed.decision.trim().toLowerCase() : '';
+    // Support both new "action" field and legacy "decision" field
+    const rawAction = typeof parsed?.action === 'string'
+      ? parsed.action.trim().toLowerCase()
+      : typeof parsed?.decision === 'string'
+        ? parsed.decision.trim().toLowerCase()
+        : '';
+    const action = rawAction === 'work' ? 'work_ticket' : rawAction;
     const reason = typeof parsed?.reason === 'string' ? parsed.reason.trim() : '';
     const objectiveProgress = normalizeAssessmentProgress(parsed?.objectiveProgress);
     const objectiveStatus = normalizeAssessmentStatus(parsed?.objectiveStatus);
@@ -494,6 +501,7 @@ async function executeObjectiveLinearWorker(opts: {
     const objectiveNote = typeof parsed?.objectiveNote === 'string' ? parsed.objectiveNote.trim() : '';
     const nowIso = new Date().toISOString();
 
+    // Health side-effects (applied regardless of action type)
     const objectiveHealthSummary =
       objectiveProgress !== null && objectiveStatus
         ? formatHealthSummary('Objective health', objectiveProgress, objectiveStatus)
@@ -547,60 +555,167 @@ async function executeObjectiveLinearWorker(opts: {
       });
     }
 
-    if (decision === 'stop') {
-      const hasNonTerminalIssues = issues.some((issue) => !isObjectiveLinearTerminalStatus(issue.status));
-      const fallbackReason =
-        issues.length === 0
-          ? 'No objective-labeled Linear tickets were found.'
-          : eligibleIssues.length === 0
-            ? hasNonTerminalIssues
-              ? 'All actionable objective tickets already have active sessions.'
-              : 'All objective tickets are already in a terminal state.'
-            : 'The controller decided that no ticket should be started right now.';
-      const stopReason = reason || fallbackReason;
-      await appendObjectiveWorkerActivity({
-        jobId: opts.job.id,
-        projectSlug: objectiveContext.project.slug,
-        objectiveKey: objectiveContext.objective.key,
-        body: [
-          'No actionable objective tickets.',
-          `Reason: ${stopReason}`,
-          objectiveHealthSummary,
-          objectiveNote || null,
-          projectHealthSummary,
-          projectNote || null,
-        ]
-          .filter((line): line is string => Boolean(line))
-          .join('\n\n'),
-      });
+    // Phase 2: Dispatch the action
+    const receipt = await dispatchObjectiveAction({
+      action,
+      parsed,
+      reason,
+      job: opts.job,
+      controllerContext: opts.controllerContext,
+      sessionAgent: opts.sessionAgent,
+      objectiveContext,
+      eligibleIssues,
+      issues,
+      healthSummaries: {
+        objectiveHealthSummary,
+        projectHealthSummary,
+        objectiveNote,
+        projectNote,
+      },
+      cliArgs: opts.cliArgs,
+      onSpawn: opts.onSpawn,
+      startMs,
+    });
+
+    // Phase 3: Log receipt to activity timeline
+    await logActionReceipt(receipt, {
+      jobId: opts.job.id,
+      projectId: opts.job.projectId,
+      objectiveId: opts.job.objectiveId!,
+    });
+
+    return {
+      output: receipt.result,
+      error: receipt.status === 'failed' ? receipt.result : '',
+      durationMs: Date.now() - startMs,
+      status: receipt.status,
+    };
+  } catch (err) {
+    return {
+      output: '',
+      error: err instanceof Error ? err.message : String(err),
+      durationMs: Date.now() - startMs,
+      status: 'failed',
+    };
+  }
+}
+
+async function dispatchObjectiveAction(opts: {
+  action: string;
+  parsed: Record<string, unknown> | null;
+  reason: string;
+  job: PromptJob;
+  controllerContext: {
+    provider: ChatProvider;
+    model: string | null;
+    identity: string | undefined;
+    self: string | undefined;
+    skills: string | undefined;
+  };
+  sessionAgent: Participant;
+  objectiveContext: NonNullable<Awaited<ReturnType<typeof loadProjectObjectiveContext>>>;
+  eligibleIssues: LinearIssueSummary[];
+  issues: LinearIssueSummary[];
+  healthSummaries: {
+    objectiveHealthSummary: string | null;
+    projectHealthSummary: string | null;
+    objectiveNote: string;
+    projectNote: string;
+  };
+  cliArgs?: string;
+  onSpawn?: (pid: number) => void;
+  startMs: number;
+}): Promise<import('./types').ActionReceipt> {
+  const { action, parsed, reason, healthSummaries } = opts;
+
+  if (action === 'stop') {
+    const hasNonTerminalIssues = opts.issues.some((issue) => !isObjectiveLinearTerminalStatus(issue.status));
+    const fallbackReason =
+      opts.issues.length === 0
+        ? 'No objective-labeled Linear tickets were found.'
+        : opts.eligibleIssues.length === 0
+          ? hasNonTerminalIssues
+            ? 'All actionable objective tickets already have active sessions.'
+            : 'All objective tickets are already in a terminal state.'
+          : 'The controller decided that no ticket should be started right now.';
+    const stopReason = reason || fallbackReason;
+
+    return {
+      action: 'stop',
+      jobName: opts.job.name,
+      reason: stopReason,
+      result: [
+        'No action taken.',
+        `Reason: ${stopReason}`,
+        healthSummaries.objectiveHealthSummary,
+        healthSummaries.objectiveNote || null,
+        healthSummaries.projectHealthSummary,
+        healthSummaries.projectNote || null,
+      ]
+        .filter((line): line is string => Boolean(line))
+        .join('\n\n'),
+      durationMs: Date.now() - opts.startMs,
+      status: 'success',
+    };
+  }
+
+  if (action === 'run_prompt') {
+    const promptText = typeof parsed?.prompt === 'string' ? parsed.prompt.trim() : '';
+    if (!promptText) {
       return {
-        output: [
-          'No actionable objective tickets.',
-          `Reason: ${stopReason}`,
-          objectiveHealthSummary,
-          projectHealthSummary,
-        ]
-          .filter((line): line is string => Boolean(line))
-          .join('\n'),
-        error: '',
-        durationMs: Date.now() - startMs,
-        status: 'success',
+        action: 'run_prompt',
+        jobName: opts.job.name,
+        reason,
+        result: 'Controller returned run_prompt but provided no prompt text.',
+        durationMs: Date.now() - opts.startMs,
+        status: 'failed',
       };
     }
 
-    if (decision !== 'work') {
-      throw new Error(`Objective worker controller returned an invalid decision: ${controllerResult.output}`);
-    }
+    const promptResult = await executePrompt({
+      ...opts.controllerContext,
+      prompt: promptText,
+      cliArgs: opts.cliArgs,
+      onSpawn: opts.onSpawn,
+    });
 
+    const summary = promptResult.status === 'success'
+      ? (promptResult.output || '').split('\n').filter(Boolean).slice(0, 10).join('\n') || 'Prompt completed.'
+      : `Prompt failed: ${promptResult.error || 'unknown error'}`;
+
+    return {
+      action: 'run_prompt',
+      jobName: opts.job.name,
+      reason,
+      result: [
+        summary,
+        healthSummaries.objectiveHealthSummary,
+        healthSummaries.projectHealthSummary,
+      ]
+        .filter((line): line is string => Boolean(line))
+        .join('\n\n'),
+      durationMs: Date.now() - opts.startMs,
+      status: promptResult.status,
+    };
+  }
+
+  if (action === 'work_ticket') {
     const ticketId = typeof parsed?.ticketId === 'string' ? parsed.ticketId.trim() : '';
-    const selectedIssue = eligibleIssues.find((issue) => issue.id === ticketId) ?? null;
+    const selectedIssue = opts.eligibleIssues.find((issue) => issue.id === ticketId) ?? null;
     if (!selectedIssue) {
-      throw new Error(`Objective worker controller selected an unknown ticket: ${ticketId || '(empty)'}`);
+      return {
+        action: 'work_ticket',
+        jobName: opts.job.name,
+        reason,
+        result: `Controller selected an unknown ticket: ${ticketId || '(empty)'}`,
+        durationMs: Date.now() - opts.startMs,
+        status: 'failed',
+      };
     }
 
     const launch = await startScriptedLinearSession({
-      projectId: objectiveContext.project.id,
-      projectSlug: objectiveContext.project.slug,
+      projectId: opts.objectiveContext.project.id,
+      projectSlug: opts.objectiveContext.project.slug,
       issue: {
         id: selectedIssue.id,
         identifier: selectedIssue.identifier,
@@ -614,46 +729,38 @@ async function executeObjectiveLinearWorker(opts: {
     const issueLink = selectedIssue.url
       ? `[${selectedIssue.identifier}](${selectedIssue.url})`
       : selectedIssue.identifier;
-    await appendObjectiveWorkerActivity({
-      jobId: opts.job.id,
-      projectSlug: objectiveContext.project.slug,
-      objectiveKey: objectiveContext.objective.key,
-      body: [
+
+    return {
+      action: 'work_ticket',
+      jobName: opts.job.name,
+      reason,
+      result: [
         `Started work on ${issueLink}: ${selectedIssue.title}`,
         reason ? `Reason: ${reason}` : null,
-        objectiveHealthSummary,
-        objectiveNote || null,
-        projectHealthSummary,
-        projectNote || null,
+        healthSummaries.objectiveHealthSummary,
+        healthSummaries.objectiveNote || null,
+        healthSummaries.projectHealthSummary,
+        healthSummaries.projectNote || null,
         `Linear run: ${launch.run.id}`,
       ]
         .filter((line): line is string => Boolean(line))
         .join('\n\n'),
-    });
-
-    return {
-      output: [
-        `Started work on ${selectedIssue.identifier}: ${selectedIssue.title}`,
-        reason ? `Reason: ${reason}` : null,
-        objectiveHealthSummary,
-        projectHealthSummary,
-        `Linear run: ${launch.run.id}`,
-        `Chat run: ${launch.chatRunId}`,
-      ]
-        .filter((line): line is string => Boolean(line))
-        .join('\n'),
-      error: '',
-      durationMs: Date.now() - startMs,
+      linearRunId: launch.run.id,
+      chatRunId: launch.chatRunId,
+      durationMs: Date.now() - opts.startMs,
       status: 'success',
     };
-  } catch (err) {
-    return {
-      output: '',
-      error: err instanceof Error ? err.message : String(err),
-      durationMs: Date.now() - startMs,
-      status: 'failed',
-    };
   }
+
+  // Unknown action
+  return {
+    action: action || 'unknown',
+    jobName: opts.job.name,
+    reason,
+    result: `Controller returned an invalid action: ${action || '(empty)'}`,
+    durationMs: Date.now() - opts.startMs,
+    status: 'failed',
+  };
 }
 
 async function executeJobAction(
