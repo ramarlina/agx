@@ -790,6 +790,19 @@ async function executeJobAction(
     onSpawn?: (pid: number) => void;
   } = {},
 ): Promise<{ output: string; error: string; durationMs: number; status: 'success' | 'failed' }> {
+  if (job.executionMode === 'objective_worker') {
+    const { executeObjectiveWorker } = await import('./objective-worker');
+    const sessionAgent = await resolveObjectiveWorkerAgent(job);
+    const controllerContext = await resolveJobContextForAgent(job, sessionAgent.id);
+    return executeObjectiveWorker({
+      job,
+      controllerContext,
+      sessionAgent,
+      cliArgs: job.cliArgs,
+      onSpawn: opts.onSpawn,
+    });
+  }
+
   if (job.executionMode === 'objective_linear_ticket') {
     let teamId: string | null = null;
 
