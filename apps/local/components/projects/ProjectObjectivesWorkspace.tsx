@@ -1057,7 +1057,7 @@ function ObjectiveChatPanel({
     <>
       <ObjectiveChatResizeHandle onResize={handleChatPanelResize} />
       <aside
-        className="relative flex h-full min-h-[420px] w-full flex-col overflow-hidden border-t border-[var(--border)] bg-[rgba(8,12,18,0.72)] xl:min-h-0 xl:w-[var(--objective-chat-panel-width)] xl:shrink-0 xl:self-stretch xl:border-l xl:border-t-0"
+        className="relative flex h-full min-h-[420px] w-full flex-col overflow-hidden border-t border-[var(--border)] bg-[var(--overlay-panel)] xl:min-h-0 xl:w-[var(--objective-chat-panel-width)] xl:shrink-0 xl:self-stretch xl:border-l xl:border-t-0"
         style={
           {
             "--objective-chat-panel-width": `${chatPanelWidth}px`,
@@ -1122,7 +1122,7 @@ function ObjectiveChatPanel({
                         setSelectedSessionId(session.rootMessageId);
                         setChatView("detail");
                       }}
-                      className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.02]"
+                      className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--overlay-panel-soft)]"
                     >
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-[var(--foreground)]">
@@ -1212,7 +1212,7 @@ function ObjectiveChatPanel({
           )}
         </div>
 
-        <div className="absolute bottom-0 left-0 right-0 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] bg-[rgba(8,12,18,0.72)]">
+        <div className="absolute bottom-0 left-0 right-0 bg-[var(--overlay-panel)] p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           <Composer
             onSend={handleSend}
             onStop={interruptObjectiveChat}
