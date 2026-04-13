@@ -274,7 +274,7 @@ describe('prompt scheduler processor', () => {
       refreshedAt: '2026-04-12T10:05:00.000Z',
     });
     mockRunCliResponse.mockImplementationOnce(async ({ onDelta }: { onDelta?: (chunk: string) => void }) => {
-      onDelta?.('{"decision":"stop","reason":"Nothing is ready for implementation yet.","objectiveProgress":21,"objectiveStatus":"at_risk","projectProgress":34,"projectStatus":"at_risk","objectiveNote":"Progress is improving but still early.","projectNote":"The project still depends heavily on this acquisition stream."}');
+      onDelta?.('{"action":"stop","reason":"Nothing is ready for implementation yet.","objectiveProgress":21,"objectiveStatus":"at_risk","projectProgress":34,"projectStatus":"at_risk","objectiveNote":"Progress is improving but still early.","projectNote":"The project still depends heavily on this acquisition stream."}');
     });
 
     const { processPromptJobs } = await import('@/src/prompt-scheduler/processor');
@@ -395,7 +395,7 @@ describe('prompt scheduler processor', () => {
       refreshedAt: '2026-04-12T10:05:00.000Z',
     });
     mockRunCliResponse.mockImplementationOnce(async ({ onDelta }: { onDelta?: (chunk: string) => void }) => {
-      onDelta?.('{"decision":"work","ticketId":"issue-1","reason":"This is the clearest next step.","objectiveProgress":44,"objectiveStatus":"at_risk","projectProgress":51,"projectStatus":"on_track"}');
+      onDelta?.('{"action":"work_ticket","ticketId":"issue-1","reason":"This is the clearest next step.","objectiveProgress":44,"objectiveStatus":"at_risk","projectProgress":51,"projectStatus":"on_track"}');
     });
 
     const { processPromptJobs } = await import('@/src/prompt-scheduler/processor');
