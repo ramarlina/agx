@@ -27,6 +27,18 @@ jest.mock("@/components/projects/ScheduledTasksSummaryCard", () => ({
   ScheduledTasksSummaryCard: () => <div data-testid="scheduled-tasks-summary-card" />,
 }));
 
+jest.mock("@/components/projects/WorkingNowCard", () => ({
+  WorkingNowCard: () => <div data-testid="working-now-card" />,
+}));
+
+jest.mock("@/components/projects/home/ObjectivesSection", () => ({
+  ObjectivesSection: () => <div data-testid="objectives-section" />,
+}));
+
+jest.mock("@/components/projects/home/ToolPathsSection", () => ({
+  ToolPathsSection: () => <div data-testid="tool-paths-section" />,
+}));
+
 jest.mock("@/components/projects/FoldersSummaryCard", () => ({
   FoldersSummaryCard: () => <div data-testid="folders-summary-card" />,
 }));
@@ -128,5 +140,24 @@ describe("ProjectHome", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open general thread" }));
 
     expect(pushMock).toHaveBeenCalledWith("/projects/alpha/thread/thread-general?open=root-general");
+  });
+
+  test("renders the direction, paths, momentum, and context sections", () => {
+    render(
+      <ProjectHome
+        projectId="project-1"
+        projectSlug="alpha"
+        projectName="Alpha"
+        projectMetadata={buildProjectMetadata()}
+        repos={[]}
+        threadIds={["thread-general"]}
+      />
+    );
+
+    expect(screen.getAllByText("Direction").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Paths").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Momentum").length).toBeGreaterThan(0);
+    expect(screen.getByText("Project Context")).toBeInTheDocument();
+    expect(screen.getByTestId("working-now-card")).toBeInTheDocument();
   });
 });
