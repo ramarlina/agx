@@ -389,7 +389,20 @@ select:focus-visible {
    Card Styles
    ======================================== */
 .surface-card {
-  @apply relative bg-[var(--app-shell-surface)] border border-[var(--app-shell-border)] hover:bg-[var(--app-shell-subtle)] hover:border-[var(--app-shell-border-strong)] rounded-2xl transition-all duration-200;
+  position: relative;
+  background: var(--app-shell-surface);
+  border: 1px solid var(--app-shell-border);
+  border-radius: 1rem;
+  transition:
+    background-color 200ms ease,
+    border-color 200ms ease,
+    box-shadow 200ms ease,
+    transform 200ms ease;
+}
+
+.surface-card:hover {
+  background: var(--app-shell-subtle);
+  border-color: var(--app-shell-border-strong);
 }
 
 .card {
