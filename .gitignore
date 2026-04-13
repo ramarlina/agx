@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+node_modules
 
 # Coverage
 coverage/
@@ -39,6 +40,11 @@ agx.log
 plan/artifacts/
 
 # Project specific
+.claude/
+apps/local/.claude/
+apps/local/.next.stale.*
+apps/local/prototypes/
+apps/local/linear-connect-refined-*.png
 cloud-runtime/
 docs/
 templates/stack/postgres/init/001_agx_board_schema.sql
