@@ -23,9 +23,11 @@ function formatCadence(job: Pick<PromptJob, "cadence" | "cronExpr">): string {
   return cronToHuman(job.cronExpr || source) ?? source;
 }
 
-function isJobOverdue(epochMs: number | null, state: PromptJob["state"]): boolean {
-  if (state !== "active" || epochMs === null) return false;
-  return epochMs - Date.now() < 0;
+function isJobOverdue(nextRunAt: number | null, state: PromptJob["state"], lastRunAt?: number | null): boolean {
+  if (state !== "active" || nextRunAt === null) return false;
+  if (nextRunAt - Date.now() >= 0) return false;
+  if (lastRunAt && lastRunAt >= nextRunAt) return false;
+  return true;
 }
 
 function formatNextRun(epochMs: number | null, state: PromptJob["state"]): string {
@@ -291,7 +293,7 @@ export function ObjectiveScheduledTasksPanel({
                 role="button"
                 tabIndex={0}
                 className={`block w-full rounded-2xl border px-4 py-4 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--card-hover-border)] ${
-                  isJobOverdue(job.nextRunAt, job.state)
+                  isJobOverdue(job.nextRunAt, job.state, job.lastRunAt)
                     ? "border-amber-500/40 bg-amber-500/5 hover:border-amber-500/60"
                     : "border-[var(--border)] bg-[rgba(15,23,42,0.28)] hover:border-[var(--card-hover-border)]"
                 }`}
@@ -316,7 +318,7 @@ export function ObjectiveScheduledTasksPanel({
                       >
                         {formatState(job.state)}
                       </span>
-                      {isJobOverdue(job.nextRunAt, job.state) && (
+                      {isJobOverdue(job.nextRunAt, job.state, job.lastRunAt) && (
                         <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 inline-flex items-center gap-1">
                           <Clock className="h-3 w-3" />
                           overdue
@@ -324,7 +326,7 @@ export function ObjectiveScheduledTasksPanel({
                       )}
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[var(--muted-foreground)]">
-                      <span className={`inline-flex items-center gap-1.5 ${isJobOverdue(job.nextRunAt, job.state) ? "text-amber-400 font-medium" : ""}`}>
+                      <span className={`inline-flex items-center gap-1.5 ${isJobOverdue(job.nextRunAt, job.state, job.lastRunAt) ? "text-amber-400 font-medium" : ""}`}>
                         <Clock className="h-3.5 w-3.5" />
                         Next run {formatNextRun(job.nextRunAt, job.state)}
                       </span>

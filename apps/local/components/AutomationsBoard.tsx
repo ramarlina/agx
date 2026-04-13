@@ -33,8 +33,12 @@ function formatCadence(schedule: GraphSchedule): string {
 }
 
 function isScheduleOverdue(schedule: GraphSchedule): boolean {
-  if (schedule.state !== "active") return false;
-  if (schedule.nextTickAt) return schedule.nextTickAt - Date.now() < 0;
+  if (schedule.state !== "active" || schedule.tickInProgress) return false;
+  if (schedule.nextTickAt) {
+    if (schedule.nextTickAt - Date.now() >= 0) return false;
+    if (schedule.lastTickAt && schedule.lastTickAt >= schedule.nextTickAt) return false;
+    return true;
+  }
   if (schedule.lastTickAt) return schedule.lastTickAt + schedule.intervalMs - Date.now() < 0;
   return false;
 }
