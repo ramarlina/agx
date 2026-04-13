@@ -1,7 +1,7 @@
 "use client";
 
 import { use } from "react";
-import { ProjectObjectiveDetail } from "@/components/projects/ProjectObjectivesWorkspace";
+import { ProjectObjectivesOverview } from "@/components/projects/ProjectObjectivesWorkspace";
 
 export default function ProjectObjectiveDetailPage({
   params,
@@ -10,5 +10,10 @@ export default function ProjectObjectiveDetailPage({
 }) {
   const { slug, objectiveId } = use(params);
 
-  return <ProjectObjectiveDetail projectSlug={slug} objectiveId={objectiveId} />;
+  return (
+    <ProjectObjectivesOverview
+      projectSlug={slug}
+      initialObjectiveId={objectiveId}
+    />
+  );
 }

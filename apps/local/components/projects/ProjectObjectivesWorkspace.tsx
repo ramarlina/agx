@@ -40,7 +40,9 @@ import {
 import { threadService } from "@/services/threadService";
 import {
   loadObjectiveChatPanelWidth,
+  loadObjectiveListPanelWidth,
   persistObjectiveChatPanelWidth,
+  persistObjectiveListPanelWidth,
 } from "@/state/windowState";
 import type { GroupMessage, Participant } from "@/lib/types";
 import {
@@ -66,6 +68,7 @@ interface ProjectObjectivesWorkspaceProps {
 
 interface ProjectObjectiveDetailProps extends ProjectObjectivesWorkspaceProps {
   objectiveId: string;
+  onObjectiveDeleted?: () => void;
 }
 
 interface ObjectiveEditorDraft {
@@ -1054,7 +1057,7 @@ function ObjectiveChatPanel({
     <>
       <ObjectiveChatResizeHandle onResize={handleChatPanelResize} />
       <aside
-        className="relative flex h-full min-h-[420px] w-full flex-col overflow-hidden border-t border-[var(--border)] bg-[var(--overlay-panel)] xl:min-h-0 xl:w-[var(--objective-chat-panel-width)] xl:shrink-0 xl:self-stretch xl:border-l xl:border-t-0"
+        className="relative flex h-full min-h-[420px] w-full flex-col overflow-hidden border-t border-[var(--border)] bg-[rgba(8,12,18,0.72)] xl:min-h-0 xl:w-[var(--objective-chat-panel-width)] xl:shrink-0 xl:self-stretch xl:border-l xl:border-t-0"
         style={
           {
             "--objective-chat-panel-width": `${chatPanelWidth}px`,
@@ -1119,7 +1122,7 @@ function ObjectiveChatPanel({
                         setSelectedSessionId(session.rootMessageId);
                         setChatView("detail");
                       }}
-                      className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--muted)]"
+                      className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.02]"
                     >
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-[var(--foreground)]">
@@ -1209,7 +1212,7 @@ function ObjectiveChatPanel({
           )}
         </div>
 
-        <div className="absolute bottom-0 left-0 right-0 bg-[var(--overlay-panel)] p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+        <div className="absolute bottom-0 left-0 right-0 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] bg-[rgba(8,12,18,0.72)]">
           <Composer
             onSend={handleSend}
             onStop={interruptObjectiveChat}
@@ -1244,7 +1247,7 @@ function ErrorBanner({ message }: { message: string | null }) {
   if (!message) return null;
 
   return (
-    <div className="mt-3 flex items-center gap-2 rounded-2xl border border-[var(--status-failed-border)] bg-[var(--status-failed-bg)] px-3 py-2 text-sm text-[var(--status-failed-text)]">
+    <div className="mt-3 flex items-center gap-2 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
       <AlertTriangle className="h-4 w-4" />
       <span>{message}</span>
     </div>
@@ -1266,7 +1269,7 @@ function ObjectiveNotesEditor({
   if (!editable && !hasContent) return null;
 
   return (
-    <div className="overflow-hidden border-l-2 border-[var(--card-border)] pl-4 transition-all focus-within:border-[var(--primary)]">
+    <div className="overflow-hidden border-l-2 border-[var(--border)]/60 pl-4 transition-all focus-within:border-indigo-500/60">
       {editable || hasContent ? (
         <RichTextEditor
           content={content}
@@ -1279,43 +1282,106 @@ function ObjectiveNotesEditor({
   );
 }
 
+const OBJECTIVE_LIST_MIN_WIDTH = 240;
+const OBJECTIVE_LIST_MAX_WIDTH = 480;
+
+function ObjectiveListResizeHandle({
+  onResize,
+}: {
+  onResize: (delta: number) => void;
+}) {
+  const dragging = useRef(false);
+  const lastX = useRef(0);
+
+  useEffect(() => {
+    if (!dragging.current) return;
+
+    const onMouseMove = (event: MouseEvent) => {
+      const delta = event.clientX - lastX.current;
+      lastX.current = event.clientX;
+      onResize(delta);
+    };
+
+    const onMouseUp = () => {
+      dragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  });
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize objective list panel"
+      className="group relative z-10 w-0 shrink-0 cursor-col-resize"
+      onMouseDown={(event) => {
+        event.preventDefault();
+        dragging.current = true;
+        lastX.current = event.clientX;
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+      }}
+    >
+      <div className="absolute inset-y-0 -left-0.5 w-1 transition-colors group-hover:bg-[var(--primary)]/40" />
+    </div>
+  );
+}
+
 function ObjectiveListCard({
-  projectSlug,
   objective,
   activityCount,
   lastActivityAt,
   activeAgentIds,
   participants,
+  isSelected,
+  onSelect,
 }: {
-  projectSlug: string;
   objective: ProjectObjective;
   activityCount: number;
   lastActivityAt: string | null;
   activeAgentIds?: string[];
   participants?: Participant[];
+  isSelected?: boolean;
+  onSelect?: () => void;
 }) {
   const activityMeta = buildActivityMeta(activityCount, lastActivityAt);
 
   return (
     <article className="px-2">
-      <Link
-        href={buildObjectiveHref(projectSlug, objective.id)}
+      <button
+        type="button"
+        onClick={onSelect}
         aria-label={`Open details for ${objective.title}`}
-        className="group flex items-center gap-3 rounded-2xl py-2 transition-colors hover:bg-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+        className={`group flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors ${
+          isSelected
+            ? "bg-[var(--primary)]/10 border border-[var(--primary)]/20"
+            : "border border-transparent hover:bg-[var(--secondary)]"
+        }`}
       >
-        <div className="min-w-0 flex-1 px-1 py-1.5">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="truncate text-sm font-medium text-[var(--foreground)]">
-              {objective.title}
+        <div className="min-w-0 flex-1 py-0.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <span
+              className={`rounded-full border px-1.5 py-0 text-[9px] font-semibold uppercase tracking-[0.12em] ${HEALTH_META[objective.status].chipClass}`}
+            >
+              {HEALTH_META[objective.status].label}
             </span>
           </div>
-          <div className="mt-1 text-xs text-[var(--muted-foreground)] sm:hidden">
+          <p className="mt-1 truncate text-sm font-medium text-[var(--foreground)]">
+            {objective.title}
+          </p>
+          <p className="mt-0.5 text-[11px] text-[var(--muted-foreground)]">
             {activityMeta}
-          </div>
-        </div>
-
-        <div className="hidden shrink-0 text-right text-xs text-[var(--muted-foreground)] sm:block">
-          <div>{activityMeta}</div>
+          </p>
         </div>
 
         {activeAgentIds && activeAgentIds.length > 0 && (
@@ -1331,19 +1397,15 @@ function ObjectiveListCard({
             })}
           </span>
         )}
-
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors group-hover:bg-[var(--muted)] group-hover:text-[var(--foreground)] group-focus-visible:bg-[var(--muted)] group-focus-visible:text-[var(--foreground)]">
-          <ArrowRight className="h-4 w-4" />
-        </span>
-      </Link>
+      </button>
     </article>
   );
 }
 
 export function ProjectObjectivesOverview({
   projectSlug,
-}: ProjectObjectivesWorkspaceProps) {
-  const router = useRouter();
+  initialObjectiveId,
+}: ProjectObjectivesWorkspaceProps & { initialObjectiveId?: string }) {
   const { isLoading, project, workspace, teams, persistWorkspace } =
     useProjectObjectivesWorkspace(projectSlug);
   const objectives = workspace.objectives;
@@ -1351,11 +1413,35 @@ export function ProjectObjectivesOverview({
     () => getAvailableTeams(teams, workspace),
     [teams, workspace]
   );
+  const [selectedObjectiveId, setSelectedObjectiveId] = useState<string | null>(
+    initialObjectiveId ?? null
+  );
+  const [listPanelWidth, setListPanelWidth] = useState(() => {
+    return loadObjectiveListPanelWidth() || 320;
+  });
   const [objectiveEditor, setObjectiveEditor] = useState<ObjectiveEditorDraft | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [activeAgentsByObjective, setActiveAgentsByObjective] = useState<Map<string, string[]>>(new Map());
   const [participants, setParticipants] = useState<Participant[]>([]);
+
+  // Auto-select first objective when none is selected
+  useEffect(() => {
+    if (!selectedObjectiveId && objectives.length > 0) {
+      setSelectedObjectiveId(objectives[0].id);
+    }
+  }, [selectedObjectiveId, objectives]);
+
+  // Clear selection if the selected objective was deleted
+  useEffect(() => {
+    if (
+      selectedObjectiveId &&
+      objectives.length > 0 &&
+      !objectives.some((o) => o.id === selectedObjectiveId)
+    ) {
+      setSelectedObjectiveId(objectives[0]?.id ?? null);
+    }
+  }, [selectedObjectiveId, objectives]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1435,7 +1521,7 @@ export function ProjectObjectivesOverview({
     try {
       await persistWorkspace(upsertProjectObjective(workspace, nextObjective));
       setObjectiveEditor(null);
-      router.push(buildObjectiveHref(projectSlug, nextObjective.id));
+      setSelectedObjectiveId(nextObjective.id);
     } catch (error) {
       setSaveError(
         error instanceof Error ? error.message : "Failed to save objective updates."
@@ -1444,6 +1530,17 @@ export function ProjectObjectivesOverview({
       setIsSaving(false);
     }
   };
+
+  const handleListPanelResize = useCallback((delta: number) => {
+    setListPanelWidth((currentWidth) => {
+      const nextWidth = Math.max(
+        OBJECTIVE_LIST_MIN_WIDTH,
+        Math.min(OBJECTIVE_LIST_MAX_WIDTH, currentWidth + delta)
+      );
+      persistObjectiveListPanelWidth(nextWidth);
+      return nextWidth;
+    });
+  }, []);
 
   if (isLoading && !project) {
     return <LoadingState label="Loading objectives..." />;
@@ -1454,57 +1551,88 @@ export function ProjectObjectivesOverview({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_28%),var(--background)] text-[var(--foreground)]">
-      <div className="border-b border-[var(--border)] bg-[var(--overlay-panel)] px-4 py-5 backdrop-blur md:px-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div className="space-y-2">
-            <p className="text-sm text-[var(--muted-foreground)]">
-              {objectives.length === 0
-                ? "Add an objective to start tracking work in this project."
-                : "Click an objective to open its detail view."}
+    <div className="flex h-full min-h-0 overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
+      {/* Left panel: objective list */}
+      <div
+        className="flex flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--background)]"
+        style={{ width: listPanelWidth }}
+      >
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
+              Objectives
+            </p>
+            <p className="mt-0.5 text-[11px] text-[var(--muted-foreground)]">
+              {objectives.length === 0 ? "None yet" : `${objectives.length} total`}
             </p>
           </div>
-
           <button
             type="button"
             onClick={() => setObjectiveEditor(buildEmptyObjectiveDraft())}
-            className="inline-flex items-center gap-2 self-start rounded-xl border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-3 py-2 text-sm font-medium text-[var(--status-completed-text)] transition-opacity hover:opacity-90"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+            aria-label="New objective"
           >
             <Plus className="h-4 w-4" />
-            New objective
           </button>
         </div>
+
         <ErrorBanner message={saveError} />
+
+        <div className="flex-1 overflow-y-auto py-1">
+          {objectives.length === 0 ? (
+            <div className="px-4 py-8 text-center">
+              <p className="text-sm text-[var(--muted-foreground)]">
+                No objectives yet.
+              </p>
+              <button
+                type="button"
+                onClick={() => setObjectiveEditor(buildEmptyObjectiveDraft())}
+                className="mt-2 text-sm text-[var(--primary)] hover:underline"
+              >
+                Create one
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-0.5">
+              {objectives.map((objective) => {
+                const objectiveActivities = buildObjectiveTimelineActivities({
+                  objective,
+                  workspace,
+                });
+
+                return (
+                  <ObjectiveListCard
+                    key={objective.id}
+                    objective={objective}
+                    activityCount={objectiveActivities.length}
+                    lastActivityAt={objectiveActivities[0]?.createdAt ?? null}
+                    activeAgentIds={activeAgentsByObjective.get(objective.id)}
+                    participants={participants}
+                    isSelected={selectedObjectiveId === objective.id}
+                    onSelect={() => setSelectedObjectiveId(objective.id)}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-5 md:px-6 md:py-6">
-        {objectives.length === 0 ? (
-          <div className="mx-auto max-w-3xl rounded-[32px] border border-dashed border-[var(--border)] bg-[var(--card-bg)] p-8 text-center">
-            <p className="text-lg font-semibold text-[var(--foreground)]">No objectives yet</p>
-            <p className="mt-2 text-sm text-[var(--muted-foreground)]">
-              Keep the root view simple: objective list first, detail after click-through.
-            </p>
-          </div>
-        ) : (
-          <div className="mx-auto max-w-4xl divide-y divide-[var(--border)] overflow-hidden rounded-[24px] border border-[var(--border)] bg-[var(--overlay-panel)]">
-            {objectives.map((objective) => {
-              const objectiveActivities = buildObjectiveTimelineActivities({
-                objective,
-                workspace,
-              });
+      <ObjectiveListResizeHandle onResize={handleListPanelResize} />
 
-              return (
-                <ObjectiveListCard
-                  key={objective.id}
-                  projectSlug={projectSlug}
-                  objective={objective}
-                  activityCount={objectiveActivities.length}
-                  lastActivityAt={objectiveActivities[0]?.createdAt ?? null}
-                  activeAgentIds={activeAgentsByObjective.get(objective.id)}
-                  participants={participants}
-                />
-              );
-            })}
+      {/* Right panel: objective detail */}
+      <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
+        {selectedObjectiveId ? (
+          <ProjectObjectiveDetail
+            projectSlug={projectSlug}
+            objectiveId={selectedObjectiveId}
+            onObjectiveDeleted={() => setSelectedObjectiveId(null)}
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center text-sm text-[var(--muted-foreground)]">
+            {objectives.length === 0
+              ? "Create an objective to get started."
+              : "Select an objective from the list."}
           </div>
         )}
       </div>
@@ -1527,6 +1655,7 @@ export function ProjectObjectivesOverview({
 export function ProjectObjectiveDetail({
   projectSlug,
   objectiveId,
+  onObjectiveDeleted,
 }: ProjectObjectiveDetailProps) {
   const router = useRouter();
   const { isLoading, project, workspace, teams, persistWorkspace, refetchProject } =
@@ -1789,7 +1918,11 @@ export function ProjectObjectiveDetail({
     if (!confirmed) return;
 
     await runPersist(removeProjectObjective(workspace, objective.id));
-    router.push(`/projects/${projectSlug}`);
+    if (onObjectiveDeleted) {
+      onObjectiveDeleted();
+    } else {
+      router.push(`/projects/${projectSlug}`);
+    }
   };
 
   const handleObjectiveThreadLinked = useCallback(
@@ -1952,7 +2085,7 @@ export function ProjectObjectiveDetail({
 
   if (!objective) {
     return (
-      <div className="flex h-full items-center justify-center bg-[var(--background)] px-4">
+      <div className="flex h-full items-center justify-center px-4 bg-[var(--background)]">
         <div className="rounded-xl border border-[var(--border)] bg-[var(--card-bg)] p-8 text-center">
           <p className="text-lg font-semibold text-[var(--foreground)]">Objective not found</p>
           <p className="mt-2 text-sm text-[var(--muted-foreground)]">
@@ -2025,7 +2158,7 @@ export function ProjectObjectiveDetail({
                     className="flex items-center gap-3 group cursor-pointer"
                     onClick={() => setObjectiveEditor(buildObjectiveDraft(objective))}
                   >
-                    <h1 className="text-[28px] font-semibold leading-tight text-[var(--foreground)]">
+                    <h1 className="text-[28px] leading-tight font-semibold text-[var(--foreground)]">
                       {objective.title}
                     </h1>
                     <Pencil size={16} className="shrink-0 text-[var(--muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100" />
@@ -2195,7 +2328,7 @@ export function ProjectObjectiveDetail({
                     {isNotesLoading ? (
                       <p className="py-4 text-sm text-[var(--muted-foreground)]">Loading notes...</p>
                     ) : notes.length === 0 ? (
-                      <p className="py-4 text-sm text-[var(--muted-foreground)]">
+                      <p className="text-sm text-[var(--muted-foreground)] py-4">
                         No notes yet. Add one above.
                       </p>
                     ) : (
@@ -2225,7 +2358,7 @@ export function ProjectObjectiveDetail({
                                           [note.id]: e.target.value,
                                         }))
                                       }
-                                      className="flex-1 border-b border-[var(--border)] bg-transparent py-0.5 text-sm font-medium text-[var(--foreground)] focus:border-[var(--primary)] focus:outline-none"
+                                    className="flex-1 border-b border-[var(--border)] bg-transparent py-0.5 text-sm font-medium text-[var(--foreground)] focus:border-[var(--primary)] focus:outline-none"
                                     />
                                   </div>
                                 ) : (
@@ -2241,7 +2374,7 @@ export function ProjectObjectiveDetail({
                                   </button>
                                 )}
                                 <div className="flex items-center gap-2">
-                                  <span className="text-[11px] text-[var(--app-shell-soft-text)]">
+                                  <span className="text-[11px] text-[var(--muted-foreground)]">
                                     {isSavingNote
                                       ? "Saving..."
                                       : new Date(note.updatedAt).toLocaleDateString()}
@@ -2398,7 +2531,7 @@ export function ProjectObjectiveDetail({
 
                           {doneIssues.length > 0 && (
                             <div className={activeIssues.length > 0 ? "mt-6" : ""}>
-                              <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--app-shell-soft-text)]">
+                              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--muted-foreground)] mb-2">
                                 Completed
                               </p>
                               <div className="space-y-0.5">
