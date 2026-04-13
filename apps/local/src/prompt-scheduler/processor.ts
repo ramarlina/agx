@@ -829,6 +829,19 @@ async function fireConditionGate(job: PromptJob, run: PromptRun) {
       finishedAt: new Date().toISOString(),
     });
     store.updateJob(job.id, { lastOutcome: 'success', lastRunAt: Date.now() });
+    if (job.objectiveId && job.projectId) {
+      await logActionReceipt(
+        {
+          action: 'gated_skip',
+          jobName: job.name,
+          reason: 'condition not met',
+          result: `Gate: ${answer}\n(condition not met — skipped action)`,
+          durationMs: gateResult.durationMs,
+          status: 'success',
+        },
+        { jobId: job.id, projectId: job.projectId, objectiveId: job.objectiveId },
+      );
+    }
     return;
   }
 
@@ -846,24 +859,20 @@ async function fireConditionGate(job: PromptJob, run: PromptRun) {
   });
   store.updateJob(job.id, { lastOutcome: actionResult.status, lastRunAt: Date.now() });
 
-  // Log activity for objective-linked gated jobs
   if (job.objectiveId && job.projectId) {
-    try {
-      const objectiveContext = await loadProjectObjectiveContext(job.projectId, job.objectiveId);
-      if (objectiveContext) {
-        const summary = actionResult.status === 'success'
+    await logActionReceipt(
+      {
+        action: 'prompt',
+        jobName: job.name,
+        reason: 'condition gate passed',
+        result: actionResult.status === 'success'
           ? (actionResult.output || '').split('\n').filter(Boolean).slice(0, 3).join('\n') || 'Task completed successfully.'
-          : `Task failed: ${actionResult.error || 'unknown error'}`;
-        await appendObjectiveWorkerActivity({
-          jobId: job.id,
-          projectSlug: objectiveContext.project.slug,
-          objectiveKey: objectiveContext.objective.key,
-          body: `**${job.name}** — ${actionResult.status}\n\n${summary}`,
-        });
-      }
-    } catch {
-      // Activity logging is best-effort
-    }
+          : `Task failed: ${actionResult.error || 'unknown error'}`,
+        durationMs: gateResult.durationMs + actionResult.durationMs,
+        status: actionResult.status,
+      },
+      { jobId: job.id, projectId: job.projectId, objectiveId: job.objectiveId },
+    );
   }
 }
 
@@ -895,24 +904,20 @@ async function fireRun(job: PromptJob, run: PromptRun) {
   });
   store.updateJob(job.id, { lastOutcome: result.status, lastRunAt: Date.now() });
 
-  // Log activity for objective-linked prompt jobs
   if (job.objectiveId && job.projectId) {
-    try {
-      const objectiveContext = await loadProjectObjectiveContext(job.projectId, job.objectiveId);
-      if (objectiveContext) {
-        const summary = result.status === 'success'
+    await logActionReceipt(
+      {
+        action: 'prompt',
+        jobName: job.name,
+        reason: '',
+        result: result.status === 'success'
           ? (result.output || '').split('\n').filter(Boolean).slice(0, 3).join('\n') || 'Task completed successfully.'
-          : `Task failed: ${result.error || 'unknown error'}`;
-        await appendObjectiveWorkerActivity({
-          jobId: job.id,
-          projectSlug: objectiveContext.project.slug,
-          objectiveKey: objectiveContext.objective.key,
-          body: `**${job.name}** — ${result.status}\n\n${summary}`,
-        });
-      }
-    } catch {
-      // Activity logging is best-effort; don't fail the run
-    }
+          : `Task failed: ${result.error || 'unknown error'}`,
+        durationMs: result.durationMs,
+        status: result.status,
+      },
+      { jobId: job.id, projectId: job.projectId, objectiveId: job.objectiveId },
+    );
   }
 }
 
