@@ -649,14 +649,14 @@ select:focus-visible {
 /* ========================================
    Responsive Utilities
    ======================================== */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+}
+
 @media (max-width: 768px) {
   .hide-mobile {
     display: none;
-  }
-
-  .touch-target {
-    min-height: 44px;
-    min-width: 44px;
   }
 }
 
@@ -1184,6 +1184,10 @@ select:focus-visible {
   width: 360px;
 }
 
+.node-inspector--touch {
+  width: 100%;
+}
+
 .node-inspector__resize-handle {
   position: absolute;
   top: 0;
@@ -1681,6 +1685,12 @@ select:focus-visible {
   gap: 1rem;
 }
 
+.execution-graph-panel__controls--touch .react-flow__controls-button {
+  width: 2.75rem;
+  height: 2.75rem;
+  font-size: 0.9rem;
+}
+
 .graph-sidebar-section__toggle {
   display: flex;
   align-items: center;
@@ -2104,6 +2114,13 @@ select:focus-visible {
 
 .node-detail-panel--open {
   transform: translateX(0);
+}
+
+.node-detail-panel--touch {
+  left: 0;
+  width: 100%;
+  max-width: 100%;
+  border-left: 0;
 }
 
 .node-detail-panel__resize-handle {
@@ -2632,6 +2649,23 @@ select:focus-visible {
   }
   
   .node-detail-panel__resize-handle {
+    display: none;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  [data-touch-target="true"] {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .execution-graph-panel__controls .react-flow__controls-button {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .node-detail-panel__resize-handle,
+  .node-inspector__resize-handle {
     display: none;
   }
 }

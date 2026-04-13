@@ -101,15 +101,36 @@ interface TaskCardProps {
   compact?: boolean;
   onStatusChange?: (status: TaskStatus) => void;
   onApprovalModeChange?: (mode: "auto" | "manual") => void;
+  onStageChange?: (stage: TaskStage) => void;
+  stageOptions?: readonly TaskStage[];
+  currentStage?: TaskStage;
   /** All tasks in the board, used to resolve dependency status */
   allTasks?: Task[];
   relationship?: 'active' | 'blocking' | 'dependent' | 'dimmed' | 'none';
 }
 
-export default function TaskCard({ task, onClick, compact = false, onStatusChange, onApprovalModeChange, allTasks, relationship = 'none' }: TaskCardProps) {
+export default function TaskCard({
+  task,
+  onClick,
+  compact = false,
+  onStatusChange,
+  onApprovalModeChange,
+  onStageChange,
+  stageOptions,
+  currentStage,
+  allTasks,
+  relationship = 'none',
+}: TaskCardProps) {
   const status = statusConfig[task.status || "queued"];
   const stage = task.stage ? stageConfig[task.stage] : null;
   const { summary, isLoading: isGraphSummaryLoading } = useTaskGraphSummary(task.id !== "draft" ? task.id : null);
+  const effectiveStage = currentStage ?? task.stage;
+  const stageIndex = effectiveStage && stageOptions ? stageOptions.indexOf(effectiveStage) : -1;
+  const previousStage = stageIndex > 0 && stageOptions ? stageOptions[stageIndex - 1] : null;
+  const nextStage =
+    stageIndex >= 0 && stageOptions && stageIndex < stageOptions.length - 1
+      ? stageOptions[stageIndex + 1]
+      : null;
 
   // Resolve dependency status
   const deps = task.depends_on?.length ? task.depends_on.map((depId) => {
@@ -197,6 +218,35 @@ export default function TaskCard({ task, onClick, compact = false, onStatusChang
           )}
         </div>
       </div>
+
+      {onStageChange && effectiveStage && (previousStage || nextStage) ? (
+        <div className="flex items-center gap-2 pt-1">
+          {previousStage ? (
+            <button
+              type="button"
+              className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[10px] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--app-shell-subtle)] hover:text-[var(--foreground)]"
+              onClick={(event) => {
+                event.stopPropagation();
+                onStageChange(previousStage);
+              }}
+            >
+              Back to {previousStage}
+            </button>
+          ) : null}
+          {nextStage ? (
+            <button
+              type="button"
+              className="rounded-full border border-[var(--border)] px-2.5 py-1 text-[10px] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--app-shell-subtle)] hover:text-[var(--foreground)]"
+              onClick={(event) => {
+                event.stopPropagation();
+                onStageChange(nextStage);
+              }}
+            >
+              Move to {nextStage}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

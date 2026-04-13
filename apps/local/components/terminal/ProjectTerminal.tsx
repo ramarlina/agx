@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { useTerminalTabsStore } from "@/state/terminalTabs";
 import { useUrlSelection } from "@/hooks/useUrlSelection";
 import TerminalSessionList from "./TerminalSessionList";
@@ -37,6 +38,7 @@ type ResizeState = {
 type TerminalLayoutMode = "single" | "split" | "grid";
 
 export default function ProjectTerminal() {
+  const { isTouchLayout } = useInputCapabilities();
   const sessions = useTerminalTabsStore((s) => s.sessions);
   const createSession = useTerminalTabsStore((s) => s.createSession);
   const closeSession = useTerminalTabsStore((s) => s.closeSession);
@@ -56,6 +58,8 @@ export default function ProjectTerminal() {
   const [editingTerminal, setEditingTerminal] = useState<EditingTerminal | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [resizeState, setResizeState] = useState<ResizeState | null>(null);
+  const [touchSessionListOpen, setTouchSessionListOpen] = useState(false);
+  const [touchActiveTerminalId, setTouchActiveTerminalId] = useState<string | null>(null);
 
   function clamp(value: number, min: number, max: number): number {
     return Math.max(min, Math.min(max, value));
@@ -94,6 +98,23 @@ export default function ProjectTerminal() {
   }, [selectedId, sessions, replaceSelection]);
 
   const selectedSession = sessions.find((s) => s.id === selectedId);
+
+  useEffect(() => {
+    if (!isTouchLayout) {
+      return;
+    }
+
+    const nextTerminalId = selectedSession?.terminals[0]?.id ?? null;
+    setTouchActiveTerminalId((current) => {
+      if (!selectedSession) {
+        return null;
+      }
+      if (current && selectedSession.terminals.some((terminal) => terminal.id === current)) {
+        return current;
+      }
+      return nextTerminalId;
+    });
+  }, [isTouchLayout, selectedSession]);
 
   useEffect(() => {
     const grid = gridRef.current;
@@ -174,6 +195,7 @@ export default function ProjectTerminal() {
   function handleCreate() {
     const id = createSession();
     replaceSelection({ session: id });
+    setTouchSessionListOpen(false);
   }
 
   function handleClose(id: string) {
@@ -229,6 +251,7 @@ export default function ProjectTerminal() {
 
   function handleSelect(id: string) {
     replaceSelection({ session: id });
+    setTouchSessionListOpen(false);
   }
 
   function terminalStatusDotClass(status: TerminalStatus): string {
@@ -373,96 +396,207 @@ export default function ProjectTerminal() {
 
   return (
     <div className="flex h-full bg-[var(--background)]">
-      {/* Left panel — session list */}
-      <div className="flex w-[320px] shrink-0 flex-col border-r border-[var(--card-border)] overflow-hidden">
-        <TerminalSessionList
-          sessions={sessions}
-          selectedId={selectedId}
-          onSelect={handleSelect}
-          onCreate={handleCreate}
-          onClose={handleClose}
-          onRename={renameSession}
-        />
-      </div>
-
-      {/* Right panel — terminal output */}
-      <div className="flex-1 min-w-0 min-h-0 relative">
-        {selectedSession ? (
-          <div className="flex h-full min-h-0 flex-col">
-            <div className="flex items-center justify-between border-b border-[var(--app-shell-border)] px-4 py-3">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-[var(--foreground)]">
-                  {selectedSession.title}
-                </div>
-                <div className="text-xs text-[var(--muted-foreground)]">
-                  {selectedSession.terminals.length} terminal
-                  {selectedSession.terminals.length === 1 ? "" : "s"} in this session
-                </div>
-              </div>
-
+      {isTouchLayout ? (
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          {touchSessionListOpen ? (
+            <>
               <button
                 type="button"
-                onClick={handleAddTerminal}
-                className="inline-flex items-center gap-2 rounded-md border border-[var(--app-shell-border)] bg-[var(--app-shell-surface)] px-3 py-1.5 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]/15"
-              >
-                <Plus size={14} />
-                Add terminal
-              </button>
+                className="absolute inset-0 z-20 bg-black/40"
+                onClick={() => setTouchSessionListOpen(false)}
+                aria-label="Close terminal sessions"
+              />
+              <div className="absolute inset-y-0 left-0 z-30 w-[min(360px,88vw)] overflow-hidden border-r border-[var(--card-border)] bg-[var(--background)] shadow-2xl">
+                <TerminalSessionList
+                  sessions={sessions}
+                  selectedId={selectedId}
+                  onSelect={handleSelect}
+                  onCreate={handleCreate}
+                  onClose={handleClose}
+                  onRename={renameSession}
+                />
+              </div>
+            </>
+          ) : null}
+
+          <div className="flex items-center justify-between border-b border-[var(--app-shell-border)] px-4 py-3">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-[var(--foreground)]">
+                {selectedSession?.title ?? "Terminal"}
+              </div>
+              <div className="text-xs text-[var(--muted-foreground)]">
+                {selectedSession
+                  ? `${selectedSession.terminals.length} terminal${selectedSession.terminals.length === 1 ? "" : "s"} in this session`
+                  : "Select a session or create a new one"}
+              </div>
             </div>
 
-            {(() => {
-              const terminalCount = selectedSession.terminals.length;
-              const layoutMode: TerminalLayoutMode =
-                terminalCount === 1
-                  ? "single"
-                  : terminalCount === 2
-                    ? "split"
-                    : "grid";
-
-              return (
-                <div
-                  className={`min-h-0 flex-1 p-3 ${
-                    layoutMode === "grid" ? "overflow-auto" : "overflow-hidden"
-                  }`}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setTouchSessionListOpen(true)}
+                className="inline-flex items-center gap-2 rounded-md border border-[var(--app-shell-border)] bg-[var(--app-shell-surface)] px-3 py-1.5 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]/15"
+              >
+                <Terminal size={14} />
+                Sessions
+              </button>
+              {selectedSession ? (
+                <button
+                  type="button"
+                  onClick={handleAddTerminal}
+                  className="inline-flex items-center gap-2 rounded-md border border-[var(--app-shell-border)] bg-[var(--app-shell-surface)] px-3 py-1.5 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]/15"
                 >
-                  <div
-                    ref={gridRef}
-                    className={`grid gap-3 ${
-                      layoutMode === "single" ? "h-full grid-cols-1" : ""
-                    } ${
-                      layoutMode === "split" ? "h-full grid-cols-2" : ""
-                    }`}
-                    style={
-                      layoutMode === "grid"
-                        ? {
-                            gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))`,
-                            gridAutoRows: `${gridRowHeight}px`,
-                          }
-                        : {
-                            gridTemplateRows: "minmax(0, 1fr)",
-                          }
-                    }
-                  >
-                    {selectedSession.terminals.map((terminal) =>
-                      renderTerminalCard(
-                        selectedSession.id,
-                        terminal,
-                        selectedSession.terminals.length,
-                        layoutMode,
-                      ),
-                    )}
-                  </div>
+                  <Plus size={14} />
+                  Add terminal
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          {selectedSession ? (
+            <>
+              {selectedSession.terminals.length > 1 ? (
+                <div className="flex gap-2 overflow-x-auto border-b border-[var(--app-shell-border)] px-3 py-2">
+                  {selectedSession.terminals.map((terminal) => (
+                    <button
+                      key={terminal.id}
+                      type="button"
+                      onClick={() => setTouchActiveTerminalId(terminal.id)}
+                      className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                        touchActiveTerminalId === terminal.id
+                          ? "bg-[var(--card-bg)] text-[var(--foreground)]"
+                          : "text-[var(--muted-foreground)] hover:bg-[var(--card-bg)] hover:text-[var(--foreground)]"
+                      }`}
+                    >
+                      {terminal.title}
+                    </button>
+                  ))}
                 </div>
-              );
-            })()}
+              ) : null}
+
+              <div className="min-h-0 flex-1 p-3">
+                {(() => {
+                  const terminal =
+                    selectedSession.terminals.find((item) => item.id === touchActiveTerminalId) ??
+                    selectedSession.terminals[0];
+                  if (!terminal) {
+                    return (
+                      <div className="flex h-full items-center justify-center text-sm text-[var(--muted-foreground)]">
+                        No terminals in this session yet.
+                      </div>
+                    );
+                  }
+
+                  return renderTerminalCard(
+                    selectedSession.id,
+                    terminal,
+                    selectedSession.terminals.length,
+                    "single",
+                  );
+                })()}
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-center text-[var(--muted-foreground)] gap-3">
+              <Terminal size={32} className="opacity-30" />
+              <p className="text-sm">Select a session or create a new one</p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          {/* Left panel — session list */}
+          <div className="flex w-[320px] shrink-0 flex-col border-r border-[var(--card-border)] overflow-hidden">
+            <TerminalSessionList
+              sessions={sessions}
+              selectedId={selectedId}
+              onSelect={handleSelect}
+              onCreate={handleCreate}
+              onClose={handleClose}
+              onRename={renameSession}
+            />
           </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full text-[var(--muted-foreground)] gap-3">
-            <Terminal size={32} className="opacity-30" />
-            <p className="text-sm">Select a session or create a new one</p>
+
+          {/* Right panel — terminal output */}
+          <div className="flex-1 min-w-0 min-h-0 relative">
+            {selectedSession ? (
+              <div className="flex h-full min-h-0 flex-col">
+                <div className="flex items-center justify-between border-b border-[var(--app-shell-border)] px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-[var(--foreground)]">
+                      {selectedSession.title}
+                    </div>
+                    <div className="text-xs text-[var(--muted-foreground)]">
+                      {selectedSession.terminals.length} terminal
+                      {selectedSession.terminals.length === 1 ? "" : "s"} in this session
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleAddTerminal}
+                    className="inline-flex items-center gap-2 rounded-md border border-[var(--app-shell-border)] bg-[var(--app-shell-surface)] px-3 py-1.5 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--muted)]/15"
+                  >
+                    <Plus size={14} />
+                    Add terminal
+                  </button>
+                </div>
+
+                {(() => {
+                  const terminalCount = selectedSession.terminals.length;
+                  const layoutMode: TerminalLayoutMode =
+                    terminalCount === 1
+                      ? "single"
+                      : terminalCount === 2
+                        ? "split"
+                        : "grid";
+
+                  return (
+                    <div
+                      className={`min-h-0 flex-1 p-3 ${
+                        layoutMode === "grid" ? "overflow-auto" : "overflow-hidden"
+                      }`}
+                    >
+                      <div
+                        ref={gridRef}
+                        className={`grid gap-3 ${
+                          layoutMode === "single" ? "h-full grid-cols-1" : ""
+                        } ${
+                          layoutMode === "split" ? "h-full grid-cols-2" : ""
+                        }`}
+                        style={
+                          layoutMode === "grid"
+                            ? {
+                                gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))`,
+                                gridAutoRows: `${gridRowHeight}px`,
+                              }
+                            : {
+                                gridTemplateRows: "minmax(0, 1fr)",
+                              }
+                        }
+                      >
+                        {selectedSession.terminals.map((terminal) =>
+                          renderTerminalCard(
+                            selectedSession.id,
+                            terminal,
+                            selectedSession.terminals.length,
+                            layoutMode,
+                          ),
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-[var(--muted-foreground)] gap-3">
+                <Terminal size={32} className="opacity-30" />
+                <p className="text-sm">Select a session or create a new one</p>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }

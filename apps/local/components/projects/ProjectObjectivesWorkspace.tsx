@@ -142,11 +142,12 @@ function ObjectiveChatResizeHandle({
 }: {
   onResize: (delta: number) => void;
 }) {
+  const { isTouchLayout } = useInputCapabilities();
   const dragging = useRef(false);
   const lastX = useRef(0);
 
   useEffect(() => {
-    if (!dragging.current) return;
+    if (isTouchLayout || !dragging.current) return;
 
     const onMouseMove = (event: MouseEvent) => {
       const delta = lastX.current - event.clientX;
@@ -168,7 +169,11 @@ function ObjectiveChatResizeHandle({
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
-  });
+  }, [isTouchLayout, onResize]);
+
+  if (isTouchLayout) {
+    return null;
+  }
 
   return (
     <div
@@ -1290,11 +1295,12 @@ function ObjectiveListResizeHandle({
 }: {
   onResize: (delta: number) => void;
 }) {
+  const { isTouchLayout } = useInputCapabilities();
   const dragging = useRef(false);
   const lastX = useRef(0);
 
   useEffect(() => {
-    if (!dragging.current) return;
+    if (isTouchLayout || !dragging.current) return;
 
     const onMouseMove = (event: MouseEvent) => {
       const delta = event.clientX - lastX.current;
@@ -1316,7 +1322,11 @@ function ObjectiveListResizeHandle({
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
-  });
+  }, [isTouchLayout, onResize]);
+
+  if (isTouchLayout) {
+    return null;
+  }
 
   return (
     <div

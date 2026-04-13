@@ -32,7 +32,7 @@ export default function StatusCircle({ status, onStatusChange }: StatusCirclePro
   useEffect(() => {
     if (!open) return;
     updatePosition();
-    const handler = (e: MouseEvent) => {
+    const handler = (e: PointerEvent) => {
       if (
         ref.current && !ref.current.contains(e.target as Node) &&
         dropdownRef.current && !dropdownRef.current.contains(e.target as Node)
@@ -40,8 +40,8 @@ export default function StatusCircle({ status, onStatusChange }: StatusCirclePro
         setOpen(false);
       }
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("pointerdown", handler);
+    return () => document.removeEventListener("pointerdown", handler);
   }, [open, updatePosition]);
 
   // Close dropdown when status changes externally (e.g., realtime update)

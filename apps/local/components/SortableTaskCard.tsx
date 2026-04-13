@@ -10,11 +10,26 @@ interface SortableTaskCardProps {
   onClick?: () => void;
   onStatusChange?: (status: TaskStatus) => void;
   onApprovalModeChange?: (mode: "auto" | "manual") => void;
+  onStageChange?: (stage: Task["stage"]) => void;
+  stageOptions?: readonly Task["stage"][];
+  currentStage?: Task["stage"];
+  dragDisabled?: boolean;
   allTasks?: Task[];
   relationship?: 'active' | 'blocking' | 'dependent' | 'dimmed' | 'none';
 }
 
-export default function SortableTaskCard({ task, onClick, onStatusChange, onApprovalModeChange, allTasks, relationship = 'none' }: SortableTaskCardProps) {
+export default function SortableTaskCard({
+  task,
+  onClick,
+  onStatusChange,
+  onApprovalModeChange,
+  onStageChange,
+  stageOptions,
+  currentStage,
+  dragDisabled = false,
+  allTasks,
+  relationship = 'none',
+}: SortableTaskCardProps) {
   const {
     attributes,
     listeners,
@@ -22,7 +37,7 @@ export default function SortableTaskCard({ task, onClick, onStatusChange, onAppr
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: task.id });
+  } = useSortable({ id: task.id, disabled: dragDisabled });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -44,6 +59,9 @@ export default function SortableTaskCard({ task, onClick, onStatusChange, onAppr
         onClick={onClick}
         onStatusChange={onStatusChange}
         onApprovalModeChange={onApprovalModeChange}
+        onStageChange={onStageChange}
+        stageOptions={stageOptions}
+        currentStage={currentStage}
         allTasks={allTasks}
         relationship={relationship}
       />

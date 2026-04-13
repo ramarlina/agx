@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Plus, X, Terminal, Search } from "lucide-react";
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import {
   getTerminalSessionStatus,
   type TerminalStatus,
@@ -45,6 +46,7 @@ export default function TerminalSessionList({
   onRename,
   onCreate,
 }: TerminalSessionListProps) {
+  const { isTouchLayout } = useInputCapabilities();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [search, setSearch] = useState("");
@@ -195,7 +197,7 @@ export default function TerminalSessionList({
                         onClose(session.id);
                       }}
                       className={`mt-0.5 shrink-0 rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--app-shell-border)] hover:text-[var(--foreground)] ${
-                        isSelected
+                        isSelected || isTouchLayout
                           ? "opacity-100"
                           : "opacity-0 group-hover:opacity-100"
                       }`}

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { loadFloatingPanelBounds, persistFloatingPanelBounds, type FloatingPanelBounds } from "@/state/floatingPanels";
 
 interface FloatingPanelProps {
@@ -59,6 +60,7 @@ export default function FloatingPanel({
   className,
   bodyClassName,
 }: FloatingPanelProps) {
+  const { isTouchLayout } = useInputCapabilities();
   const dragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const resizeRef = useRef<{ startX: number; startY: number; originWidth: number; originHeight: number } | null>(null);
 
@@ -81,15 +83,23 @@ export default function FloatingPanel({
   }, [bounds, hydrated, panelId]);
 
   useEffect(() => {
+    if (isTouchLayout) {
+      return;
+    }
+
     const onResize = () => {
       setBounds((current) => normalizeBounds(current, minWidth, minHeight));
     };
 
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [minHeight, minWidth]);
+  }, [isTouchLayout, minHeight, minWidth]);
 
   useEffect(() => {
+    if (isTouchLayout) {
+      return;
+    }
+
     const onMouseMove = (event: MouseEvent) => {
       if (dragRef.current) {
         const nextBounds = normalizeBounds(
@@ -135,9 +145,13 @@ export default function FloatingPanel({
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
     };
-  }, [bounds, minHeight, minWidth]);
+  }, [bounds, isTouchLayout, minHeight, minWidth]);
 
   const handleDragStart = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (isTouchLayout) {
+      return;
+    }
+
     const target = event.target as HTMLElement | null;
     if (target?.closest("button, a, input, textarea, select, [data-no-panel-drag='true']")) {
       return;
@@ -154,6 +168,10 @@ export default function FloatingPanel({
   };
 
   const handleResizeStart = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (isTouchLayout) {
+      return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
 
@@ -172,28 +190,32 @@ export default function FloatingPanel({
       className={className}
       style={{
         position: "fixed",
-        left: bounds.x,
-        top: bounds.y,
-        width: bounds.width,
-        height: bounds.height,
+        left: isTouchLayout ? "50%" : bounds.x,
+        right: isTouchLayout ? "auto" : undefined,
+        top: isTouchLayout ? "max(16px, 8vh)" : bounds.y,
+        width: isTouchLayout ? `min(${Math.max(bounds.width, minWidth)}px, calc(100vw - 32px))` : bounds.width,
+        height: isTouchLayout ? `min(${Math.max(bounds.height, minHeight)}px, calc(100vh - 48px))` : bounds.height,
+        transform: isTouchLayout ? "translateX(-50%)" : undefined,
         zIndex: 40,
       }}
     >
       <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--card-bg)] shadow-2xl backdrop-blur-md">
         <div
           onMouseDown={handleDragStart}
-          className="cursor-grab active:cursor-grabbing border-b border-[var(--border)] bg-[var(--card-bg)]/95"
+          className={`${isTouchLayout ? "cursor-default" : "cursor-grab active:cursor-grabbing"} border-b border-[var(--border)] bg-[var(--card-bg)]/95`}
         >
           {titleBar}
         </div>
         <div className={bodyClassName}>{children}</div>
-        <div
-          onMouseDown={handleResizeStart}
-          className="absolute bottom-0 right-0 h-5 w-5 cursor-nwse-resize"
-          aria-hidden="true"
-        >
-          <div className="absolute bottom-1.5 right-1.5 h-2.5 w-2.5 rounded-sm border-r-2 border-b-2 border-[var(--muted-foreground)]/50" />
-        </div>
+        {!isTouchLayout ? (
+          <div
+            onMouseDown={handleResizeStart}
+            className="absolute bottom-0 right-0 h-5 w-5 cursor-nwse-resize"
+            aria-hidden="true"
+          >
+            <div className="absolute bottom-1.5 right-1.5 h-2.5 w-2.5 rounded-sm border-r-2 border-b-2 border-[var(--muted-foreground)]/50" />
+          </div>
+        ) : null}
       </div>
     </div>
   );

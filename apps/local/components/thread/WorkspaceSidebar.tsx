@@ -27,6 +27,7 @@ import Link from "next/link";
 import type { Thread } from "@/lib/storage";
 import type { Participant } from "@/lib/types";
 import type { ProjectRepo, ProjectWithAgents, ProjectWithRepos, UpdateProjectPayload } from "@/hooks/useProjects";
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { useFocusManagement } from "@/hooks/useFocusManagement";
 import { agentAvatarUrl, AgentForm, type AgentFormData } from "@/components/chat-ui/ParticipantBar";
 import ProjectModal, { createProjectPayload, useProjectFormState } from "@/components/ProjectModal";
@@ -109,14 +110,14 @@ function ProjectDropdown({
 
   useEffect(() => {
     if (!open) return;
-    const handler = (e: MouseEvent) => {
+    const handler = (e: PointerEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setOpen(false);
         setSearch("");
       }
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("pointerdown", handler);
+    return () => document.removeEventListener("pointerdown", handler);
   }, [open]);
 
   useEffect(() => {
@@ -233,6 +234,7 @@ export function WorkspaceSidebar({
   onWidthChange,
   onAddTeam,
 }: WorkspaceSidebarProps) {
+  const { isTouchLayout, isPhone } = useInputCapabilities();
   const resizing = useRef(false);
   const lastX = useRef(0);
   const emptyCtaRef = useRef<HTMLButtonElement | null>(null);
@@ -526,6 +528,11 @@ export function WorkspaceSidebar({
   const showLoadingState = (isLoading && !hasThreads) || showRestoringState;
   const showEmptyState = !showLoadingState && !hasThreads;
   const isVisible = Boolean(visible);
+  const closeTouchDrawer = useCallback(() => {
+    if (isTouchLayout) {
+      onToggle?.();
+    }
+  }, [isTouchLayout, onToggle]);
   const sortedWorkspaces = [...threads].sort((a, b) => (a.title ?? "").localeCompare(b.title ?? ""));
   const threadById = new Map(threads.map((thread) => [thread.id, thread]));
   const nonDefaultProjects = projectsProp.filter((project) => !project.is_default);
@@ -684,6 +691,10 @@ export function WorkspaceSidebar({
   };
 
   if (!isVisible) {
+    if (isTouchLayout) {
+      return null;
+    }
+
     return (
       <aside
         id="workspace-sidebar"
@@ -722,13 +733,24 @@ export function WorkspaceSidebar({
   }
 
   return (
-    <aside
-      id="workspace-sidebar"
-      className="workspace-sidebar"
-      aria-label="Workspace sidebar"
-      aria-busy={isLoading ? "true" : undefined}
-      style={width ? { width: `${width}px`, minWidth: `${width}px` } : undefined}
-    >
+    <>
+      {isTouchLayout ? (
+        <button
+          type="button"
+          className="workspace-sidebar__backdrop"
+          onClick={onToggle}
+          aria-label="Close sidebar"
+        />
+      ) : null}
+      <aside
+        id="workspace-sidebar"
+        className={`workspace-sidebar${isTouchLayout ? " workspace-sidebar--drawer" : ""}${isTouchLayout && isPhone ? " workspace-sidebar--drawer-phone" : ""}`}
+        aria-label="Workspace sidebar"
+        aria-busy={isLoading ? "true" : undefined}
+        aria-modal={isTouchLayout ? "true" : undefined}
+        role={isTouchLayout ? "dialog" : undefined}
+        style={!isTouchLayout && width ? { width: `${width}px`, minWidth: `${width}px` } : undefined}
+      >
       <div className="workspace-sidebar__brand">
         <div className="workspace-sidebar__brand-content">
           <WorkspaceSidebarBrandLogo />
@@ -751,8 +773,13 @@ export function WorkspaceSidebar({
         <ProjectDropdown
           projects={nonDefaultProjects}
           activeProjectId={activeProjectId}
-          onSelectProject={onSelectProject}
-          onCreateProject={() => handleCreateProject()}
+          onSelectProject={(projectId) => {
+            onSelectProject?.(projectId);
+            closeTouchDrawer();
+          }}
+          onCreateProject={() => {
+            handleCreateProject();
+          }}
         />
 
         {(() => {
@@ -782,11 +809,12 @@ export function WorkspaceSidebar({
               {/* Home (standalone) */}
               <div className="px-2 mb-3">
                 <div className="workspace-sidebar__workspace-item">
-                  <Link
-                    href={`/projects/${selectedProject.slug}`}
-                    className={`workspace-sidebar__nav-item ${isActiveProjectHome ? "workspace-sidebar__nav-item--active" : ""}`}
-                    aria-current={isActiveProjectHome ? "page" : undefined}
-                  >
+                    <Link
+                      href={`/projects/${selectedProject.slug}`}
+                      onClick={closeTouchDrawer}
+                      className={`workspace-sidebar__nav-item ${isActiveProjectHome ? "workspace-sidebar__nav-item--active" : ""}`}
+                      aria-current={isActiveProjectHome ? "page" : undefined}
+                    >
                     <Home size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
                     <span className="workspace-sidebar__workspace-title text-sm">Home</span>
                   </Link>
@@ -802,6 +830,7 @@ export function WorkspaceSidebar({
                   <div className="workspace-sidebar__workspace-item">
                     <Link
                       href={`/projects/${selectedProject.slug}/objectives`}
+                      onClick={closeTouchDrawer}
                       className={`workspace-sidebar__nav-item ${isActiveProjectObjectives ? "workspace-sidebar__nav-item--active" : ""}`}
                       aria-current={isActiveProjectObjectives ? "page" : undefined}
                     >
@@ -825,6 +854,7 @@ export function WorkspaceSidebar({
                   <div className="workspace-sidebar__workspace-item group/linear flex items-center">
                     <Link
                       href={`/projects/${selectedProject.slug}/linear`}
+                      onClick={closeTouchDrawer}
                       className={`workspace-sidebar__nav-item flex-1 ${isActiveProjectLinear ? "workspace-sidebar__nav-item--active" : ""}`}
                       aria-current={isActiveProjectLinear ? "page" : undefined}
                     >
@@ -846,6 +876,7 @@ export function WorkspaceSidebar({
                     </Link>
                     <Link
                       href={`/projects/${selectedProject.slug}/linear?settings=true`}
+                      onClick={closeTouchDrawer}
                       className="flex h-5 w-5 items-center justify-center rounded opacity-0 group-hover/linear:opacity-100 hover:bg-[var(--sidebar-hover)] transition-opacity"
                       title="Linear settings"
                     >
@@ -855,6 +886,7 @@ export function WorkspaceSidebar({
                   <div className="workspace-sidebar__workspace-item">
                     <Link
                       href={`/projects/${selectedProject.slug}/automations`}
+                      onClick={closeTouchDrawer}
                       className={`workspace-sidebar__nav-item ${isActiveProjectAutomations ? "workspace-sidebar__nav-item--active" : ""}`}
                       aria-current={isActiveProjectAutomations ? "page" : undefined}
                     >
@@ -874,6 +906,7 @@ export function WorkspaceSidebar({
                   <div className="workspace-sidebar__workspace-item">
                     <Link
                       href={`/projects/${selectedProject.slug}/terminal`}
+                      onClick={closeTouchDrawer}
                       className={`workspace-sidebar__nav-item ${isActiveProjectTerminal ? "workspace-sidebar__nav-item--active" : ""}`}
                       aria-current={isActiveProjectTerminal ? "page" : undefined}
                     >
@@ -886,7 +919,10 @@ export function WorkspaceSidebar({
                       <button
                         type="button"
                         className={`workspace-sidebar__nav-item ${isActiveProjectThread ? "workspace-sidebar__nav-item--active" : ""}`}
-                        onClick={() => onSelectThread(primaryProjectThreadId)}
+                        onClick={() => {
+                          onSelectThread(primaryProjectThreadId);
+                          closeTouchDrawer();
+                        }}
                         aria-current={isActiveProjectThread ? "page" : undefined}
                       >
                         <MessageSquare size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
@@ -919,6 +955,7 @@ export function WorkspaceSidebar({
                   <div className="workspace-sidebar__workspace-item">
                     <Link
                       href={`/projects/${selectedProject.slug}/teams`}
+                      onClick={closeTouchDrawer}
                       className={`workspace-sidebar__nav-item ${isActiveProjectTeams ? "workspace-sidebar__nav-item--active" : ""}`}
                       aria-current={isActiveProjectTeams ? "page" : undefined}
                     >
@@ -929,6 +966,7 @@ export function WorkspaceSidebar({
                   <div className="workspace-sidebar__workspace-item">
                     <Link
                       href={`/projects/${selectedProject.slug}/folders`}
+                      onClick={closeTouchDrawer}
                       className={`workspace-sidebar__nav-item ${isActiveProjectFolders ? "workspace-sidebar__nav-item--active" : ""}`}
                       aria-current={isActiveProjectFolders ? "page" : undefined}
                     >
@@ -939,6 +977,7 @@ export function WorkspaceSidebar({
                   <div className="workspace-sidebar__workspace-item">
                     <Link
                       href={`/projects/${selectedProject.slug}/env-vars`}
+                      onClick={closeTouchDrawer}
                       className={`workspace-sidebar__nav-item ${isActiveProjectEnvVars ? "workspace-sidebar__nav-item--active" : ""}`}
                       aria-current={isActiveProjectEnvVars ? "page" : undefined}
                     >
@@ -1481,7 +1520,7 @@ export function WorkspaceSidebar({
           />
         );
       })(), document.body)}
-      {onWidthChange && (
+      {onWidthChange && !isTouchLayout && (
         <div
           className="absolute right-0 top-0 bottom-0 z-20 w-1 cursor-col-resize group"
           onMouseDown={(e) => {
@@ -1509,6 +1548,7 @@ export function WorkspaceSidebar({
           <div className="absolute inset-y-0 right-0 w-1 transition-colors hover:bg-[var(--primary)]/40 group-hover:bg-[var(--primary)]/40" />
         </div>
       )}
-    </aside>
+      </aside>
+    </>
   );
 }

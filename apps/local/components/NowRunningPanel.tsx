@@ -5,6 +5,7 @@ import { useEffect, useState, useMemo } from "react";
 import { UI_POLL_TASK_DURATION_MS } from "@/lib/constants/timing";
 import type { AgentProcessEntry } from "@/lib/agent-process-registry";
 import FloatingPanel from "@/components/FloatingPanel";
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 
 const MAX_WORKERS = Number(process.env.NEXT_PUBLIC_AGX_MAX_WORKERS) || 10;
 
@@ -27,6 +28,7 @@ export default function NowRunningPanel({
   cancellingTaskId,
   panelId = "now-running-panel",
 }: NowRunningPanelProps) {
+  const { isTouchLayout } = useInputCapabilities();
   // Active processes (spawning or running)
   const activeProcesses = useMemo(
     () => processes.filter((p) => p.state === "spawning" || p.state === "running"),
@@ -148,7 +150,7 @@ export default function NowRunningPanel({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity pl-2 border-l border-[var(--border)]">
+                <div className={`flex items-center gap-1 pl-2 border-l border-[var(--border)] transition-opacity ${isTouchLayout ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
                   <button
                     type="button"
                     onClick={(e) => {

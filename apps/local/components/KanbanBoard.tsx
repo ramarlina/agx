@@ -26,6 +26,7 @@ import {
   FALLBACK_STAGE_CONFIG,
   type StageConfig
 } from "@/hooks/useWorkflows";
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 
 // Re-export for backward compatibility
 export const STAGES = FALLBACK_STAGES;
@@ -60,6 +61,7 @@ export default function KanbanBoard({
   creatingStage,
   graphColumnFn,
 }: KanbanBoardProps) {
+  const { isTouchLayout } = useInputCapabilities();
   // Use props or fallbacks
   const stages = propStages || FALLBACK_STAGES;
   const stageConfigMap = propStageConfig || FALLBACK_STAGE_CONFIG;
@@ -387,6 +389,46 @@ export default function KanbanBoard({
     }
   }
 
+  const handleStageMove = useCallback(async (task: Task, targetStage: string) => {
+    const originalStage = getColumn(task);
+    if (!checkTransition(originalStage || "", targetStage)) {
+      return;
+    }
+
+    const targetTasks = localTasks.filter((entry) => entry.id !== task.id && getColumn(entry) === targetStage);
+    const nextPriority =
+      targetTasks.length > 0
+        ? Math.max(...targetTasks.map((entry) => entry.priority || 0)) + 1
+        : 0;
+
+    const nextTasks = localTasks.map((entry) =>
+      entry.id === task.id
+        ? {
+            ...entry,
+            stage: targetStage as Task["stage"],
+            priority: nextPriority,
+          }
+        : entry
+    );
+
+    setLocalTasks(nextTasks);
+    onTasksChange?.(nextTasks);
+
+    if (!onTaskUpdate) {
+      return;
+    }
+
+    try {
+      await onTaskUpdate(task.id, {
+        stage: targetStage as Task["stage"],
+        priority: nextPriority,
+      });
+    } catch (error) {
+      console.error("Failed to update task:", error);
+      setLocalTasks(tasks);
+    }
+  }, [checkTransition, localTasks, onTaskUpdate, onTasksChange, tasks]);
+
   return (
     <DndContext
       sensors={sensors}
@@ -655,6 +697,10 @@ function FlatColumnContent({ stage, tasks, allTasks, selectedTaskId, setSelected
                 onClick={() => onSelectTask?.(task)}
                 onStatusChange={onTaskUpdate ? (s) => onTaskUpdate(task.id, { status: s }) : undefined}
                 onApprovalModeChange={onTaskUpdate ? (m) => onTaskUpdate(task.id, { approval_mode: m }) : undefined}
+                onStageChange={isTouchLayout ? (nextStage) => void handleStageMove(task, nextStage) : undefined}
+                stageOptions={isTouchLayout ? stages : undefined}
+                currentStage={stage}
+                dragDisabled={isTouchLayout}
                 allTasks={allTasks}
                 relationship={rel}
               />
@@ -677,5 +723,4 @@ function FlatColumnContent({ stage, tasks, allTasks, selectedTaskId, setSelected
     </SortableContext>
   );
 }
-
 
