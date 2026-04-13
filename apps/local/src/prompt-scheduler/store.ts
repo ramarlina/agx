@@ -164,7 +164,9 @@ function rowToJob(row: PromptJobRow): PromptJob {
   const executionMode =
     row.execution_mode === "objective_linear_ticket"
       ? "objective_linear_ticket"
-      : DEFAULT_PROMPT_JOB_EXECUTION_MODE;
+      : row.execution_mode === "objective_worker"
+        ? "objective_worker"
+        : DEFAULT_PROMPT_JOB_EXECUTION_MODE;
   return {
     id: row.id,
     name: row.name,
@@ -183,6 +185,7 @@ function rowToJob(row: PromptJobRow): PromptJob {
     catchUpPolicy: (row.catch_up_policy || "fire_once") as PromptJob["catchUpPolicy"],
     cancelCheckSec: row.cancel_check_sec,
     executionMode,
+    builtIn: executionMode === "objective_worker",
     condition: row.condition || "",
     nextRunAt: row.next_run_at,
     lastRunAt: row.last_run_at,
@@ -316,6 +319,7 @@ export class PromptJobStore {
       },
       target: {
         type: "prompt_job",
+        ...(input.builtIn ? { builtIn: true } : {}),
         ...(input.agentId ? { agentId: input.agentId } : {}),
         ...(input.objectiveId ? { objectiveId: input.objectiveId } : {}),
         ...(input.objectiveKey ? { objectiveKey: input.objectiveKey } : {}),
@@ -430,6 +434,11 @@ export class PromptJobStore {
   }
 
   deleteJob(id: string): void {
+    const job = this.getJob(id);
+    if (job?.builtIn) {
+      throw new Error('Cannot delete built-in job. Use pause instead.');
+    }
+
     if (isAutomationFrontmatterEnabled()) {
       const archived = this.getAutomationRepo().archiveAutomation(id);
       if (!archived) {

@@ -38,6 +38,7 @@ export interface AutomationExecution {
 
 export interface PromptJobAutomationTarget {
   type: "prompt_job";
+  builtIn?: boolean;
   agentId?: string;
   provider?: string;
   model?: string;
