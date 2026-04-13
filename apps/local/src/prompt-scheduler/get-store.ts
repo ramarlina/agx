@@ -79,6 +79,22 @@ export function getPromptJobStore(): PromptJobStore {
         }
       }
     }
+    const hasExecutionMode = db
+      .prepare("SELECT 1 FROM pragma_table_info('prompt_jobs') WHERE name='execution_mode'")
+      .get();
+    if (!hasExecutionMode) {
+      const v5Migration = readFileSync(
+        path.join(process.cwd(), 'db/sqlite/006_prompt_jobs_execution_mode.sql'),
+        'utf-8',
+      );
+      for (const stmt of splitSqlStatements(v5Migration)) {
+        try {
+          db.exec(stmt);
+        } catch (err: any) {
+          if (!err.message?.includes('duplicate column')) throw err;
+        }
+      }
+    }
 
     _store = new PromptJobStore(db);
   }

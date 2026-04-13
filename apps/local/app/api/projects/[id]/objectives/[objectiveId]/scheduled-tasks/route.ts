@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPromptJobStore } from "@/src/prompt-scheduler/get-store";
 import { upsertProjectObjective } from "@/lib/project-objectives";
 import {
+  DEFAULT_OBJECTIVE_LINEAR_WORKER_NAME,
+  DEFAULT_OBJECTIVE_LINEAR_WORKER_PROMPT,
+  type PromptJobExecutionMode,
+} from "@/src/prompt-scheduler/types";
+import {
   loadProjectObjectiveContext,
   persistProjectObjectiveWorkspace,
   readNullableString,
@@ -81,8 +86,18 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const body = rawBody as Record<string, unknown>;
-    const title = readOptionalString(body.name) ?? `Work on ${objectiveContext.objective.title}`;
-    const prompt = readOptionalString(body.prompt);
+    const executionMode: PromptJobExecutionMode =
+      body.executionMode === "objective_linear_ticket" ? "objective_linear_ticket" : "prompt";
+    const title =
+      readOptionalString(body.name) ??
+      (executionMode === "objective_linear_ticket"
+        ? DEFAULT_OBJECTIVE_LINEAR_WORKER_NAME
+        : `Work on ${objectiveContext.objective.title}`);
+    const prompt =
+      readOptionalString(body.prompt) ??
+      (executionMode === "objective_linear_ticket"
+        ? DEFAULT_OBJECTIVE_LINEAR_WORKER_PROMPT
+        : undefined);
     const cadence =
       readOptionalString(body.cadence) ?? objectiveContext.objective.cadence.trim();
     const condition =
@@ -112,6 +127,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       projectId: resolved.projectId,
       objectiveId: objectiveContext.objective.id,
       objectiveKey: objectiveContext.objective.key,
+      executionMode,
       agentId: readOptionalString(body.agentId),
       provider: readOptionalString(body.provider) ?? "claude",
       model: readOptionalString(body.model),

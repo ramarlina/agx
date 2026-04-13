@@ -27,11 +27,6 @@ import {
   orderParticipantIds,
   type ComposerRoutingMetadata,
 } from "@/lib/chat/composer-routing";
-import {
-  buildLinearExecutionPrompt,
-  renderLinearExecutionPromptTemplate,
-  type LinearExecutionPromptInput,
-} from "@/lib/linear-execution-prompt";
 import type { Participant } from "@/lib/types";
 import LinearSetup from "@/components/LinearSetup";
 
@@ -1695,82 +1690,46 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
       setPickerIssue(null);
       setPickerAnchor(null);
 
-      let createdRun: LinearRun | null = null;
       try {
-        createdRun = await createRun({
-          projectId: projectId ?? null,
-          projectSlug: projectSlug ?? null,
-          issueId: issue.id,
-          issueIdentifier: issue.identifier,
-          issueTitle: issue.title,
-          issueStatus: issue.status,
-          issueAssignee: issue.assignee,
-          agentId: agent.id,
-          agentName: agent.name,
-          mode: "scripted",
-        });
-        pushSelection({
-          issue: issue.id,
-          run: createdRun.id,
-        });
-
-        const executionPromptInput: LinearExecutionPromptInput = {
-          issue: {
-            identifier: issue.identifier,
-            title: issue.title,
-            status: issue.status,
-            assignee: issue.assignee,
-          },
-          project: projectSlug ? { slug: projectSlug } : null,
-        };
-        const { prompt: defaultPrompt, promptPrefix } = buildLinearExecutionPrompt(executionPromptInput);
-        const prompt = activeScript
-          ? renderLinearExecutionPromptTemplate(activeScript.prompt, executionPromptInput).trim() || defaultPrompt
-          : defaultPrompt;
-        const effectivePromptPrefix = activeScript
-          ? `${promptPrefix}ACTIVE SESSION SCRIPT\n- Name: ${activeScript.name}\n\n`
-          : promptPrefix;
-
-        const response = await fetch("/api/chat", {
+        const response = await fetch("/api/linear/runs/scripted", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            prompt,
-            promptPrefix: effectivePromptPrefix,
-            threadId: createdRun.threadId,
-            activeParticipantIds: [agent.id],
+            projectId: projectId ?? undefined,
             projectSlug: projectSlug ?? undefined,
+            issueId: issue.id,
+            issueIdentifier: issue.identifier,
+            issueTitle: issue.title,
+            issueStatus: issue.status,
+            issueAssignee: issue.assignee,
+            agentId: agent.id,
+            scriptName: activeScript?.name,
+            scriptPrompt: activeScript?.prompt,
           }),
         });
 
         const payload = (await response.json().catch(() => ({}))) as {
           error?: string;
+          run?: LinearRun;
           chatRunId?: string;
           userMessageId?: string;
         };
 
-        if (!response.ok || !payload.chatRunId || !payload.userMessageId) {
+        if (!response.ok || !payload.run || !payload.chatRunId || !payload.userMessageId) {
           throw new Error(payload.error || "Failed to start scripted session");
         }
-
-        await updateRun(createdRun.id, {
-          chatRunId: payload.chatRunId,
-          rootMessageId: payload.userMessageId,
+        pushSelection({
+          issue: issue.id,
+          run: payload.run.id,
         });
       } catch (error) {
         console.error("Failed to start scripted Linear session:", error);
-        if (createdRun) {
-          await updateRun(createdRun.id, {
-            status: "failed",
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
         if (error instanceof Error) {
           window.alert(error.message);
         }
       }
     },
-    [activeScript, createRun, projectId, projectSlug, pushSelection, updateRun]
+    [activeScript, projectId, projectSlug, pushSelection]
   );
 
   const handleStartScriptedSession = useCallback(

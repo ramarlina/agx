@@ -3,6 +3,7 @@ import type {
   CatchUpPolicy,
   OverlapPolicy,
   PromptJob,
+  PromptJobExecutionMode,
   RunStatus,
 } from "@/src/prompt-scheduler/types";
 
@@ -44,6 +45,7 @@ export interface PromptJobAutomationTarget {
   prompt?: string;
   objectiveId?: string;
   objectiveKey?: string;
+  executionMode?: PromptJobExecutionMode;
 }
 
 export interface ExecutionGraphAutomationTarget {

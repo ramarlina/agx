@@ -1,5 +1,8 @@
 import type { GraphSchedule } from "@/src/graph/types";
-import type { PromptJob } from "@/src/prompt-scheduler/types";
+import {
+  DEFAULT_PROMPT_JOB_EXECUTION_MODE,
+  type PromptJob,
+} from "@/src/prompt-scheduler/types";
 import {
   formatIntervalCadence,
   normalizeLegacyConditionSchedule,
@@ -52,6 +55,7 @@ export function automationRecordToPromptJob(record: AutomationRecord): PromptJob
     overlapPolicy: execution.overlapPolicy,
     catchUpPolicy: execution.catchUpPolicy,
     cancelCheckSec: execution.cancelCheckSec,
+    executionMode: record.definition.target.executionMode ?? DEFAULT_PROMPT_JOB_EXECUTION_MODE,
     condition: execution.condition ?? (trigger.type === "condition" ? trigger.condition : ""),
     nextRunAt: record.runtimeState.nextRunAt ?? null,
     lastRunAt: record.runtimeState.lastRunAt ?? null,
@@ -86,6 +90,9 @@ export function promptJobToAutomationDefinition(job: LegacyPromptJobLike): Autom
       ...(job.cliArgs ? { cliArgs: job.cliArgs } : {}),
       ...(job.objectiveId ? { objectiveId: job.objectiveId } : {}),
       ...(job.objectiveKey ? { objectiveKey: job.objectiveKey } : {}),
+      ...(job.executionMode !== DEFAULT_PROMPT_JOB_EXECUTION_MODE
+        ? { executionMode: job.executionMode }
+        : {}),
     },
     createdAt: job.createdAt,
     body: job.prompt,
