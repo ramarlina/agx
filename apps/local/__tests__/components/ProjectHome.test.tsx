@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { ProjectOverview } from "@/components/projects/ProjectOverview";
+import { ProjectHome } from "@/components/projects/ProjectHome";
 import {
   createProjectObjective,
   readProjectObjectivesWorkspace,
@@ -91,14 +91,14 @@ function buildProjectMetadata() {
   return writeProjectObjectivesWorkspace({}, workspace);
 }
 
-describe("ProjectOverview", () => {
+describe("ProjectHome", () => {
   beforeEach(() => {
     pushMock.mockReset();
   });
 
   test("routes recent objective threads to the objective detail view", () => {
     render(
-      <ProjectOverview
+      <ProjectHome
         projectId="project-1"
         projectSlug="alpha"
         projectName="Alpha"
@@ -115,7 +115,7 @@ describe("ProjectOverview", () => {
 
   test("keeps non-objective recent threads on the project chat route", () => {
     render(
-      <ProjectOverview
+      <ProjectHome
         projectId="project-1"
         projectSlug="alpha"
         projectName="Alpha"

@@ -284,7 +284,7 @@ export default function ProjectKnowledgePage({ params }: { params: Promise<{ slu
                       Folders
                     </h2>
                     <p className="mt-1 text-xs text-[var(--muted-foreground)]">
-                      Add, edit, or remove project folders from the overview.
+                      Add, edit, or remove project folders from home.
                     </p>
                   </div>
                   <button

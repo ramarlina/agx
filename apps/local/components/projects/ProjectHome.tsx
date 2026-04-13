@@ -10,7 +10,7 @@ import { ScheduledTasksSummaryCard } from "./ScheduledTasksSummaryCard";
 import { FoldersSummaryCard } from "./FoldersSummaryCard";
 import { RecentThreadEntry, RecentThreadsSummaryCard } from "./RecentThreadsSummaryCard";
 
-interface ProjectOverviewProps {
+interface ProjectHomeProps {
   projectId: string;
   projectSlug: string;
   projectName: string;
@@ -20,7 +20,7 @@ interface ProjectOverviewProps {
   threadIds: string[];
 }
 
-export function ProjectOverview({
+export function ProjectHome({
   projectId,
   projectSlug,
   projectName,
@@ -28,7 +28,7 @@ export function ProjectOverview({
   projectMetadata,
   repos,
   threadIds,
-}: ProjectOverviewProps) {
+}: ProjectHomeProps) {
   const router = useRouter();
   const primaryThreadId = threadIds[0] ?? null;
   const objectiveThreadHrefById = useMemo(() => {
