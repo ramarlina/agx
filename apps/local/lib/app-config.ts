@@ -9,6 +9,19 @@ function normalizeBaseUrl(value: string | null | undefined): string | null {
   return trimmed.replace(/\/+$/, "");
 }
 
+function extractHostname(value: string | null | undefined): string | null {
+  const normalized = normalizeBaseUrl(value);
+  if (!normalized) {
+    return null;
+  }
+
+  try {
+    return new URL(normalized).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 export const LOCAL_APP_PORT = DEFAULT_LOCAL_APP_PORT;
 export const LOCAL_APP_URL = `http://localhost:${LOCAL_APP_PORT}`;
 
@@ -48,6 +61,28 @@ export function getAllowedOrigins(): string[] {
     const normalized = normalizeBaseUrl(value);
     if (normalized) {
       origins.add(normalized);
+    }
+  }
+
+  return Array.from(origins);
+}
+
+export function getAllowedDevOrigins(): string[] {
+  const origins = new Set<string>([
+    "localhost",
+    "127.0.0.1",
+    // Support Tailscale Serve/Tailnet dev URLs without needing per-machine config.
+    "**.ts.net",
+  ]);
+
+  for (const value of [
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.AGX_BOARD_URL,
+    process.env.NEXT_PUBLIC_AGX_BOARD_URL,
+  ]) {
+    const hostname = extractHostname(value);
+    if (hostname) {
+      origins.add(hostname);
     }
   }
 
