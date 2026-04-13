@@ -274,7 +274,7 @@ describe('prompt scheduler processor', () => {
       refreshedAt: '2026-04-12T10:05:00.000Z',
     });
     mockRunCliResponse.mockImplementationOnce(async ({ onDelta }: { onDelta?: (chunk: string) => void }) => {
-      onDelta?.('{"decision":"stop","reason":"Nothing is ready for implementation yet.","objectiveProgress":21,"objectiveStatus":"at_risk","projectProgress":34,"projectStatus":"at_risk","objectiveNote":"Progress is improving but still early.","projectNote":"The project still depends heavily on this acquisition stream."}');
+      onDelta?.('{"action":"stop","reason":"Nothing is ready for implementation yet.","objectiveProgress":21,"objectiveStatus":"at_risk","projectProgress":34,"projectStatus":"at_risk","objectiveNote":"Progress is improving but still early.","projectNote":"The project still depends heavily on this acquisition stream."}');
     });
 
     const { processPromptJobs } = await import('@/src/prompt-scheduler/processor');
@@ -296,7 +296,7 @@ describe('prompt scheduler processor', () => {
     }));
     expect(mockActivityAppend).toHaveBeenCalledWith(expect.objectContaining({
       source: 'scheduled-task:job-objective-stop',
-      body: expect.stringContaining('No actionable objective tickets'),
+      body: expect.stringContaining('No action taken'),
     }));
     expect(updateJob).toHaveBeenCalledWith(
       job.id,
@@ -395,7 +395,7 @@ describe('prompt scheduler processor', () => {
       refreshedAt: '2026-04-12T10:05:00.000Z',
     });
     mockRunCliResponse.mockImplementationOnce(async ({ onDelta }: { onDelta?: (chunk: string) => void }) => {
-      onDelta?.('{"decision":"work","ticketId":"issue-1","reason":"This is the clearest next step.","objectiveProgress":44,"objectiveStatus":"at_risk","projectProgress":51,"projectStatus":"on_track"}');
+      onDelta?.('{"action":"work_ticket","ticketId":"issue-1","reason":"This is the clearest next step.","objectiveProgress":44,"objectiveStatus":"at_risk","projectProgress":51,"projectStatus":"on_track"}');
     });
 
     const { processPromptJobs } = await import('@/src/prompt-scheduler/processor');
@@ -429,6 +429,94 @@ describe('prompt scheduler processor', () => {
     expect(updateJob).toHaveBeenCalledWith(
       job.id,
       expect.objectContaining({ lastOutcome: 'success' }),
+    );
+  });
+
+  test('objective worker executes run_prompt action from controller', async () => {
+    const updateRun = jest.fn();
+    const updateJob = jest.fn();
+    const job = {
+      ...baseJob,
+      id: 'job-objective-prompt',
+      prompt: 'Decide what to do next for this objective.',
+      projectId: 'project-1',
+      objectiveId: 'objective-1',
+      objectiveKey: 'growth-daily-visitors',
+      executionMode: 'objective_linear_ticket',
+    };
+    const run = { id: 'run-objective-prompt', jobId: job.id, status: 'queued' };
+    store = {
+      listQueuedRuns: jest.fn().mockReturnValue([run]),
+      getJob: jest.fn().mockReturnValue(job),
+      updateRun,
+      updateJob,
+    };
+    mockGetPromptJobStore.mockReturnValue(store);
+    mockLoadDbParticipants.mockResolvedValue([
+      { id: 'agent-1', name: 'Growth Agent', provider: 'claude', model: null, color: '#000000' },
+    ]);
+    mockGetProjectAgents.mockResolvedValue([
+      { project_id: 'project-1', agent_id: 'agent-1', routing_order: 0 },
+    ]);
+    mockGetAgent.mockResolvedValue({
+      id: 'agent-1',
+      name: 'Growth Agent',
+      provider: 'claude',
+      model: null,
+      description: 'Helps with growth work.',
+      voice: '',
+    });
+    mockLoadProjectObjectiveContext.mockResolvedValue({
+      project: { id: 'project-1', slug: 'alpha', metadata: {} },
+      workspace: {
+        objectives: [
+          {
+            id: 'objective-1',
+            title: 'Grow daily visitors',
+            key: 'growth-daily-visitors',
+            summary: 'Increase daily visitors.',
+            progress: 10,
+            status: 'at_risk',
+          },
+        ],
+      },
+      objective: {
+        id: 'objective-1',
+        title: 'Grow daily visitors',
+        key: 'growth-daily-visitors',
+        summary: 'Increase daily visitors.',
+        progress: 10,
+        status: 'at_risk',
+      },
+    });
+    mockListObjectiveLinearIssues.mockResolvedValue({ issues: [], refreshedAt: null });
+
+    // First call: controller returns run_prompt action
+    // Second call: agent executes the prompt
+    mockRunCliResponse
+      .mockImplementationOnce(async ({ onDelta }: { onDelta?: (chunk: string) => void }) => {
+        onDelta?.('{"action":"run_prompt","prompt":"Create a Linear ticket for SEO audit of landing pages.","reason":"No tickets exist yet, need to create initial work items.","objectiveProgress":10,"objectiveStatus":"at_risk"}');
+      })
+      .mockImplementationOnce(async ({ onDelta }: { onDelta?: (chunk: string) => void }) => {
+        onDelta?.('Created ticket ESO-5: SEO audit of landing pages');
+      });
+
+    const { processPromptJobs } = await import('@/src/prompt-scheduler/processor');
+    await processPromptJobs();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockStartScriptedLinearSession).not.toHaveBeenCalled();
+    expect(mockRunCliResponse).toHaveBeenCalledTimes(2);
+    // Verify the second call received the controller's prompt
+    expect(mockRunCliResponse).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('Create a Linear ticket for SEO audit'),
+      }),
+    );
+    expect(mockActivityAppend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining('Created ticket ESO-5'),
+      }),
     );
   });
 
@@ -514,5 +602,107 @@ describe('prompt scheduler processor', () => {
     );
 
     expect(mockActivityAppend).not.toHaveBeenCalled();
+  });
+
+  test('fireRun logs receipt for objective-linked prompt jobs', async () => {
+    const updateRun = jest.fn();
+    const updateJob = jest.fn();
+    const job = {
+      ...baseJob,
+      id: 'job-prompt-objective',
+      prompt: 'Review the latest PR',
+      projectId: 'project-1',
+      objectiveId: 'objective-1',
+      objectiveKey: 'growth-daily-visitors',
+      executionMode: 'prompt',
+    };
+    const run = { id: 'run-prompt-objective', jobId: job.id, status: 'queued' };
+    store = {
+      listQueuedRuns: jest.fn().mockReturnValue([run]),
+      getJob: jest.fn().mockReturnValue(job),
+      updateRun,
+      updateJob,
+    };
+    mockGetPromptJobStore.mockReturnValue(store);
+    mockLoadProjectObjectiveContext.mockResolvedValue({
+      project: { id: 'project-1', slug: 'alpha', metadata: {} },
+      workspace: { objectives: [] },
+      objective: {
+        id: 'objective-1',
+        title: 'Grow daily visitors',
+        key: 'growth-daily-visitors',
+        summary: '',
+        progress: 20,
+        status: 'on_track',
+      },
+    });
+    mockRunCliResponse.mockImplementationOnce(async ({ onDelta }: { onDelta?: (chunk: string) => void }) => {
+      onDelta?.('PR looks good, approved.');
+    });
+
+    const { processPromptJobs } = await import('@/src/prompt-scheduler/processor');
+    await processPromptJobs();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockActivityAppend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'scheduled-task:job-prompt-objective',
+        body: expect.stringContaining('Inbox watcher'),
+      }),
+    );
+  });
+
+  test('fireConditionGate logs gated_skip receipt for objective-linked gated jobs', async () => {
+    const updateRun = jest.fn();
+    const updateJob = jest.fn();
+    const job = {
+      ...baseJob,
+      id: 'job-gated-objective',
+      prompt: 'Do some work',
+      condition: 'there are urgent items',
+      projectId: 'project-1',
+      objectiveId: 'objective-1',
+      objectiveKey: 'growth-daily-visitors',
+      executionMode: 'prompt',
+    };
+    const run = { id: 'run-gated-objective', jobId: job.id, status: 'queued' };
+    store = {
+      listQueuedRuns: jest.fn().mockReturnValue([run]),
+      getJob: jest.fn().mockReturnValue(job),
+      updateRun,
+      updateJob,
+    };
+    mockGetPromptJobStore.mockReturnValue(store);
+    mockLoadProjectObjectiveContext.mockResolvedValue({
+      project: { id: 'project-1', slug: 'alpha', metadata: {} },
+      workspace: { objectives: [] },
+      objective: {
+        id: 'objective-1',
+        title: 'Grow daily visitors',
+        key: 'growth-daily-visitors',
+        summary: '',
+        progress: 20,
+        status: 'on_track',
+      },
+    });
+    mockRunCliResponse.mockImplementationOnce(async ({ onDelta }: { onDelta?: (chunk: string) => void }) => {
+      onDelta?.('no');
+    });
+
+    const { processPromptJobs } = await import('@/src/prompt-scheduler/processor');
+    await processPromptJobs();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(mockActivityAppend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: 'scheduled-task:job-gated-objective',
+        body: expect.stringContaining('Inbox watcher'),
+      }),
+    );
+    expect(mockActivityAppend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining('condition not met'),
+      }),
+    );
   });
 });
