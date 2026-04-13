@@ -122,13 +122,13 @@ export function FoldersSummaryCard({ projectId, repos, onViewAll }: FoldersSumma
   };
 
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4">
+    <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <FolderGit2 className="w-4 h-4 text-zinc-400" />
-          <span className="text-sm font-medium text-zinc-200">Folders</span>
+          <FolderGit2 className="h-4 w-4 text-[var(--muted-foreground)]" />
+          <span className="text-sm font-medium text-[var(--foreground)]">Folders</span>
           {items.length > 0 && (
-            <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-400">
+            <span className="rounded-full bg-[var(--secondary)] px-2 py-0.5 text-xs text-[var(--muted-foreground)]">
               {items.length}
             </span>
           )}
@@ -137,23 +137,23 @@ export function FoldersSummaryCard({ projectId, repos, onViewAll }: FoldersSumma
           <button
             type="button"
             onClick={startAdd}
-            className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300"
+            className="flex items-center gap-1 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
           >
             <Plus className="w-3 h-3" />
             Add
           </button>
           {onViewAll && (
-            <button onClick={onViewAll} className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300">
+            <button onClick={onViewAll} className="flex items-center gap-1 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]">
               View all <ArrowRight className="w-3 h-3" />
             </button>
           )}
         </div>
       </div>
 
-      {status && <p className="mb-3 text-xs text-zinc-500">{status}</p>}
+      {status && <p className="mb-3 text-xs text-[var(--muted-foreground)]">{status}</p>}
 
       {(isAdding || editingId) && (
-        <div className="mb-3 rounded-xl border border-zinc-800 bg-zinc-950/50 p-3 space-y-2">
+        <div className="mb-3 space-y-2 rounded-xl border border-[var(--border)] bg-[var(--secondary)] p-3">
           <input
             value={draftName}
             onChange={(e) => setDraftName(e.target.value)}
@@ -178,14 +178,14 @@ export function FoldersSummaryCard({ projectId, repos, onViewAll }: FoldersSumma
                 }
               }}
               disabled={!draftName.trim() || !draftPath.trim()}
-              className="rounded-lg bg-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-950 disabled:opacity-40"
+              className="rounded-lg bg-[var(--foreground)] px-3 py-1.5 text-xs font-medium text-[var(--background)] disabled:opacity-40"
             >
               Save
             </button>
             <button
               type="button"
               onClick={resetDraft}
-              className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-zinc-500 hover:text-zinc-300"
+              className="flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
             >
               <X className="w-3 h-3" />
               Cancel
@@ -195,22 +195,22 @@ export function FoldersSummaryCard({ projectId, repos, onViewAll }: FoldersSumma
       )}
 
       {items.length === 0 ? (
-        <p className="text-sm text-zinc-500">No folders linked</p>
+        <p className="text-sm text-[var(--muted-foreground)]">No folders linked</p>
       ) : (
         <div className="space-y-2">
           {items.slice(0, 5).map((repo) => (
             <div key={repo.id} className="flex items-center gap-2 text-sm">
-              <FolderGit2 className="w-4 h-4 text-zinc-500 shrink-0" />
+              <FolderGit2 className="h-4 w-4 shrink-0 text-[var(--muted-foreground)]" />
               <div className="min-w-0 flex-1">
-                <div className="text-zinc-300 truncate">{repo.name}</div>
+                <div className="truncate text-[var(--foreground)]">{repo.name}</div>
                 {repo.path && (
-                  <div className="text-zinc-500 text-xs truncate">{repo.path}</div>
+                  <div className="truncate text-xs text-[var(--muted-foreground)]">{repo.path}</div>
                 )}
               </div>
               <button
                 type="button"
                 onClick={() => startEdit(repo)}
-                className="p-1 text-zinc-500 hover:text-zinc-300"
+                className="p-1 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
                 aria-label={`Edit ${repo.name}`}
               >
                 <Pencil className="w-3 h-3" />
@@ -218,7 +218,7 @@ export function FoldersSummaryCard({ projectId, repos, onViewAll }: FoldersSumma
               <button
                 type="button"
                 onClick={() => void handleDelete(repo.id)}
-                className="p-1 text-zinc-500 hover:text-red-400"
+                className="p-1 text-[var(--muted-foreground)] transition-colors hover:text-[var(--destructive)]"
                 aria-label={`Delete ${repo.name}`}
               >
                 <Trash2 className="w-3 h-3" />

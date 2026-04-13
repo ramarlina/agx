@@ -46,7 +46,7 @@ export function ObjectivesSection({ projectId, projectSlug }: ObjectivesSectionP
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {[1, 2].map((i) => (
-          <div key={i} className="h-28 rounded-2xl bg-zinc-800 animate-pulse" />
+          <div key={i} className="h-28 animate-pulse rounded-2xl bg-[var(--muted)]" />
         ))}
       </div>
     );
@@ -57,10 +57,10 @@ export function ObjectivesSection({ projectId, projectSlug }: ObjectivesSectionP
       <button
         type="button"
         onClick={() => router.push(`/projects/${projectSlug}/objectives`)}
-        className="w-full rounded-2xl border border-dashed border-zinc-700 bg-zinc-900/30 p-6 text-center transition-colors hover:border-zinc-600 hover:bg-zinc-800/30"
+        className="w-full rounded-2xl border border-dashed border-[var(--border)] bg-[var(--card-bg)] p-6 text-center transition-colors hover:border-[var(--card-hover-border)] hover:bg-[var(--secondary)]"
       >
-        <Target className="w-5 h-5 text-zinc-500 mx-auto mb-2" />
-        <span className="text-sm text-zinc-400">Add your first objective</span>
+        <Target className="mx-auto mb-2 h-5 w-5 text-[var(--muted-foreground)]" />
+        <span className="text-sm text-[var(--muted-foreground)]">Add your first objective</span>
       </button>
     );
   }
@@ -68,14 +68,14 @@ export function ObjectivesSection({ projectId, projectSlug }: ObjectivesSectionP
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-3 text-xs text-zinc-500">
+        <div className="flex items-center gap-3 text-xs text-[var(--muted-foreground)]">
           <span>{objectives.length} {objectives.length === 1 ? "objective" : "objectives"}</span>
-          <span className="text-zinc-700">|</span>
+          <span className="text-[var(--border)]">|</span>
           <span>{completeCount}/{objectives.length} complete</span>
         </div>
         <button
           onClick={() => router.push(`/projects/${projectSlug}/objectives`)}
-          className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300"
+          className="flex items-center gap-1 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
         >
           View all <ArrowRight className="w-3 h-3" />
         </button>

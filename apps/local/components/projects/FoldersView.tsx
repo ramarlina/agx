@@ -55,7 +55,7 @@ function CopyPathButton({ path }: { path: string }) {
         setCopied(true);
         setTimeout(() => setCopied(false), 1500);
       }}
-      className="p-1 rounded text-zinc-600 hover:text-zinc-300 transition-colors"
+      className="rounded p-1 text-[var(--app-shell-soft-text)] transition-colors hover:text-[var(--foreground)]"
       title="Copy path"
     >
       {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
@@ -65,9 +65,9 @@ function CopyPathButton({ path }: { path: string }) {
 
 function LanguageBadge({ lang, count }: { lang: string; count: number }) {
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-800 text-xs text-zinc-400">
+    <span className="inline-flex items-center gap-1 rounded-md bg-[var(--secondary)] px-2 py-0.5 text-xs text-[var(--muted-foreground)]">
       {lang}
-      <span className="text-zinc-600">{count}</span>
+      <span className="text-[var(--app-shell-soft-text)]">{count}</span>
     </span>
   );
 }
@@ -78,37 +78,37 @@ function AnalysisSummary({ analysis }: { analysis: RepoAnalysis }) {
     .slice(0, 5);
 
   return (
-    <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-zinc-800/50">
-        <HardDrive className="w-3.5 h-3.5 text-zinc-500" />
-        <span className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Analysis</span>
+    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card-bg)]">
+      <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-2.5">
+        <HardDrive className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
+        <span className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">Analysis</span>
       </div>
       <div className="px-4 py-3 space-y-3">
         {/* Git info */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
-            <GitBranch className="w-3.5 h-3.5 text-zinc-500" />
+            <GitBranch className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
             {analysis.isGit ? (
-              <span className="text-xs text-zinc-300">
+              <span className="text-xs text-[var(--foreground)]">
                 {analysis.branch ?? "detached"}
               </span>
             ) : (
-              <span className="text-xs text-zinc-500 italic">Not a git repo</span>
+              <span className="text-xs italic text-[var(--muted-foreground)]">Not a git repo</span>
             )}
           </div>
           {analysis.isGit && analysis.status && (
-            <div className="flex items-center gap-2 text-xs text-zinc-500">
+            <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
               {analysis.status.staged > 0 && (
-                <span className="text-green-400/70">{analysis.status.staged} staged</span>
+                <span className="text-[var(--status-completed-text)]">{analysis.status.staged} staged</span>
               )}
               {analysis.status.modified > 0 && (
-                <span className="text-yellow-400/70">{analysis.status.modified} modified</span>
+                <span className="text-[var(--status-blocked-text)]">{analysis.status.modified} modified</span>
               )}
               {analysis.status.untracked > 0 && (
-                <span className="text-zinc-500">{analysis.status.untracked} untracked</span>
+                <span className="text-[var(--muted-foreground)]">{analysis.status.untracked} untracked</span>
               )}
               {analysis.status.staged === 0 && analysis.status.modified === 0 && analysis.status.untracked === 0 && (
-                <span className="text-zinc-600">clean</span>
+                <span className="text-[var(--app-shell-soft-text)]">clean</span>
               )}
             </div>
           )}
@@ -142,26 +142,26 @@ function FolderRow({
       onClick={onSelect}
       className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors group ${
         isSelected
-          ? "bg-blue-500/10 border border-blue-500/20"
-          : "hover:bg-zinc-800/50 border border-transparent"
+          ? "border border-blue-500/20 bg-blue-500/10"
+          : "border border-transparent hover:bg-[var(--secondary)]"
       }`}
     >
       {isSelected ? (
         <FolderOpen className="w-4 h-4 text-blue-400 flex-shrink-0" />
       ) : (
-        <FolderGit2 className="w-4 h-4 text-zinc-500 flex-shrink-0" />
+        <FolderGit2 className="h-4 w-4 flex-shrink-0 text-[var(--muted-foreground)]" />
       )}
       <div className="min-w-0 flex-1">
-        <div className={`text-sm font-medium truncate ${isSelected ? "text-blue-300" : "text-zinc-200"}`}>
+        <div className={`truncate text-sm font-medium ${isSelected ? "text-blue-500" : "text-[var(--foreground)]"}`}>
           {repo.name}
         </div>
-        <div className="text-xs text-zinc-500 truncate">
+        <div className="truncate text-xs text-[var(--muted-foreground)]">
           {repo.path || repo.git_url || "No path set"}
         </div>
       </div>
       <ChevronRight
         className={`w-3.5 h-3.5 flex-shrink-0 transition-colors ${
-          isSelected ? "text-blue-400" : "text-zinc-700 group-hover:text-zinc-500"
+          isSelected ? "text-blue-500" : "text-[var(--app-shell-soft-text)] group-hover:text-[var(--muted-foreground)]"
         }`}
       />
     </button>
@@ -204,17 +204,17 @@ function FolderDetail({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 mb-1">
             <FolderOpen className="w-5 h-5 text-blue-400 flex-shrink-0" />
-            <h3 className="text-lg font-semibold text-zinc-100 truncate">{repo.name}</h3>
+            <h3 className="truncate text-lg font-semibold text-[var(--foreground)]">{repo.name}</h3>
           </div>
           {repo.path && (
             <div className="flex items-center gap-1.5 ml-7">
-              <code className="text-xs text-zinc-500 font-mono truncate">{repo.path}</code>
+              <code className="truncate font-mono text-xs text-[var(--muted-foreground)]">{repo.path}</code>
               <CopyPathButton path={repo.path} />
             </div>
           )}
           {repo.git_url && (
             <div className="flex items-center gap-1.5 ml-7 mt-1">
-              <ExternalLink className="w-3 h-3 text-zinc-600 flex-shrink-0" />
+              <ExternalLink className="h-3 w-3 flex-shrink-0 text-[var(--app-shell-soft-text)]" />
               <a
                 href={repo.git_url}
                 target="_blank"
@@ -230,7 +230,7 @@ function FolderDetail({
           <button
             type="button"
             onClick={() => onEdit(repo)}
-            className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+            className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
             title="Edit folder"
           >
             <Pencil className="w-3.5 h-3.5" />
@@ -238,7 +238,7 @@ function FolderDetail({
           <button
             type="button"
             onClick={() => onDelete(repo.id)}
-            className="p-1.5 rounded-lg text-zinc-600 hover:text-red-400 hover:bg-zinc-800 transition-colors"
+            className="rounded-lg p-1.5 text-[var(--app-shell-soft-text)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--destructive)]"
             title="Delete folder"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -248,18 +248,18 @@ function FolderDetail({
 
       {/* Analysis */}
       {analysisLoading && (
-        <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 px-4 py-3">
-          <span className="text-xs text-zinc-600 animate-pulse">Analyzing folder...</span>
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--card-bg)] px-4 py-3">
+          <span className="animate-pulse text-xs text-[var(--muted-foreground)]">Analyzing folder...</span>
         </div>
       )}
       {!analysisLoading && analysis && <AnalysisSummary analysis={analysis} />}
 
       {/* Notes section */}
-      <div className="rounded-xl border border-zinc-800 bg-zinc-900/30 overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-zinc-800/50">
+      <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card-bg)]">
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-2.5">
           <div className="flex items-center gap-2">
-            <FileText className="w-3.5 h-3.5 text-zinc-500" />
-            <span className="text-xs font-medium text-zinc-400 uppercase tracking-wider">Notes</span>
+            <FileText className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
+            <span className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">Notes</span>
           </div>
           {!editingNotes ? (
             <button
@@ -268,21 +268,21 @@ function FolderDetail({
                 setLocalNotes(notes);
                 setEditingNotes(true);
               }}
-              className="text-xs text-zinc-500 hover:text-zinc-300 flex items-center gap-1 transition-colors"
+              className="flex items-center gap-1 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
             >
               <Pencil className="w-3 h-3" />
               Edit
             </button>
           ) : (
             <div className="flex items-center gap-2">
-              <span className="text-[10px] text-zinc-600">Cmd+Enter to save</span>
+              <span className="text-[10px] text-[var(--app-shell-soft-text)]">Cmd+Enter to save</span>
               <button
                 type="button"
                 onClick={() => {
                   setEditingNotes(false);
                   setLocalNotes(notes);
                 }}
-                className="text-xs text-zinc-500 hover:text-zinc-300 flex items-center gap-1 transition-colors"
+                className="flex items-center gap-1 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
               >
                 <X className="w-3 h-3" />
                 Cancel
@@ -295,7 +295,7 @@ function FolderDetail({
                   setNotes(localNotes);
                   setEditingNotes(false);
                 }}
-                className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors disabled:opacity-50"
+                className="flex items-center gap-1 text-xs text-blue-500 transition-colors hover:text-blue-600 disabled:opacity-50"
               >
                 <Save className="w-3 h-3" />
                 Save
@@ -321,33 +321,33 @@ function FolderDetail({
                   setLocalNotes(notes);
                 }
               }}
-              className="w-full bg-transparent text-sm text-zinc-300 resize-none outline-none min-h-[120px] placeholder:text-zinc-600"
+              className="min-h-[120px] w-full resize-none bg-transparent text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--app-shell-soft-text)]"
               placeholder="Add notes about this folder... (architecture, conventions, important files, etc.)"
               autoFocus
             />
           ) : notes ? (
-            <p className="text-sm text-zinc-300 whitespace-pre-wrap">{notes}</p>
+            <p className="whitespace-pre-wrap text-sm text-[var(--foreground)]">{notes}</p>
           ) : (
-            <p className="text-sm text-zinc-600 italic">No notes yet. Click edit to describe this folder.</p>
+            <p className="text-sm italic text-[var(--muted-foreground)]">No notes yet. Click edit to describe this folder.</p>
           )}
         </div>
       </div>
 
       {/* System-generated knowledge */}
       {systemNote && (
-        <div className="rounded-xl border border-zinc-800/50 bg-zinc-950/30 overflow-hidden">
-          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-zinc-800/30">
+        <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--secondary)]">
+          <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-2.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/60" />
-            <span className="text-xs font-medium text-zinc-500 uppercase tracking-wider">
+            <span className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
               Generated Knowledge
             </span>
             {systemNote.updated_at && (
-              <span className="text-xs text-zinc-600 ml-auto">
+              <span className="ml-auto text-xs text-[var(--app-shell-soft-text)]">
                 {new Date(systemNote.updated_at).toLocaleDateString()}
               </span>
             )}
           </div>
-          <div className="px-4 py-3 text-sm text-zinc-400 whitespace-pre-wrap leading-relaxed">
+          <div className="whitespace-pre-wrap px-4 py-3 text-sm leading-relaxed text-[var(--muted-foreground)]">
             {systemNote.content}
           </div>
         </div>
@@ -422,11 +422,11 @@ function AddFolderPanel({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-zinc-300">Add Folder</h3>
+        <h3 className="text-sm font-medium text-[var(--foreground)]">Add Folder</h3>
         <button
           type="button"
           onClick={onCancel}
-          className="p-1 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+          className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
         >
           <X className="w-4 h-4" />
         </button>
@@ -434,7 +434,7 @@ function AddFolderPanel({
 
       {/* Name input */}
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-zinc-500">Name</label>
+        <label className="text-xs font-medium text-[var(--muted-foreground)]">Name</label>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -460,7 +460,7 @@ function AddFolderPanel({
 
       {/* Analysis preview */}
       {analyzing && (
-        <div className="text-xs text-zinc-600 animate-pulse px-1">Analyzing...</div>
+        <div className="px-1 text-xs text-[var(--muted-foreground)] animate-pulse">Analyzing...</div>
       )}
       {!analyzing && analysis && <AnalysisSummary analysis={analysis} />}
 
@@ -468,12 +468,12 @@ function AddFolderPanel({
       {!selectedPath && (
         <div className="space-y-2">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-zinc-500">Choose a folder</span>
+            <span className="text-xs font-medium text-[var(--muted-foreground)]">Choose a folder</span>
             <button
               type="button"
               onClick={() => void handleNativePick()}
               disabled={pickingNative}
-              className="ml-auto inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-zinc-400 border border-zinc-700 hover:border-zinc-600 hover:text-zinc-300 bg-zinc-800/50 transition-colors disabled:opacity-50"
+              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-1 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--card-hover-border)] hover:text-[var(--foreground)] disabled:opacity-50"
             >
               <FolderSearch className="w-3 h-3" />
               {pickingNative ? "Opening..." : "System Picker"}
@@ -501,7 +501,7 @@ function AddFolderPanel({
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-1.5 text-sm text-zinc-400 hover:text-zinc-200"
+            className="px-4 py-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
           >
             Cancel
           </button>
@@ -543,18 +543,18 @@ function EditFolderPanel({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-zinc-300">Edit Folder</h3>
+        <h3 className="text-sm font-medium text-[var(--foreground)]">Edit Folder</h3>
         <button
           type="button"
           onClick={onCancel}
-          className="p-1 rounded-lg text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 transition-colors"
+          className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
 
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-zinc-500">Name</label>
+        <label className="text-xs font-medium text-[var(--muted-foreground)]">Name</label>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
@@ -566,12 +566,12 @@ function EditFolderPanel({
 
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <label className="text-xs font-medium text-zinc-500">Path</label>
+          <label className="text-xs font-medium text-[var(--muted-foreground)]">Path</label>
           <div className="flex items-center gap-1.5">
             <button
               type="button"
               onClick={() => setShowBrowser(!showBrowser)}
-              className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+              className="text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
             >
               {showBrowser ? "Type path" : "Browse"}
             </button>
@@ -579,7 +579,7 @@ function EditFolderPanel({
               type="button"
               onClick={() => void handleNativePick()}
               disabled={pickingNative}
-              className="inline-flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-50"
             >
               <FolderSearch className="w-3 h-3" />
               {pickingNative ? "Opening..." : "System Picker"}
@@ -619,7 +619,7 @@ function EditFolderPanel({
         <button
           type="button"
           onClick={onCancel}
-          className="px-4 py-1.5 text-sm text-zinc-400 hover:text-zinc-200"
+          className="px-4 py-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
         >
           Cancel
         </button>
@@ -758,7 +758,7 @@ export function FoldersView({ projectId }: FoldersViewProps) {
 
   if (!project) {
     return (
-      <div className="flex items-center justify-center h-full text-sm text-zinc-500">
+      <div className="flex h-full items-center justify-center text-sm text-[var(--muted-foreground)]">
         Loading...
       </div>
     );
@@ -767,13 +767,13 @@ export function FoldersView({ projectId }: FoldersViewProps) {
   return (
     <div className="h-full flex overflow-hidden">
       {/* Left panel: folder list */}
-      <div className="w-72 flex-shrink-0 border-r border-zinc-800 flex flex-col bg-zinc-950/30">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-800/50">
+      <div className="flex w-72 flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--app-shell-pane)]">
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
           <div className="flex items-center gap-2">
-            <FolderGit2 className="w-4 h-4 text-zinc-400" />
-            <span className="text-sm font-medium text-zinc-300">Folders</span>
+            <FolderGit2 className="h-4 w-4 text-[var(--muted-foreground)]" />
+            <span className="text-sm font-medium text-[var(--foreground)]">Folders</span>
             {repos.length > 0 && (
-              <span className="rounded-full bg-zinc-800 px-1.5 py-0.5 text-xs text-zinc-500">
+              <span className="rounded-full bg-[var(--secondary)] px-1.5 py-0.5 text-xs text-[var(--muted-foreground)]">
                 {repos.length}
               </span>
             )}
@@ -781,7 +781,7 @@ export function FoldersView({ projectId }: FoldersViewProps) {
           <button
             type="button"
             onClick={() => { setAddingRepo(true); setEditingRepo(null); }}
-            className="p-1 rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-zinc-800 transition-colors"
+            className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-blue-500"
             title="Add folder"
           >
             <Plus className="w-4 h-4" />
@@ -791,9 +791,9 @@ export function FoldersView({ projectId }: FoldersViewProps) {
         <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
           {repos.length === 0 && !addingRepo && (
             <div className="px-3 py-8 text-center">
-              <FolderGit2 className="w-8 h-8 text-zinc-700 mx-auto mb-3" />
-              <p className="text-sm text-zinc-500 mb-1">No folders yet</p>
-              <p className="text-xs text-zinc-600 mb-4">Link local repos or project directories</p>
+              <FolderGit2 className="mx-auto mb-3 h-8 w-8 text-[var(--app-shell-soft-text)]" />
+              <p className="mb-1 text-sm text-[var(--muted-foreground)]">No folders yet</p>
+              <p className="mb-4 text-xs text-[var(--app-shell-soft-text)]">Link local repos or project directories</p>
               <button
                 type="button"
                 onClick={() => setAddingRepo(true)}
@@ -816,8 +816,8 @@ export function FoldersView({ projectId }: FoldersViewProps) {
         </div>
 
         {repoStatus && (
-          <div className="px-4 py-2 border-t border-zinc-800/50">
-            <span className="text-xs text-zinc-500">{repoStatus}</span>
+          <div className="border-t border-[var(--border)] px-4 py-2">
+            <span className="text-xs text-[var(--muted-foreground)]">{repoStatus}</span>
           </div>
         )}
       </div>
@@ -845,7 +845,7 @@ export function FoldersView({ projectId }: FoldersViewProps) {
               onDelete={handleDelete}
             />
           ) : repos.length > 0 ? (
-            <div className="flex items-center justify-center h-64 text-sm text-zinc-600">
+            <div className="flex h-64 items-center justify-center text-sm text-[var(--muted-foreground)]">
               Select a folder to view details
             </div>
           ) : null}

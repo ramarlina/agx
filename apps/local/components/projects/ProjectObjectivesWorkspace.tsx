@@ -110,23 +110,23 @@ const HEALTH_META: Record<
 > = {
   on_track: {
     label: "On track",
-    chipClass: "border-emerald-500/20 bg-emerald-500/10 text-emerald-200",
-    toneClass: "text-emerald-300",
+    chipClass: "border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] text-[var(--status-completed-text)]",
+    toneClass: "text-[var(--status-completed-text)]",
   },
   at_risk: {
     label: "At risk",
-    chipClass: "border-amber-500/20 bg-amber-500/10 text-amber-100",
-    toneClass: "text-amber-300",
+    chipClass: "border-[var(--status-blocked-border)] bg-[var(--status-blocked-bg)] text-[var(--status-blocked-text)]",
+    toneClass: "text-[var(--status-blocked-text)]",
   },
   off_track: {
     label: "Off track",
-    chipClass: "border-rose-500/20 bg-rose-500/10 text-rose-100",
-    toneClass: "text-rose-300",
+    chipClass: "border-[var(--status-failed-border)] bg-[var(--status-failed-bg)] text-[var(--status-failed-text)]",
+    toneClass: "text-[var(--status-failed-text)]",
   },
   done: {
     label: "Done",
-    chipClass: "border-sky-500/20 bg-sky-500/10 text-sky-100",
-    toneClass: "text-sky-300",
+    chipClass: "border-[var(--status-in-progress-border)] bg-[var(--status-in-progress-bg)] text-[var(--status-in-progress-text)]",
+    toneClass: "text-[var(--status-in-progress-text)]",
   },
 };
 
@@ -1054,7 +1054,7 @@ function ObjectiveChatPanel({
     <>
       <ObjectiveChatResizeHandle onResize={handleChatPanelResize} />
       <aside
-        className="relative flex h-full min-h-[420px] w-full flex-col overflow-hidden border-t border-[var(--border)] bg-[rgba(8,12,18,0.72)] xl:min-h-0 xl:w-[var(--objective-chat-panel-width)] xl:shrink-0 xl:self-stretch xl:border-l xl:border-t-0"
+        className="relative flex h-full min-h-[420px] w-full flex-col overflow-hidden border-t border-[var(--border)] bg-[var(--overlay-panel)] xl:min-h-0 xl:w-[var(--objective-chat-panel-width)] xl:shrink-0 xl:self-stretch xl:border-l xl:border-t-0"
         style={
           {
             "--objective-chat-panel-width": `${chatPanelWidth}px`,
@@ -1069,7 +1069,7 @@ function ObjectiveChatPanel({
               type="button"
               onClick={() => setChatView("list")}
               aria-label="Back to sessions"
-              className="inline-flex min-w-0 items-center gap-2 text-left text-sm font-medium text-[var(--foreground)] transition-colors hover:text-sky-100"
+              className="inline-flex min-w-0 items-center gap-2 text-left text-sm font-medium text-[var(--foreground)] transition-colors hover:text-[var(--primary)]"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
               <span className="truncate">
@@ -1119,7 +1119,7 @@ function ObjectiveChatPanel({
                         setSelectedSessionId(session.rootMessageId);
                         setChatView("detail");
                       }}
-                      className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.02]"
+                      className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--muted)]"
                     >
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-[var(--foreground)]">
@@ -1132,7 +1132,7 @@ function ObjectiveChatPanel({
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
                         {sessionState ? (
-                          <span className="rounded-full border border-sky-400/30 bg-sky-400/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-100">
+                          <span className="rounded-full border border-[var(--status-in-progress-border)] bg-[var(--status-in-progress-bg)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--status-in-progress-text)]">
                             {sessionState === "queued" ? "Queued" : "Working"}
                           </span>
                         ) : null}
@@ -1161,7 +1161,7 @@ function ObjectiveChatPanel({
                 return (
                   <div key={message.id} className="flex gap-3">
                     {message.role === "user" ? (
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[rgba(15,23,42,0.55)] text-[var(--muted-foreground)]">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--overlay-panel-soft)] text-[var(--muted-foreground)]">
                         <User className="h-4 w-4" />
                       </div>
                     ) : (
@@ -1185,7 +1185,7 @@ function ObjectiveChatPanel({
                           })}
                         </span>
                       </div>
-                      <div className="mt-2 rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.32)] px-4 py-3 text-sm text-[var(--foreground)]">
+                      <div className="mt-2 rounded-2xl border border-[var(--border)] bg-[var(--overlay-panel-muted)] px-4 py-3 text-sm text-[var(--foreground)]">
                         <Markdown content={message.content} isUser={message.role === "user"} />
                       </div>
                     </div>
@@ -1209,7 +1209,7 @@ function ObjectiveChatPanel({
           )}
         </div>
 
-        <div className="absolute bottom-0 left-0 right-0 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] bg-[rgba(8,12,18,0.72)]">
+        <div className="absolute bottom-0 left-0 right-0 bg-[var(--overlay-panel)] p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           <Composer
             onSend={handleSend}
             onStop={interruptObjectiveChat}
@@ -1244,7 +1244,7 @@ function ErrorBanner({ message }: { message: string | null }) {
   if (!message) return null;
 
   return (
-    <div className="mt-3 flex items-center gap-2 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+    <div className="mt-3 flex items-center gap-2 rounded-2xl border border-[var(--status-failed-border)] bg-[var(--status-failed-bg)] px-3 py-2 text-sm text-[var(--status-failed-text)]">
       <AlertTriangle className="h-4 w-4" />
       <span>{message}</span>
     </div>
@@ -1266,7 +1266,7 @@ function ObjectiveNotesEditor({
   if (!editable && !hasContent) return null;
 
   return (
-    <div className="overflow-hidden border-l-2 border-zinc-700/60 pl-4 transition-all focus-within:border-indigo-500/60">
+    <div className="overflow-hidden border-l-2 border-[var(--card-border)] pl-4 transition-all focus-within:border-[var(--primary)]">
       {editable || hasContent ? (
         <RichTextEditor
           content={content}
@@ -1301,7 +1301,7 @@ function ObjectiveListCard({
       <Link
         href={buildObjectiveHref(projectSlug, objective.id)}
         aria-label={`Open details for ${objective.title}`}
-        className="group flex items-center gap-3 rounded-2xl py-2 transition-colors hover:bg-white/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40"
+        className="group flex items-center gap-3 rounded-2xl py-2 transition-colors hover:bg-[var(--muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
       >
         <div className="min-w-0 flex-1 px-1 py-1.5">
           <div className="flex min-w-0 items-center gap-3">
@@ -1332,7 +1332,7 @@ function ObjectiveListCard({
           </span>
         )}
 
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors group-hover:bg-white/5 group-hover:text-[var(--foreground)] group-focus-visible:bg-white/5 group-focus-visible:text-[var(--foreground)]">
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors group-hover:bg-[var(--muted)] group-hover:text-[var(--foreground)] group-focus-visible:bg-[var(--muted)] group-focus-visible:text-[var(--foreground)]">
           <ArrowRight className="h-4 w-4" />
         </span>
       </Link>
@@ -1455,7 +1455,7 @@ export function ProjectObjectivesOverview({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_28%),var(--background)] text-[var(--foreground)]">
-      <div className="border-b border-[var(--border)] bg-[rgba(10,14,20,0.7)] px-4 py-5 backdrop-blur md:px-6">
+      <div className="border-b border-[var(--border)] bg-[var(--overlay-panel)] px-4 py-5 backdrop-blur md:px-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="space-y-2">
             <p className="text-sm text-[var(--muted-foreground)]">
@@ -1468,7 +1468,7 @@ export function ProjectObjectivesOverview({
           <button
             type="button"
             onClick={() => setObjectiveEditor(buildEmptyObjectiveDraft())}
-            className="inline-flex items-center gap-2 self-start rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-100 transition-colors hover:bg-emerald-500/20"
+            className="inline-flex items-center gap-2 self-start rounded-xl border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-3 py-2 text-sm font-medium text-[var(--status-completed-text)] transition-opacity hover:opacity-90"
           >
             <Plus className="h-4 w-4" />
             New objective
@@ -1486,7 +1486,7 @@ export function ProjectObjectivesOverview({
             </p>
           </div>
         ) : (
-          <div className="mx-auto max-w-4xl divide-y divide-[var(--border)] overflow-hidden rounded-[24px] border border-[var(--border)] bg-[rgba(8,12,18,0.58)]">
+          <div className="mx-auto max-w-4xl divide-y divide-[var(--border)] overflow-hidden rounded-[24px] border border-[var(--border)] bg-[var(--overlay-panel)]">
             {objectives.map((objective) => {
               const objectiveActivities = buildObjectiveTimelineActivities({
                 objective,
@@ -1952,15 +1952,15 @@ export function ProjectObjectiveDetail({
 
   if (!objective) {
     return (
-      <div className="flex h-full items-center justify-center px-4 bg-[#131315]">
-        <div className="rounded-xl border border-zinc-700/80 bg-[#18181b] p-8 text-center">
-          <p className="text-lg font-semibold text-zinc-100">Objective not found</p>
-          <p className="mt-2 text-sm text-zinc-500">
+      <div className="flex h-full items-center justify-center bg-[var(--background)] px-4">
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--card-bg)] p-8 text-center">
+          <p className="text-lg font-semibold text-[var(--foreground)]">Objective not found</p>
+          <p className="mt-2 text-sm text-[var(--muted-foreground)]">
             It may have been deleted or the link is stale.
           </p>
           <Link
             href={`/projects/${projectSlug}`}
-            className="mt-4 inline-flex items-center gap-2 rounded-md border border-zinc-700/80 px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:bg-zinc-800/50 bg-[#1a1a1c]"
+            className="mt-4 inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--card-bg)] px-3 py-1.5 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]"
           >
             Back to objectives
           </Link>
@@ -1970,7 +1970,7 @@ export function ProjectObjectiveDetail({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#131315] text-zinc-200">
+    <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.1),transparent_28%),var(--background)] text-[var(--foreground)]">
       <div className="flex-1 min-h-0 overflow-hidden">
         <div className="flex h-full min-h-0 flex-col xl:flex-row">
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -1978,7 +1978,7 @@ export function ProjectObjectiveDetail({
               <ErrorBanner message={saveError} />
 
               <div className="flex items-center gap-3 mb-4">
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono tracking-wider bg-zinc-800/60 text-zinc-400 border border-zinc-700 uppercase">
+                <span className="rounded-full border border-[var(--tone-neutral-border)] bg-[var(--tone-neutral-bg)] px-2.5 py-0.5 text-[10px] font-mono uppercase tracking-wider text-[var(--tone-neutral)]">
                   {objective.key}
                 </span>
                 <span
@@ -1999,14 +1999,14 @@ export function ProjectObjectiveDetail({
                         if (e.key === "Enter") void handleObjectiveSave();
                         if (e.key === "Escape") setObjectiveEditor(null);
                       }}
-                      className="flex-1 text-[28px] leading-tight font-semibold text-zinc-100 bg-transparent border-b-2 border-sky-500/50 outline-none px-0 py-1"
+                      className="flex-1 border-b-2 border-[var(--primary)] bg-transparent px-0 py-1 text-[28px] font-semibold leading-tight text-[var(--foreground)] outline-none"
                       placeholder="Objective statement"
                     />
                     <button
                       type="button"
                       onClick={() => void handleObjectiveSave()}
                       disabled={isSaving}
-                      className="p-1.5 rounded-md text-sky-400 hover:bg-sky-500/10 transition-colors"
+                      className="rounded-md p-1.5 text-[var(--primary)] transition-colors hover:bg-[var(--status-in-progress-bg)]"
                       aria-label="Save objective"
                     >
                       <Check size={18} />
@@ -2014,7 +2014,7 @@ export function ProjectObjectiveDetail({
                     <button
                       type="button"
                       onClick={() => setObjectiveEditor(null)}
-                      className="p-1.5 rounded-md text-zinc-400 hover:bg-zinc-800/50 transition-colors"
+                      className="rounded-md p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)]"
                       aria-label="Cancel editing"
                     >
                       <X size={18} />
@@ -2025,10 +2025,10 @@ export function ProjectObjectiveDetail({
                     className="flex items-center gap-3 group cursor-pointer"
                     onClick={() => setObjectiveEditor(buildObjectiveDraft(objective))}
                   >
-                    <h1 className="text-[28px] leading-tight font-semibold text-zinc-100">
+                    <h1 className="text-[28px] font-semibold leading-tight text-[var(--foreground)]">
                       {objective.title}
                     </h1>
-                    <Pencil size={16} className="text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                    <Pencil size={16} className="shrink-0 text-[var(--muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100" />
                   </div>
                 )}
               </div>
@@ -2037,10 +2037,10 @@ export function ProjectObjectiveDetail({
               <div className="flex flex-wrap items-center gap-x-6 gap-y-3 mb-10">
                 {/* Team Property */}
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
                     <Users size={12} /> Team
                   </span>
-                  <span className="text-zinc-600">·</span>
+                  <span className="text-[var(--app-shell-soft-text)]">·</span>
                   {teamEditor ? (
                     <div className="min-w-[180px]">
                       <SearchCombo
@@ -2072,12 +2072,12 @@ export function ProjectObjectiveDetail({
                     <button
                       type="button"
                       onClick={() => setTeamEditor({ teamId: objective.teamId })}
-                      className="flex items-center gap-2 group rounded px-1.5 py-0.5 -mx-1.5 -my-0.5 hover:bg-zinc-800 transition-colors"
+                      className="group -mx-1.5 -my-0.5 flex items-center gap-2 rounded px-1.5 py-0.5 transition-colors hover:bg-[var(--muted)]"
                     >
                       <div className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-[10px] font-bold border border-blue-500/30">
                         {(teamName ?? "?").charAt(0).toUpperCase()}
                       </div>
-                      <span className="text-sm text-zinc-200 group-hover:text-zinc-50 transition-colors">
+                      <span className="text-sm text-[var(--foreground)] transition-colors group-hover:text-[var(--primary)]">
                         {teamName ?? "Not assigned"}
                       </span>
                     </button>
@@ -2086,19 +2086,19 @@ export function ProjectObjectiveDetail({
 
                 {/* Check-in Frequency Property */}
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
                     <Clock size={12} /> Check-in
                   </span>
-                  <span className="text-zinc-600">·</span>
+                  <span className="text-[var(--app-shell-soft-text)]">·</span>
                   <button
                     type="button"
                     onClick={() => setWakeEditor(buildObjectiveDraft(objective))}
-                    className="text-sm text-zinc-200 hover:text-zinc-50 rounded px-1.5 py-0.5 -my-0.5 hover:bg-zinc-800 transition-colors"
+                    className="-my-0.5 rounded px-1.5 py-0.5 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--primary)]"
                   >
                     {formatObjectiveCadence(objective.cadence)}
                   </button>
                   {objective.condition ? (
-                    <span className="text-xs text-zinc-500 truncate max-w-[200px]">
+                    <span className="max-w-[200px] truncate text-xs text-[var(--muted-foreground)]">
                       · {objective.condition}
                     </span>
                   ) : null}
@@ -2106,7 +2106,7 @@ export function ProjectObjectiveDetail({
               </div>
 
               {/* Tabs */}
-              <div className="border-b border-zinc-800/80 mb-8">
+              <div className="mb-8 border-b border-[var(--border)]">
                 <nav className="flex gap-1 -mb-px" aria-label="Objective sections">
                   {([
                     { id: "activity" as const, label: "Activity", icon: Clock },
@@ -2120,19 +2120,19 @@ export function ProjectObjectiveDetail({
                       onClick={() => setActiveTab(tab.id)}
                       className={`flex items-center gap-2 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                         activeTab === tab.id
-                          ? "border-sky-500 text-zinc-100"
-                          : "border-transparent text-zinc-500 hover:text-zinc-300 hover:border-zinc-700"
+                          ? "border-[var(--primary)] text-[var(--foreground)]"
+                          : "border-transparent text-[var(--muted-foreground)] hover:border-[var(--border)] hover:text-[var(--foreground)]"
                       }`}
                     >
                       <tab.icon size={14} />
                       {tab.label}
                       {tab.id === "activity" && activityTotal > 0 && (
-                        <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
+                        <span className="rounded-full bg-[var(--tone-neutral-bg)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--tone-neutral)]">
                           {activityTotal}
                         </span>
                       )}
                       {tab.id === "notes" && notes.length > 0 && (
-                        <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
+                        <span className="rounded-full bg-[var(--tone-neutral-bg)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--tone-neutral)]">
                           {notes.length}
                         </span>
                       )}
@@ -2142,13 +2142,13 @@ export function ProjectObjectiveDetail({
                           (i, idx, arr) => arr.findIndex((x) => x.id === i.id) === idx && !DONE.includes(i.status.toLowerCase())
                         );
                         return active.length > 0 ? (
-                          <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
+                          <span className="rounded-full bg-[var(--tone-neutral-bg)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--tone-neutral)]">
                             {active.length}
                           </span>
                         ) : null;
                       })()}
                       {tab.id === "scheduled-tasks" && scheduledTaskCount > 0 && (
-                        <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
+                        <span className="rounded-full bg-[var(--tone-neutral-bg)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--tone-neutral)]">
                           {scheduledTaskCount}
                         </span>
                       )}
@@ -2163,7 +2163,7 @@ export function ProjectObjectiveDetail({
                 {activeTab === "notes" && (
                   <section className="space-y-4">
                     <div className="flex justify-between items-end">
-                      <p className="text-sm text-zinc-500">
+                      <p className="text-sm text-[var(--muted-foreground)]">
                         Capture the strategy, constraints, and what better looks like.
                       </p>
                     </div>
@@ -2178,13 +2178,13 @@ export function ProjectObjectiveDetail({
                           if (e.key === "Enter") handleCreateNote();
                         }}
                         placeholder="New note title..."
-                        className="flex-1 bg-zinc-900 border border-zinc-800 rounded-md px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+                        className="flex-1 rounded-md border border-[var(--border)] bg-[var(--input)] px-3 py-1.5 text-sm text-[var(--foreground)] placeholder:text-[var(--app-shell-soft-text)] focus:border-[var(--primary)] focus:outline-none"
                       />
                       <button
                         type="button"
                         onClick={handleCreateNote}
                         disabled={isCreatingNote}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-md transition-colors disabled:opacity-50"
+                        className="flex items-center gap-1.5 rounded-md border border-[var(--status-in-progress-border)] bg-[var(--status-in-progress-bg)] px-3 py-1.5 text-sm font-medium text-[var(--status-in-progress-text)] transition-opacity hover:opacity-90 disabled:opacity-50"
                       >
                         <Plus size={14} />
                         Add
@@ -2193,9 +2193,9 @@ export function ProjectObjectiveDetail({
 
                     {/* Notes List */}
                     {isNotesLoading ? (
-                      <p className="text-sm text-zinc-500 py-4">Loading notes...</p>
+                      <p className="py-4 text-sm text-[var(--muted-foreground)]">Loading notes...</p>
                     ) : notes.length === 0 ? (
-                      <p className="text-sm text-zinc-600 py-4">
+                      <p className="py-4 text-sm text-[var(--muted-foreground)]">
                         No notes yet. Add one above.
                       </p>
                     ) : (
@@ -2209,13 +2209,13 @@ export function ProjectObjectiveDetail({
                           return (
                             <div
                               key={note.id}
-                              className="border border-zinc-800/80 rounded-lg overflow-hidden"
+                              className="overflow-hidden rounded-lg border border-[var(--border)]"
                             >
                               {/* Note Header */}
-                              <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-900/50">
+                              <div className="flex items-center justify-between bg-[var(--overlay-panel-muted)] px-4 py-2.5">
                                 {isEditing ? (
                                   <div className="flex items-center gap-2 flex-1 mr-2">
-                                    <FileText size={14} className="text-zinc-500 shrink-0" />
+                                    <FileText size={14} className="shrink-0 text-[var(--muted-foreground)]" />
                                     <input
                                       type="text"
                                       value={draftTitle}
@@ -2225,7 +2225,7 @@ export function ProjectObjectiveDetail({
                                           [note.id]: e.target.value,
                                         }))
                                       }
-                                      className="flex-1 bg-transparent border-b border-zinc-700 text-sm font-medium text-zinc-200 focus:outline-none focus:border-zinc-400 py-0.5"
+                                      className="flex-1 border-b border-[var(--border)] bg-transparent py-0.5 text-sm font-medium text-[var(--foreground)] focus:border-[var(--primary)] focus:outline-none"
                                     />
                                   </div>
                                 ) : (
@@ -2234,14 +2234,14 @@ export function ProjectObjectiveDetail({
                                     onClick={() =>
                                       setEditingNoteId(note.id)
                                     }
-                                    className="flex items-center gap-2 text-sm font-medium text-zinc-200 hover:text-zinc-50 transition-colors"
+                                    className="flex items-center gap-2 text-sm font-medium text-[var(--foreground)] transition-colors hover:text-[var(--primary)]"
                                   >
-                                    <FileText size={14} className="text-zinc-500" />
+                                    <FileText size={14} className="text-[var(--muted-foreground)]" />
                                     {note.title}
                                   </button>
                                 )}
                                 <div className="flex items-center gap-2">
-                                  <span className="text-[11px] text-zinc-600">
+                                  <span className="text-[11px] text-[var(--app-shell-soft-text)]">
                                     {isSavingNote
                                       ? "Saving..."
                                       : new Date(note.updatedAt).toLocaleDateString()}
@@ -2251,14 +2251,14 @@ export function ProjectObjectiveDetail({
                                     onClick={() =>
                                       setEditingNoteId(isEditing ? null : note.id)
                                     }
-                                    className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors"
+                                    className="p-1 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
                                   >
                                     <Pencil size={12} />
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => handleDeleteNote(note.id)}
-                                    className="p-1 text-zinc-500 hover:text-red-400 transition-colors"
+                                    className="p-1 text-[var(--muted-foreground)] transition-colors hover:text-[var(--destructive)]"
                                   >
                                     <Trash2 size={12} />
                                   </button>
@@ -2282,7 +2282,7 @@ export function ProjectObjectiveDetail({
                                 </div>
                               ) : note.body.trim() ? (
                                 <div
-                                  className="px-4 py-3 text-sm text-zinc-400 cursor-pointer hover:bg-zinc-900/30 transition-colors"
+                                  className="cursor-pointer px-4 py-3 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--overlay-panel-muted)]"
                                   onClick={() => setEditingNoteId(note.id)}
                                 >
                                   <div className="line-clamp-3">
@@ -2291,7 +2291,7 @@ export function ProjectObjectiveDetail({
                                 </div>
                               ) : (
                                 <div
-                                  className="px-4 py-3 text-sm text-zinc-600 italic cursor-pointer hover:bg-zinc-900/30 transition-colors"
+                                  className="cursor-pointer px-4 py-3 text-sm italic text-[var(--muted-foreground)] transition-colors hover:bg-[var(--overlay-panel-muted)]"
                                   onClick={() => setEditingNoteId(note.id)}
                                 >
                                   Empty note — click to edit
@@ -2330,9 +2330,9 @@ export function ProjectObjectiveDetail({
                   return (
                     <section>
                       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-                        <p className="text-sm text-zinc-500">
+                        <p className="text-sm text-[var(--muted-foreground)]">
                           Tickets tracked by the objective label{" "}
-                          <code className="font-mono text-[11px] bg-zinc-800/80 px-1.5 py-0.5 rounded text-zinc-300">
+                          <code className="rounded bg-[var(--tone-neutral-bg)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--foreground)]">
                             {objective.key}
                           </code>.
                         </p>
@@ -2344,7 +2344,7 @@ export function ProjectObjectiveDetail({
                             setCreatingLinearWorker(false);
                           }}
                           disabled={creatingLinearWorker}
-                          className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100 transition-colors hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="inline-flex items-center gap-2 rounded-xl border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-3 py-2 text-sm text-[var(--status-completed-text)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <Sparkles className="h-4 w-4" />
                           {creatingLinearWorker ? "Creating..." : "Work Linear tickets"}
@@ -2361,11 +2361,11 @@ export function ProjectObjectiveDetail({
                               {activeIssues.map((issue) => (
                                 <div
                                   key={issue.id}
-                                  className="bg-[#1c212b] border border-[#2d3748] rounded-xl p-4"
+                                  className="rounded-xl border border-[var(--border)] bg-[var(--overlay-panel-muted)] p-4"
                                 >
                                   <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
-                                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
                                         {issue.identifier}
                                       </p>
                                       {issue.url ? (
@@ -2373,21 +2373,21 @@ export function ProjectObjectiveDetail({
                                           href={issue.url}
                                           target="_blank"
                                           rel="noreferrer"
-                                          className="mt-1 block text-sm font-medium text-zinc-200 transition-colors hover:text-sky-200"
+                                          className="mt-1 block text-sm font-medium text-[var(--foreground)] transition-colors hover:text-[var(--primary)]"
                                         >
                                           {issue.title}
                                         </a>
                                       ) : (
-                                        <p className="mt-1 text-sm font-medium text-zinc-200">
+                                        <p className="mt-1 text-sm font-medium text-[var(--foreground)]">
                                           {issue.title}
                                         </p>
                                       )}
                                     </div>
-                                    <span className="rounded-full border border-zinc-700 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                    <span className="rounded-full border border-[var(--tone-neutral-border)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--tone-neutral)]">
                                       {issue.status}
                                     </span>
                                   </div>
-                                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+                                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[var(--muted-foreground)]">
                                     <span>Updated {formatDateTime(issue.updatedAt)}</span>
                                     <span>{issue.assignee ? `Assigned to ${issue.assignee}` : "Unassigned"}</span>
                                   </div>
@@ -2398,7 +2398,7 @@ export function ProjectObjectiveDetail({
 
                           {doneIssues.length > 0 && (
                             <div className={activeIssues.length > 0 ? "mt-6" : ""}>
-                              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-600 mb-2">
+                              <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--app-shell-soft-text)]">
                                 Completed
                               </p>
                               <div className="space-y-0.5">
@@ -2408,11 +2408,11 @@ export function ProjectObjectiveDetail({
                                     href={issue.url ?? "#"}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="flex items-center gap-3 py-1.5 px-2 rounded-md text-zinc-500 hover:text-zinc-400 hover:bg-zinc-800/40 transition-colors group"
+                                    className="group flex items-center gap-3 rounded-md px-2 py-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
                                   >
                                     <span className="text-[11px] font-mono shrink-0">{issue.identifier}</span>
                                     <span className="text-[12px] truncate">{issue.title}</span>
-                                    <span className="ml-auto text-[10px] shrink-0 text-zinc-600 group-hover:text-zinc-500">{issue.status}</span>
+                                    <span className="ml-auto shrink-0 text-[10px] text-[var(--app-shell-soft-text)] group-hover:text-[var(--muted-foreground)]">{issue.status}</span>
                                   </a>
                                 ))}
                               </div>
@@ -2444,12 +2444,12 @@ export function ProjectObjectiveDetail({
                 {/* Danger Zone */}
                 <section className="pt-10">
                   <div className="mb-4">
-                    <h2 className="text-sm font-semibold text-red-400">Danger Zone</h2>
+                    <h2 className="text-sm font-semibold text-[var(--destructive)]">Danger Zone</h2>
                   </div>
-                  <div className="border border-red-900/30 rounded-xl p-5 flex items-center justify-between bg-red-950/5">
+                  <div className="flex items-center justify-between rounded-xl border border-[var(--destructive-border)] bg-[var(--destructive-bg)] p-5">
                     <div>
-                      <h3 className="text-sm font-medium text-zinc-200">Delete Objective</h3>
-                      <p className="text-sm text-zinc-500 mt-1">
+                      <h3 className="text-sm font-medium text-[var(--foreground)]">Delete Objective</h3>
+                      <p className="mt-1 text-sm text-[var(--muted-foreground)]">
                         Once you delete an objective, there is no going back.
                       </p>
                     </div>
@@ -2457,7 +2457,7 @@ export function ProjectObjectiveDetail({
                       type="button"
                       onClick={() => void handleObjectiveDelete()}
                       aria-label={`Delete objective ${objective.title}`}
-                      className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-red-900/40 text-red-400 text-sm font-medium hover:bg-red-950/40 transition-colors bg-red-950/20 whitespace-nowrap"
+                      className="flex items-center gap-2 whitespace-nowrap rounded-md border border-[var(--destructive-border)] bg-[var(--destructive-bg)] px-3 py-1.5 text-sm font-medium text-[var(--destructive)] transition-opacity hover:opacity-90"
                     >
                       <Trash2 size={14} /> Delete
                     </button>
@@ -2497,8 +2497,8 @@ export function ProjectObjectivesWorkspace(props: ProjectObjectivesWorkspaceProp
 
 function EmptyState({ label }: { label: string }) {
   return (
-    <div className="border border-dashed border-zinc-700/80 rounded-xl p-6 flex items-center bg-[#151517]">
-      <p className="text-sm text-zinc-500">{label}</p>
+    <div className="flex items-center rounded-xl border border-dashed border-[var(--border)] bg-[var(--overlay-panel-muted)] p-6">
+      <p className="text-sm text-[var(--muted-foreground)]">{label}</p>
     </div>
   );
 }
@@ -2526,7 +2526,7 @@ function ObjectiveEditorModal({
         role="dialog"
         aria-modal="true"
         aria-label={mode === "edit" ? "Edit objective" : "New objective"}
-        className="w-full max-w-3xl overflow-hidden rounded-[32px] border border-[var(--border)] bg-[rgba(6,10,16,0.96)] shadow-2xl"
+        className="w-full max-w-3xl overflow-hidden rounded-[32px] border border-[var(--border)] bg-[var(--overlay-panel-strong)] shadow-2xl"
       >
         <div className="border-b border-[var(--border)] px-5 py-4">
           <h3 className="text-lg font-semibold text-[var(--foreground)]">
@@ -2545,7 +2545,7 @@ function ObjectiveEditorModal({
             <input
               value={draft.title}
               onChange={(event) => onChange({ ...draft, title: event.target.value })}
-              className="w-full rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.55)] px-4 py-3 text-sm text-[var(--foreground)] outline-none transition-colors focus:border-sky-500/50"
+              className="w-full rounded-2xl border border-[var(--border)] bg-[var(--input)] px-4 py-3 text-sm text-[var(--foreground)] outline-none transition-colors focus:border-[var(--primary)]"
               placeholder="Get 50 qualified visitors daily"
             />
           </div>
@@ -2556,7 +2556,7 @@ function ObjectiveEditorModal({
               <select
                 value={draft.teamId}
                 onChange={(event) => onChange({ ...draft, teamId: event.target.value })}
-                className="w-full rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.55)] px-3 py-3 text-sm text-[var(--foreground)] outline-none transition-colors focus:border-sky-500/50"
+                className="w-full rounded-2xl border border-[var(--border)] bg-[var(--input)] px-3 py-3 text-sm text-[var(--foreground)] outline-none transition-colors focus:border-[var(--primary)]"
               >
                 <option value="">Select a team</option>
                 {teams.map((team) => (
@@ -2584,7 +2584,7 @@ function ObjectiveEditorModal({
             type="button"
             onClick={onSave}
             disabled={isSaving}
-            className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-100 transition-colors hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-xl border border-[var(--status-in-progress-border)] bg-[var(--status-in-progress-bg)] px-3 py-2 text-sm font-medium text-[var(--status-in-progress-text)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSaving ? "Saving..." : mode === "edit" ? "Save objective" : "Create objective"}
           </button>
@@ -2613,7 +2613,7 @@ function ObjectiveWakeModal({
         role="dialog"
         aria-modal="true"
         aria-label="Edit wake schedule"
-        className="w-full max-w-2xl overflow-hidden rounded-[32px] border border-[var(--border)] bg-[rgba(6,10,16,0.96)] shadow-2xl"
+        className="w-full max-w-2xl overflow-hidden rounded-[32px] border border-[var(--border)] bg-[var(--overlay-panel-strong)] shadow-2xl"
       >
         <div className="border-b border-[var(--border)] px-5 py-4">
           <h3 className="text-lg font-semibold text-[var(--foreground)]">Edit wake schedule</h3>
@@ -2651,7 +2651,7 @@ function ObjectiveWakeModal({
             type="button"
             onClick={onSave}
             disabled={isSaving}
-            className="rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-sm font-medium text-sky-100 transition-colors hover:bg-sky-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-xl border border-[var(--status-in-progress-border)] bg-[var(--status-in-progress-bg)] px-3 py-2 text-sm font-medium text-[var(--status-in-progress-text)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSaving ? "Saving..." : "Save schedule"}
           </button>
