@@ -19,13 +19,14 @@ const customJestConfig = {
   testPathIgnorePatterns: [
     '<rootDir>/node_modules/',
     '<rootDir>/.next/',
+    '<rootDir>/.claude/',
     '<rootDir>/.worktrees/',
     '<rootDir>/e2e/',
     '<rootDir>/__tests__/mocks/',
     '<rootDir>/__tests__/helpers/',
   ],
-  modulePathIgnorePatterns: ['<rootDir>/.next/', '<rootDir>/.worktrees/'],
-  watchPathIgnorePatterns: ['<rootDir>/.next/', '<rootDir>/.worktrees/'],
+  modulePathIgnorePatterns: ['<rootDir>/.next/', '<rootDir>/.claude/', '<rootDir>/.worktrees/'],
+  watchPathIgnorePatterns: ['<rootDir>/.next/', '<rootDir>/.claude/', '<rootDir>/.worktrees/'],
   coveragePathIgnorePatterns: [
     '<rootDir>/node_modules/',
     '<rootDir>/.next/',

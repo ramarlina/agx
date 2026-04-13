@@ -4,14 +4,35 @@ import { useMemo } from "react";
 import { Target, ArrowRight } from "lucide-react";
 import { useProjects } from "@/hooks/useProjects";
 import {
+  readProjectHealthSnapshot,
   readProjectObjectivesWorkspace,
   type ProjectObjective,
+  type ProjectObjectiveHealth,
 } from "@/lib/project-objectives";
 
 interface ObjectivesSummaryCardProps {
   projectSlug: string;
   onViewAll?: () => void;
 }
+
+const HEALTH_META: Record<ProjectObjectiveHealth, { label: string; className: string }> = {
+  on_track: {
+    label: "On track",
+    className: "border-emerald-500/20 bg-emerald-500/10 text-emerald-200",
+  },
+  at_risk: {
+    label: "At risk",
+    className: "border-amber-500/20 bg-amber-500/10 text-amber-100",
+  },
+  off_track: {
+    label: "Off track",
+    className: "border-rose-500/20 bg-rose-500/10 text-rose-100",
+  },
+  done: {
+    label: "Done",
+    className: "border-sky-500/20 bg-sky-500/10 text-sky-100",
+  },
+};
 
 export function ObjectivesSummaryCard({ projectSlug, onViewAll }: ObjectivesSummaryCardProps) {
   const { projects, isLoading } = useProjects();
@@ -23,6 +44,10 @@ export function ObjectivesSummaryCard({ projectSlug, onViewAll }: ObjectivesSumm
     () => readProjectObjectivesWorkspace(project?.metadata).objectives,
     [project?.metadata],
   );
+  const projectHealth = useMemo(
+    () => readProjectHealthSnapshot(project?.metadata),
+    [project?.metadata],
+  );
   const completeCount = objectives.filter((o) => o.progress >= 100).length;
 
   return (
@@ -31,6 +56,14 @@ export function ObjectivesSummaryCard({ projectSlug, onViewAll }: ObjectivesSumm
         <div className="flex items-center gap-2">
           <Target className="w-4 h-4 text-zinc-400" />
           <span className="text-sm font-medium text-zinc-200">Objectives</span>
+          {projectHealth ? (
+            <span
+              className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${HEALTH_META[projectHealth.status].className}`}
+              title={`Project health ${projectHealth.progress}%`}
+            >
+              {projectHealth.progress}% {HEALTH_META[projectHealth.status].label}
+            </span>
+          ) : null}
           {!isLoading && objectives.length > 0 && (
             <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-400">
               {completeCount}/{objectives.length} complete

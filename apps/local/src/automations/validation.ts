@@ -236,7 +236,9 @@ function normalizePromptTarget(value: unknown): PromptJobAutomationTarget {
   if (prompt !== undefined) target.prompt = prompt;
   if (objectiveId) target.objectiveId = objectiveId;
   if (objectiveKey) target.objectiveKey = objectiveKey;
-  if (executionMode) target.executionMode = executionMode;
+  if (executionMode === "prompt" || executionMode === "objective_linear_ticket") {
+    target.executionMode = executionMode;
+  }
   return target;
 }
 
