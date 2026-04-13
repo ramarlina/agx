@@ -32,6 +32,7 @@ import { ObjectiveScheduledTasksPanel } from "@/components/projects/ObjectiveSch
 import { ObjectiveActivityTimeline } from "@/components/projects/ObjectiveActivityTimeline";
 import { LinearIcon } from "@/components/linear/LinearIcon";
 import { usePromptJobs } from "@/hooks/usePromptJobs";
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { cronToHuman } from "@/src/graph/nl-schedule";
 import {
   DEFAULT_OBJECTIVE_LINEAR_WORKER_NAME,
@@ -2164,15 +2165,17 @@ export function ProjectObjectiveDetail({
                     </button>
                   </div>
                 ) : (
-                  <div
-                    className="flex items-center gap-3 group cursor-pointer"
+                  <button
+                    type="button"
+                    aria-label={`Edit objective ${objective.title}`}
+                    className="flex items-center gap-3 group cursor-pointer text-left"
                     onClick={() => setObjectiveEditor(buildObjectiveDraft(objective))}
                   >
                     <h1 className="text-[28px] leading-tight font-semibold text-[var(--foreground)]">
                       {objective.title}
                     </h1>
                     <Pencil size={16} className="text-[var(--foreground)]0 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                  </div>
+                  </button>
                 )}
               </div>
 
@@ -2214,6 +2217,7 @@ export function ProjectObjectiveDetail({
                   ) : (
                     <button
                       type="button"
+                      aria-label={`Edit team for ${objective.title}`}
                       onClick={() => setTeamEditor({ teamId: objective.teamId })}
                       className="flex items-center gap-2 group rounded px-1.5 py-0.5 -mx-1.5 -my-0.5 hover:bg-[var(--card-bg)] transition-colors"
                     >
@@ -2236,6 +2240,7 @@ export function ProjectObjectiveDetail({
                   <button
                     type="button"
                     onClick={() => setWakeEditor(buildObjectiveDraft(objective))}
+                    aria-label={`Edit cadence for ${objective.title}`}
                     className="text-sm text-[var(--foreground)] hover:text-[var(--foreground)] rounded px-1.5 py-0.5 -my-0.5 hover:bg-[var(--card-bg)] transition-colors"
                   >
                     {formatObjectiveCadence(objective.cadence)}

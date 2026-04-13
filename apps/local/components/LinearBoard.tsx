@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ArrowDown, ArrowUp, Check, ChevronDown, Clock, ExternalLink, FileText, Link2, Play, Plus, RefreshCw, Search, Settings, User } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, Clock, ExternalLink, FileText, Link2, Play, Plus, RefreshCw, Search, Settings, User, X } from "lucide-react";
 import { useUrlSelection } from "@/hooks/useUrlSelection";
 import { useLinearIssues, type LinearIssue } from "@/hooks/useLinearIssues";
 import { useLinearConnection } from "@/hooks/useLinearConnection";

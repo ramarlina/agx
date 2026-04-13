@@ -3,7 +3,7 @@
 import React from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import TaskCard, { Task, TaskStatus } from "./TaskCard";
+import TaskCard, { Task, TaskStage, TaskStatus } from "./TaskCard";
 
 interface SortableTaskCardProps {
   task: Task;
@@ -11,8 +11,8 @@ interface SortableTaskCardProps {
   onStatusChange?: (status: TaskStatus) => void;
   onApprovalModeChange?: (mode: "auto" | "manual") => void;
   onStageChange?: (stage: Task["stage"]) => void;
-  stageOptions?: readonly Task["stage"][];
-  currentStage?: Task["stage"];
+  stageOptions?: readonly TaskStage[];
+  currentStage?: TaskStage;
   dragDisabled?: boolean;
   allTasks?: Task[];
   relationship?: 'active' | 'blocking' | 'dependent' | 'dimmed' | 'none';

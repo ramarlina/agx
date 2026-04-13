@@ -485,10 +485,13 @@ export default function KanbanBoard({
                 stage={stage}
                 tasks={grouped[stage] || []}
                 allTasks={localTasks}
+                stages={stages}
+                isTouchLayout={isTouchLayout}
                 selectedTaskId={selectedTaskId}
                 setSelectedTaskId={setSelectedTaskId}
                 onSelectTask={onSelectTask}
                 onTaskUpdate={onTaskUpdate}
+                onStageMove={handleStageMove}
                 index={index}
                 onAddTask={onAddTask}
                 config={stageConfigMap[stage] || { icon: '📌', label: stage, color: 'var(--primary)' }}
@@ -513,10 +516,13 @@ interface StageColumnProps {
   stage: string;
   tasks: Task[];
   allTasks: Task[];
+  stages: readonly string[];
+  isTouchLayout: boolean;
   selectedTaskId: string | null;
   setSelectedTaskId: (id: string | null) => void;
   onSelectTask?: (task: Task) => void;
   onTaskUpdate?: (taskId: string, updates: Partial<Task>) => Promise<void>;
+  onStageMove?: (task: Task, targetStage: string) => void | Promise<void>;
   index: number;
   onAddTask?: (title: string, stage: string) => void;
   config: StageConfig;
@@ -527,10 +533,13 @@ function StageColumn({
   stage,
   tasks,
   allTasks,
+  stages,
+  isTouchLayout,
   selectedTaskId,
   setSelectedTaskId,
   onSelectTask,
   onTaskUpdate,
+  onStageMove,
   index,
   onAddTask,
   config,
@@ -569,10 +578,13 @@ function StageColumn({
         stage={stage}
         tasks={tasks}
         allTasks={allTasks}
+        stages={stages}
+        isTouchLayout={isTouchLayout}
         selectedTaskId={selectedTaskId}
         setSelectedTaskId={setSelectedTaskId}
         onSelectTask={onSelectTask}
         onTaskUpdate={onTaskUpdate}
+        onStageMove={onStageMove}
         config={config}
         onAddTask={onAddTask}
         isCreating={isCreating}
@@ -585,16 +597,33 @@ interface FlatColumnContentProps {
   stage: string;
   tasks: Task[];
   allTasks: Task[];
+  stages: readonly string[];
+  isTouchLayout: boolean;
   selectedTaskId: string | null;
   setSelectedTaskId: (id: string | null) => void;
   onSelectTask?: (task: Task) => void;
   onTaskUpdate?: (taskId: string, updates: Partial<Task>) => Promise<void>;
+  onStageMove?: (task: Task, targetStage: string) => void | Promise<void>;
   config: StageConfig;
   onAddTask?: (title: string, stage: string) => void;
   isCreating?: boolean;
 }
 
-function FlatColumnContent({ stage, tasks, allTasks, selectedTaskId, setSelectedTaskId, onSelectTask, onTaskUpdate, config, onAddTask, isCreating }: FlatColumnContentProps) {
+function FlatColumnContent({
+  stage,
+  tasks,
+  allTasks,
+  stages,
+  isTouchLayout,
+  selectedTaskId,
+  setSelectedTaskId,
+  onSelectTask,
+  onTaskUpdate,
+  onStageMove,
+  config,
+  onAddTask,
+  isCreating,
+}: FlatColumnContentProps) {
   const allIds = useMemo(() => tasks.map(t => t.id), [tasks]);
   const [isAdding, setIsAdding] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -697,7 +726,15 @@ function FlatColumnContent({ stage, tasks, allTasks, selectedTaskId, setSelected
                 onClick={() => onSelectTask?.(task)}
                 onStatusChange={onTaskUpdate ? (s) => onTaskUpdate(task.id, { status: s }) : undefined}
                 onApprovalModeChange={onTaskUpdate ? (m) => onTaskUpdate(task.id, { approval_mode: m }) : undefined}
-                onStageChange={isTouchLayout ? (nextStage) => void handleStageMove(task, nextStage) : undefined}
+                onStageChange={
+                  isTouchLayout && onStageMove
+                    ? (nextStage) => {
+                        if (nextStage) {
+                          void onStageMove(task, nextStage);
+                        }
+                      }
+                    : undefined
+                }
                 stageOptions={isTouchLayout ? stages : undefined}
                 currentStage={stage}
                 dragDisabled={isTouchLayout}
@@ -723,4 +760,3 @@ function FlatColumnContent({ stage, tasks, allTasks, selectedTaskId, setSelected
     </SortableContext>
   );
 }
-

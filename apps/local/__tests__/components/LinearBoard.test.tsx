@@ -298,15 +298,18 @@ describe("LinearBoard", () => {
       );
     });
 
-    expect(window.localStorage.getItem(getLinearBoardFiltersStorageKey("agx"))).toBe(
-      JSON.stringify({
-        search: "",
-        assigneeIds: ["user-2", "user-3"],
-        statuses: ["Todo", "In Progress"],
-        teamId: "team-2",
-        cycleId: "",
-      })
-    );
+    expect(
+      JSON.parse(window.localStorage.getItem(getLinearBoardFiltersStorageKey("agx")) ?? "{}")
+    ).toMatchObject({
+      search: "",
+      assigneeIds: ["user-2", "user-3"],
+      statuses: ["Todo", "In Progress"],
+      teamId: "team-2",
+      cycleId: "",
+      sortBy: "activity",
+      sortDir: "desc",
+      hasActivity: false,
+    });
   });
 
   test("restores saved filters on mount", async () => {
