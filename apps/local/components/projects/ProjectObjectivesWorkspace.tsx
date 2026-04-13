@@ -16,6 +16,7 @@ import {
   Trash2,
   User,
   Users,
+  Sparkles,
   X,
 } from "lucide-react";
 import { useProjects } from "@/hooks/useProjects";
@@ -1557,6 +1558,7 @@ export function ProjectObjectiveDetail({
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [linearIssues, setLinearIssues] = useState<ObjectiveLinearIssueSummary[]>([]);
   const [linearConnected, setLinearConnected] = useState(true);
+  const [creatingLinearWorker, setCreatingLinearWorker] = useState(false);
 
   const { jobs: scheduledJobs } = usePromptJobs(project?.id ?? null, {
     requireProjectId: true,
@@ -2321,12 +2323,27 @@ export function ProjectObjectiveDetail({
 
                   return (
                     <section>
-                      <p className="text-sm text-zinc-500 mb-4">
-                        Tickets tracked by the objective label{" "}
-                        <code className="font-mono text-[11px] bg-zinc-800/80 px-1.5 py-0.5 rounded text-zinc-300">
-                          {objective.key}
-                        </code>.
-                      </p>
+                      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                        <p className="text-sm text-zinc-500">
+                          Tickets tracked by the objective label{" "}
+                          <code className="font-mono text-[11px] bg-zinc-800/80 px-1.5 py-0.5 rounded text-zinc-300">
+                            {objective.key}
+                          </code>.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setCreatingLinearWorker(true);
+                            await handleObjectiveLinearWorkerCreate();
+                            setCreatingLinearWorker(false);
+                          }}
+                          disabled={creatingLinearWorker}
+                          className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100 transition-colors hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Sparkles className="h-4 w-4" />
+                          {creatingLinearWorker ? "Creating..." : "Work Linear tickets"}
+                        </button>
+                      </div>
                       {!linearConnected ? (
                         <EmptyState label="Connect Linear to create and track tickets for this objective." />
                       ) : dedupedIssues.length === 0 ? (
@@ -2414,7 +2431,6 @@ export function ProjectObjectiveDetail({
                         condition: objective.condition,
                       }}
                       onCreateTask={handleScheduledTaskCreate}
-                      onCreateObjectiveLinearWorker={handleObjectiveLinearWorkerCreate}
                     />
                   </section>
                 )}

@@ -46,12 +46,19 @@ const RichTextEditor = dynamic(() => import("@/components/RichTextEditor"), {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+function isJobOverdue(nextRunAt: number | null, state: string, lastRunAt?: number | null): boolean {
+  if (state !== "active" || nextRunAt === null) return false;
+  if (nextRunAt - Date.now() >= 0) return false;
+  if (lastRunAt && lastRunAt >= nextRunAt) return false;
+  return true;
+}
+
 function formatNextRun(epochMs: number | null, state: string): string {
   if (state === "paused") return "Paused";
   if (state === "stopped") return "Stopped";
   if (epochMs === null) return "Pending...";
   const diff = epochMs - Date.now();
-  if (diff < 0) return "overdue";
+  if (diff < 0) return "Overdue";
   if (diff < 60_000) return `in ${Math.round(diff / 1000)}s`;
   if (diff < 3_600_000) return `in ${Math.round(diff / 60_000)}m`;
   if (diff < 86_400_000) return `in ${Math.round(diff / 3_600_000)}h`;
@@ -1001,7 +1008,13 @@ function JobDetailView({
                       gated
                     </span>
                   ) : null}
-                  <span className="text-[11px] text-[var(--muted-foreground)]">
+                  {isJobOverdue(job.nextRunAt, job.state, job.lastRunAt) && (
+                    <span className="rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-400 inline-flex items-center gap-1">
+                      <Clock size={10} />
+                      overdue
+                    </span>
+                  )}
+                  <span className={`text-[11px] ${isJobOverdue(job.nextRunAt, job.state, job.lastRunAt) ? "text-amber-400 font-medium" : "text-[var(--muted-foreground)]"}`}>
                     Next run {formatNextRun(job.nextRunAt, job.state)}
                   </span>
                   <span className="text-[11px] text-[var(--muted-foreground)]">
@@ -1374,7 +1387,7 @@ export default function PromptJobBoard({
                               </>
                             )}
                           </span>
-                          <span className="flex items-center gap-1">
+                          <span className={`flex items-center gap-1 ${isJobOverdue(job.nextRunAt, job.state, job.lastRunAt) ? "text-amber-400 font-medium" : ""}`}>
                             <Clock size={11} />
                             {formatNextRun(job.nextRunAt, job.state)}
                           </span>
