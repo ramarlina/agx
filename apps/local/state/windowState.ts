@@ -21,6 +21,7 @@ export interface SidebarState {
   linearTicketPanelWidth: number;
   linearRunsPanelWidth: number;
   objectiveChatPanelWidth: number;
+  objectiveListPanelWidth: number;
 }
 
 export interface ScrollState {
@@ -42,6 +43,7 @@ const DEFAULT_SIDEBAR: SidebarState = {
   linearTicketPanelWidth: 576,
   linearRunsPanelWidth: 224,
   objectiveChatPanelWidth: 440,
+  objectiveListPanelWidth: 320,
 };
 
 const DEFAULT_SCROLL: ScrollState = {
@@ -201,6 +203,15 @@ export function loadObjectiveChatPanelWidth(): number {
 
 export function persistObjectiveChatPanelWidth(width: number): void {
   persistSidebarState({ objectiveChatPanelWidth: width });
+}
+
+// Objective list panel width
+export function loadObjectiveListPanelWidth(): number {
+  return loadSidebarState().objectiveListPanelWidth;
+}
+
+export function persistObjectiveListPanelWidth(width: number): void {
+  persistSidebarState({ objectiveListPanelWidth: width });
 }
 
 // Clear all window state (for logout/reset)

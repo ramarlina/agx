@@ -40,7 +40,9 @@ import {
 import { threadService } from "@/services/threadService";
 import {
   loadObjectiveChatPanelWidth,
+  loadObjectiveListPanelWidth,
   persistObjectiveChatPanelWidth,
+  persistObjectiveListPanelWidth,
 } from "@/state/windowState";
 import type { GroupMessage, Participant } from "@/lib/types";
 import {
@@ -66,6 +68,7 @@ interface ProjectObjectivesWorkspaceProps {
 
 interface ProjectObjectiveDetailProps extends ProjectObjectivesWorkspaceProps {
   objectiveId: string;
+  onObjectiveDeleted?: () => void;
 }
 
 interface ObjectiveEditorDraft {
@@ -1266,7 +1269,7 @@ function ObjectiveNotesEditor({
   if (!editable && !hasContent) return null;
 
   return (
-    <div className="overflow-hidden border-l-2 border-zinc-700/60 pl-4 transition-all focus-within:border-indigo-500/60">
+    <div className="overflow-hidden border-l-2 border-[var(--border)]/60 pl-4 transition-all focus-within:border-indigo-500/60">
       {editable || hasContent ? (
         <RichTextEditor
           content={content}
@@ -1279,43 +1282,106 @@ function ObjectiveNotesEditor({
   );
 }
 
+const OBJECTIVE_LIST_MIN_WIDTH = 240;
+const OBJECTIVE_LIST_MAX_WIDTH = 480;
+
+function ObjectiveListResizeHandle({
+  onResize,
+}: {
+  onResize: (delta: number) => void;
+}) {
+  const dragging = useRef(false);
+  const lastX = useRef(0);
+
+  useEffect(() => {
+    if (!dragging.current) return;
+
+    const onMouseMove = (event: MouseEvent) => {
+      const delta = event.clientX - lastX.current;
+      lastX.current = event.clientX;
+      onResize(delta);
+    };
+
+    const onMouseUp = () => {
+      dragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  });
+
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize objective list panel"
+      className="group relative z-10 w-0 shrink-0 cursor-col-resize"
+      onMouseDown={(event) => {
+        event.preventDefault();
+        dragging.current = true;
+        lastX.current = event.clientX;
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+      }}
+    >
+      <div className="absolute inset-y-0 -left-0.5 w-1 transition-colors group-hover:bg-[var(--primary)]/40" />
+    </div>
+  );
+}
+
 function ObjectiveListCard({
-  projectSlug,
   objective,
   activityCount,
   lastActivityAt,
   activeAgentIds,
   participants,
+  isSelected,
+  onSelect,
 }: {
-  projectSlug: string;
   objective: ProjectObjective;
   activityCount: number;
   lastActivityAt: string | null;
   activeAgentIds?: string[];
   participants?: Participant[];
+  isSelected?: boolean;
+  onSelect?: () => void;
 }) {
   const activityMeta = buildActivityMeta(activityCount, lastActivityAt);
 
   return (
     <article className="px-2">
-      <Link
-        href={buildObjectiveHref(projectSlug, objective.id)}
+      <button
+        type="button"
+        onClick={onSelect}
         aria-label={`Open details for ${objective.title}`}
-        className="group flex items-center gap-3 rounded-2xl py-2 transition-colors hover:bg-white/[0.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/40"
+        className={`group flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors ${
+          isSelected
+            ? "bg-[var(--primary)]/10 border border-[var(--primary)]/20"
+            : "hover:bg-[var(--card-bg)] border border-transparent"
+        }`}
       >
-        <div className="min-w-0 flex-1 px-1 py-1.5">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="truncate text-sm font-medium text-[var(--foreground)]">
-              {objective.title}
+        <div className="min-w-0 flex-1 py-0.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <span
+              className={`rounded-full border px-1.5 py-0 text-[9px] font-semibold uppercase tracking-[0.12em] ${HEALTH_META[objective.status].chipClass}`}
+            >
+              {HEALTH_META[objective.status].label}
             </span>
           </div>
-          <div className="mt-1 text-xs text-[var(--muted-foreground)] sm:hidden">
+          <p className="mt-1 truncate text-sm font-medium text-[var(--foreground)]">
+            {objective.title}
+          </p>
+          <p className="mt-0.5 text-[11px] text-[var(--muted-foreground)]">
             {activityMeta}
-          </div>
-        </div>
-
-        <div className="hidden shrink-0 text-right text-xs text-[var(--muted-foreground)] sm:block">
-          <div>{activityMeta}</div>
+          </p>
         </div>
 
         {activeAgentIds && activeAgentIds.length > 0 && (
@@ -1331,19 +1397,15 @@ function ObjectiveListCard({
             })}
           </span>
         )}
-
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--muted-foreground)] transition-colors group-hover:bg-white/5 group-hover:text-[var(--foreground)] group-focus-visible:bg-white/5 group-focus-visible:text-[var(--foreground)]">
-          <ArrowRight className="h-4 w-4" />
-        </span>
-      </Link>
+      </button>
     </article>
   );
 }
 
 export function ProjectObjectivesOverview({
   projectSlug,
-}: ProjectObjectivesWorkspaceProps) {
-  const router = useRouter();
+  initialObjectiveId,
+}: ProjectObjectivesWorkspaceProps & { initialObjectiveId?: string }) {
   const { isLoading, project, workspace, teams, persistWorkspace } =
     useProjectObjectivesWorkspace(projectSlug);
   const objectives = workspace.objectives;
@@ -1351,11 +1413,35 @@ export function ProjectObjectivesOverview({
     () => getAvailableTeams(teams, workspace),
     [teams, workspace]
   );
+  const [selectedObjectiveId, setSelectedObjectiveId] = useState<string | null>(
+    initialObjectiveId ?? null
+  );
+  const [listPanelWidth, setListPanelWidth] = useState(() => {
+    return loadObjectiveListPanelWidth() || 320;
+  });
   const [objectiveEditor, setObjectiveEditor] = useState<ObjectiveEditorDraft | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [activeAgentsByObjective, setActiveAgentsByObjective] = useState<Map<string, string[]>>(new Map());
   const [participants, setParticipants] = useState<Participant[]>([]);
+
+  // Auto-select first objective when none is selected
+  useEffect(() => {
+    if (!selectedObjectiveId && objectives.length > 0) {
+      setSelectedObjectiveId(objectives[0].id);
+    }
+  }, [selectedObjectiveId, objectives]);
+
+  // Clear selection if the selected objective was deleted
+  useEffect(() => {
+    if (
+      selectedObjectiveId &&
+      objectives.length > 0 &&
+      !objectives.some((o) => o.id === selectedObjectiveId)
+    ) {
+      setSelectedObjectiveId(objectives[0]?.id ?? null);
+    }
+  }, [selectedObjectiveId, objectives]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1435,7 +1521,7 @@ export function ProjectObjectivesOverview({
     try {
       await persistWorkspace(upsertProjectObjective(workspace, nextObjective));
       setObjectiveEditor(null);
-      router.push(buildObjectiveHref(projectSlug, nextObjective.id));
+      setSelectedObjectiveId(nextObjective.id);
     } catch (error) {
       setSaveError(
         error instanceof Error ? error.message : "Failed to save objective updates."
@@ -1444,6 +1530,17 @@ export function ProjectObjectivesOverview({
       setIsSaving(false);
     }
   };
+
+  const handleListPanelResize = useCallback((delta: number) => {
+    setListPanelWidth((currentWidth) => {
+      const nextWidth = Math.max(
+        OBJECTIVE_LIST_MIN_WIDTH,
+        Math.min(OBJECTIVE_LIST_MAX_WIDTH, currentWidth + delta)
+      );
+      persistObjectiveListPanelWidth(nextWidth);
+      return nextWidth;
+    });
+  }, []);
 
   if (isLoading && !project) {
     return <LoadingState label="Loading objectives..." />;
@@ -1454,57 +1551,88 @@ export function ProjectObjectivesOverview({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_28%),var(--background)] text-[var(--foreground)]">
-      <div className="border-b border-[var(--border)] bg-[rgba(10,14,20,0.7)] px-4 py-5 backdrop-blur md:px-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div className="space-y-2">
-            <p className="text-sm text-[var(--muted-foreground)]">
-              {objectives.length === 0
-                ? "Add an objective to start tracking work in this project."
-                : "Click an objective to open its detail view."}
+    <div className="flex h-full min-h-0 overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
+      {/* Left panel: objective list */}
+      <div
+        className="flex flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--background)]"
+        style={{ width: listPanelWidth }}
+      >
+        <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
+              Objectives
+            </p>
+            <p className="mt-0.5 text-[11px] text-[var(--muted-foreground)]">
+              {objectives.length === 0 ? "None yet" : `${objectives.length} total`}
             </p>
           </div>
-
           <button
             type="button"
             onClick={() => setObjectiveEditor(buildEmptyObjectiveDraft())}
-            className="inline-flex items-center gap-2 self-start rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-100 transition-colors hover:bg-emerald-500/20"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card-bg)] hover:text-[var(--foreground)]"
+            aria-label="New objective"
           >
             <Plus className="h-4 w-4" />
-            New objective
           </button>
         </div>
+
         <ErrorBanner message={saveError} />
+
+        <div className="flex-1 overflow-y-auto py-1">
+          {objectives.length === 0 ? (
+            <div className="px-4 py-8 text-center">
+              <p className="text-sm text-[var(--muted-foreground)]">
+                No objectives yet.
+              </p>
+              <button
+                type="button"
+                onClick={() => setObjectiveEditor(buildEmptyObjectiveDraft())}
+                className="mt-2 text-sm text-[var(--primary)] hover:underline"
+              >
+                Create one
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-0.5">
+              {objectives.map((objective) => {
+                const objectiveActivities = buildObjectiveTimelineActivities({
+                  objective,
+                  workspace,
+                });
+
+                return (
+                  <ObjectiveListCard
+                    key={objective.id}
+                    objective={objective}
+                    activityCount={objectiveActivities.length}
+                    lastActivityAt={objectiveActivities[0]?.createdAt ?? null}
+                    activeAgentIds={activeAgentsByObjective.get(objective.id)}
+                    participants={participants}
+                    isSelected={selectedObjectiveId === objective.id}
+                    onSelect={() => setSelectedObjectiveId(objective.id)}
+                  />
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-5 md:px-6 md:py-6">
-        {objectives.length === 0 ? (
-          <div className="mx-auto max-w-3xl rounded-[32px] border border-dashed border-[var(--border)] bg-[var(--card-bg)] p-8 text-center">
-            <p className="text-lg font-semibold text-[var(--foreground)]">No objectives yet</p>
-            <p className="mt-2 text-sm text-[var(--muted-foreground)]">
-              Keep the root view simple: objective list first, detail after click-through.
-            </p>
-          </div>
-        ) : (
-          <div className="mx-auto max-w-4xl divide-y divide-[var(--border)] overflow-hidden rounded-[24px] border border-[var(--border)] bg-[rgba(8,12,18,0.58)]">
-            {objectives.map((objective) => {
-              const objectiveActivities = buildObjectiveTimelineActivities({
-                objective,
-                workspace,
-              });
+      <ObjectiveListResizeHandle onResize={handleListPanelResize} />
 
-              return (
-                <ObjectiveListCard
-                  key={objective.id}
-                  projectSlug={projectSlug}
-                  objective={objective}
-                  activityCount={objectiveActivities.length}
-                  lastActivityAt={objectiveActivities[0]?.createdAt ?? null}
-                  activeAgentIds={activeAgentsByObjective.get(objective.id)}
-                  participants={participants}
-                />
-              );
-            })}
+      {/* Right panel: objective detail */}
+      <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
+        {selectedObjectiveId ? (
+          <ProjectObjectiveDetail
+            projectSlug={projectSlug}
+            objectiveId={selectedObjectiveId}
+            onObjectiveDeleted={() => setSelectedObjectiveId(null)}
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center text-sm text-[var(--muted-foreground)]">
+            {objectives.length === 0
+              ? "Create an objective to get started."
+              : "Select an objective from the list."}
           </div>
         )}
       </div>
@@ -1527,6 +1655,7 @@ export function ProjectObjectivesOverview({
 export function ProjectObjectiveDetail({
   projectSlug,
   objectiveId,
+  onObjectiveDeleted,
 }: ProjectObjectiveDetailProps) {
   const router = useRouter();
   const { isLoading, project, workspace, teams, persistWorkspace, refetchProject } =
@@ -1789,7 +1918,11 @@ export function ProjectObjectiveDetail({
     if (!confirmed) return;
 
     await runPersist(removeProjectObjective(workspace, objective.id));
-    router.push(`/projects/${projectSlug}`);
+    if (onObjectiveDeleted) {
+      onObjectiveDeleted();
+    } else {
+      router.push(`/projects/${projectSlug}`);
+    }
   };
 
   const handleObjectiveThreadLinked = useCallback(
@@ -1952,15 +2085,15 @@ export function ProjectObjectiveDetail({
 
   if (!objective) {
     return (
-      <div className="flex h-full items-center justify-center px-4 bg-[#131315]">
-        <div className="rounded-xl border border-zinc-700/80 bg-[#18181b] p-8 text-center">
-          <p className="text-lg font-semibold text-zinc-100">Objective not found</p>
-          <p className="mt-2 text-sm text-zinc-500">
+      <div className="flex h-full items-center justify-center px-4 bg-[var(--background)]">
+        <div className="rounded-xl border border-[var(--border)]/80 bg-[var(--card-bg)] p-8 text-center">
+          <p className="text-lg font-semibold text-[var(--foreground)]">Objective not found</p>
+          <p className="mt-2 text-sm text-[var(--foreground)]0">
             It may have been deleted or the link is stale.
           </p>
           <Link
             href={`/projects/${projectSlug}`}
-            className="mt-4 inline-flex items-center gap-2 rounded-md border border-zinc-700/80 px-3 py-1.5 text-sm text-zinc-300 transition-colors hover:bg-zinc-800/50 bg-[#1a1a1c]"
+            className="mt-4 inline-flex items-center gap-2 rounded-md border border-[var(--border)]/80 px-3 py-1.5 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--card-bg)]/50 bg-[var(--card-bg)]"
           >
             Back to objectives
           </Link>
@@ -1970,7 +2103,7 @@ export function ProjectObjectiveDetail({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#131315] text-zinc-200">
+    <div className="flex h-full min-h-0 flex-col bg-[var(--background)] text-[var(--foreground)]">
       <div className="flex-1 min-h-0 overflow-hidden">
         <div className="flex h-full min-h-0 flex-col xl:flex-row">
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -1978,7 +2111,7 @@ export function ProjectObjectiveDetail({
               <ErrorBanner message={saveError} />
 
               <div className="flex items-center gap-3 mb-4">
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono tracking-wider bg-zinc-800/60 text-zinc-400 border border-zinc-700 uppercase">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono tracking-wider bg-[var(--card-bg)]/60 text-[var(--muted-foreground)] border border-[var(--border)] uppercase">
                   {objective.key}
                 </span>
                 <span
@@ -1999,7 +2132,7 @@ export function ProjectObjectiveDetail({
                         if (e.key === "Enter") void handleObjectiveSave();
                         if (e.key === "Escape") setObjectiveEditor(null);
                       }}
-                      className="flex-1 text-[28px] leading-tight font-semibold text-zinc-100 bg-transparent border-b-2 border-sky-500/50 outline-none px-0 py-1"
+                      className="flex-1 text-[28px] leading-tight font-semibold text-[var(--foreground)] bg-transparent border-b-2 border-sky-500/50 outline-none px-0 py-1"
                       placeholder="Objective statement"
                     />
                     <button
@@ -2014,7 +2147,7 @@ export function ProjectObjectiveDetail({
                     <button
                       type="button"
                       onClick={() => setObjectiveEditor(null)}
-                      className="p-1.5 rounded-md text-zinc-400 hover:bg-zinc-800/50 transition-colors"
+                      className="p-1.5 rounded-md text-[var(--muted-foreground)] hover:bg-[var(--card-bg)]/50 transition-colors"
                       aria-label="Cancel editing"
                     >
                       <X size={18} />
@@ -2025,10 +2158,10 @@ export function ProjectObjectiveDetail({
                     className="flex items-center gap-3 group cursor-pointer"
                     onClick={() => setObjectiveEditor(buildObjectiveDraft(objective))}
                   >
-                    <h1 className="text-[28px] leading-tight font-semibold text-zinc-100">
+                    <h1 className="text-[28px] leading-tight font-semibold text-[var(--foreground)]">
                       {objective.title}
                     </h1>
-                    <Pencil size={16} className="text-zinc-500 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+                    <Pencil size={16} className="text-[var(--foreground)]0 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
                   </div>
                 )}
               </div>
@@ -2037,10 +2170,10 @@ export function ProjectObjectiveDetail({
               <div className="flex flex-wrap items-center gap-x-6 gap-y-3 mb-10">
                 {/* Team Property */}
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="text-xs font-semibold text-[var(--foreground)]0 uppercase tracking-wider flex items-center gap-1.5">
                     <Users size={12} /> Team
                   </span>
-                  <span className="text-zinc-600">·</span>
+                  <span className="text-[var(--muted-foreground)]">·</span>
                   {teamEditor ? (
                     <div className="min-w-[180px]">
                       <SearchCombo
@@ -2072,12 +2205,12 @@ export function ProjectObjectiveDetail({
                     <button
                       type="button"
                       onClick={() => setTeamEditor({ teamId: objective.teamId })}
-                      className="flex items-center gap-2 group rounded px-1.5 py-0.5 -mx-1.5 -my-0.5 hover:bg-zinc-800 transition-colors"
+                      className="flex items-center gap-2 group rounded px-1.5 py-0.5 -mx-1.5 -my-0.5 hover:bg-[var(--card-bg)] transition-colors"
                     >
                       <div className="w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center text-[10px] font-bold border border-blue-500/30">
                         {(teamName ?? "?").charAt(0).toUpperCase()}
                       </div>
-                      <span className="text-sm text-zinc-200 group-hover:text-zinc-50 transition-colors">
+                      <span className="text-sm text-[var(--foreground)] group-hover:text-[var(--foreground)] transition-colors">
                         {teamName ?? "Not assigned"}
                       </span>
                     </button>
@@ -2086,19 +2219,19 @@ export function ProjectObjectiveDetail({
 
                 {/* Check-in Frequency Property */}
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-zinc-500 uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="text-xs font-semibold text-[var(--foreground)]0 uppercase tracking-wider flex items-center gap-1.5">
                     <Clock size={12} /> Check-in
                   </span>
-                  <span className="text-zinc-600">·</span>
+                  <span className="text-[var(--muted-foreground)]">·</span>
                   <button
                     type="button"
                     onClick={() => setWakeEditor(buildObjectiveDraft(objective))}
-                    className="text-sm text-zinc-200 hover:text-zinc-50 rounded px-1.5 py-0.5 -my-0.5 hover:bg-zinc-800 transition-colors"
+                    className="text-sm text-[var(--foreground)] hover:text-[var(--foreground)] rounded px-1.5 py-0.5 -my-0.5 hover:bg-[var(--card-bg)] transition-colors"
                   >
                     {formatObjectiveCadence(objective.cadence)}
                   </button>
                   {objective.condition ? (
-                    <span className="text-xs text-zinc-500 truncate max-w-[200px]">
+                    <span className="text-xs text-[var(--foreground)]0 truncate max-w-[200px]">
                       · {objective.condition}
                     </span>
                   ) : null}
@@ -2106,7 +2239,7 @@ export function ProjectObjectiveDetail({
               </div>
 
               {/* Tabs */}
-              <div className="border-b border-zinc-800/80 mb-8">
+              <div className="border-b border-[var(--border)]/80 mb-8">
                 <nav className="flex gap-1 -mb-px" aria-label="Objective sections">
                   {([
                     { id: "activity" as const, label: "Activity", icon: Clock },
@@ -2120,19 +2253,19 @@ export function ProjectObjectiveDetail({
                       onClick={() => setActiveTab(tab.id)}
                       className={`flex items-center gap-2 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                         activeTab === tab.id
-                          ? "border-sky-500 text-zinc-100"
-                          : "border-transparent text-zinc-500 hover:text-zinc-300 hover:border-zinc-700"
+                          ? "border-sky-500 text-[var(--foreground)]"
+                          : "border-transparent text-[var(--foreground)]0 hover:text-[var(--foreground)] hover:border-[var(--border)]"
                       }`}
                     >
                       <tab.icon size={14} />
                       {tab.label}
                       {tab.id === "activity" && activityTotal > 0 && (
-                        <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
+                        <span className="text-[10px] bg-[var(--card-bg)] text-[var(--muted-foreground)] rounded-full px-1.5 py-0.5 font-mono">
                           {activityTotal}
                         </span>
                       )}
                       {tab.id === "notes" && notes.length > 0 && (
-                        <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
+                        <span className="text-[10px] bg-[var(--card-bg)] text-[var(--muted-foreground)] rounded-full px-1.5 py-0.5 font-mono">
                           {notes.length}
                         </span>
                       )}
@@ -2142,13 +2275,13 @@ export function ProjectObjectiveDetail({
                           (i, idx, arr) => arr.findIndex((x) => x.id === i.id) === idx && !DONE.includes(i.status.toLowerCase())
                         );
                         return active.length > 0 ? (
-                          <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
+                          <span className="text-[10px] bg-[var(--card-bg)] text-[var(--muted-foreground)] rounded-full px-1.5 py-0.5 font-mono">
                             {active.length}
                           </span>
                         ) : null;
                       })()}
                       {tab.id === "scheduled-tasks" && scheduledTaskCount > 0 && (
-                        <span className="text-[10px] bg-zinc-800 text-zinc-400 rounded-full px-1.5 py-0.5 font-mono">
+                        <span className="text-[10px] bg-[var(--card-bg)] text-[var(--muted-foreground)] rounded-full px-1.5 py-0.5 font-mono">
                           {scheduledTaskCount}
                         </span>
                       )}
@@ -2163,7 +2296,7 @@ export function ProjectObjectiveDetail({
                 {activeTab === "notes" && (
                   <section className="space-y-4">
                     <div className="flex justify-between items-end">
-                      <p className="text-sm text-zinc-500">
+                      <p className="text-sm text-[var(--foreground)]0">
                         Capture the strategy, constraints, and what better looks like.
                       </p>
                     </div>
@@ -2178,13 +2311,13 @@ export function ProjectObjectiveDetail({
                           if (e.key === "Enter") handleCreateNote();
                         }}
                         placeholder="New note title..."
-                        className="flex-1 bg-zinc-900 border border-zinc-800 rounded-md px-3 py-1.5 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-600"
+                        className="flex-1 bg-[var(--card-bg)] border border-[var(--border)] rounded-md px-3 py-1.5 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--muted-foreground)]"
                       />
                       <button
                         type="button"
                         onClick={handleCreateNote}
                         disabled={isCreatingNote}
-                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-zinc-200 bg-zinc-800 hover:bg-zinc-700 rounded-md transition-colors disabled:opacity-50"
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[var(--foreground)] bg-[var(--card-bg)] hover:bg-[var(--border)] rounded-md transition-colors disabled:opacity-50"
                       >
                         <Plus size={14} />
                         Add
@@ -2193,9 +2326,9 @@ export function ProjectObjectiveDetail({
 
                     {/* Notes List */}
                     {isNotesLoading ? (
-                      <p className="text-sm text-zinc-500 py-4">Loading notes...</p>
+                      <p className="text-sm text-[var(--foreground)]0 py-4">Loading notes...</p>
                     ) : notes.length === 0 ? (
-                      <p className="text-sm text-zinc-600 py-4">
+                      <p className="text-sm text-[var(--muted-foreground)] py-4">
                         No notes yet. Add one above.
                       </p>
                     ) : (
@@ -2209,13 +2342,13 @@ export function ProjectObjectiveDetail({
                           return (
                             <div
                               key={note.id}
-                              className="border border-zinc-800/80 rounded-lg overflow-hidden"
+                              className="border border-[var(--border)]/80 rounded-lg overflow-hidden"
                             >
                               {/* Note Header */}
-                              <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-900/50">
+                              <div className="flex items-center justify-between px-4 py-2.5 bg-[var(--card-bg)]/50">
                                 {isEditing ? (
                                   <div className="flex items-center gap-2 flex-1 mr-2">
-                                    <FileText size={14} className="text-zinc-500 shrink-0" />
+                                    <FileText size={14} className="text-[var(--foreground)]0 shrink-0" />
                                     <input
                                       type="text"
                                       value={draftTitle}
@@ -2225,7 +2358,7 @@ export function ProjectObjectiveDetail({
                                           [note.id]: e.target.value,
                                         }))
                                       }
-                                      className="flex-1 bg-transparent border-b border-zinc-700 text-sm font-medium text-zinc-200 focus:outline-none focus:border-zinc-400 py-0.5"
+                                      className="flex-1 bg-transparent border-b border-[var(--border)] text-sm font-medium text-[var(--foreground)] focus:outline-none focus:border-[var(--muted-foreground)] py-0.5"
                                     />
                                   </div>
                                 ) : (
@@ -2234,14 +2367,14 @@ export function ProjectObjectiveDetail({
                                     onClick={() =>
                                       setEditingNoteId(note.id)
                                     }
-                                    className="flex items-center gap-2 text-sm font-medium text-zinc-200 hover:text-zinc-50 transition-colors"
+                                    className="flex items-center gap-2 text-sm font-medium text-[var(--foreground)] hover:text-[var(--foreground)] transition-colors"
                                   >
-                                    <FileText size={14} className="text-zinc-500" />
+                                    <FileText size={14} className="text-[var(--foreground)]0" />
                                     {note.title}
                                   </button>
                                 )}
                                 <div className="flex items-center gap-2">
-                                  <span className="text-[11px] text-zinc-600">
+                                  <span className="text-[11px] text-[var(--muted-foreground)]">
                                     {isSavingNote
                                       ? "Saving..."
                                       : new Date(note.updatedAt).toLocaleDateString()}
@@ -2251,14 +2384,14 @@ export function ProjectObjectiveDetail({
                                     onClick={() =>
                                       setEditingNoteId(isEditing ? null : note.id)
                                     }
-                                    className="p-1 text-zinc-500 hover:text-zinc-300 transition-colors"
+                                    className="p-1 text-[var(--foreground)]0 hover:text-[var(--foreground)] transition-colors"
                                   >
                                     <Pencil size={12} />
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => handleDeleteNote(note.id)}
-                                    className="p-1 text-zinc-500 hover:text-red-400 transition-colors"
+                                    className="p-1 text-[var(--foreground)]0 hover:text-red-400 transition-colors"
                                   >
                                     <Trash2 size={12} />
                                   </button>
@@ -2282,7 +2415,7 @@ export function ProjectObjectiveDetail({
                                 </div>
                               ) : note.body.trim() ? (
                                 <div
-                                  className="px-4 py-3 text-sm text-zinc-400 cursor-pointer hover:bg-zinc-900/30 transition-colors"
+                                  className="px-4 py-3 text-sm text-[var(--muted-foreground)] cursor-pointer hover:bg-[var(--card-bg)]/30 transition-colors"
                                   onClick={() => setEditingNoteId(note.id)}
                                 >
                                   <div className="line-clamp-3">
@@ -2291,7 +2424,7 @@ export function ProjectObjectiveDetail({
                                 </div>
                               ) : (
                                 <div
-                                  className="px-4 py-3 text-sm text-zinc-600 italic cursor-pointer hover:bg-zinc-900/30 transition-colors"
+                                  className="px-4 py-3 text-sm text-[var(--muted-foreground)] italic cursor-pointer hover:bg-[var(--card-bg)]/30 transition-colors"
                                   onClick={() => setEditingNoteId(note.id)}
                                 >
                                   Empty note — click to edit
@@ -2330,9 +2463,9 @@ export function ProjectObjectiveDetail({
                   return (
                     <section>
                       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-                        <p className="text-sm text-zinc-500">
+                        <p className="text-sm text-[var(--foreground)]0">
                           Tickets tracked by the objective label{" "}
-                          <code className="font-mono text-[11px] bg-zinc-800/80 px-1.5 py-0.5 rounded text-zinc-300">
+                          <code className="font-mono text-[11px] bg-[var(--card-bg)]/80 px-1.5 py-0.5 rounded text-[var(--foreground)]">
                             {objective.key}
                           </code>.
                         </p>
@@ -2361,11 +2494,11 @@ export function ProjectObjectiveDetail({
                               {activeIssues.map((issue) => (
                                 <div
                                   key={issue.id}
-                                  className="bg-[#1c212b] border border-[#2d3748] rounded-xl p-4"
+                                  className="bg-[var(--card-bg)] border border-[var(--border)] rounded-xl p-4"
                                 >
                                   <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
-                                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--foreground)]0">
                                         {issue.identifier}
                                       </p>
                                       {issue.url ? (
@@ -2373,21 +2506,21 @@ export function ProjectObjectiveDetail({
                                           href={issue.url}
                                           target="_blank"
                                           rel="noreferrer"
-                                          className="mt-1 block text-sm font-medium text-zinc-200 transition-colors hover:text-sky-200"
+                                          className="mt-1 block text-sm font-medium text-[var(--foreground)] transition-colors hover:text-sky-200"
                                         >
                                           {issue.title}
                                         </a>
                                       ) : (
-                                        <p className="mt-1 text-sm font-medium text-zinc-200">
+                                        <p className="mt-1 text-sm font-medium text-[var(--foreground)]">
                                           {issue.title}
                                         </p>
                                       )}
                                     </div>
-                                    <span className="rounded-full border border-zinc-700 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-zinc-500">
+                                    <span className="rounded-full border border-[var(--border)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--foreground)]0">
                                       {issue.status}
                                     </span>
                                   </div>
-                                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-zinc-500">
+                                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[var(--foreground)]0">
                                     <span>Updated {formatDateTime(issue.updatedAt)}</span>
                                     <span>{issue.assignee ? `Assigned to ${issue.assignee}` : "Unassigned"}</span>
                                   </div>
@@ -2398,7 +2531,7 @@ export function ProjectObjectiveDetail({
 
                           {doneIssues.length > 0 && (
                             <div className={activeIssues.length > 0 ? "mt-6" : ""}>
-                              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-zinc-600 mb-2">
+                              <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-[var(--muted-foreground)] mb-2">
                                 Completed
                               </p>
                               <div className="space-y-0.5">
@@ -2408,11 +2541,11 @@ export function ProjectObjectiveDetail({
                                     href={issue.url ?? "#"}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="flex items-center gap-3 py-1.5 px-2 rounded-md text-zinc-500 hover:text-zinc-400 hover:bg-zinc-800/40 transition-colors group"
+                                    className="flex items-center gap-3 py-1.5 px-2 rounded-md text-[var(--foreground)]0 hover:text-[var(--muted-foreground)] hover:bg-[var(--card-bg)]/40 transition-colors group"
                                   >
                                     <span className="text-[11px] font-mono shrink-0">{issue.identifier}</span>
                                     <span className="text-[12px] truncate">{issue.title}</span>
-                                    <span className="ml-auto text-[10px] shrink-0 text-zinc-600 group-hover:text-zinc-500">{issue.status}</span>
+                                    <span className="ml-auto text-[10px] shrink-0 text-[var(--muted-foreground)] group-hover:text-[var(--foreground)]0">{issue.status}</span>
                                   </a>
                                 ))}
                               </div>
@@ -2448,8 +2581,8 @@ export function ProjectObjectiveDetail({
                   </div>
                   <div className="border border-red-900/30 rounded-xl p-5 flex items-center justify-between bg-red-950/5">
                     <div>
-                      <h3 className="text-sm font-medium text-zinc-200">Delete Objective</h3>
-                      <p className="text-sm text-zinc-500 mt-1">
+                      <h3 className="text-sm font-medium text-[var(--foreground)]">Delete Objective</h3>
+                      <p className="text-sm text-[var(--foreground)]0 mt-1">
                         Once you delete an objective, there is no going back.
                       </p>
                     </div>
@@ -2497,8 +2630,8 @@ export function ProjectObjectivesWorkspace(props: ProjectObjectivesWorkspaceProp
 
 function EmptyState({ label }: { label: string }) {
   return (
-    <div className="border border-dashed border-zinc-700/80 rounded-xl p-6 flex items-center bg-[#151517]">
-      <p className="text-sm text-zinc-500">{label}</p>
+    <div className="border border-dashed border-[var(--border)]/80 rounded-xl p-6 flex items-center bg-[var(--card-bg)]">
+      <p className="text-sm text-[var(--foreground)]0">{label}</p>
     </div>
   );
 }
