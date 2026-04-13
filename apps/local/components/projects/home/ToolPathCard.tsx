@@ -16,12 +16,12 @@ export function ToolPathCard({ icon, title, accentClass, onClick, badge, childre
     <button
       type="button"
       onClick={onClick}
-      className="w-full text-left rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4 transition-colors hover:bg-zinc-800/50"
+      className="w-full rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] p-4 text-left transition-colors hover:bg-[var(--secondary)]"
     >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <span className={accentClass}>{icon}</span>
-          <span className="text-sm font-medium text-zinc-200">{title}</span>
+          <span className="text-sm font-medium text-[var(--foreground)]">{title}</span>
         </div>
         {badge}
       </div>

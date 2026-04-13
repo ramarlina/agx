@@ -156,34 +156,34 @@ export function WorkingNowCard({
   const totalActivities = activeProcesses.length;
 
   return (
-    <section className="col-span-full rounded-2xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
-      <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
+    <section className="col-span-full overflow-hidden rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)]">
+      <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
         <div>
-          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-zinc-500">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
             <Activity className="h-3.5 w-3.5" />
             Working Now
           </div>
-          <p className="mt-1 text-xs text-zinc-500">
+          <p className="mt-1 text-xs text-[var(--muted-foreground)]">
             {agentGroups.length} {agentGroups.length === 1 ? "agent" : "agents"} active across{" "}
             {totalActivities} {totalActivities === 1 ? "thread" : "threads"}.
           </p>
         </div>
-        <span className="rounded-full border border-emerald-700/60 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
+        <span className="rounded-full border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-[var(--status-completed-text)]">
           {totalActivities} live {totalActivities === 1 ? "entry" : "entries"}
         </span>
       </div>
 
-      <div className="divide-y divide-zinc-800/80">
+      <div className="divide-y divide-[var(--border)]">
         {agentGroups.map((group) => (
           <div key={group.agentId} className="px-4 py-3">
             {/* Agent header */}
             <div className="flex items-center gap-2 mb-2">
-              <span className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-100">
+              <span className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--foreground)]">
                 <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
                 {group.agentName}
               </span>
               {group.activities.length > 1 && (
-                <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-[10px] text-zinc-400">
+                <span className="rounded-full bg-[var(--secondary)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]">
                   {group.activities.length} threads
                 </span>
               )}
@@ -194,7 +194,7 @@ export function WorkingNowCard({
               {group.activities.map((activity) => (
                 <div
                   key={activity.key}
-                  className="flex items-center gap-3 rounded-lg px-2 py-1.5 -mx-2 cursor-pointer text-sm transition-colors hover:bg-zinc-800/40"
+                  className="mx-[-0.5rem] flex cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-[var(--secondary)]"
                   onClick={() =>
                     router.push(
                       activity.linearIssueId && activity.linearRunId
@@ -203,14 +203,14 @@ export function WorkingNowCard({
                     )
                   }
                 >
-                  <span className="inline-flex items-center gap-1.5 shrink-0 rounded-full border border-emerald-700/60 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                  <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-2 py-0.5 text-[11px] font-medium text-[var(--status-completed-text)]">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
                     {activity.state === "spawning" ? "Starting" : "Working"}
                   </span>
-                  <span className="text-zinc-400 truncate min-w-0 flex-1">
+                  <span className="min-w-0 flex-1 truncate text-[var(--foreground)]">
                     {activity.threadLabel}
                   </span>
-                  <span className="text-zinc-500 text-xs shrink-0">
+                  <span className="shrink-0 text-xs text-[var(--muted-foreground)]">
                     {activity.lastActiveLabel}
                   </span>
                 </div>

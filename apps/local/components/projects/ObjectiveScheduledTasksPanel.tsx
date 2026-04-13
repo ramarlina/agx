@@ -120,7 +120,7 @@ function ObjectiveScheduledTaskDetailModal({
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
               Instructions
             </p>
-            <div className="rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.28)] px-4 py-4 text-sm leading-6 text-[var(--foreground)] whitespace-pre-wrap">
+            <div className="whitespace-pre-wrap rounded-2xl border border-[var(--border)] bg-[var(--overlay-panel-muted)] px-4 py-4 text-sm leading-6 text-[var(--foreground)]">
               {job.prompt || "No instructions yet"}
             </div>
           </div>
@@ -130,7 +130,7 @@ function ObjectiveScheduledTaskDetailModal({
               <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
                 Condition
               </p>
-              <div className="rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.28)] px-4 py-4 text-sm leading-6 text-[var(--foreground)]">
+              <div className="rounded-2xl border border-[var(--border)] bg-[var(--overlay-panel-muted)] px-4 py-4 text-sm leading-6 text-[var(--foreground)]">
                 {job.condition}
               </div>
             </div>
@@ -148,7 +148,7 @@ function ObjectiveScheduledTaskDetailModal({
               type="button"
               onClick={() => void onHide()}
               disabled={hiding}
-              className="inline-flex items-center gap-2 rounded-xl border border-rose-500/20 px-4 py-2.5 text-sm text-rose-100 transition-colors hover:bg-rose-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-xl border border-[var(--status-failed-border)] px-4 py-2.5 text-sm text-[var(--destructive)] transition-colors hover:bg-[var(--destructive-muted)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Trash2 className="h-4 w-4" />
               {hiding ? "Hiding..." : "Hide task"}
@@ -168,12 +168,12 @@ function formatState(state: PromptJob["state"]): string {
 
 function stateClasses(state: PromptJob["state"]): string {
   if (state === "active") {
-    return "border-emerald-500/20 bg-emerald-500/10 text-emerald-300";
+    return "border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] text-[var(--status-completed)]";
   }
   if (state === "paused") {
-    return "border-amber-500/20 bg-amber-500/10 text-amber-300";
+    return "border-[var(--status-blocked-border)] bg-[var(--status-blocked-bg)] text-[var(--status-blocked)]";
   }
-  return "border-zinc-700 bg-zinc-800/80 text-zinc-300";
+  return "border-[var(--tone-neutral-border)] bg-[var(--tone-neutral-bg)] text-[var(--tone-neutral)]";
 }
 
 export function ObjectiveScheduledTasksPanel({
@@ -299,7 +299,7 @@ export function ObjectiveScheduledTasksPanel({
         </div>
 
         {error ? (
-          <p className="mt-4 text-sm text-red-300">{error}</p>
+          <p className="mt-4 text-sm text-[var(--destructive)]">{error}</p>
         ) : null}
 
         <div className="mt-5 space-y-3">
@@ -327,7 +327,7 @@ export function ObjectiveScheduledTasksPanel({
                 className={`block w-full rounded-2xl border px-4 py-4 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--card-hover-border)] ${
                   isJobOverdue(job)
                     ? "border-amber-500/40 bg-amber-500/5 hover:border-amber-500/60"
-                    : "border-[var(--border)] bg-[rgba(15,23,42,0.28)] hover:border-[var(--card-hover-border)]"
+                    : "border-[var(--border)] bg-[var(--overlay-panel-muted)] hover:border-[var(--card-hover-border)]"
                 }`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -339,7 +339,7 @@ export function ObjectiveScheduledTasksPanel({
                             ? "bg-emerald-400"
                             : job.state === "paused"
                               ? "bg-amber-400"
-                              : "bg-zinc-500"
+                              : "bg-[var(--tone-neutral)]"
                         }`}
                       />
                       <p className="truncate text-sm font-semibold text-[var(--foreground)]">
@@ -429,7 +429,7 @@ export function ObjectiveScheduledTasksPanel({
                         void handleHide(job);
                       }}
                       disabled={busyId === job.id}
-                      className="rounded-lg border border-[var(--border)] p-2 text-[var(--muted-foreground)] transition-colors hover:border-red-400/40 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-lg border border-[var(--border)] p-2 text-[var(--muted-foreground)] transition-colors hover:border-[var(--status-failed-border)] hover:text-[var(--destructive)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -462,7 +462,7 @@ export function ObjectiveScheduledTasksPanel({
                         isSuccess
                           ? "border-emerald-500/40 text-emerald-400"
                           : isFailed
-                            ? "border-red-500/40 text-red-400"
+                            ? "border-[var(--status-failed-border)] text-[var(--destructive)]"
                             : isRunning
                               ? "border-sky-500/40 text-sky-400"
                               : "border-[var(--border)] text-[var(--muted-foreground)]"

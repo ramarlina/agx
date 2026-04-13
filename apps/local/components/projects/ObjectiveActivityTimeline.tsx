@@ -30,7 +30,7 @@ const TYPE_META: Record<ObjectiveActivityType, { label: string; className: strin
   },
   note: {
     label: "Note",
-    className: "bg-zinc-500/15 text-zinc-400 border-zinc-500/30",
+    className: "bg-[var(--tone-neutral-bg)] text-[var(--tone-neutral)] border-[var(--tone-neutral-border)]",
   },
 };
 
@@ -68,36 +68,36 @@ function ActivityEntry({ activity }: { activity: ObjectiveActivityFile }) {
 
   return (
     <div className="relative pl-6 pb-6 last:pb-0">
-      <div className="absolute left-0 top-1.5 w-3 h-3 rounded-full border-2 border-zinc-600 bg-[#131315]" />
-      <div className="absolute left-[5px] top-4 bottom-0 w-px bg-zinc-800 last:hidden" />
+      <div className="absolute left-0 top-1.5 h-3 w-3 rounded-full border-2 border-[var(--timeline-node-border)] bg-[var(--timeline-node-bg)]" />
+      <div className="absolute bottom-0 left-[5px] top-4 w-px bg-[var(--timeline-track)] last:hidden" />
 
-      <div className="flex items-center gap-2 mb-1.5">
+      <div className="mb-1.5 flex items-center gap-2">
         <span
           className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] ${meta.className}`}
         >
           {meta.label}
         </span>
-        <span className="text-[11px] text-zinc-500">{formatRelativeTime(activity.createdAt)}</span>
+        <span className="text-[11px] text-[var(--muted-foreground)]">{formatRelativeTime(activity.createdAt)}</span>
         {activity.source !== "manual" && (
-          <span className="text-[11px] text-zinc-600 font-mono truncate max-w-[180px]">
+          <span className="max-w-[180px] truncate font-mono text-[11px] text-[var(--app-shell-soft-text)]">
             {activity.source}
           </span>
         )}
       </div>
 
       {expanded ? (
-        <div className="text-sm text-zinc-300 prose prose-invert prose-sm max-w-none">
+        <div className="prose prose-sm max-w-none text-sm text-[var(--foreground)] prose-neutral dark:prose-invert">
           <Markdown content={activity.body} />
         </div>
       ) : (
-        <p className="text-sm text-zinc-400 leading-relaxed">{preview}</p>
+        <p className="text-sm leading-relaxed text-[var(--muted-foreground)]">{preview}</p>
       )}
 
       {hasMore && (
         <button
           type="button"
           onClick={() => setExpanded(!expanded)}
-          className="mt-1.5 flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300 transition-colors"
+          className="mt-1.5 flex items-center gap-1 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
         >
           {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           {expanded ? "Show less" : "Show more"}
@@ -152,8 +152,8 @@ function LogActivityForm({
   };
 
   return (
-    <div className="rounded-lg border border-zinc-700/60 bg-zinc-900/50 p-3 mb-4">
-      <div className="flex flex-wrap gap-1.5 mb-3">
+    <div className="mb-4 rounded-lg border border-[var(--border)] bg-[var(--overlay-panel-muted)] p-3">
+      <div className="mb-3 flex flex-wrap gap-1.5">
         {ALL_TYPES.map((t) => {
           const meta = TYPE_META[t];
           const isActive = type === t;
@@ -164,7 +164,7 @@ function LogActivityForm({
               onClick={() => setType(t)}
               className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] transition-colors ${
                 isActive
-                  ? "bg-zinc-200 text-zinc-900 border-zinc-200"
+                  ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
                   : `${meta.className} hover:opacity-80`
               }`}
             >
@@ -179,13 +179,13 @@ function LogActivityForm({
         onChange={(e) => setBody(e.target.value)}
         placeholder="What did you do?"
         rows={3}
-        className="w-full rounded-md border border-zinc-700/60 bg-zinc-800/50 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-zinc-500 resize-none"
+        className="w-full resize-none rounded-md border border-[var(--border)] bg-[var(--input)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--app-shell-soft-text)] focus:border-[var(--card-hover-border)] focus:outline-none"
       />
-      <div className="flex items-center justify-end gap-2 mt-2">
+      <div className="mt-2 flex items-center justify-end gap-2">
         <button
           type="button"
           onClick={onCancel}
-          className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200 transition-colors"
+          className="px-3 py-1.5 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
         >
           Cancel
         </button>
@@ -255,8 +255,8 @@ export function ObjectiveActivityTimeline({
 
   return (
     <section>
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-sm text-zinc-500">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-sm text-[var(--muted-foreground)]">
           Time-ordered log of outputs from scheduled tasks and manual entries.
         </p>
         <div className="flex items-center gap-1.5">
@@ -266,7 +266,7 @@ export function ObjectiveActivityTimeline({
             className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
               showLogForm
                 ? "text-sky-400 bg-sky-500/10"
-                : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
+                : "text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
             }`}
           >
             {showLogForm ? <X size={12} /> : <Plus size={12} />}
@@ -278,7 +278,7 @@ export function ObjectiveActivityTimeline({
             className={`p-1.5 rounded-md transition-colors ${
               showFilter || typeFilter !== "all"
                 ? "text-sky-400 bg-sky-500/10"
-                : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800/50"
+                : "text-[var(--muted-foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
             }`}
             aria-label="Filter activities"
           >
@@ -294,8 +294,8 @@ export function ObjectiveActivityTimeline({
             onClick={() => setTypeFilter("all")}
             className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] transition-colors ${
               typeFilter === "all"
-                ? "bg-zinc-200 text-zinc-900 border-zinc-200"
-                : "bg-zinc-800/50 text-zinc-400 border-zinc-700 hover:border-zinc-500"
+                ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
+                : "border-[var(--tone-neutral-border)] bg-[var(--tone-neutral-bg)] text-[var(--tone-neutral)] hover:border-[var(--card-hover-border)]"
             }`}
           >
             All
@@ -310,7 +310,7 @@ export function ObjectiveActivityTimeline({
                 onClick={() => setTypeFilter(type)}
                 className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] transition-colors ${
                   isActive
-                    ? "bg-zinc-200 text-zinc-900 border-zinc-200"
+                    ? "border-[var(--foreground)] bg-[var(--foreground)] text-[var(--background)]"
                     : `${meta.className} hover:opacity-80`
                 }`}
               >
@@ -339,11 +339,11 @@ export function ObjectiveActivityTimeline({
       )}
 
       {isLoading && activities.length === 0 ? (
-        <div className="text-sm text-zinc-500 py-6 text-center">Loading activities...</div>
+        <div className="py-6 text-center text-sm text-[var(--muted-foreground)]">Loading activities...</div>
       ) : activities.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-zinc-700/60 bg-zinc-900/30 p-6 text-center">
-          <p className="text-sm text-zinc-500">No activities yet.</p>
-          <p className="text-xs text-zinc-600 mt-1">
+        <div className="rounded-xl border border-dashed border-[var(--border)] bg-[var(--overlay-panel-muted)] p-6 text-center">
+          <p className="text-sm text-[var(--muted-foreground)]">No activities yet.</p>
+          <p className="mt-1 text-xs text-[var(--app-shell-soft-text)]">
             Activities are created by scheduled tasks and agent actions.
           </p>
         </div>
