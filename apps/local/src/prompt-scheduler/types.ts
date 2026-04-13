@@ -35,6 +35,8 @@ export interface PromptJob {
   condition: string;
   nextRunAt: number | null;
   lastRunAt: number | null;
+  /** Computed: previous cron occurrence (not persisted) */
+  prevScheduledAt?: number | null;
   lastOutcome: RunStatus | null;
   createdAt: string;
   updatedAt: string;

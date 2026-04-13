@@ -46,11 +46,18 @@ const RichTextEditor = dynamic(() => import("@/components/RichTextEditor"), {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function isJobOverdue(nextRunAt: number | null, state: string, lastRunAt?: number | null): boolean {
-  if (state !== "active" || nextRunAt === null) return false;
-  if (nextRunAt - Date.now() >= 0) return false;
-  if (lastRunAt && lastRunAt >= nextRunAt) return false;
-  return true;
+function isJobOverdue(job: { nextRunAt: number | null; lastRunAt: number | null; prevScheduledAt?: number | null; state: string }): boolean {
+  if (job.state !== "active") return false;
+  // Case 1: next run is in the past and hasn't run yet
+  if (job.nextRunAt !== null && job.nextRunAt - Date.now() < 0) {
+    if (job.lastRunAt && job.lastRunAt >= job.nextRunAt) return false;
+    return true;
+  }
+  // Case 2: task ran, but late — compare last run against previous scheduled time
+  if (job.prevScheduledAt && job.lastRunAt) {
+    return job.lastRunAt > job.prevScheduledAt + 5 * 60_000; // 5 min grace
+  }
+  return false;
 }
 
 function formatNextRun(epochMs: number | null, state: string): string {
@@ -1008,13 +1015,13 @@ function JobDetailView({
                       gated
                     </span>
                   ) : null}
-                  {isJobOverdue(job.nextRunAt, job.state, job.lastRunAt) && (
+                  {isJobOverdue(job) && (
                     <span className="rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-400 inline-flex items-center gap-1">
                       <Clock size={10} />
                       overdue
                     </span>
                   )}
-                  <span className={`text-[11px] ${isJobOverdue(job.nextRunAt, job.state, job.lastRunAt) ? "text-amber-400 font-medium" : "text-[var(--muted-foreground)]"}`}>
+                  <span className={`text-[11px] ${isJobOverdue(job) ? "text-amber-400 font-medium" : "text-[var(--muted-foreground)]"}`}>
                     Next run {formatNextRun(job.nextRunAt, job.state)}
                   </span>
                   <span className="text-[11px] text-[var(--muted-foreground)]">
@@ -1387,7 +1394,7 @@ export default function PromptJobBoard({
                               </>
                             )}
                           </span>
-                          <span className={`flex items-center gap-1 ${isJobOverdue(job.nextRunAt, job.state, job.lastRunAt) ? "text-amber-400 font-medium" : ""}`}>
+                          <span className={`flex items-center gap-1 ${isJobOverdue(job) ? "text-amber-400 font-medium" : ""}`}>
                             <Clock size={11} />
                             {formatNextRun(job.nextRunAt, job.state)}
                           </span>
