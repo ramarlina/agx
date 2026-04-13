@@ -3,10 +3,13 @@ const os = require('os');
 const path = require('path');
 
 const {
+  CUSTOM_SERVER_ENTRY,
   GA_MEASUREMENT_ID,
   GA_SCRIPT_URL,
   buildGoogleAnalyticsSnippet,
+  copyNodePtyPrebuilds,
   injectGoogleAnalyticsIntoHtmlFile,
+  patchStandalonePackageScripts,
 } = require('../../scripts/package-board-runtime');
 
 describe('package-board-runtime Google Analytics helpers', () => {
@@ -72,5 +75,54 @@ describe('package-board-runtime Google Analytics helpers', () => {
       fs.writeFileSync(htmlPath, html, 'utf8');
       expect(injectGoogleAnalyticsIntoHtmlFile(htmlPath)).toBe(false);
     });
+  });
+});
+
+describe('package-board-runtime standalone script patching', () => {
+  let tmpDir;
+  let appDir;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agx-standalone-'));
+    appDir = path.join(tmpDir, 'app');
+    fs.mkdirSync(appDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  test('rewrites standalone package scripts to use the custom server entry', () => {
+    const packagePath = path.join(appDir, 'package.json');
+    fs.writeFileSync(packagePath, JSON.stringify({
+      scripts: {
+        dev: 'next dev',
+        start: 'next start',
+      },
+    }, null, 2));
+
+    expect(patchStandalonePackageScripts(appDir)).toBe(true);
+
+    const updated = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+    expect(updated.scripts.dev).toBe(`node ${CUSTOM_SERVER_ENTRY}`);
+    expect(updated.scripts.start).toBe(`node ${CUSTOM_SERVER_ENTRY}`);
+    expect(updated.scripts.worker).toBe('node worker/index.js');
+    expect(updated.scripts['daemon:worker']).toBe('node worker/index.js');
+  });
+
+  test('copies node-pty prebuilds into the standalone runtime when available', () => {
+    const prebuildsSrc = path.join(tmpDir, 'prebuilds-src');
+    const standaloneRoot = path.join(tmpDir, 'standalone');
+    const prebuildFile = path.join(prebuildsSrc, 'darwin-arm64', 'pty.node');
+    const nodePtyDest = path.join(standaloneRoot, 'node_modules', 'node-pty');
+
+    fs.mkdirSync(path.dirname(prebuildFile), { recursive: true });
+    fs.writeFileSync(prebuildFile, 'native-binary');
+    fs.mkdirSync(nodePtyDest, { recursive: true });
+
+    expect(copyNodePtyPrebuilds(standaloneRoot, prebuildsSrc)).toBe(true);
+    expect(
+      fs.readFileSync(path.join(nodePtyDest, 'prebuilds', 'darwin-arm64', 'pty.node'), 'utf8'),
+    ).toBe('native-binary');
   });
 });

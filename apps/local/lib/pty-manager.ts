@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
-import * as pty from "node-pty";
 
 export type TerminalBackend = "pty" | "compat";
 
@@ -36,6 +35,10 @@ const defaultShell =
     ? "powershell.exe"
     : process.env.SHELL || "/bin/zsh";
 let nodePtyHelperPrepared = false;
+
+function loadNodePty(): typeof import("node-pty") {
+  return require("node-pty") as typeof import("node-pty");
+}
 
 function appendOutput(buffer: string, chunk: string): string {
   const nextBuffer = buffer + chunk;
@@ -80,6 +83,7 @@ function createNodePtyProcess(
   env: Record<string, string>,
 ): TerminalProcess {
   ensureNodePtySpawnHelperExecutable();
+  const pty = loadNodePty();
 
   const proc = pty.spawn(shell, [], {
     name: "xterm-256color",
