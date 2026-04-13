@@ -65,7 +65,7 @@ interface WorkspaceSidebarProps {
   onUpdateParticipant?: (participant: Participant) => Promise<unknown>;
   onSelectProject?: (projectId: string) => void;
   activeProjectId?: string | null;
-  activeProjectView?: "home" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "terminal" | "settings" | "env-vars" | null;
+  activeProjectView?: "home" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "terminal" | "settings" | "env-vars" | "folders" | null;
   onAddTeam?: (projectId: string) => void;
 }
 
@@ -773,6 +773,7 @@ export function WorkspaceSidebar({
           const isActiveProjectTerminal = isActiveProject && activeProjectView === "terminal";
           const isActiveProjectThread = isActiveProject && activeProjectView === "thread" && primaryProjectThreadId === activeThreadId;
           const isActiveProjectTeams = isActiveProject && activeProjectView === "teams";
+          const isActiveProjectFolders = isActiveProject && activeProjectView === "folders";
           const isActiveProjectEnvVars = isActiveProject && activeProjectView === "env-vars";
           const navActivity = navActivityByProject[selectedProject.id];
 
@@ -923,6 +924,16 @@ export function WorkspaceSidebar({
                     >
                       <Users size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
                       <span className="workspace-sidebar__workspace-title text-sm">Teams</span>
+                    </Link>
+                  </div>
+                  <div className="workspace-sidebar__workspace-item">
+                    <Link
+                      href={`/projects/${selectedProject.slug}/folders`}
+                      className={`workspace-sidebar__nav-item ${isActiveProjectFolders ? "workspace-sidebar__nav-item--active" : ""}`}
+                      aria-current={isActiveProjectFolders ? "page" : undefined}
+                    >
+                      <FolderGit2 size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                      <span className="workspace-sidebar__workspace-title text-sm">Folders</span>
                     </Link>
                   </div>
                   <div className="workspace-sidebar__workspace-item">
