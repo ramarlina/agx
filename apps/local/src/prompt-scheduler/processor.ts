@@ -614,7 +614,7 @@ async function executeObjectiveLinearWorker(opts: {
   }
 }
 
-async function dispatchObjectiveAction(opts: {
+export async function dispatchObjectiveAction(opts: {
   action: string;
   parsed: Record<string, unknown> | null;
   reason: string;
