@@ -12,6 +12,7 @@ import {
   readNullableString,
   readOptionalString,
 } from "../../_shared";
+import { requestPromptJobPump } from "@/src/prompt-scheduler/processor";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -172,6 +173,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (!updatedProject) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
+
+    // Kick off the first run immediately so the user doesn't have to wait
+    // for the next cron tick.
+    store.createRun(job.id);
+    requestPromptJobPump();
 
     return NextResponse.json({ job, objective: nextObjective }, { status: 201 });
   } catch (error) {
