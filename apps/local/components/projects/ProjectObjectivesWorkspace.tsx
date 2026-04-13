@@ -35,7 +35,6 @@ import { usePromptJobs } from "@/hooks/usePromptJobs";
 import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { cronToHuman } from "@/src/graph/nl-schedule";
 import {
-  DEFAULT_OBJECTIVE_LINEAR_WORKER_NAME,
   type PromptJobExecutionMode,
 } from "@/src/prompt-scheduler/types";
 import { threadService } from "@/services/threadService";
@@ -1534,6 +1533,17 @@ export function ProjectObjectivesOverview({
 
     try {
       await persistWorkspace(upsertProjectObjective(workspace, nextObjective));
+
+      // After the persist succeeds, ensure the built-in worker job exists
+      try {
+        await fetch(
+          `/api/projects/${project?.id}/objectives/${nextObjective.id}/worker`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' } },
+        );
+      } catch {
+        // Worker job creation is best-effort — will be lazily created on first run
+      }
+
       setObjectiveEditor(null);
       setSelectedObjectiveId(nextObjective.id);
     } catch (error) {
@@ -1701,7 +1711,7 @@ export function ProjectObjectiveDetail({
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [linearIssues, setLinearIssues] = useState<ObjectiveLinearIssueSummary[]>([]);
   const [linearConnected, setLinearConnected] = useState(true);
-  const [creatingLinearWorker, setCreatingLinearWorker] = useState(false);
+  const [workingOnObjective, setWorkingOnObjective] = useState(false);
 
   const { jobs: scheduledJobs } = usePromptJobs(project?.id ?? null, {
     requireProjectId: true,
@@ -2006,7 +2016,7 @@ export function ProjectObjectiveDetail({
     [objective, project?.id, refetchProject]
   );
 
-  const handleObjectiveLinearWorkerCreate = useCallback(async () => {
+  const handleWorkOnObjective = useCallback(async () => {
     if (!project?.id || !objective?.id) {
       setSaveError("Objective not found.");
       return false;
@@ -2021,27 +2031,20 @@ export function ProjectObjectiveDetail({
 
     try {
       const response = await fetch(
-        `/api/projects/${project.id}/objectives/${objective.id}/scheduled-tasks`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: DEFAULT_OBJECTIVE_LINEAR_WORKER_NAME,
-            executionMode: "objective_linear_ticket",
-          }),
-        }
+        `/api/projects/${project.id}/objectives/${objective.id}/worker`,
+        { method: "PUT" },
       );
       const payload = (await response.json().catch(() => ({}))) as { error?: string };
 
       if (!response.ok) {
-        throw new Error(payload.error || "Failed to create objective Linear worker.");
+        throw new Error(payload.error || "Failed to trigger objective worker.");
       }
 
       await refetchProject();
       return true;
     } catch (error) {
       setSaveError(
-        error instanceof Error ? error.message : "Failed to create objective Linear worker."
+        error instanceof Error ? error.message : "Failed to trigger objective worker."
       );
       return false;
     }
@@ -2472,6 +2475,19 @@ export function ProjectObjectiveDetail({
                             {objective.key}
                           </code>.
                         </p>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setWorkingOnObjective(true);
+                            await handleWorkOnObjective();
+                            setWorkingOnObjective(false);
+                          }}
+                          disabled={workingOnObjective}
+                          className="inline-flex items-center gap-2 rounded-xl border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-3 py-2 text-sm text-[var(--status-completed-text)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Sparkles className="h-4 w-4" />
+                          {workingOnObjective ? "Working..." : "Work on objective"}
+                        </button>
                       </div>
                       {!linearConnected ? (
                         <EmptyState label="Connect Linear to create and track tickets for this objective." />
