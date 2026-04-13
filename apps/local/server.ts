@@ -13,6 +13,7 @@ import {
 
 const dev = process.env.NODE_ENV !== "production";
 const port = parseInt(process.env.PORT || "41741", 10);
+const host = "127.0.0.1";
 const heartbeatIntervalMs = parsePositiveInt(
   process.env.AGX_TERMINAL_HEARTBEAT_MS,
   30_000,
@@ -25,7 +26,7 @@ function parsePositiveInt(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-const app = next({ dev, port });
+const app = next({ dev, port, hostname: host });
 const handle = app.getRequestHandler();
 
 app.prepare().then(() => {
@@ -171,8 +172,8 @@ app.prepare().then(() => {
     });
   });
 
-  server.listen(port, () => {
-    console.log(`> AGX Local ready on http://localhost:${port}`);
+  server.listen(port, host, () => {
+    console.log(`> AGX Local ready on http://${host}:${port}`);
   });
 
   // Cleanup on exit
