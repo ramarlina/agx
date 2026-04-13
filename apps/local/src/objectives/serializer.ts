@@ -25,8 +25,6 @@ function serializeObjectiveFrontmatter(objective: ProjectObjective): string {
     key: objective.key,
     status: objective.status,
     progress: objective.progress || undefined,
-    cadence: objective.cadence,
-    condition: objective.condition,
     threadId: objective.threadId,
     chatSessionVersion: objective.chatSessionVersion || undefined,
     scheduledTaskIds: objective.scheduledTaskIds.length > 0 ? objective.scheduledTaskIds : undefined,

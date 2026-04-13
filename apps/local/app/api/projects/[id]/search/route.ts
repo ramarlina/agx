@@ -194,12 +194,12 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
   const objectives = readProjectObjectivesWorkspace(project.metadata).objectives
     .filter((objective) =>
-      matchesQuery(query, objective.title, objective.summary, objective.condition, teamNameById.get(objective.teamId))
+      matchesQuery(query, objective.title, objective.summary, teamNameById.get(objective.teamId))
     )
     .sort(
       (left, right) =>
-        scoreQueryMatch(query, left.title, left.summary, left.condition) -
-        scoreQueryMatch(query, right.title, right.summary, right.condition),
+        scoreQueryMatch(query, left.title, left.summary) -
+        scoreQueryMatch(query, right.title, right.summary),
     )
     .slice(0, 10)
     .map<ProjectSearchResult>((objective) => ({
@@ -208,7 +208,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       label: "Objective",
       title: objective.title,
       context: teamNameById.get(objective.teamId) ?? undefined,
-      description: shorten(cleanText(objective.summary || objective.condition), 120) || undefined,
+      description: shorten(cleanText(objective.summary), 120) || undefined,
       href: `/projects/${project.slug}/objectives/${encodeURIComponent(objective.id)}`,
     }));
 

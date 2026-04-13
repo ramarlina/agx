@@ -1,15 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPromptJobStore } from "@/src/prompt-scheduler/get-store";
 import { upsertProjectObjective } from "@/lib/project-objectives";
-import {
-  DEFAULT_OBJECTIVE_LINEAR_WORKER_NAME,
-  DEFAULT_OBJECTIVE_LINEAR_WORKER_PROMPT,
-  type PromptJobExecutionMode,
-} from "@/src/prompt-scheduler/types";
+import type { PromptJobExecutionMode } from "@/src/prompt-scheduler/types";
 import {
   loadProjectObjectiveContext,
   persistProjectObjectiveWorkspace,
-  readNullableString,
   readOptionalString,
 } from "../../_shared";
 import { requestPromptJobPump } from "@/src/prompt-scheduler/processor";
@@ -87,22 +82,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const body = rawBody as Record<string, unknown>;
-    const executionMode: PromptJobExecutionMode =
-      body.executionMode === "objective_linear_ticket" ? "objective_linear_ticket" : "prompt";
+    const executionMode: PromptJobExecutionMode = "prompt";
     const title =
-      readOptionalString(body.name) ??
-      (executionMode === "objective_linear_ticket"
-        ? DEFAULT_OBJECTIVE_LINEAR_WORKER_NAME
-        : `Work on ${objectiveContext.objective.title}`);
-    const prompt =
-      readOptionalString(body.prompt) ??
-      (executionMode === "objective_linear_ticket"
-        ? DEFAULT_OBJECTIVE_LINEAR_WORKER_PROMPT
-        : undefined);
-    const cadence =
-      readOptionalString(body.cadence) ?? objectiveContext.objective.cadence.trim();
-    const condition =
-      readOptionalString(body.condition) ?? objectiveContext.objective.condition.trim();
+      readOptionalString(body.name) ?? `Work on ${objectiveContext.objective.title}`;
+    const prompt = readOptionalString(body.prompt);
+    const cadence = readOptionalString(body.cadence) ?? '';
+    const condition = readOptionalString(body.condition) ?? '';
 
     if (!prompt) {
       return NextResponse.json(
@@ -163,14 +148,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       condition: condition || undefined,
     });
 
-    const syncObjectiveSchedule = body.syncObjectiveSchedule !== false;
     const nextObjective = {
       ...objectiveContext.objective,
-      cadence: syncObjectiveSchedule ? cadence : objectiveContext.objective.cadence,
-      condition:
-        syncObjectiveSchedule && body.condition !== undefined
-          ? readNullableString(body.condition) ?? ""
-          : objectiveContext.objective.condition,
       updatedAt: new Date().toISOString(),
     };
 

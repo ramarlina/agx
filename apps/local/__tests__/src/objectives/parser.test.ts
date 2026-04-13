@@ -50,8 +50,6 @@ Focus on referral traffic first.
     expect(result.objective.key).toBe("get-100-visitors-daily");
     expect(result.objective.status).toBe("on_track");
     expect(result.objective.progress).toBe(42);
-    expect(result.objective.cadence).toBe("9 * * * *");
-    expect(result.objective.condition).toBe("traffic is below target");
     expect(result.objective.threadId).toBe("objective-chat:objective_abc123");
     expect(result.objective.chatSessionVersion).toBe(2);
     expect(result.objective.scheduledTaskIds).toEqual(["task_xyz"]);

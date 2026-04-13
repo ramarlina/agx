@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loadProjectObjectiveContext } from "../../_shared";
-import { ensureObjectiveWorkerJob, findObjectiveWorkerJob } from "@/src/prompt-scheduler/objective-worker-job";
+import { ensureObjectiveWorkerJob } from "@/src/prompt-scheduler/objective-worker-job";
 import { getPromptJobStore } from "@/src/prompt-scheduler/get-store";
 import { requestPromptJobPump } from "@/src/prompt-scheduler/processor";
 
