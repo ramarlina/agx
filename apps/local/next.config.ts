@@ -1,9 +1,10 @@
 import path from "path";
 import type { NextConfig } from "next";
-import { getConfiguredBoardBaseUrl } from "./lib/app-config";
+import { getAllowedDevOrigins, getConfiguredBoardBaseUrl } from "./lib/app-config";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  allowedDevOrigins: getAllowedDevOrigins(),
   serverExternalPackages: ["node-pty"],
   turbopack: {
     root: path.resolve(__dirname, "..", ".."),

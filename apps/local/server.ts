@@ -9,6 +9,7 @@ const host = "127.0.0.1";
 
 const app = next({ dev, port, hostname: host });
 const handle = app.getRequestHandler();
+const handleUpgrade = app.getUpgradeHandler();
 
 app.prepare().then(() => {
   const server = createServer((req, res) => {
@@ -20,7 +21,10 @@ app.prepare().then(() => {
 
   server.on("upgrade", (req, socket, head) => {
     if (terminalBridge.handleUpgrade(req, socket, head)) return;
-    // Let Next.js handle its own WebSocket upgrades (HMR, etc.)
+    void handleUpgrade(req, socket, head).catch((error) => {
+      console.error("Failed to handle Next.js websocket upgrade:", error);
+      socket.destroy();
+    });
   });
 
   server.listen(port, host, () => {
