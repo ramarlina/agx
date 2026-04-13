@@ -8,10 +8,11 @@ const port = parseInt(process.env.PORT || "41741", 10);
 const host = "127.0.0.1";
 
 const app = next({ dev, port, hostname: host });
-const handle = app.getRequestHandler();
-const handleUpgrade = app.getUpgradeHandler();
 
 app.prepare().then(() => {
+  const handle = app.getRequestHandler();
+  const handleUpgrade = app.getUpgradeHandler();
+
   const server = createServer((req, res) => {
     const parsedUrl = parse(req.url!, true);
     handle(req, res, parsedUrl);
