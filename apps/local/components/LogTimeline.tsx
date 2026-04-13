@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Markdown } from "@/components/chat-ui/Markdown";
 
 interface TaskComment {
   id: string;
@@ -177,7 +178,9 @@ export default function LogTimeline({ comments, onAddComment, onDeleteComment }:
                       </button>
                     )}
                   </div>
-                  <p className="text-sm whitespace-pre-wrap leading-relaxed">{comment.content}</p>
+                  <div className="text-sm leading-relaxed">
+                    <Markdown content={comment.content} isUser={comment.author_type === "user"} />
+                  </div>
                 </div>
               </div>
             ))}
