@@ -57,7 +57,7 @@ describe("WorkspaceSidebar", () => {
       />
     );
 
-    expect(screen.getByRole("link", { name: "Overview" })).toHaveAttribute("href", "/projects/alpha");
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/projects/alpha");
     expect(screen.getByRole("link", { name: "Objectives" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Knowledge" })).not.toBeInTheDocument();
   });

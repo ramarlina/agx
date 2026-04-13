@@ -65,7 +65,7 @@ interface WorkspaceSidebarProps {
   onUpdateParticipant?: (participant: Participant) => Promise<unknown>;
   onSelectProject?: (projectId: string) => void;
   activeProjectId?: string | null;
-  activeProjectView?: "overview" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "terminal" | "settings" | "env-vars" | null;
+  activeProjectView?: "home" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "terminal" | "settings" | "env-vars" | null;
   onAddTeam?: (projectId: string) => void;
 }
 
@@ -766,7 +766,7 @@ export function WorkspaceSidebar({
             projectThreads[0]?.id ??
             null;
           const isActiveProject = selectedProject.id === activeProjectId;
-          const isActiveProjectOverview = isActiveProject && activeProjectView === "overview";
+          const isActiveProjectHome = isActiveProject && activeProjectView === "home";
           const isActiveProjectObjectives = isActiveProject && activeProjectView === "objectives";
           const isActiveProjectLinear = isActiveProject && activeProjectView === "linear";
           const isActiveProjectAutomations = isActiveProject && activeProjectView === "automations";
@@ -778,16 +778,16 @@ export function WorkspaceSidebar({
 
           return (
             <nav className="workspace-sidebar__section">
-              {/* Overview (standalone) */}
+              {/* Home (standalone) */}
               <div className="px-2 mb-3">
                 <div className="workspace-sidebar__workspace-item">
                   <Link
                     href={`/projects/${selectedProject.slug}`}
-                    className={`workspace-sidebar__nav-item ${isActiveProjectOverview ? "workspace-sidebar__nav-item--active" : ""}`}
-                    aria-current={isActiveProjectOverview ? "page" : undefined}
+                    className={`workspace-sidebar__nav-item ${isActiveProjectHome ? "workspace-sidebar__nav-item--active" : ""}`}
+                    aria-current={isActiveProjectHome ? "page" : undefined}
                   >
                     <Home size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                    <span className="workspace-sidebar__workspace-title text-sm">Overview</span>
+                    <span className="workspace-sidebar__workspace-title text-sm">Home</span>
                   </Link>
                 </div>
               </div>

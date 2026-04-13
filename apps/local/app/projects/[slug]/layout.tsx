@@ -87,7 +87,7 @@ function ProjectLayoutContent({
     const match = pathname.match(/\/projects\/[^/]+\/thread\/([^/]+)/);
     return match?.[1] ? decodeURIComponent(match[1]) : currentProject?.thread_ids[0] ?? null;
   }, [currentProject?.thread_ids, pathname]);
-  const activeProjectView = useMemo<"overview" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "terminal" | "settings" | "env-vars">(
+  const activeProjectView = useMemo<"home" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "terminal" | "settings" | "env-vars">(
     () => {
       if (pathname.includes("/linear")) return "linear";
       if (pathname.includes("/automations")) return "automations";
@@ -98,7 +98,7 @@ function ProjectLayoutContent({
       if (pathname.includes("/env-vars")) return "env-vars";
       if (pathname.includes("/terminal")) return "terminal";
       if (pathname.includes("/settings")) return "settings";
-      return "overview";
+      return "home";
     },
     [pathname]
   );
@@ -201,11 +201,11 @@ function ProjectLayoutContent({
             <button
               type="button"
               onClick={() => router.push(`/projects/${slug}`)}
-              className={`text-xs transition-colors ${activeProjectView === "overview" ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
+              className={`text-xs transition-colors ${activeProjectView === "home" ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
             >
               {currentProject.name}
             </button>
-            {activeProjectView !== "overview" && (
+            {activeProjectView !== "home" && (
               <>
                 <span className="text-xs text-[var(--muted-foreground)]">\</span>
                 <button

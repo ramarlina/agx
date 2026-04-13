@@ -1,7 +1,7 @@
 "use client";
 
 import { use } from "react";
-import { ProjectOverview } from "@/components/projects/ProjectOverview";
+import { ProjectHome } from "@/components/projects/ProjectHome";
 import { useProjectsWithAgents } from "@/hooks/useProjects";
 
 export default function ProjectPage({
@@ -22,7 +22,7 @@ export default function ProjectPage({
   }
 
   return (
-    <ProjectOverview
+    <ProjectHome
       projectId={project.id}
       projectSlug={project.slug}
       projectName={project.name}
