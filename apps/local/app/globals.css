@@ -109,6 +109,20 @@
   --app-shell-border-strong: rgba(0, 0, 0, 0.1); /* black/10 */
   --app-shell-muted: #64748b; /* slate-500 */
   --app-shell-soft-text: #94a3b8; /* slate-400 */
+
+  /* Overlay/tinted surfaces */
+  --overlay-panel: rgba(255, 255, 255, 0.82);
+  --overlay-panel-strong: rgba(255, 255, 255, 0.96);
+  --overlay-panel-soft: rgba(248, 250, 252, 0.88);
+  --overlay-panel-muted: rgba(241, 245, 249, 0.88);
+
+  /* Neutral chips and timeline */
+  --tone-neutral: #64748b;
+  --tone-neutral-border: rgba(148, 163, 184, 0.28);
+  --tone-neutral-bg: rgba(148, 163, 184, 0.14);
+  --timeline-track: rgba(148, 163, 184, 0.3);
+  --timeline-node-border: rgba(148, 163, 184, 0.42);
+  --timeline-node-bg: #ffffff;
 }
 
 .dark {
@@ -178,6 +192,20 @@
   --app-shell-border-strong: #4f4f4f;
   --app-shell-muted: #858585;
   --app-shell-soft-text: #6e6e6e;
+
+  /* Overlay/tinted surfaces */
+  --overlay-panel: rgba(8, 12, 18, 0.72);
+  --overlay-panel-strong: rgba(6, 10, 16, 0.96);
+  --overlay-panel-soft: rgba(15, 23, 42, 0.55);
+  --overlay-panel-muted: rgba(15, 23, 42, 0.32);
+
+  /* Neutral chips and timeline */
+  --tone-neutral: #a1a1aa;
+  --tone-neutral-border: rgba(113, 113, 122, 0.8);
+  --tone-neutral-bg: rgba(82, 82, 91, 0.55);
+  --timeline-track: rgba(39, 39, 42, 0.9);
+  --timeline-node-border: rgba(82, 82, 91, 0.9);
+  --timeline-node-bg: #131315;
 }
 
 body {

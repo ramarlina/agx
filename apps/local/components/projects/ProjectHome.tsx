@@ -34,18 +34,18 @@ export function ProjectHome({
     <div className="h-full overflow-y-auto">
       <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
         {projectDescription && (
-          <p className="text-sm text-zinc-400">{projectDescription}</p>
+          <p className="text-sm text-[var(--muted-foreground)]">{projectDescription}</p>
         )}
 
         {/* Objectives */}
         <section>
-          <h2 className="text-sm text-zinc-500 mb-3">What you're working toward</h2>
+          <h2 className="mb-3 text-sm text-[var(--muted-foreground)]">What you're working toward</h2>
           <ObjectivesSection projectId={projectId} projectSlug={projectSlug} />
         </section>
 
         {/* Tool entry points */}
         <section>
-          <h2 className="text-sm text-zinc-500 mb-3">Start working</h2>
+          <h2 className="mb-3 text-sm text-[var(--muted-foreground)]">Start working</h2>
           <ToolPathsSection
             projectId={projectId}
             projectSlug={projectSlug}
@@ -55,7 +55,7 @@ export function ProjectHome({
 
         {/* Activity */}
         <section>
-          <h2 className="text-sm text-zinc-500 mb-3">What's happening now</h2>
+          <h2 className="mb-3 text-sm text-[var(--muted-foreground)]">What's happening now</h2>
           <div className="space-y-4">
             <WorkingNowCard
               projectSlug={projectSlug}

@@ -66,7 +66,7 @@ export function ToolPathsSection({ projectId, projectSlug, primaryThreadId }: To
         onClick={navigateToChat}
         badge={
           threadCount > 0 ? (
-            <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-400">
+            <span className="rounded-full bg-[var(--secondary)] px-2 py-0.5 text-xs text-[var(--muted-foreground)]">
               {threadCount}
             </span>
           ) : undefined
@@ -74,15 +74,15 @@ export function ToolPathsSection({ projectId, projectSlug, primaryThreadId }: To
       >
         {threads === null ? (
           <div className="space-y-1.5">
-            {[1, 2].map((i) => <div key={i} className="h-5 rounded bg-zinc-800 animate-pulse" />)}
+            {[1, 2].map((i) => <div key={i} className="h-5 animate-pulse rounded bg-[var(--muted)]" />)}
           </div>
         ) : threads.length === 0 ? (
-          <p className="text-zinc-500">No threads yet</p>
+          <p className="text-[var(--muted-foreground)]">No threads yet</p>
         ) : (
           <div className="space-y-1">
             {threads.map((t) => (
-              <div key={t.id} className="flex items-center gap-2 text-zinc-400 truncate">
-                <MessageSquare className="w-3 h-3 text-zinc-600 shrink-0" />
+              <div key={t.id} className="flex items-center gap-2 truncate text-[var(--foreground)]">
+                <MessageSquare className="h-3 w-3 shrink-0 text-[var(--muted-foreground)]" />
                 <span className="truncate">{t.title}</span>
               </div>
             ))}
@@ -97,7 +97,7 @@ export function ToolPathsSection({ projectId, projectSlug, primaryThreadId }: To
         accentClass="text-emerald-400"
         onClick={() => router.push(`/projects/${projectSlug}/terminal`)}
       >
-        <p className="text-zinc-500">No sessions yet</p>
+        <p className="text-[var(--muted-foreground)]">No sessions yet</p>
       </ToolPathCard>
 
       {/* Linear */}
@@ -109,11 +109,11 @@ export function ToolPathsSection({ projectId, projectSlug, primaryThreadId }: To
         badge={
           !linearLoading ? (
             connected ? (
-              <span className="rounded-full border border-emerald-700/60 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-400">
+              <span className="rounded-full border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-2 py-0.5 text-[11px] text-[var(--status-completed-text)]">
                 Connected
               </span>
             ) : (
-              <span className="rounded-full border border-zinc-700 bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-400">
+              <span className="rounded-full border border-[var(--border)] bg-[var(--secondary)] px-2 py-0.5 text-[11px] text-[var(--muted-foreground)]">
                 Connect
               </span>
             )
@@ -121,7 +121,7 @@ export function ToolPathsSection({ projectId, projectSlug, primaryThreadId }: To
         }
       >
         {!linearLoading && !connected && (
-          <p className="text-zinc-500">Connect to see issues</p>
+          <p className="text-[var(--muted-foreground)]">Connect to see issues</p>
         )}
       </ToolPathCard>
     </div>

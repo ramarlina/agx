@@ -205,19 +205,19 @@ export function ScheduledTasksSummaryCard({
   };
 
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-4">
+    <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] p-4">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <Clock className="w-4 h-4 text-zinc-400" />
-          <span className="text-sm font-medium text-zinc-200">Scheduled Tasks</span>
+          <Clock className="h-4 w-4 text-[var(--muted-foreground)]" />
+          <span className="text-sm font-medium text-[var(--foreground)]">Scheduled Tasks</span>
           {!loading && scheduledCount > 0 && (
-            <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-400">
+            <span className="rounded-full bg-[var(--secondary)] px-2 py-0.5 text-xs text-[var(--muted-foreground)]">
               {scheduledCount}
             </span>
           )}
         </div>
         {onViewAll && (
-          <button onClick={onViewAll} className="flex items-center gap-1 text-xs text-zinc-500 hover:text-zinc-300">
+          <button onClick={onViewAll} className="flex items-center gap-1 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]">
             View all <ArrowRight className="w-3 h-3" />
           </button>
         )}
@@ -226,20 +226,20 @@ export function ScheduledTasksSummaryCard({
       {loading ? (
         <div className="space-y-2">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="h-5 rounded bg-zinc-800 animate-pulse" />
+            <div key={i} className="h-5 animate-pulse rounded bg-[var(--muted)]" />
           ))}
         </div>
       ) : scheduledCount === 0 ? (
-        <p className="text-sm text-zinc-500">No scheduled tasks</p>
+        <p className="text-sm text-[var(--muted-foreground)]">No scheduled tasks</p>
       ) : (
         <div className="space-y-4">
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs uppercase tracking-wide text-zinc-500">
+            <div className="flex items-center justify-between text-xs uppercase tracking-wide text-[var(--muted-foreground)]">
               <span>Currently running</span>
               <span>{runningEntries.length}</span>
             </div>
             {runningEntries.length === 0 ? (
-              <p className="text-sm text-zinc-500">Nothing running right now</p>
+              <p className="text-sm text-[var(--muted-foreground)]">Nothing running right now</p>
             ) : (
               <div className="space-y-2">
                 {runningEntries.slice(0, 3).map((entry) => (
@@ -250,13 +250,13 @@ export function ScheduledTasksSummaryCard({
                     disabled={entry.kind !== "prompt" || !projectSlug}
                     className={`flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-sm transition-colors ${
                       entry.kind === "prompt" && projectSlug
-                        ? "cursor-pointer hover:bg-zinc-800/70"
+                        ? "cursor-pointer hover:bg-[var(--secondary)]"
                         : "cursor-default"
                     }`}
                   >
                     <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />
-                    <span className="truncate text-zinc-300">{entry.title}</span>
-                    <span className="ml-auto shrink-0 text-xs text-emerald-400">running</span>
+                    <span className="truncate text-[var(--foreground)]">{entry.title}</span>
+                    <span className="ml-auto shrink-0 text-xs text-[var(--status-completed-text)]">running</span>
                   </button>
                 ))}
               </div>
@@ -264,12 +264,12 @@ export function ScheduledTasksSummaryCard({
           </div>
 
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs uppercase tracking-wide text-zinc-500">
+            <div className="flex items-center justify-between text-xs uppercase tracking-wide text-[var(--muted-foreground)]">
               <span>Upcoming runs</span>
               <span>{upcomingEntries.length}</span>
             </div>
             {upcomingEntries.length === 0 ? (
-              <p className="text-sm text-zinc-500">No upcoming runs</p>
+              <p className="text-sm text-[var(--muted-foreground)]">No upcoming runs</p>
             ) : (
               <div className="space-y-2">
                 {upcomingEntries.slice(0, 3).map((entry) => (
@@ -280,16 +280,16 @@ export function ScheduledTasksSummaryCard({
                     disabled={entry.kind !== "prompt" || !projectSlug}
                     className={`flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-sm transition-colors ${
                       entry.kind === "prompt" && projectSlug
-                        ? "cursor-pointer hover:bg-zinc-800/70"
+                        ? "cursor-pointer hover:bg-[var(--secondary)]"
                         : "cursor-default"
                     }`}
                   >
-                    <Clock className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
+                    <Clock className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-zinc-300">{entry.title}</div>
-                      <div className="text-xs text-zinc-500">
+                      <div className="truncate text-[var(--foreground)]">{entry.title}</div>
+                      <div className="text-xs text-[var(--muted-foreground)]">
                         {formatNextRun(entry.nextRunAt)}{" "}
-                        <span className="text-zinc-400">• {formatCountdown(entry.nextRunAt)}</span>
+                        <span className="text-[var(--app-shell-soft-text)]">• {formatCountdown(entry.nextRunAt)}</span>
                       </div>
                     </div>
                   </button>

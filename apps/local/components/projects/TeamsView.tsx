@@ -187,7 +187,7 @@ export function TeamsView({
   // --- Loading ---
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-12 text-zinc-400">
+      <div className="flex items-center justify-center p-12 text-[var(--muted-foreground)]">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
         Loading teams...
       </div>
@@ -197,12 +197,12 @@ export function TeamsView({
   // --- Error ---
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 gap-2 text-zinc-400">
-        <AlertTriangle className="w-5 h-5 text-red-400" />
-        <p className="text-sm text-red-400">{error}</p>
+      <div className="flex flex-col items-center justify-center gap-2 p-12 text-[var(--muted-foreground)]">
+        <AlertTriangle className="h-5 w-5 text-[var(--destructive)]" />
+        <p className="text-sm text-[var(--destructive)]">{error}</p>
         <button
           onClick={fetchTeams}
-          className="text-xs text-zinc-500 hover:text-zinc-300 underline"
+          className="text-xs text-[var(--muted-foreground)] underline transition-colors hover:text-[var(--foreground)]"
         >
           Retry
         </button>
@@ -216,11 +216,11 @@ export function TeamsView({
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-zinc-500">
+          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
             <Activity className="h-3.5 w-3.5" />
             Live Team Activity
           </div>
-          <p className="mt-1 text-sm text-zinc-400">
+          <p className="mt-1 text-sm text-[var(--muted-foreground)]">
             {activeAgentCount > 0
               ? `${activeAgentCount} active ${activeAgentCount === 1 ? "agent" : "agents"} across ${activeTeamCount} ${activeTeamCount === 1 ? "team" : "teams"}`
               : "No agents are active right now."}
@@ -237,10 +237,10 @@ export function TeamsView({
 
       {/* Team cards */}
       {teams.length === 0 ? (
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-8 text-center">
-          <Users className="w-8 h-8 text-zinc-600 mx-auto mb-3" />
-          <p className="text-sm text-zinc-400 mb-1">No teams yet</p>
-          <p className="text-xs text-zinc-500">
+        <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] p-8 text-center">
+          <Users className="mx-auto mb-3 h-8 w-8 text-[var(--app-shell-soft-text)]" />
+          <p className="mb-1 text-sm text-[var(--muted-foreground)]">No teams yet</p>
+          <p className="text-xs text-[var(--app-shell-soft-text)]">
             Add a team to organize your agents into specialized roles.
           </p>
         </div>
@@ -256,37 +256,37 @@ export function TeamsView({
                 key={team.id}
                 className={`rounded-2xl border p-4 flex flex-col gap-3 cursor-pointer transition-colors group ${
                   teamActiveProcesses.length > 0
-                    ? "border-emerald-700/70 bg-emerald-950/20 shadow-[0_0_0_1px_rgba(16,185,129,0.12)] hover:border-emerald-600"
-                    : "border-zinc-800 bg-zinc-900/50 hover:border-zinc-700"
+                    ? "border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] shadow-[0_0_0_1px_var(--status-completed-border)] hover:border-[var(--status-completed)]"
+                    : "border-[var(--card-border)] bg-[var(--card-bg)] hover:border-[var(--card-hover-border)] hover:bg-[var(--secondary)]"
                 }`}
                 onClick={() => router.push(`/projects/${projectSlug}/teams/${team.id}`)}
               >
                 {/* Team header */}
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-2 min-w-0">
-                    <Users className={`w-4 h-4 shrink-0 ${teamActiveProcesses.length > 0 ? "text-emerald-400" : "text-zinc-400"}`} />
-                    <span className="text-sm font-medium text-zinc-100 truncate">
+                    <Users className={`h-4 w-4 shrink-0 ${teamActiveProcesses.length > 0 ? "text-[var(--status-completed)]" : "text-[var(--muted-foreground)]"}`} />
+                    <span className="truncate text-sm font-medium text-[var(--foreground)]">
                       {team.name}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     {liveAgentCount > 0 && (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-700/60 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--status-completed-text)]">
                         <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                         {liveAgentCount} live
                       </span>
                     )}
                     {team.template_id && (
-                      <span className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-400 border border-zinc-700">
+                      <span className="rounded-full border border-[var(--tone-neutral-border)] bg-[var(--tone-neutral-bg)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--tone-neutral)]">
                         {team.template_id}
                       </span>
                     )}
-                    <ChevronRight className="w-4 h-4 text-zinc-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <ChevronRight className="h-4 w-4 text-[var(--app-shell-soft-text)] opacity-0 transition-opacity group-hover:opacity-100" />
                   </div>
                 </div>
 
                 {/* Agent count */}
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-[var(--muted-foreground)]">
                   {team.agents.length} agent{team.agents.length !== 1 ? "s" : ""}
                   {liveAgentCount > 0 ? ` · ${liveAgentCount} active now` : ""}
                 </p>
@@ -304,11 +304,11 @@ export function TeamsView({
                             title={`${agentName(agent.agent_id)} (${agent.role_key})`}
                             className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border ${
                               isActive
-                                ? "bg-emerald-500/10 text-emerald-200 border-emerald-700/60"
-                                : "bg-zinc-800 text-zinc-300 border-zinc-700"
+                                ? "border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] text-[var(--status-completed-text)]"
+                                : "border-[var(--border)] bg-[var(--secondary)] text-[var(--foreground)]"
                             }`}
                           >
-                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isActive ? "bg-emerald-400" : "bg-zinc-500"}`} />
+                            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? "bg-emerald-400" : "bg-[var(--muted-foreground)]"}`} />
                             {agentName(agent.agent_id)}
                           </span>
                         );
@@ -323,25 +323,25 @@ export function TeamsView({
       )}
 
       {teamActivityRows.length > 0 && (
-        <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
-          <div className="flex items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3">
+        <section className="overflow-hidden rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)]">
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
             <div>
-              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-zinc-500">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
                 <Activity className="h-3.5 w-3.5" />
                 Working Now
               </div>
-              <p className="mt-1 text-xs text-zinc-500">
+              <p className="mt-1 text-xs text-[var(--muted-foreground)]">
                 Live activity across all teams.
               </p>
             </div>
-            <span className="rounded-full border border-emerald-700/60 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
+            <span className="rounded-full border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-2.5 py-1 text-[10px] font-medium uppercase tracking-wider text-[var(--status-completed-text)]">
               {teamActivityRows.length} live {teamActivityRows.length === 1 ? "entry" : "entries"}
             </span>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
-              <thead className="bg-zinc-950/40">
-                <tr className="text-left text-[11px] uppercase tracking-[0.18em] text-zinc-500">
+              <thead className="bg-[var(--secondary)]">
+                <tr className="text-left text-[11px] uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
                   <th className="px-4 py-3 font-medium">Team</th>
                   <th className="px-4 py-3 font-medium">Agent</th>
                   <th className="px-4 py-3 font-medium">Status</th>
@@ -353,7 +353,7 @@ export function TeamsView({
                 {teamActivityRows.map((row) => (
                   <tr
                     key={row.key}
-                    className="cursor-pointer border-t border-zinc-800/80 text-zinc-300 transition-colors hover:bg-zinc-800/30"
+                    className="cursor-pointer border-t border-[var(--border)] text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]"
                     onClick={() =>
                       router.push(
                         row.linearIssueId && row.linearRunId
@@ -368,22 +368,22 @@ export function TeamsView({
                           event.stopPropagation();
                           router.push(`/projects/${projectSlug}/teams/${row.teamId}`);
                         }}
-                        className="text-left font-medium text-zinc-100 hover:text-white"
+                        className="text-left font-medium text-[var(--foreground)] transition-colors hover:text-[var(--primary)]"
                       >
                         {row.teamName}
                       </button>
                     </td>
-                    <td className="px-4 py-3 text-zinc-200">{row.agentName}</td>
+                    <td className="px-4 py-3 text-[var(--foreground)]">{row.agentName}</td>
                     <td className="px-4 py-3">
-                      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-700/60 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-2 py-0.5 text-[11px] font-medium text-[var(--status-completed-text)]">
                         <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
                         {row.state === "spawning" ? "Starting" : "Working"}
                       </span>
                     </td>
-                    <td className="max-w-[24rem] px-4 py-3 text-zinc-400">
+                    <td className="max-w-[24rem] px-4 py-3 text-[var(--muted-foreground)]">
                       <span className="block truncate">{row.threadLabel}</span>
                     </td>
-                    <td className="px-4 py-3 text-zinc-500">{row.lastActiveLabel}</td>
+                    <td className="px-4 py-3 text-[var(--muted-foreground)]">{row.lastActiveLabel}</td>
                   </tr>
                 ))}
               </tbody>
@@ -394,23 +394,23 @@ export function TeamsView({
 
       {/* Unassigned agents */}
       {unassignedAgents.length > 0 && (
-        <div className="rounded-2xl border border-amber-800/50 bg-amber-900/10 p-4 flex flex-col gap-3">
+        <div className="flex flex-col gap-3 rounded-2xl border border-[var(--status-blocked-border)] bg-[var(--status-blocked-bg)] p-4">
           <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-            <span className="text-sm font-medium text-zinc-200">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-[var(--status-blocked)]" />
+            <span className="text-sm font-medium text-[var(--foreground)]">
               Unassigned Agents
             </span>
-            <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs text-zinc-400">
+            <span className="rounded-full bg-[var(--secondary)] px-2 py-0.5 text-xs text-[var(--muted-foreground)]">
               {unassignedAgents.length}
             </span>
             {unassignedActiveAgentCount > 0 && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-700/60 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-emerald-300">
+              <span className="inline-flex items-center gap-1 rounded-full border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-[var(--status-completed-text)]">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 {unassignedActiveAgentCount} live
               </span>
             )}
           </div>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-[var(--muted-foreground)]">
             These agents are in the project but not assigned to any team.
           </p>
           <div className="flex flex-wrap gap-1.5">
@@ -419,13 +419,13 @@ export function TeamsView({
                 key={agent.agent_id}
                 className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border ${
                   activeAgentIds.has(agent.agent_id)
-                    ? "bg-emerald-500/10 text-emerald-200 border-emerald-700/60"
-                    : "bg-zinc-800 text-zinc-300 border-zinc-700"
+                    ? "border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] text-[var(--status-completed-text)]"
+                    : "border-[var(--border)] bg-[var(--secondary)] text-[var(--foreground)]"
                 }`}
               >
                 <span
                   className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                    activeAgentIds.has(agent.agent_id) ? "bg-emerald-400" : "bg-zinc-500"
+                    activeAgentIds.has(agent.agent_id) ? "bg-emerald-400" : "bg-[var(--muted-foreground)]"
                   }`}
                 />
                 {agentName(agent.agent_id)}
@@ -433,8 +433,8 @@ export function TeamsView({
             ))}
           </div>
           {unassignedActiveProcesses.length > 0 && (
-            <div className="rounded-xl border border-emerald-800/40 bg-emerald-900/10 p-3 flex flex-col gap-2">
-              <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.18em] text-emerald-300">
+            <div className="flex flex-col gap-2 rounded-xl border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] p-3">
+              <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--status-completed-text)]">
                 <Activity className="h-3.5 w-3.5" />
                 Unassigned Activity
               </div>
@@ -442,11 +442,11 @@ export function TeamsView({
                 <div key={`unassigned-${process.workspaceId}-${process.threadId}-${process.agentId}`} className="flex items-start gap-2">
                   <span className="mt-1 h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
                   <div className="min-w-0">
-                    <p className="text-xs text-zinc-200 truncate">
+                    <p className="truncate text-xs text-[var(--foreground)]">
                       <span className="font-medium">{agentName(process.agentId)}</span>{" "}
                       {process.state === "spawning" ? "is starting up" : "is working"}
                     </p>
-                    <p className="text-[11px] text-zinc-500 truncate">
+                    <p className="truncate text-[11px] text-[var(--muted-foreground)]">
                       {formatActivityThread(process)}
                     </p>
                   </div>
@@ -456,13 +456,13 @@ export function TeamsView({
           )}
           <div className="flex items-center gap-2 pt-1">
             <button
-              className="text-xs px-3 py-1 rounded-lg border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
+              className="rounded-lg border border-[var(--border)] px-3 py-1 text-xs text-[var(--muted-foreground)] transition-colors hover:border-[var(--card-hover-border)] hover:text-[var(--foreground)]"
               onClick={() => router.push(`/projects/${projectSlug}/teams/adopt`)}
             >
               Adopt into team
             </button>
             <button
-              className="text-xs px-3 py-1 rounded-lg border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 transition-colors"
+              className="rounded-lg border border-[var(--border)] px-3 py-1 text-xs text-[var(--muted-foreground)] transition-colors hover:border-[var(--card-hover-border)] hover:text-[var(--foreground)]"
               onClick={() => router.push(`/projects/${projectSlug}/teams/replace`)}
             >
               Replace with preset
