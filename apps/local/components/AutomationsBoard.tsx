@@ -32,6 +32,13 @@ function formatCadence(schedule: GraphSchedule): string {
   return `Every ${Math.round(ms / 86_400_000)}d`;
 }
 
+function isScheduleOverdue(schedule: GraphSchedule): boolean {
+  if (schedule.state !== "active") return false;
+  if (schedule.nextTickAt) return schedule.nextTickAt - Date.now() < 0;
+  if (schedule.lastTickAt) return schedule.lastTickAt + schedule.intervalMs - Date.now() < 0;
+  return false;
+}
+
 function formatNextRun(schedule: GraphSchedule): string {
   if (schedule.state === "paused") return "Paused";
   if (schedule.state === "stopped") return "Stopped";
@@ -262,6 +269,7 @@ export default function AutomationsBoard() {
                     const isSelected = selectedId === item.taskId;
                     const hasFails =
                       (item.schedule.consecutiveFailures ?? 0) > 0;
+                    const overdue = isScheduleOverdue(item.schedule);
                     const isRunning = busy[item.taskId];
 
                     return (
@@ -273,6 +281,8 @@ export default function AutomationsBoard() {
                             ? "border-[var(--foreground)] shadow-sm"
                             : hasFails
                             ? "border-red-200 bg-red-50/30 hover:border-red-300"
+                            : overdue
+                            ? "border-amber-500/40 bg-amber-500/5 hover:border-amber-500/60"
                             : "border-[var(--card-border)] bg-[var(--card-bg)] hover:border-[var(--card-hover-border)]"
                         }`}
                       >
@@ -296,6 +306,12 @@ export default function AutomationsBoard() {
                               {item.schedule.state === "paused" && (
                                 <span className="shrink-0 text-[11px] font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100">
                                   paused
+                                </span>
+                              )}
+                              {overdue && (
+                                <span className="shrink-0 text-[11px] font-medium text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20 flex items-center gap-1">
+                                  <Clock size={10} />
+                                  overdue
                                 </span>
                               )}
                             </div>
@@ -339,7 +355,7 @@ export default function AutomationsBoard() {
                             <Clock size={12} />{" "}
                             {formatCadence(item.schedule)}
                           </span>
-                          <span className="flex items-center gap-1.5">
+                          <span className={`flex items-center gap-1.5 ${overdue ? "text-amber-400 font-medium" : ""}`}>
                             <CalIcon size={12} />{" "}
                             {formatNextRun(item.schedule)}
                           </span>
@@ -563,8 +579,12 @@ function ScheduleInspector({
               total runs
             </div>
           </div>
-          <div className="bg-[var(--muted)] border border-[var(--card-border)] rounded-xl p-3 flex flex-col items-center justify-center">
-            <div className="font-mono text-lg font-semibold mb-0.5">
+          <div className={`rounded-xl p-3 flex flex-col items-center justify-center border ${
+            isScheduleOverdue(schedule)
+              ? "bg-amber-500/10 border-amber-500/30"
+              : "bg-[var(--muted)] border-[var(--card-border)]"
+          }`}>
+            <div className={`font-mono text-lg font-semibold mb-0.5 ${isScheduleOverdue(schedule) ? "text-amber-400" : ""}`}>
               {formatNextRun(schedule)}
             </div>
             <div className="text-[10px] text-[var(--muted-foreground)]">

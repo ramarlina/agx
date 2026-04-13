@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Clock, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { Clock, Plus, Trash2, X } from "lucide-react";
 import { usePromptJobs } from "@/hooks/usePromptJobs";
 import { cronToHuman } from "@/src/graph/nl-schedule";
 import type { PromptJob } from "@/src/prompt-scheduler/types";
@@ -15,13 +15,17 @@ interface ObjectiveScheduledTasksPanelProps {
   objectiveKey: string;
   createDefaults?: Partial<ObjectiveScheduledTaskDraft>;
   onCreateTask: (draft: ObjectiveScheduledTaskDraft) => Promise<boolean>;
-  onCreateObjectiveLinearWorker: () => Promise<boolean>;
 }
 
 function formatCadence(job: Pick<PromptJob, "cadence" | "cronExpr">): string {
   const source = job.cadence || job.cronExpr;
   if (!source) return "No frequency";
   return cronToHuman(job.cronExpr || source) ?? source;
+}
+
+function isJobOverdue(epochMs: number | null, state: PromptJob["state"]): boolean {
+  if (state !== "active" || epochMs === null) return false;
+  return epochMs - Date.now() < 0;
 }
 
 function formatNextRun(epochMs: number | null, state: PromptJob["state"]): string {
@@ -171,7 +175,6 @@ export function ObjectiveScheduledTasksPanel({
   objectiveKey,
   createDefaults,
   onCreateTask,
-  onCreateObjectiveLinearWorker,
 }: ObjectiveScheduledTasksPanelProps) {
   const { jobs, loading, refresh, deleteJob } = usePromptJobs(projectId, {
     requireProjectId: true,
@@ -179,7 +182,6 @@ export function ObjectiveScheduledTasksPanel({
     objectiveId,
   });
   const [showCreate, setShowCreate] = useState(false);
-  const [creatingLinearWorker, setCreatingLinearWorker] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
@@ -217,17 +219,6 @@ export function ObjectiveScheduledTasksPanel({
     return ok;
   };
 
-  const handleCreateObjectiveLinearWorker = async () => {
-    setCreatingLinearWorker(true);
-    setError(null);
-    const ok = await onCreateObjectiveLinearWorker();
-    setCreatingLinearWorker(false);
-    if (!ok) {
-      setError("Failed to create the objective Linear worker.");
-      return;
-    }
-    await refresh();
-  };
 
   return (
     <>
@@ -262,15 +253,6 @@ export function ObjectiveScheduledTasksPanel({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void handleCreateObjectiveLinearWorker()}
-              disabled={creatingLinearWorker}
-              className="inline-flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-100 transition-colors hover:bg-emerald-500/15 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Sparkles className="h-4 w-4" />
-              {creatingLinearWorker ? "Creating..." : "Work Linear tickets"}
-            </button>
             <button
               type="button"
               onClick={() => setShowCreate(true)}
@@ -308,7 +290,11 @@ export function ObjectiveScheduledTasksPanel({
                 }}
                 role="button"
                 tabIndex={0}
-                className="block w-full rounded-2xl border border-[var(--border)] bg-[rgba(15,23,42,0.28)] px-4 py-4 text-left transition-colors hover:border-[var(--card-hover-border)] focus:outline-none focus:ring-2 focus:ring-[var(--card-hover-border)]"
+                className={`block w-full rounded-2xl border px-4 py-4 text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--card-hover-border)] ${
+                  isJobOverdue(job.nextRunAt, job.state)
+                    ? "border-amber-500/40 bg-amber-500/5 hover:border-amber-500/60"
+                    : "border-[var(--border)] bg-[rgba(15,23,42,0.28)] hover:border-[var(--card-hover-border)]"
+                }`}
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
@@ -330,9 +316,15 @@ export function ObjectiveScheduledTasksPanel({
                       >
                         {formatState(job.state)}
                       </span>
+                      {isJobOverdue(job.nextRunAt, job.state) && (
+                        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20 inline-flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          overdue
+                        </span>
+                      )}
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[var(--muted-foreground)]">
-                      <span className="inline-flex items-center gap-1.5">
+                      <span className={`inline-flex items-center gap-1.5 ${isJobOverdue(job.nextRunAt, job.state) ? "text-amber-400 font-medium" : ""}`}>
                         <Clock className="h-3.5 w-3.5" />
                         Next run {formatNextRun(job.nextRunAt, job.state)}
                       </span>
