@@ -201,4 +201,24 @@ describe("pty-manager", () => {
     destroySession("session-6");
     expect(compatProcess.kill).toHaveBeenCalledTimes(1);
   });
+
+  it("falls back to compatibility mode when loading node-pty throws", async () => {
+    const compatProcess = new MockCompatProcess();
+    mockChildSpawn.mockImplementation(() => compatProcess);
+
+    jest.doMock("node-pty", () => {
+      throw new Error("native binary missing");
+    });
+
+    const { createSession, getSession, destroySession } = await import("@/lib/pty-manager");
+
+    createSession("session-7", "/tmp");
+    const session = getSession("session-7");
+
+    expect(session?.backend).toBe("compat");
+    expect(session?.outputBuffer).toContain("AGX terminal compatibility mode");
+
+    destroySession("session-7");
+    expect(compatProcess.kill).toHaveBeenCalledTimes(1);
+  });
 });

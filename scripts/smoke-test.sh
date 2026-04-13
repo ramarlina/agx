@@ -32,7 +32,11 @@ docker run --rm -v "$PWD/$TARBALL:/tmp/pkg.tgz" node:20 bash -c '
   export SQLITE_DB_PATH=/tmp/agx-board.db
   export AGX_DB_PATH=/tmp/agx.db
   export SQLITE_QUEUE_PATH=/tmp/agx-queue.db
-  node "$BOARD_DIR/server.js" &
+  SERVER_ENTRY=server.js
+  if [ -f "$BOARD_DIR/agx-server.js" ]; then
+    SERVER_ENTRY=agx-server.js
+  fi
+  node "$BOARD_DIR/$SERVER_ENTRY" &
   SERVER_PID=$!
 
   for i in $(seq 1 15); do

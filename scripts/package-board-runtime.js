@@ -13,6 +13,8 @@ const publicSrc = path.join(localAppRoot, 'public');
 const stackTemplateDir = path.join(agxRoot, 'templates', 'stack');
 const postgresInitSrc = path.join(localAppRoot, 'docker', 'postgres', 'init');
 const postgresInitDest = path.join(stackTemplateDir, 'postgres', 'init');
+const CUSTOM_SERVER_ENTRY = 'agx-server.js';
+const nodePtyPrebuildsSrc = path.join(agxRoot, 'node_modules', 'node-pty', 'prebuilds');
 
 function ensureExists(targetPath, label) {
   if (!fs.existsSync(targetPath)) {
@@ -577,6 +579,60 @@ async function bundleWorker({ appDir }) {
   });
 }
 
+async function bundleCustomServer({ appDir }) {
+  const esbuild = require('esbuild');
+  const entry = path.join(localAppRoot, 'bundled-server.ts');
+  ensureExists(entry, 'Bundled server entrypoint');
+
+  console.log('[agx] Bundling standalone board server wrapper...');
+  await esbuild.build({
+    entryPoints: [entry],
+    outfile: path.join(appDir, CUSTOM_SERVER_ENTRY),
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    target: ['node22'],
+    sourcemap: false,
+    logLevel: 'info',
+    external: ['next', 'node-pty'],
+  });
+}
+
+function patchStandalonePackageScripts(appDir) {
+  const appPkgPath = path.join(appDir, 'package.json');
+  if (!fs.existsSync(appPkgPath)) {
+    return false;
+  }
+
+  const appPkg = JSON.parse(fs.readFileSync(appPkgPath, 'utf8'));
+  const nextServerCommand = `node ${CUSTOM_SERVER_ENTRY}`;
+  appPkg.scripts = appPkg.scripts || {};
+  appPkg.scripts.dev = nextServerCommand;
+  appPkg.scripts.start = nextServerCommand;
+  appPkg.scripts.build = "echo 'standalone build - nothing to build'";
+  appPkg.scripts.worker = 'node worker/index.js';
+  appPkg.scripts['daemon:worker'] = 'node worker/index.js';
+  appPkg.scripts['daemon:orchestrator'] = 'node worker/index.js';
+  fs.writeFileSync(appPkgPath, JSON.stringify(appPkg, null, 2) + '\n');
+  return true;
+}
+
+function copyNodePtyPrebuilds(standaloneRoot, prebuildsSrc = nodePtyPrebuildsSrc) {
+  if (!fs.existsSync(prebuildsSrc)) {
+    return false;
+  }
+
+  const nodePtyDest = path.join(standaloneRoot, 'node_modules', 'node-pty');
+  if (!fs.existsSync(nodePtyDest)) {
+    return false;
+  }
+
+  const prebuildsDest = path.join(nodePtyDest, 'prebuilds');
+  fs.mkdirSync(nodePtyDest, { recursive: true });
+  fs.cpSync(prebuildsSrc, prebuildsDest, { recursive: true });
+  return true;
+}
+
 async function main() {
   ensureExists(localAppRoot, 'local board workspace');
   // Optional: keep local stack template schema in sync with the local app.
@@ -604,6 +660,9 @@ async function main() {
   const standaloneDest = path.join(cloudRuntimeDir, 'standalone');
   copyDir(standaloneSrc, standaloneDest);
   stripLocalStateDirs(standaloneDest);
+  if (copyNodePtyPrebuilds(standaloneDest)) {
+    console.log('[agx] Copied node-pty prebuilds into standalone runtime');
+  }
 
   const appDir = findPackagedAppDir(standaloneDest);
   if (!appDir) {
@@ -619,6 +678,7 @@ async function main() {
   }
 
   patchBundledRuntime(appDir);
+  await bundleCustomServer({ appDir });
 
   // Next serves assets relative to the app dir (where `server.js` lives), not the standalone root.
   const staticDest = path.join(appDir, '.next', 'static');
@@ -640,19 +700,9 @@ async function main() {
   }
 
   // Patch package.json scripts for standalone context:
-  // - "dev"/"start" should use `node server.js` (not next dev/start)
+  // - "dev"/"start" should use the bundled wrapper entry (not next dev/start)
   // - "worker" should use `node worker/index.js` (not tsx worker/index.ts)
-  const appPkgPath = path.join(appDir, 'package.json');
-  if (fs.existsSync(appPkgPath)) {
-    const appPkg = JSON.parse(fs.readFileSync(appPkgPath, 'utf8'));
-    appPkg.scripts = appPkg.scripts || {};
-    appPkg.scripts.dev = 'node server.js';
-    appPkg.scripts.start = 'node server.js';
-    appPkg.scripts.build = "echo 'standalone build - nothing to build'";
-    appPkg.scripts.worker = 'node worker/index.js';
-    appPkg.scripts['daemon:worker'] = 'node worker/index.js';
-    appPkg.scripts['daemon:orchestrator'] = 'node worker/index.js';
-    fs.writeFileSync(appPkgPath, JSON.stringify(appPkg, null, 2) + '\n');
+  if (patchStandalonePackageScripts(appDir)) {
     console.log('[agx] Patched package.json scripts for standalone runtime');
   }
 
@@ -688,10 +738,13 @@ if (require.main === module) {
 }
 
 module.exports = {
+  CUSTOM_SERVER_ENTRY,
   GA_MEASUREMENT_ID,
   GA_SCRIPT_URL,
   buildGoogleAnalyticsSnippet,
+  copyNodePtyPrebuilds,
   injectGoogleAnalyticsIntoHtmlFile,
   injectGoogleAnalyticsIntoAppHtml,
+  patchStandalonePackageScripts,
   main,
 };
