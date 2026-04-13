@@ -2,7 +2,7 @@ import { load } from "js-yaml";
 import type { ObjectiveActivityFile, ObjectiveActivityType } from "./types";
 
 const FRONTMATTER_PATTERN = /^---\s*\n([\s\S]*?)\n---\s*(?:\n([\s\S]*))?$/;
-const ACTIVITY_TYPES = new Set<ObjectiveActivityType>(["metric-check", "status-update", "milestone", "note"]);
+const ACTIVITY_TYPES = new Set<ObjectiveActivityType>(["metric-check", "action", "milestone", "note"]);
 
 function readString(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;

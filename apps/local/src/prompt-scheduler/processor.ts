@@ -282,7 +282,7 @@ async function appendObjectiveWorkerActivity(input: {
     source: `scheduled-task:${input.jobId}`,
     objectiveLabel: input.objectiveKey,
     createdAt: new Date().toISOString(),
-    type: 'status-update',
+    type: 'action',
     body: input.body,
   });
 }

@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ id: string; objectiveId: string }> };
 
-const VALID_TYPES = new Set<ObjectiveActivityType>(["metric-check", "status-update", "milestone", "note"]);
+const VALID_TYPES = new Set<ObjectiveActivityType>(["metric-check", "action", "milestone", "note"]);
 
 async function resolveParams(params: RouteContext["params"]) {
   const resolved = await params;
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     if (!type || !VALID_TYPES.has(type as ObjectiveActivityType)) {
       return NextResponse.json(
-        { error: "Invalid type. Must be one of: metric-check, status-update, milestone, note" },
+        { error: "Invalid type. Must be one of: metric-check, action, milestone, note" },
         { status: 400 },
       );
     }

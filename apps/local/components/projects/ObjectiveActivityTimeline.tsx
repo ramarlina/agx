@@ -20,8 +20,8 @@ const TYPE_META: Record<ObjectiveActivityType, { label: string; className: strin
     label: "Metric",
     className: "bg-blue-500/15 text-blue-400 border-blue-500/30",
   },
-  "status-update": {
-    label: "Status",
+  action: {
+    label: "Action",
     className: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
   },
   milestone: {
@@ -34,7 +34,7 @@ const TYPE_META: Record<ObjectiveActivityType, { label: string; className: strin
   },
 };
 
-const ALL_TYPES: ObjectiveActivityType[] = ["metric-check", "status-update", "milestone", "note"];
+const ALL_TYPES: ObjectiveActivityType[] = ["metric-check", "action", "milestone", "note"];
 
 function formatRelativeTime(isoDate: string): string {
   const now = Date.now();

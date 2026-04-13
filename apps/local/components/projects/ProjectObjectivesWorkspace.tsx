@@ -278,7 +278,7 @@ function prependObjectiveLabelToPrompt(
 
   const activityInstruction = [
     `Write your output as an activity file at ~/.agx/projects/<project>/objectives/${objective.key}/activities/<timestamp>-<slug>.md`,
-    `The file must have YAML frontmatter with: id (unique), source (your task ID), objectiveLabel: "${objective.key}", createdAt (ISO), type (one of: metric-check, status-update, milestone, note).`,
+    `The file must have YAML frontmatter with: id (unique), source (your task ID), objectiveLabel: "${objective.key}", createdAt (ISO), type (one of: metric-check, action, milestone, note).`,
     `The markdown body below the frontmatter contains your output.`,
   ].join("\n");
 

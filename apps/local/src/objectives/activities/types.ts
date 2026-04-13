@@ -1,4 +1,4 @@
-export type ObjectiveActivityType = "metric-check" | "status-update" | "milestone" | "note";
+export type ObjectiveActivityType = "metric-check" | "action" | "milestone" | "note";
 
 export interface ObjectiveActivityFile {
   id: string;
