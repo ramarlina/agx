@@ -1,6 +1,11 @@
 {
   "version": 1,
   "skills": {
+    "dispatching-parallel-agents": {
+      "source": "obra/superpowers",
+      "sourceType": "github",
+      "computedHash": "e21044ae7496fc285f1df9ff3fb518a3a20bea6f5216c1f59f4987e12c769a0a"
+    },
     "requesting-code-review": {
       "source": "obra/superpowers",
       "sourceType": "github",
