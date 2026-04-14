@@ -6,9 +6,11 @@ import { usePromptJobs } from "@/hooks/usePromptJobs";
 import { cronToHuman } from "@/src/graph/nl-schedule";
 import type { PromptJob, PromptRun } from "@/src/prompt-scheduler/types";
 import { CreateJobModal, type CreateJobData } from "@/components/PromptJobBoard";
-import { Markdown } from "@/components/chat-ui/Markdown";
+import RichTextEditor from "@/components/RichTextEditor";
+import { ScheduleConditionPicker } from "@/components/scheduling/ScheduleConditionPicker";
 
 export type ObjectiveScheduledTaskDraft = CreateJobData;
+
 
 interface ObjectiveScheduledTasksPanelProps {
   projectId: string;
@@ -66,21 +68,113 @@ function formatDateTime(value: string): string {
   });
 }
 
-function ObjectiveScheduledTaskDetailModal({
+function ScheduleEditModal({
   job,
   onClose,
-  onHide,
-  hiding,
+  onUpdate,
 }: {
   job: PromptJob;
   onClose: () => void;
-  onHide: () => Promise<void>;
-  hiding: boolean;
+  onUpdate: (updates: Partial<PromptJob>) => Promise<boolean>;
 }) {
+  const [scheduleValue, setScheduleValue] = useState({
+    cadence: job.cronExpr || job.cadence || "",
+    condition: job.condition || "",
+  });
+  const [isValid, setIsValid] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    if (!isValid) return;
+    setSaving(true);
+    await onUpdate({
+      cadence: scheduleValue.cadence,
+      condition: scheduleValue.condition,
+    } as Partial<PromptJob>);
+    setSaving(false);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6">
+      <div className="flex w-full max-w-md max-h-[85vh] flex-col rounded-[28px] border border-[var(--border)] bg-[var(--card-bg)] shadow-2xl">
+        <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-6 py-4">
+          <div className="flex items-center gap-2.5">
+            <Clock className="h-4 w-4 text-[var(--muted-foreground)]" />
+            <p className="text-sm font-semibold text-[var(--foreground)]">{job.name}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-[var(--border)] p-2 text-[var(--muted-foreground)] transition-colors hover:border-[var(--card-hover-border)] hover:text-[var(--foreground)]"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          <ScheduleConditionPicker
+            value={scheduleValue}
+            onChange={(next, meta) => {
+              setScheduleValue(next);
+              setIsValid(meta.isScheduleValid);
+            }}
+            scheduleLabel="Schedule"
+            conditionLabel="Condition"
+            conditionHelpText="Scheduled runs and Run now will check this condition before executing."
+          />
+        </div>
+
+        <div className="flex shrink-0 items-center justify-end gap-3 border-t border-[var(--border)] px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--card-hover-border)]"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={saving || !isValid}
+            className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ObjectiveScheduledTaskDetailModal({
+  job,
+  onClose,
+  onUpdate,
+}: {
+  job: PromptJob;
+  onClose: () => void;
+  onUpdate: (updates: Partial<PromptJob>) => Promise<boolean>;
+}) {
+  const [promptDraft, setPromptDraft] = useState(job.prompt || "");
+  const [saving, setSaving] = useState(false);
+
+  const savePrompt = async () => {
+    if (promptDraft === job.prompt) {
+      onClose();
+      return;
+    }
+    setSaving(true);
+    await onUpdate({ prompt: promptDraft } as Partial<PromptJob>);
+    setSaving(false);
+    onClose();
+  };
+
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 px-4 py-6">
-      <div className="w-full max-w-2xl rounded-[28px] border border-[var(--border)] bg-[var(--card-bg)] shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-6 py-5">
+      <div className="flex w-full max-w-6xl max-h-[85vh] flex-col rounded-[28px] border border-[var(--border)] bg-[var(--card-bg)] shadow-2xl">
+        {/* Header */}
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border)] px-6 py-5">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
               <p className="truncate text-lg font-semibold text-[var(--foreground)]">
@@ -116,45 +210,40 @@ function ObjectiveScheduledTaskDetailModal({
           </button>
         </div>
 
-        <div className="space-y-5 px-6 py-6">
+        {/* Scrollable editor area */}
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 space-y-5">
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
               Instructions
             </p>
-            <div className="rounded-2xl border border-[var(--border)] bg-[var(--overlay-panel-muted)] px-4 py-4 text-sm leading-6 text-[var(--foreground)]">
-              <Markdown content={job.prompt || "No instructions yet"} />
+            <div className="rounded-2xl border border-[var(--card-hover-border)] bg-[var(--overlay-panel-muted)] px-1 py-1 text-sm leading-6 text-[var(--foreground)]">
+              <RichTextEditor
+                content={promptDraft}
+                editable
+                onChange={setPromptDraft}
+                placeholder="Write instructions in markdown…"
+              />
             </div>
           </div>
+        </div>
 
-          {job.condition ? (
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
-                Condition
-              </p>
-              <div className="rounded-2xl border border-[var(--border)] bg-[var(--overlay-panel-muted)] px-4 py-4 text-sm leading-6 text-[var(--foreground)]">
-                {job.condition}
-              </div>
-            </div>
-          ) : null}
-
-          <div className="flex items-center justify-end gap-3 border-t border-[var(--border)] pt-5">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--card-hover-border)]"
-            >
-              Close
-            </button>
-            <button
-              type="button"
-              onClick={() => void onHide()}
-              disabled={hiding}
-              className="inline-flex items-center gap-2 rounded-xl border border-[var(--status-failed-border)] px-4 py-2.5 text-sm text-[var(--destructive)] transition-colors hover:bg-[var(--destructive-muted)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Trash2 className="h-4 w-4" />
-              {hiding ? "Hiding..." : "Hide task"}
-            </button>
-          </div>
+        {/* Sticky footer */}
+        <div className="flex shrink-0 items-center justify-end gap-3 border-t border-[var(--border)] px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--card-hover-border)]"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => void savePrompt()}
+            disabled={saving}
+            className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:opacity-50"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
         </div>
       </div>
     </div>
@@ -184,7 +273,7 @@ export function ObjectiveScheduledTasksPanel({
   createDefaults,
   onCreateTask,
 }: ObjectiveScheduledTasksPanelProps) {
-  const { jobs, loading, refresh, deleteJob, toggleJob, fetchRuns, runNow } = usePromptJobs(projectId, {
+  const { jobs, loading, refresh, deleteJob, toggleJob, updateJob, fetchRuns, runNow } = usePromptJobs(projectId, {
     requireProjectId: true,
     includeObjectiveJobs: true,
     objectiveId,
@@ -193,12 +282,18 @@ export function ObjectiveScheduledTasksPanel({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [scheduleEditJobId, setScheduleEditJobId] = useState<string | null>(null);
   const [recentRuns, setRecentRuns] = useState<(PromptRun & { jobName: string })[]>([]);
 
-  const visibleJobs = useMemo(
-    () => jobs.filter((job) => job.objectiveId === objectiveId),
-    [jobs, objectiveId]
-  );
+  const visibleJobs = useMemo(() => {
+    const filtered = jobs.filter((job) => job.objectiveId === objectiveId);
+    // Pin "Objective worker" to the top
+    return filtered.sort((a, b) => {
+      const aPin = a.name.toLowerCase().includes("objective worker") ? 0 : 1;
+      const bPin = b.name.toLowerCase().includes("objective worker") ? 0 : 1;
+      return aPin - bPin;
+    });
+  }, [jobs, objectiveId]);
   const selectedJob = useMemo(
     () => visibleJobs.find((job) => job.id === selectedJobId) ?? null,
     [selectedJobId, visibleJobs]
@@ -254,6 +349,10 @@ export function ObjectiveScheduledTasksPanel({
     return ok;
   };
 
+  const scheduleEditJob = useMemo(
+    () => visibleJobs.find((job) => job.id === scheduleEditJobId) ?? null,
+    [scheduleEditJobId, visibleJobs]
+  );
 
   return (
     <>
@@ -271,10 +370,22 @@ export function ObjectiveScheduledTasksPanel({
         <ObjectiveScheduledTaskDetailModal
           job={selectedJob}
           onClose={() => setSelectedJobId(null)}
-          onHide={async () => {
-            await handleHide(selectedJob);
+          onUpdate={async (updates) => {
+            const ok = await updateJob(selectedJob.id, updates);
+            if (ok) await refresh();
+            return ok;
           }}
-          hiding={busyId === selectedJob.id}
+        />
+      ) : null}
+      {scheduleEditJob ? (
+        <ScheduleEditModal
+          job={scheduleEditJob}
+          onClose={() => setScheduleEditJobId(null)}
+          onUpdate={async (updates) => {
+            const ok = await updateJob(scheduleEditJob.id, updates);
+            if (ok) await refresh();
+            return ok;
+          }}
         />
       ) : null}
 
@@ -364,6 +475,7 @@ export function ObjectiveScheduledTasksPanel({
                         Next run {formatNextRun(job.nextRunAt, job.state)}
                       </span>
                       <span className="inline-flex items-center gap-1.5">
+                        <Clock className="h-3.5 w-3.5" />
                         {formatCadence(job)}
                       </span>
                       {job.condition ? (
@@ -398,6 +510,17 @@ export function ObjectiveScheduledTasksPanel({
                       className="rounded-lg border border-[var(--border)] p-2 text-[var(--muted-foreground)] transition-colors hover:border-emerald-400/40 hover:text-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Play className="h-3.5 w-3.5 fill-current" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Edit schedule"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setScheduleEditJobId(job.id);
+                      }}
+                      className="rounded-lg border border-[var(--border)] p-2 text-[var(--muted-foreground)] transition-colors hover:border-sky-400/40 hover:text-sky-300"
+                    >
+                      <Clock className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
