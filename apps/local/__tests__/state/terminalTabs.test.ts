@@ -1,68 +1,83 @@
 import { normalizePersistedSessions, useTerminalTabsStore } from "@/state/terminalTabs";
 
 beforeEach(() => {
-  useTerminalTabsStore.setState({ sessions: [] });
+  useTerminalTabsStore.setState({ sessions: {} });
 });
+
+const PROJECT = "test-project";
 
 describe("terminalTabs store", () => {
   describe("createSession", () => {
     it("creates a session with one terminal", () => {
-      const id = useTerminalTabsStore.getState().createSession();
-      const state = useTerminalTabsStore.getState();
+      const id = useTerminalTabsStore.getState().createSession(PROJECT);
+      const sessions = useTerminalTabsStore.getState().getProjectSessions(PROJECT);
 
-      expect(state.sessions).toHaveLength(1);
-      expect(state.sessions[0].id).toBe(id);
-      expect(state.sessions[0].title).toBe("Terminal 1");
-      expect(state.sessions[0].terminals).toHaveLength(1);
-      expect(state.sessions[0].terminals[0]?.title).toBe("Terminal 1");
-      expect(state.sessions[0].terminals[0]?.status).toBe("connecting");
-      expect(state.sessions[0].terminals[0]?.colSpan).toBe(1);
-      expect(state.sessions[0].terminals[0]?.rowSpan).toBe(1);
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].id).toBe(id);
+      expect(sessions[0].title).toBe("Terminal 1");
+      expect(sessions[0].terminals).toHaveLength(1);
+      expect(sessions[0].terminals[0]?.title).toBe("Terminal 1");
+      expect(sessions[0].terminals[0]?.status).toBe("connecting");
+      expect(sessions[0].terminals[0]?.colSpan).toBe(1);
+      expect(sessions[0].terminals[0]?.rowSpan).toBe(1);
     });
 
     it("increments title numbers for subsequent sessions", () => {
       const { createSession } = useTerminalTabsStore.getState();
-      createSession();
-      createSession();
-      createSession();
+      createSession(PROJECT);
+      createSession(PROJECT);
+      createSession(PROJECT);
 
-      expect(useTerminalTabsStore.getState().sessions.map((session) => session.title)).toEqual([
-        "Terminal 1",
-        "Terminal 2",
-        "Terminal 3",
-      ]);
+      expect(
+        useTerminalTabsStore.getState().getProjectSessions(PROJECT).map((session) => session.title),
+      ).toEqual(["Terminal 1", "Terminal 2", "Terminal 3"]);
     });
 
     it("passes cwd to the first terminal", () => {
-      const id = useTerminalTabsStore.getState().createSession("/tmp");
+      const id = useTerminalTabsStore.getState().createSession(PROJECT, "/tmp");
       const session = useTerminalTabsStore
         .getState()
-        .sessions.find((item) => item.id === id);
+        .getProjectSessions(PROJECT)
+        .find((item) => item.id === id);
 
       expect(session?.terminals[0]?.cwd).toBe("/tmp");
+    });
+
+    it("scopes sessions to their project", () => {
+      const { createSession, getProjectSessions } = useTerminalTabsStore.getState();
+      createSession("project-a");
+      createSession("project-a");
+      createSession("project-b");
+
+      expect(useTerminalTabsStore.getState().getProjectSessions("project-a")).toHaveLength(2);
+      expect(useTerminalTabsStore.getState().getProjectSessions("project-b")).toHaveLength(1);
+      expect(useTerminalTabsStore.getState().getProjectSessions("project-c")).toHaveLength(0);
     });
   });
 
   describe("closeSession", () => {
     it("removes the session from the list", () => {
       const { createSession, closeSession } = useTerminalTabsStore.getState();
-      const id = createSession();
+      const id = createSession(PROJECT);
 
-      closeSession(id);
+      closeSession(PROJECT, id);
 
-      expect(useTerminalTabsStore.getState().sessions).toHaveLength(0);
+      expect(useTerminalTabsStore.getState().getProjectSessions(PROJECT)).toHaveLength(0);
     });
   });
 
   describe("renameSession", () => {
     it("renames a session", () => {
       const { createSession, renameSession } = useTerminalTabsStore.getState();
-      const id = createSession();
+      const id = createSession(PROJECT);
 
-      renameSession(id, "My Shell");
+      renameSession(PROJECT, id, "My Shell");
 
       expect(
-        useTerminalTabsStore.getState().sessions.find((session) => session.id === id)?.title,
+        useTerminalTabsStore
+          .getState()
+          .getProjectSessions(PROJECT)
+          .find((session) => session.id === id)?.title,
       ).toBe("My Shell");
     });
   });
@@ -70,12 +85,13 @@ describe("terminalTabs store", () => {
   describe("addTerminal", () => {
     it("adds another terminal to an existing session", () => {
       const { createSession, addTerminal } = useTerminalTabsStore.getState();
-      const sessionId = createSession("/tmp");
+      const sessionId = createSession(PROJECT, "/tmp");
 
-      const terminalId = addTerminal(sessionId, "/var/tmp");
+      const terminalId = addTerminal(PROJECT, sessionId, "/var/tmp");
       const session = useTerminalTabsStore
         .getState()
-        .sessions.find((item) => item.id === sessionId);
+        .getProjectSessions(PROJECT)
+        .find((item) => item.id === sessionId);
 
       expect(terminalId).toBeTruthy();
       expect(session?.terminals).toHaveLength(2);
@@ -85,51 +101,58 @@ describe("terminalTabs store", () => {
     });
 
     it("returns null when the session is missing", () => {
-      expect(useTerminalTabsStore.getState().addTerminal("missing")).toBeNull();
+      expect(useTerminalTabsStore.getState().addTerminal(PROJECT, "missing")).toBeNull();
     });
   });
 
   describe("closeTerminal", () => {
     it("removes only the targeted terminal", () => {
       const store = useTerminalTabsStore.getState();
-      const sessionId = store.createSession();
-      const terminalId = store.addTerminal(sessionId);
-      const firstTerminalId = useTerminalTabsStore.getState().sessions[0]?.terminals[0]?.id;
+      const sessionId = store.createSession(PROJECT);
+      const terminalId = store.addTerminal(PROJECT, sessionId);
+      const firstTerminalId = useTerminalTabsStore
+        .getState()
+        .getProjectSessions(PROJECT)[0]?.terminals[0]?.id;
 
       expect(terminalId).toBeTruthy();
 
-      useTerminalTabsStore.getState().closeTerminal(sessionId, String(terminalId));
+      useTerminalTabsStore.getState().closeTerminal(PROJECT, sessionId, String(terminalId));
 
       const session = useTerminalTabsStore
         .getState()
-        .sessions.find((item) => item.id === sessionId);
+        .getProjectSessions(PROJECT)
+        .find((item) => item.id === sessionId);
       expect(session?.terminals).toHaveLength(1);
       expect(session?.terminals[0]?.id).toBe(firstTerminalId);
     });
 
     it("removes the whole session when its last terminal is closed", () => {
       const store = useTerminalTabsStore.getState();
-      const sessionId = store.createSession();
-      const terminalId = useTerminalTabsStore.getState().sessions[0]?.terminals[0]?.id;
+      const sessionId = store.createSession(PROJECT);
+      const terminalId = useTerminalTabsStore
+        .getState()
+        .getProjectSessions(PROJECT)[0]?.terminals[0]?.id;
 
-      useTerminalTabsStore.getState().closeTerminal(sessionId, String(terminalId));
+      useTerminalTabsStore.getState().closeTerminal(PROJECT, sessionId, String(terminalId));
 
-      expect(useTerminalTabsStore.getState().sessions).toHaveLength(0);
+      expect(useTerminalTabsStore.getState().getProjectSessions(PROJECT)).toHaveLength(0);
     });
   });
 
   describe("setTerminalSessionId", () => {
     it("assigns the backend session id to the targeted terminal", () => {
       const store = useTerminalTabsStore.getState();
-      const sessionId = store.createSession();
-      const terminalId = useTerminalTabsStore.getState().sessions[0]?.terminals[0]?.id;
+      const sessionId = store.createSession(PROJECT);
+      const terminalId = useTerminalTabsStore
+        .getState()
+        .getProjectSessions(PROJECT)[0]?.terminals[0]?.id;
 
       useTerminalTabsStore
         .getState()
-        .setTerminalSessionId(sessionId, String(terminalId), "pty-session-abc");
+        .setTerminalSessionId(PROJECT, sessionId, String(terminalId), "pty-session-abc");
 
       expect(
-        useTerminalTabsStore.getState().sessions[0]?.terminals[0]?.sessionId,
+        useTerminalTabsStore.getState().getProjectSessions(PROJECT)[0]?.terminals[0]?.sessionId,
       ).toBe("pty-session-abc");
     });
   });
@@ -137,15 +160,18 @@ describe("terminalTabs store", () => {
   describe("renameTerminal", () => {
     it("renames the targeted terminal only", () => {
       const store = useTerminalTabsStore.getState();
-      const sessionId = store.createSession();
-      const secondTerminalId = store.addTerminal(sessionId);
-      const firstTerminalId = useTerminalTabsStore.getState().sessions[0]?.terminals[0]?.id;
+      const sessionId = store.createSession(PROJECT);
+      const secondTerminalId = store.addTerminal(PROJECT, sessionId);
+      const firstTerminalId = useTerminalTabsStore
+        .getState()
+        .getProjectSessions(PROJECT)[0]?.terminals[0]?.id;
 
       useTerminalTabsStore
         .getState()
-        .renameTerminal(sessionId, String(secondTerminalId), "Logs");
+        .renameTerminal(PROJECT, sessionId, String(secondTerminalId), "Logs");
 
-      const terminals = useTerminalTabsStore.getState().sessions[0]?.terminals || [];
+      const terminals =
+        useTerminalTabsStore.getState().getProjectSessions(PROJECT)[0]?.terminals || [];
       expect(terminals.find((terminal) => terminal.id === secondTerminalId)?.title).toBe("Logs");
       expect(terminals.find((terminal) => terminal.id === firstTerminalId)?.title).toBe(
         "Terminal 1",
@@ -156,17 +182,20 @@ describe("terminalTabs store", () => {
   describe("updateTerminalLayout", () => {
     it("snaps layout values into the supported span range", () => {
       const store = useTerminalTabsStore.getState();
-      const sessionId = store.createSession();
-      const terminalId = useTerminalTabsStore.getState().sessions[0]?.terminals[0]?.id;
+      const sessionId = store.createSession(PROJECT);
+      const terminalId = useTerminalTabsStore
+        .getState()
+        .getProjectSessions(PROJECT)[0]?.terminals[0]?.id;
 
       useTerminalTabsStore
         .getState()
-        .updateTerminalLayout(sessionId, String(terminalId), {
+        .updateTerminalLayout(PROJECT, sessionId, String(terminalId), {
           colSpan: 5,
           rowSpan: 0,
         });
 
-      const terminal = useTerminalTabsStore.getState().sessions[0]?.terminals[0];
+      const terminal =
+        useTerminalTabsStore.getState().getProjectSessions(PROJECT)[0]?.terminals[0];
       expect(terminal?.colSpan).toBe(2);
       expect(terminal?.rowSpan).toBe(1);
     });
@@ -175,15 +204,18 @@ describe("terminalTabs store", () => {
   describe("updateTerminalStatus", () => {
     it("updates only the targeted terminal status", () => {
       const store = useTerminalTabsStore.getState();
-      const sessionId = store.createSession();
-      const secondTerminalId = store.addTerminal(sessionId);
-      const firstTerminalId = useTerminalTabsStore.getState().sessions[0]?.terminals[0]?.id;
+      const sessionId = store.createSession(PROJECT);
+      const secondTerminalId = store.addTerminal(PROJECT, sessionId);
+      const firstTerminalId = useTerminalTabsStore
+        .getState()
+        .getProjectSessions(PROJECT)[0]?.terminals[0]?.id;
 
       useTerminalTabsStore
         .getState()
-        .updateTerminalStatus(sessionId, String(secondTerminalId), "active");
+        .updateTerminalStatus(PROJECT, sessionId, String(secondTerminalId), "active");
 
-      const terminals = useTerminalTabsStore.getState().sessions[0]?.terminals || [];
+      const terminals =
+        useTerminalTabsStore.getState().getProjectSessions(PROJECT)[0]?.terminals || [];
       expect(terminals.find((terminal) => terminal.id === secondTerminalId)?.status).toBe("active");
       expect(terminals.find((terminal) => terminal.id === firstTerminalId)?.status).toBe(
         "connecting",

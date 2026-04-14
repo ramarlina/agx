@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { getAgent, getAgentSkills } from "@/lib/db";
+import { getAgentSkillBindings } from "@/lib/agent-skill-bindings";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import { getSQLiteDb } from "@/lib/sqlite-query-adapter";
 
@@ -78,6 +79,7 @@ export async function GET(
   const reactionCount = readJsonl(join(agentDir, "reactions.jsonl")).length;
   const commentCount = readJsonl(join(agentDir, "comments.jsonl")).length;
   const portableSkills = dbAgent ? await getAgentSkills(dbAgent.id) : [];
+  const skillBindings = dbAgent ? await getAgentSkillBindings(dbAgent.id) : [];
   const sqlite = getSQLiteDb();
   const memories = dbAgent
     ? (sqlite
@@ -121,6 +123,7 @@ export async function GET(
             file: skill.file,
             condition: skill.condition ?? "",
           })),
+          skillBindings,
         }
         : {}),
     },
@@ -145,6 +148,13 @@ export async function GET(
             condition: skill.condition ?? "",
             source: "human-authored",
             form: "file-backed",
+          })),
+          skillBindings: skillBindings.map((binding) => ({
+            repo: binding.repo,
+            skillId: binding.skillId,
+            condition: binding.condition ?? "",
+            source: "catalog-bound",
+            form: "repo-backed",
           })),
           learnedMemories: memories.map((memory) => ({
             id: memory.id,

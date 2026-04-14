@@ -161,10 +161,12 @@ interface PromptJobListFilter {
 }
 
 function rowToJob(row: PromptJobRow): PromptJob {
-  const executionMode =
+  const executionMode: PromptJobExecutionMode =
     row.execution_mode === "objective_linear_ticket" || row.execution_mode === "objective_worker"
       ? "objective_worker"
-      : DEFAULT_PROMPT_JOB_EXECUTION_MODE;
+      : row.execution_mode === "linear_worker"
+        ? "linear_worker"
+        : DEFAULT_PROMPT_JOB_EXECUTION_MODE;
   return {
     id: row.id,
     name: row.name,
@@ -183,7 +185,7 @@ function rowToJob(row: PromptJobRow): PromptJob {
     catchUpPolicy: (row.catch_up_policy || "fire_once") as PromptJob["catchUpPolicy"],
     cancelCheckSec: row.cancel_check_sec,
     executionMode,
-    builtIn: executionMode === "objective_worker",
+    builtIn: executionMode === "objective_worker" || executionMode === "linear_worker",
     condition: row.condition || "",
     nextRunAt: row.next_run_at,
     lastRunAt: row.last_run_at,

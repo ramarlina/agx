@@ -6,30 +6,37 @@ import type {
   TerminalStatus,
 } from "@/lib/terminal-types";
 
-export interface TerminalTabsState {
-  sessions: TerminalSession[];
+const DEFAULT_PROJECT_KEY = "__global__";
 
-  createSession: (cwd?: string) => string;
-  closeSession: (id: string) => void;
-  renameSession: (id: string, title: string) => void;
-  addTerminal: (sessionId: string, cwd?: string) => string | null;
-  closeTerminal: (sessionId: string, terminalId: string) => void;
+export interface TerminalTabsState {
+  sessions: Record<string, TerminalSession[]>;
+
+  getProjectSessions: (projectId: string) => TerminalSession[];
+  createSession: (projectId: string, cwd?: string) => string;
+  closeSession: (projectId: string, id: string) => void;
+  renameSession: (projectId: string, id: string, title: string) => void;
+  addTerminal: (projectId: string, sessionId: string, cwd?: string) => string | null;
+  closeTerminal: (projectId: string, sessionId: string, terminalId: string) => void;
   renameTerminal: (
+    projectId: string,
     sessionId: string,
     terminalId: string,
     title: string,
   ) => void;
   updateTerminalLayout: (
+    projectId: string,
     sessionId: string,
     terminalId: string,
     layout: { colSpan?: number; rowSpan?: number },
   ) => void;
   setTerminalSessionId: (
+    projectId: string,
     sessionId: string,
     terminalId: string,
     backendSessionId: string,
   ) => void;
   updateTerminalStatus: (
+    projectId: string,
     sessionId: string,
     terminalId: string,
     status: TerminalStatus,
@@ -154,14 +161,66 @@ export function normalizePersistedSessions(
   });
 }
 
+/**
+ * Migrate legacy persisted state where sessions was a flat array
+ * to the new project-keyed Record shape.
+ */
+function migratePersistedSessions(
+  raw: unknown,
+): Record<string, TerminalSession[]> {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    // Already in Record shape — normalize each project's sessions
+    const result: Record<string, TerminalSession[]> = {};
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      result[key] = normalizePersistedSessions(
+        Array.isArray(value) ? (value as Array<Partial<TerminalSession>>) : [],
+      );
+    }
+    return result;
+  }
+
+  if (Array.isArray(raw)) {
+    // Legacy flat array — migrate to default project key
+    return {
+      [DEFAULT_PROJECT_KEY]: normalizePersistedSessions(
+        raw as Array<Partial<TerminalSession>>,
+      ),
+    };
+  }
+
+  return {};
+}
+
+function getProjectSessionsList(
+  sessions: Record<string, TerminalSession[]>,
+  projectId: string,
+): TerminalSession[] {
+  return sessions[projectId] ?? [];
+}
+
+function updateProjectSessions(
+  sessions: Record<string, TerminalSession[]>,
+  projectId: string,
+  updater: (projectSessions: TerminalSession[]) => TerminalSession[],
+): Record<string, TerminalSession[]> {
+  const current = sessions[projectId] ?? [];
+  const updated = updater(current);
+  return { ...sessions, [projectId]: updated };
+}
+
 export const useTerminalTabsStore = create<TerminalTabsState>()(
   persist(
     (set, get) => ({
-      sessions: [],
+      sessions: {},
 
-      createSession(cwd?: string): string {
+      getProjectSessions(projectId: string): TerminalSession[] {
+        return getProjectSessionsList(get().sessions, projectId);
+      },
+
+      createSession(projectId: string, cwd?: string): string {
         const id = crypto.randomUUID();
-        const title = nextTitle(get().sessions);
+        const projectSessions = getProjectSessionsList(get().sessions, projectId);
+        const title = nextTitle(projectSessions);
         const session: TerminalSession = {
           id,
           title,
@@ -170,153 +229,174 @@ export const useTerminalTabsStore = create<TerminalTabsState>()(
         };
 
         set((state) => ({
-          sessions: [...state.sessions, session],
+          sessions: updateProjectSessions(state.sessions, projectId, (ps) => [
+            ...ps,
+            session,
+          ]),
         }));
 
         return id;
       },
 
-      closeSession(id: string): void {
+      closeSession(projectId: string, id: string): void {
         set((state) => ({
-          sessions: state.sessions.filter((session) => session.id !== id),
-        }));
-      },
-
-      renameSession(id: string, title: string): void {
-        set((state) => ({
-          sessions: state.sessions.map((session) =>
-            session.id === id ? { ...session, title } : session,
+          sessions: updateProjectSessions(state.sessions, projectId, (ps) =>
+            ps.filter((session) => session.id !== id),
           ),
         }));
       },
 
-      addTerminal(sessionId: string, cwd?: string): string | null {
+      renameSession(projectId: string, id: string, title: string): void {
+        set((state) => ({
+          sessions: updateProjectSessions(state.sessions, projectId, (ps) =>
+            ps.map((session) =>
+              session.id === id ? { ...session, title } : session,
+            ),
+          ),
+        }));
+      },
+
+      addTerminal(projectId: string, sessionId: string, cwd?: string): string | null {
         const terminalId = crypto.randomUUID();
         let added = false;
 
         set((state) => ({
-          sessions: state.sessions.map((session) => {
-            if (session.id !== sessionId) {
-              return session;
-            }
+          sessions: updateProjectSessions(state.sessions, projectId, (ps) =>
+            ps.map((session) => {
+              if (session.id !== sessionId) {
+                return session;
+              }
 
-            added = true;
-            return {
-              ...session,
-              terminals: [
-                ...session.terminals,
-                createTerminal(session.terminals, cwd, terminalId),
-              ],
-            };
-          }),
+              added = true;
+              return {
+                ...session,
+                terminals: [
+                  ...session.terminals,
+                  createTerminal(session.terminals, cwd, terminalId),
+                ],
+              };
+            }),
+          ),
         }));
 
         return added ? terminalId : null;
       },
 
-      closeTerminal(sessionId: string, terminalId: string): void {
+      closeTerminal(projectId: string, sessionId: string, terminalId: string): void {
         set((state) => ({
-          sessions: state.sessions
-            .map((session) => {
-              if (session.id !== sessionId) {
-                return session;
-              }
-
-              return {
-                ...session,
-                terminals: session.terminals.filter(
-                  (terminal) => terminal.id !== terminalId,
-                ),
-              };
-            })
-            .filter((session) => session.terminals.length > 0),
-        }));
-      },
-
-      renameTerminal(sessionId: string, terminalId: string, title: string): void {
-        set((state) => ({
-          sessions: state.sessions.map((session) =>
-            session.id === sessionId
-              ? {
-                  ...session,
-                  terminals: session.terminals.map((terminal) =>
-                    terminal.id === terminalId
-                      ? { ...terminal, title }
-                      : terminal,
-                  ),
+          sessions: updateProjectSessions(state.sessions, projectId, (ps) =>
+            ps
+              .map((session) => {
+                if (session.id !== sessionId) {
+                  return session;
                 }
-              : session,
+
+                return {
+                  ...session,
+                  terminals: session.terminals.filter(
+                    (terminal) => terminal.id !== terminalId,
+                  ),
+                };
+              })
+              .filter((session) => session.terminals.length > 0),
           ),
         }));
       },
 
-      updateTerminalLayout(sessionId: string, terminalId: string, layout): void {
+      renameTerminal(projectId: string, sessionId: string, terminalId: string, title: string): void {
         set((state) => ({
-          sessions: state.sessions.map((session) =>
-            session.id === sessionId
-              ? {
-                  ...session,
-                  terminals: session.terminals.map((terminal) =>
-                    terminal.id === terminalId
-                      ? {
-                          ...terminal,
-                          colSpan: clamp(
-                            layout.colSpan ?? terminal.colSpan,
-                            1,
-                            2,
-                          ),
-                          rowSpan: clamp(
-                            layout.rowSpan ?? terminal.rowSpan,
-                            1,
-                            4,
-                          ),
-                        }
-                      : terminal,
-                  ),
-                }
-              : session,
+          sessions: updateProjectSessions(state.sessions, projectId, (ps) =>
+            ps.map((session) =>
+              session.id === sessionId
+                ? {
+                    ...session,
+                    terminals: session.terminals.map((terminal) =>
+                      terminal.id === terminalId
+                        ? { ...terminal, title }
+                        : terminal,
+                    ),
+                  }
+                : session,
+            ),
+          ),
+        }));
+      },
+
+      updateTerminalLayout(projectId: string, sessionId: string, terminalId: string, layout): void {
+        set((state) => ({
+          sessions: updateProjectSessions(state.sessions, projectId, (ps) =>
+            ps.map((session) =>
+              session.id === sessionId
+                ? {
+                    ...session,
+                    terminals: session.terminals.map((terminal) =>
+                      terminal.id === terminalId
+                        ? {
+                            ...terminal,
+                            colSpan: clamp(
+                              layout.colSpan ?? terminal.colSpan,
+                              1,
+                              2,
+                            ),
+                            rowSpan: clamp(
+                              layout.rowSpan ?? terminal.rowSpan,
+                              1,
+                              4,
+                            ),
+                          }
+                        : terminal,
+                    ),
+                  }
+                : session,
+            ),
           ),
         }));
       },
 
       setTerminalSessionId(
+        projectId: string,
         sessionId: string,
         terminalId: string,
         backendSessionId: string,
       ): void {
         set((state) => ({
-          sessions: state.sessions.map((session) =>
-            session.id === sessionId
-              ? {
-                  ...session,
-                  terminals: session.terminals.map((terminal) =>
-                    terminal.id === terminalId
-                      ? { ...terminal, sessionId: backendSessionId }
-                      : terminal,
-                  ),
-                }
-              : session,
+          sessions: updateProjectSessions(state.sessions, projectId, (ps) =>
+            ps.map((session) =>
+              session.id === sessionId
+                ? {
+                    ...session,
+                    terminals: session.terminals.map((terminal) =>
+                      terminal.id === terminalId
+                        ? { ...terminal, sessionId: backendSessionId }
+                        : terminal,
+                    ),
+                  }
+                : session,
+            ),
           ),
         }));
       },
 
       updateTerminalStatus(
+        projectId: string,
         sessionId: string,
         terminalId: string,
         status: TerminalStatus,
       ): void {
         set((state) => ({
-          sessions: state.sessions.map((session) =>
-            session.id === sessionId
-              ? {
-                  ...session,
-                  terminals: session.terminals.map((terminal) =>
-                    terminal.id === terminalId
-                      ? { ...terminal, status }
-                      : terminal,
-                  ),
-                }
-              : session,
+          sessions: updateProjectSessions(state.sessions, projectId, (ps) =>
+            ps.map((session) =>
+              session.id === sessionId
+                ? {
+                    ...session,
+                    terminals: session.terminals.map((terminal) =>
+                      terminal.id === terminalId
+                        ? { ...terminal, status }
+                        : terminal,
+                    ),
+                  }
+                : session,
+            ),
           ),
         }));
       },
@@ -329,11 +409,7 @@ export const useTerminalTabsStore = create<TerminalTabsState>()(
         return {
           ...currentState,
           ...persisted,
-          sessions: normalizePersistedSessions(
-            Array.isArray(persisted.sessions)
-              ? (persisted.sessions as Array<Partial<TerminalSession>>)
-              : currentState.sessions,
-          ),
+          sessions: migratePersistedSessions(persisted.sessions),
         };
       },
     },

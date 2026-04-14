@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import type { ProjectData } from "@/components/setup/ProjectStep";
 import type { SelectedTeam } from "@/components/setup/TeamsStep";
 
-export type SetupStep = 1 | 2 | 3;
+export type SetupStep = 1 | 2 | 3 | 4;
 
 export interface SetupFlowState {
   step: SetupStep;
@@ -31,7 +31,7 @@ export function useSetupFlow() {
   const [error, setError] = useState<string | null>(null);
 
   const goNext = useCallback(() => {
-    setStep((s) => Math.min(s + 1, 3) as SetupStep);
+    setStep((s) => Math.min(s + 1, 4) as SetupStep);
   }, []);
 
   const goBack = useCallback(() => {
@@ -60,6 +60,19 @@ export function useSetupFlow() {
       const projectId = createdProject.id;
 
       for (const team of teams) {
+        // Build agents array with per-agent provider/model (overrides inherit from team defaults)
+        const agents = team.agents.map((agent) => {
+          const override = team.agentOverrides?.find((o) => o.agentId === agent.id);
+          return {
+            roleId: agent.id,
+            provider: override?.provider || team.provider || undefined,
+            model: override?.model || team.model || undefined,
+          };
+        });
+
+        // Only include agents array if any have provider/model config
+        const hasConfig = agents.some((a) => a.provider || a.model);
+
         await fetch(`/api/projects/${projectId}/teams`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -67,6 +80,7 @@ export function useSetupFlow() {
             templateId: team.templateId,
             variantId: team.variantId,
             name: team.name,
+            ...(hasConfig ? { agents } : {}),
           }),
         });
       }

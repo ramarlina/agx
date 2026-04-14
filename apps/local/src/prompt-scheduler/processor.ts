@@ -424,6 +424,19 @@ async function executeJobAction(
     });
   }
 
+  if (job.executionMode === 'linear_worker') {
+    const { executeLinearWorker } = await import('./linear-worker');
+    const sessionAgent = await resolveObjectiveWorkerAgent(job);
+    const controllerContext = await resolveJobContextForAgent(job, sessionAgent.id);
+    return executeLinearWorker({
+      job,
+      controllerContext,
+      sessionAgent,
+      cliArgs: job.cliArgs,
+      onSpawn: opts.onSpawn,
+    });
+  }
+
   return executePrompt({
     ...ctx,
     prompt: job.prompt,
@@ -496,7 +509,7 @@ async function fireConditionGate(job: PromptJob, run: PromptRun) {
   store.updateJob(job.id, { lastOutcome: actionResult.status, lastRunAt: Date.now() });
 
   // Objective-mode jobs already emit a richer receipt inside executeObjectiveLinearWorker.
-  if (job.objectiveId && job.projectId && job.executionMode !== 'objective_linear_ticket') {
+  if (job.objectiveId && job.projectId && job.executionMode !== 'objective_worker') {
     await logActionReceipt(
       {
         action: 'prompt',
@@ -542,7 +555,7 @@ async function fireRun(job: PromptJob, run: PromptRun) {
   store.updateJob(job.id, { lastOutcome: result.status, lastRunAt: Date.now() });
 
   // Objective-mode jobs already emit a richer receipt inside executeObjectiveLinearWorker.
-  if (job.objectiveId && job.projectId && job.executionMode !== 'objective_linear_ticket') {
+  if (job.objectiveId && job.projectId && job.executionMode !== 'objective_worker') {
     await logActionReceipt(
       {
         action: 'prompt',
