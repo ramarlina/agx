@@ -189,7 +189,7 @@ function ProjectLayoutContent({
         }}
       />
       <div className="flex-1 min-h-0 flex flex-col min-w-0 h-full overflow-hidden">
-        <div className="flex items-center px-4 py-2 border-b border-[var(--app-shell-border)] bg-[var(--background)] shrink-0">
+        <div className="desktop-titlebar flex items-center px-4 py-2 border-b border-[var(--app-shell-border)] bg-[var(--background)] shrink-0">
           {/* Left: back + breadcrumb */}
           <div className="flex items-center gap-1.5 min-w-0 flex-shrink-0">
             {!sidebarVisible && (

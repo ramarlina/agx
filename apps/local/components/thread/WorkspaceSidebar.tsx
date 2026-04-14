@@ -87,6 +87,35 @@ function WorkspaceSidebarBrandLogo({ compact = false }: { compact?: boolean }) {
   );
 }
 
+function RailTooltip({ label, children }: { label: string; children: React.ReactElement }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+
+  const show = () => {
+    const el = ref.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setPos({ top: rect.top + rect.height / 2, left: rect.right + 8 });
+  };
+  const hide = () => setPos(null);
+
+  return (
+    <div ref={ref} onMouseEnter={show} onMouseLeave={hide} style={{ display: "contents" }}>
+      {children}
+      {pos &&
+        createPortal(
+          <div
+            className="workspace-sidebar__rail-tooltip"
+            style={{ top: pos.top, left: pos.left, transform: "translateY(-50%)" }}
+          >
+            {label}
+          </div>,
+          document.body,
+        )}
+    </div>
+  );
+}
+
 function ProjectDropdown({
   projects,
   activeProjectId,
@@ -127,7 +156,7 @@ function ProjectDropdown({
   }, [open]);
 
   return (
-    <div className="px-3 pt-3 pb-2" ref={dropdownRef}>
+    <div className="relative px-3 pt-3 pb-2" ref={dropdownRef}>
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -139,7 +168,7 @@ function ProjectDropdown({
       </button>
 
       {open && (
-        <div className="mt-1 rounded-lg border border-[var(--app-shell-border)] bg-[var(--app-shell-elevated)] shadow-lg overflow-hidden">
+        <div className="absolute left-3 right-3 z-50 mt-1 rounded-lg border border-[var(--app-shell-border)] bg-[var(--app-shell-elevated)] shadow-lg overflow-hidden">
           <div className="p-2 border-b border-[var(--app-shell-border)]">
             <div className="flex items-center gap-2 rounded-md border border-[var(--app-shell-border)] bg-[var(--app-shell-subtle)] px-2 py-1.5">
               <Search size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
@@ -695,6 +724,9 @@ export function WorkspaceSidebar({
       return null;
     }
 
+    const collapsedProject = nonDefaultProjects.find((p) => p.id === activeProjectId) ?? nonDefaultProjects[0];
+    const collapsedSlug = collapsedProject?.slug;
+
     return (
       <aside
         id="workspace-sidebar"
@@ -712,21 +744,90 @@ export function WorkspaceSidebar({
             <WorkspaceSidebarBrandLogo compact />
           </button>
         </div>
+
+        {collapsedSlug && (
+          <nav className="workspace-sidebar__collapsed-rail">
+            <RailTooltip label="Home">
+              <Link href={`/projects/${collapsedSlug}`} className={`workspace-sidebar__rail-icon${activeProjectView === "home" ? " workspace-sidebar__rail-icon--active" : ""}`}>
+                <Home size={16} />
+              </Link>
+            </RailTooltip>
+
+            <div className="workspace-sidebar__rail-separator" />
+
+            <RailTooltip label="Objectives">
+              <Link href={`/projects/${collapsedSlug}/objectives`} className={`workspace-sidebar__rail-icon${activeProjectView === "objectives" ? " workspace-sidebar__rail-icon--active" : ""}`}>
+                <Target size={16} />
+              </Link>
+            </RailTooltip>
+            <RailTooltip label="Linear">
+              <Link href={`/projects/${collapsedSlug}/linear`} className={`workspace-sidebar__rail-icon${activeProjectView === "linear" ? " workspace-sidebar__rail-icon--active" : ""}`}>
+                <LinearIcon size={16} />
+              </Link>
+            </RailTooltip>
+            <RailTooltip label="Scheduled Tasks">
+              <Link href={`/projects/${collapsedSlug}/automations`} className={`workspace-sidebar__rail-icon${activeProjectView === "automations" ? " workspace-sidebar__rail-icon--active" : ""}`}>
+                <Zap size={16} />
+              </Link>
+            </RailTooltip>
+
+            <div className="workspace-sidebar__rail-separator" />
+
+            <RailTooltip label="Terminal">
+              <Link href={`/projects/${collapsedSlug}/terminal`} className={`workspace-sidebar__rail-icon${activeProjectView === "terminal" ? " workspace-sidebar__rail-icon--active" : ""}`}>
+                <TerminalSquare size={16} />
+              </Link>
+            </RailTooltip>
+            <RailTooltip label="Chat">
+              <button
+                type="button"
+                className={`workspace-sidebar__rail-icon${activeProjectView === "thread" ? " workspace-sidebar__rail-icon--active" : ""}`}
+                onClick={() => {
+                  const projectThreads = sortedWorkspaces.filter((t) => collapsedProject.thread_ids?.includes(t.id));
+                  const threadId = collapsedProject.thread_ids?.find((id) => threads.some((t) => t.id === id)) ?? projectThreads[0]?.id;
+                  if (threadId) onSelectThread(threadId);
+                }}
+              >
+                <MessageSquare size={16} />
+              </button>
+            </RailTooltip>
+
+            <div className="workspace-sidebar__rail-separator" />
+
+            <RailTooltip label="Teams">
+              <Link href={`/projects/${collapsedSlug}/teams`} className={`workspace-sidebar__rail-icon${activeProjectView === "teams" ? " workspace-sidebar__rail-icon--active" : ""}`}>
+                <Users size={16} />
+              </Link>
+            </RailTooltip>
+            <RailTooltip label="Folders">
+              <Link href={`/projects/${collapsedSlug}/folders`} className={`workspace-sidebar__rail-icon${activeProjectView === "folders" ? " workspace-sidebar__rail-icon--active" : ""}`}>
+                <FolderGit2 size={16} />
+              </Link>
+            </RailTooltip>
+            <RailTooltip label="Env Variables">
+              <Link href={`/projects/${collapsedSlug}/env-vars`} className={`workspace-sidebar__rail-icon${activeProjectView === "env-vars" ? " workspace-sidebar__rail-icon--active" : ""}`}>
+                <KeyRound size={16} />
+              </Link>
+            </RailTooltip>
+          </nav>
+        )}
+
         <div className="mt-auto p-2">
-          <a
-            href="https://discord.gg/G9afUYKKY3"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center w-8 h-8 rounded-lg text-white transition-colors"
-            style={{ backgroundColor: '#5865F2' }}
-            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#4752C4')}
-            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#5865F2')}
-            title="Join Discord"
-          >
-            <svg width="14" height="14" viewBox="0 0 71 55" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-              <path d="M60.1 4.9A58.5 58.5 0 0045.4.2a.2.2 0 00-.2.1 40.8 40.8 0 00-1.8 3.7 54 54 0 00-16.2 0A37.4 37.4 0 0025.4.3a.2.2 0 00-.2-.1A58.4 58.4 0 0010.5 4.9a.2.2 0 00-.1.1C1.5 18.7-.9 32.2.3 45.5v.1a58.8 58.8 0 0017.7 9a.2.2 0 00.3-.1 42 42 0 003.6-5.9.2.2 0 00-.1-.3 38.8 38.8 0 01-5.5-2.6.2.2 0 01 0-.4l1.1-.9a.2.2 0 01.2 0 42 42 0 0035.6 0 .2.2 0 01.2 0l1.1.9a.2.2 0 010 .4 36.4 36.4 0 01-5.5 2.6.2.2 0 00-.1.3 47.2 47.2 0 003.6 5.9.2.2 0 00.3.1 58.6 58.6 0 0017.7-9v-.1c1.4-15.2-2.4-28.4-10-40.1a.2.2 0 00-.1-.1zM23.7 37.3c-3.5 0-6.3-3.2-6.3-7s2.8-7 6.3-7 6.4 3.2 6.3 7-2.8 7-6.3 7zm23.3 0c-3.5 0-6.3-3.2-6.3-7s2.8-7 6.3-7 6.4 3.2 6.3 7-2.8 7-6.3 7z"/>
-            </svg>
-          </a>
+          <RailTooltip label="Join Discord">
+            <a
+              href="https://discord.gg/G9afUYKKY3"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="workspace-sidebar__rail-icon"
+              style={{ backgroundColor: '#5865F2', color: 'white' }}
+              onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#4752C4')}
+              onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = '#5865F2')}
+            >
+              <svg width="14" height="14" viewBox="0 0 71 55" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
+                <path d="M60.1 4.9A58.5 58.5 0 0045.4.2a.2.2 0 00-.2.1 40.8 40.8 0 00-1.8 3.7 54 54 0 00-16.2 0A37.4 37.4 0 0025.4.3a.2.2 0 00-.2-.1A58.4 58.4 0 0010.5 4.9a.2.2 0 00-.1.1C1.5 18.7-.9 32.2.3 45.5v.1a58.8 58.8 0 0017.7 9a.2.2 0 00.3-.1 42 42 0 003.6-5.9.2.2 0 00-.1-.3 38.8 38.8 0 01-5.5-2.6.2.2 0 01 0-.4l1.1-.9a.2.2 0 01.2 0 42 42 0 0035.6 0 .2.2 0 01.2 0l1.1.9a.2.2 0 010 .4 36.4 36.4 0 01-5.5 2.6.2.2 0 00-.1.3 47.2 47.2 0 003.6 5.9.2.2 0 00.3.1 58.6 58.6 0 0017.7-9v-.1c1.4-15.2-2.4-28.4-10-40.1a.2.2 0 00-.1-.1zM23.7 37.3c-3.5 0-6.3-3.2-6.3-7s2.8-7 6.3-7 6.4 3.2 6.3 7-2.8 7-6.3 7zm23.3 0c-3.5 0-6.3-3.2-6.3-7s2.8-7 6.3-7 6.4 3.2 6.3 7-2.8 7-6.3 7z"/>
+              </svg>
+            </a>
+          </RailTooltip>
         </div>
       </aside>
     );
@@ -807,7 +908,7 @@ export function WorkspaceSidebar({
           return (
             <nav className="workspace-sidebar__section">
               {/* Home (standalone) */}
-              <div className="px-2 mb-3">
+              <div className="px-2 mt-2 mb-3">
                 <div className="workspace-sidebar__workspace-item">
                     <Link
                       href={`/projects/${selectedProject.slug}`}
