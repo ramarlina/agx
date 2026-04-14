@@ -204,7 +204,7 @@ export function parseScheduleValue(value: string): ScheduleDraft {
   };
 }
 
-function SimpleDropdown<T extends string | number>({
+export function SimpleDropdown<T extends string | number>({
   value,
   options,
   onChange,

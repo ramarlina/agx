@@ -185,6 +185,8 @@ function rowToJob(row: PromptJobRow): PromptJob {
     catchUpPolicy: (row.catch_up_policy || "fire_once") as PromptJob["catchUpPolicy"],
     cancelCheckSec: row.cancel_check_sec,
     executionMode,
+    scriptPrompt: "",
+    teamId: "",
     builtIn: executionMode === "objective_worker" || executionMode === "linear_worker",
     condition: row.condition || "",
     nextRunAt: row.next_run_at,
@@ -329,6 +331,8 @@ export class PromptJobStore {
         ...(input.provider ? { provider: input.provider } : {}),
         ...(input.model ? { model: input.model } : {}),
         ...(input.cliArgs !== undefined ? { cliArgs: input.cliArgs } : {}),
+        ...(input.scriptPrompt ? { scriptPrompt: input.scriptPrompt } : {}),
+        ...(input.teamId ? { teamId: input.teamId } : {}),
       },
       createdAt,
       body: input.prompt,
@@ -764,6 +768,8 @@ export class PromptJobStore {
     if (updates.provider !== undefined) targetPatch.provider = updates.provider || undefined;
     if (updates.model !== undefined) targetPatch.model = updates.model || undefined;
     if (updates.cliArgs !== undefined) targetPatch.cliArgs = updates.cliArgs;
+    if (updates.scriptPrompt !== undefined) targetPatch.scriptPrompt = updates.scriptPrompt || undefined;
+    if (updates.teamId !== undefined) targetPatch.teamId = updates.teamId || undefined;
 
     return {
       ...(Object.keys(patch).length > 0 ? patch : {}),

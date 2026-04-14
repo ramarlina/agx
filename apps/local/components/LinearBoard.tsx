@@ -31,7 +31,7 @@ import {
 import { buildLinearExecutionPrompt } from "@/lib/linear-execution-prompt";
 import type { Participant } from "@/lib/types";
 import LinearSetup from "@/components/LinearSetup";
-import LinearWorkerConfig from "@/components/linear/LinearWorkerConfig";
+import LinearSettingsModal from "@/components/linear/LinearSettingsModal";
 
 const Composer = dynamic(
   () => import("@/components/chat-ui/Composer").then((module) => module.Composer),
@@ -1619,6 +1619,46 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
           return;
         }
 
+        // Check if the linear worker has a team configured
+        const workerParams = new URLSearchParams();
+        workerParams.set("projectId", projectId);
+        const workerResponse = await fetch(`/api/linear/worker?${workerParams}`).catch(() => null);
+        const workerData = workerResponse?.ok ? await workerResponse.json().catch(() => null) : null;
+        const workerTeamId: string | undefined = workerData?.job?.teamId || undefined;
+
+        if (workerTeamId) {
+          // Use the team's agents as participants
+          const teamAgentsResponse = await fetch(
+            `/api/projects/${encodeURIComponent(projectId)}/teams/${encodeURIComponent(workerTeamId)}/agents`
+          );
+          if (teamAgentsResponse.ok) {
+            const teamData = await teamAgentsResponse.json();
+            const teamAgentIds: string[] = Array.isArray(teamData.agents)
+              ? teamData.agents
+                  .sort((a: { routing_order?: number }, b: { routing_order?: number }) =>
+                    (a.routing_order ?? 0) - (b.routing_order ?? 0)
+                  )
+                  .map((agent: { agent_id?: string }) => agent.agent_id)
+                  .filter((value: unknown): value is string => typeof value === "string" && value.trim().length > 0)
+              : [];
+            if (teamAgentIds.length > 0) {
+              const teamOrderIndex = new Map(teamAgentIds.map((id, index) => [id, index]));
+              const teamParticipants = allParticipants
+                .filter((participant) => teamOrderIndex.has(participant.id))
+                .sort(
+                  (left, right) =>
+                    (teamOrderIndex.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+                    (teamOrderIndex.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+                );
+              if (!cancelled && teamParticipants.length > 0) {
+                setParticipants(teamParticipants);
+                return;
+              }
+            }
+          }
+        }
+
+        // Fallback: use project agents
         const projectAgentsResponse = await fetch(
           `/api/projects/${encodeURIComponent(projectId)}/agents`
         );
@@ -2446,33 +2486,18 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
 
       {/* Settings overlay */}
       {showSettings && (
-        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/50">
-          <div className="relative w-full max-w-lg rounded-lg border border-[var(--card-border)] bg-[var(--background)] shadow-xl">
-            <button
-              type="button"
-              className="absolute right-3 top-3 rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card-bg)] hover:text-[var(--foreground)]"
-              onClick={() => setShowSettings(false)}
-            >
-              &times;
-            </button>
-            <div className="max-h-[80vh] overflow-y-auto p-6 space-y-6">
-              <LinearSetup
-                connected={connected}
-                user={user}
-                clis={clis}
-                mcpConfigured={mcpConfigured}
-                onConnect={connect}
-                onConnectWithKey={connectWithKey}
-                onDisconnect={disconnect}
-                onConfigureMcp={configureMcp}
-                onContinue={() => setShowSettings(false)}
-              />
-              {connected && (
-                <LinearWorkerConfig projectId={projectId} />
-              )}
-            </div>
-          </div>
-        </div>
+        <LinearSettingsModal
+          connected={connected}
+          user={user}
+          clis={clis}
+          mcpConfigured={mcpConfigured}
+          onConnect={connect}
+          onConnectWithKey={connectWithKey}
+          onDisconnect={disconnect}
+          onConfigureMcp={configureMcp}
+          onClose={() => setShowSettings(false)}
+          projectId={projectId}
+        />
       )}
 
       {showRunScripts && isTouchLayout ? (

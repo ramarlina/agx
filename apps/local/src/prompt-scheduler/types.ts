@@ -43,6 +43,10 @@ export interface PromptJob {
   catchUpPolicy: CatchUpPolicy;
   cancelCheckSec: number;
   executionMode: PromptJobExecutionMode;
+  /** For linear_worker: the prompt injected into the agent chat session when working a ticket. */
+  scriptPrompt: string;
+  /** For linear_worker: the team whose agents participate in the linear chat session. */
+  teamId: string;
   /** True for system-managed jobs that cannot be deleted by users */
   builtIn?: boolean;
   condition: string;
@@ -86,6 +90,8 @@ export interface CreatePromptJobInput {
   catchUpPolicy?: CatchUpPolicy;
   cancelCheckSec?: number;
   executionMode?: PromptJobExecutionMode;
+  scriptPrompt?: string;
+  teamId?: string;
   builtIn?: boolean;
   // Legacy compatibility only. New callers should always send cadence.
   triggerType?: TriggerType;
@@ -96,6 +102,8 @@ export interface CreatePromptJobInput {
 export interface UpdatePromptJobInput {
   name?: string;
   prompt?: string;
+  scriptPrompt?: string;
+  teamId?: string;
   agentId?: string;
   projectId?: string;
   objectiveId?: string | null;

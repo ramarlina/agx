@@ -56,6 +56,8 @@ export function automationRecordToPromptJob(record: AutomationRecord): PromptJob
     catchUpPolicy: execution.catchUpPolicy,
     cancelCheckSec: execution.cancelCheckSec,
     executionMode: record.definition.target.executionMode ?? DEFAULT_PROMPT_JOB_EXECUTION_MODE,
+    scriptPrompt: record.definition.target.scriptPrompt ?? "",
+    teamId: record.definition.target.teamId ?? "",
     builtIn: record.definition.target.builtIn === true || record.definition.target.executionMode === "objective_worker" || record.definition.target.executionMode === "linear_worker",
     condition: execution.condition ?? (trigger.type === "condition" ? trigger.condition : ""),
     nextRunAt: record.runtimeState.nextRunAt ?? null,
@@ -94,6 +96,8 @@ export function promptJobToAutomationDefinition(job: LegacyPromptJobLike): Autom
       ...(job.executionMode !== DEFAULT_PROMPT_JOB_EXECUTION_MODE
         ? { executionMode: job.executionMode }
         : {}),
+      ...(job.scriptPrompt ? { scriptPrompt: job.scriptPrompt } : {}),
+      ...(job.teamId ? { teamId: job.teamId } : {}),
     },
     createdAt: job.createdAt,
     body: job.prompt,

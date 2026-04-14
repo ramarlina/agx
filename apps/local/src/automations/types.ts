@@ -44,6 +44,10 @@ export interface PromptJobAutomationTarget {
   model?: string;
   cliArgs?: string;
   prompt?: string;
+  /** For linear_worker: the prompt injected into the agent chat session when working a ticket. */
+  scriptPrompt?: string;
+  /** For linear_worker: the team whose agents participate in the linear chat session. */
+  teamId?: string;
   objectiveId?: string;
   objectiveKey?: string;
   executionMode?: PromptJobExecutionMode;

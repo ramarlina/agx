@@ -445,6 +445,7 @@ async function dispatchLinearWorkerAction(opts: {
         assignee: selectedIssue.assignee,
       },
       agentId: opts.sessionAgent.id,
+      scriptPrompt: opts.job.scriptPrompt || undefined,
     });
 
     const issueLink = selectedIssue.url

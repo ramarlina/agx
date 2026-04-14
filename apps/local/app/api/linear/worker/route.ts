@@ -51,11 +51,13 @@ export async function POST(req: NextRequest) {
     const {
       projectId,
       prompt,
+      scriptPrompt,
       cadence,
       agentId,
       provider,
       model,
       state,
+      teamId,
     } = body;
 
     const store = getPromptJobStore();
@@ -65,6 +67,8 @@ export async function POST(req: NextRequest) {
       // Update existing
       const updates: Record<string, unknown> = {};
       if (typeof prompt === 'string') updates.prompt = prompt;
+      if (typeof scriptPrompt === 'string') updates.scriptPrompt = scriptPrompt;
+      if (typeof teamId === 'string') updates.teamId = teamId;
       if (typeof agentId === 'string') updates.agentId = agentId;
       if (typeof provider === 'string') updates.provider = provider;
       if (typeof model === 'string') updates.model = model;
@@ -99,6 +103,8 @@ export async function POST(req: NextRequest) {
     const job = store.createJob({
       name: LINEAR_WORKER_JOB_NAME,
       prompt: resolvedPrompt,
+      scriptPrompt: typeof scriptPrompt === 'string' ? scriptPrompt : undefined,
+      teamId: typeof teamId === 'string' ? teamId : undefined,
       executionMode: 'linear_worker',
       projectId: projectId || undefined,
       builtIn: true,
