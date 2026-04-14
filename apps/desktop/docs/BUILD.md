@@ -4,8 +4,8 @@
 
 The Electron app bundles three projects into a single macOS application:
 
-- **Dashboard** — Next.js standalone server from `../local`, runs on `localhost:41741`
-- **CLI** — Full `@mndrk/agx` CLI with all dependencies including native `better-sqlite3`
+- **Dashboard** — Next.js standalone server from `../local`, runs on `localhost:41841`
+- **CLI** — Full `@mndrk/agx` CLI with all dependencies
 - **Node.js runtime** — Bundled Node.js binary (no system Node.js required)
 - **Shell wrapper** — `bin/agx` script for PATH integration
 
@@ -13,7 +13,7 @@ The Electron app bundles three projects into a single macOS application:
 
 1. Electron launches and spawns the Next.js standalone server using the **bundled** Node.js binary
 2. A `BrowserWindow` loads the dashboard from `http://127.0.0.1:<port>`
-3. If port 41741 is taken, it auto-increments until a free port is found
+3. If port 41841 is taken, it auto-increments until a free port is found
 4. The bundled CLI is available at `Resources/cli/index.js` inside the app
 5. Users can install the CLI to `/usr/local/bin/agx` via Help → Install CLI
 
