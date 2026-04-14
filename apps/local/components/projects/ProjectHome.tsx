@@ -8,6 +8,7 @@ import { TeamsSummaryCard } from "./TeamsSummaryCard";
 import { ScheduledTasksSummaryCard } from "./ScheduledTasksSummaryCard";
 import { FoldersSummaryCard } from "./FoldersSummaryCard";
 import { RecentThreadsSummaryCard, type RecentThreadEntry } from "./RecentThreadsSummaryCard";
+import { GettingStartedSection } from "./home/GettingStartedSection";
 import { ObjectivesSection } from "./home/ObjectivesSection";
 import { ToolPathsSection } from "./home/ToolPathsSection";
 import { readProjectObjectivesWorkspace } from "@/lib/project-objectives";
@@ -154,6 +155,12 @@ export function ProjectHome({
             </div>
           </div>
         </section>
+
+        <GettingStartedSection
+          projectName={projectName}
+          projectSlug={projectSlug}
+          primaryThreadId={primaryThreadId}
+        />
 
         <section className="space-y-3">
           <div className="flex items-center gap-2 text-sm font-medium text-[var(--foreground)]">
