@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { WorkingNowCard } from "./WorkingNowCard";
+import { RecentlyCompletedCard } from "./RecentlyCompletedCard";
 import { TeamsSummaryCard } from "./TeamsSummaryCard";
 import { ScheduledTasksSummaryCard } from "./ScheduledTasksSummaryCard";
 import { FoldersSummaryCard } from "./FoldersSummaryCard";
@@ -65,6 +66,10 @@ export function ProjectHome({
               projectId={projectId}
               projectSlug={projectSlug}
               onViewAll={() => router.push(`/projects/${projectSlug}/automations`)}
+            />
+            <RecentlyCompletedCard
+              projectSlug={projectSlug}
+              projectThreadIds={threadIds}
             />
           </div>
         </section>

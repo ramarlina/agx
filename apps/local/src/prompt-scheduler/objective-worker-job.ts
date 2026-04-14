@@ -8,7 +8,8 @@ export const OBJECTIVE_WORKER_DEFAULT_PROMPT = [
   'Decide what single action most advances this objective right now.',
   'If a specific ticket should be worked, choose work_ticket.',
   'If the objective needs work not captured by an existing ticket, choose run_prompt with detailed instructions.',
-  'If no action should be taken right now, choose stop.',
+  'If no tickets are actionable but the objective is not done, choose run_prompt to plan — review existing notes, refine the latest plan, or draft next steps. Prefer appending to an existing note over creating a new one.',
+  'If the objective is done or no action (including planning) is useful right now, choose stop.',
 ].join('\n');
 
 export function findObjectiveWorkerJob(
