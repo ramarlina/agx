@@ -577,41 +577,45 @@ export function ObjectiveScheduledTasksPanel({
                 const isFailed = run.status === "failed";
                 const isRunning = run.status === "running";
                 return (
-                  <div
-                    key={run.id}
-                    className="flex items-center gap-3 py-2 px-2 rounded-md text-xs"
-                  >
-                    <span
-                      className={`flex size-5 shrink-0 items-center justify-center rounded-full border ${
-                        isSuccess
-                          ? "border-emerald-500/40 text-emerald-400"
-                          : isFailed
-                            ? "border-[var(--status-failed-border)] text-[var(--destructive)]"
-                            : isRunning
-                              ? "border-sky-500/40 text-sky-400"
-                              : "border-[var(--border)] text-[var(--muted-foreground)]"
-                      }`}
-                    >
-                      {isSuccess ? (
-                        <Check className="h-3 w-3" />
-                      ) : isFailed ? (
-                        <XCircle className="h-3 w-3" />
-                      ) : (
-                        <span className={`block size-1.5 rounded-full ${isRunning ? "bg-sky-400 animate-pulse" : "bg-current"}`} />
-                      )}
-                    </span>
-                    <span className="truncate text-[var(--muted-foreground)]">
-                      {run.jobName}
-                    </span>
-                    <span className="ml-auto shrink-0 text-[11px] text-[var(--muted-foreground)]">
-                      {formatDateTime(ts)}
-                    </span>
-                    {run.durationMs != null && (
-                      <span className="shrink-0 font-mono text-[11px] text-[var(--muted-foreground)]">
-                        {run.durationMs < 1000
-                          ? `${run.durationMs}ms`
-                          : `${Math.round(run.durationMs / 1000)}s`}
+                  <div key={run.id} className="py-2 px-2 rounded-md text-xs">
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`flex size-5 shrink-0 items-center justify-center rounded-full border ${
+                          isSuccess
+                            ? "border-emerald-500/40 text-emerald-400"
+                            : isFailed
+                              ? "border-[var(--status-failed-border)] text-[var(--destructive)]"
+                              : isRunning
+                                ? "border-sky-500/40 text-sky-400"
+                                : "border-[var(--border)] text-[var(--muted-foreground)]"
+                        }`}
+                      >
+                        {isSuccess ? (
+                          <Check className="h-3 w-3" />
+                        ) : isFailed ? (
+                          <XCircle className="h-3 w-3" />
+                        ) : (
+                          <span className={`block size-1.5 rounded-full ${isRunning ? "bg-sky-400 animate-pulse" : "bg-current"}`} />
+                        )}
                       </span>
+                      <span className="truncate text-[var(--muted-foreground)]">
+                        {run.jobName}
+                      </span>
+                      <span className="ml-auto shrink-0 text-[11px] text-[var(--muted-foreground)]">
+                        {formatDateTime(ts)}
+                      </span>
+                      {run.durationMs != null && (
+                        <span className="shrink-0 font-mono text-[11px] text-[var(--muted-foreground)]">
+                          {run.durationMs < 1000
+                            ? `${run.durationMs}ms`
+                            : `${Math.round(run.durationMs / 1000)}s`}
+                        </span>
+                      )}
+                    </div>
+                    {isFailed && run.error && (
+                      <p className="mt-1 ml-8 text-[11px] leading-snug text-[var(--destructive)] opacity-80 line-clamp-2">
+                        {run.error}
+                      </p>
                     )}
                   </div>
                 );
