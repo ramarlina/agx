@@ -473,8 +473,14 @@ export async function POST(request: NextRequest) {
   if (rawAttachmentIds.length > 0) {
     const finalized = await finalizeAttachments(userMessageId, rawAttachmentIds);
     if (finalized.length > 0) {
+      const imageFiles = finalized.filter((a) => a.mimeType.startsWith("image/"));
       const lines = finalized.map((a) => `- ${a.filename} (${a.mimeType}, ${a.size} bytes): ${a.diskPath}`);
-      attachmentContext = `\n\n[Attached files]\n${lines.join("\n")}\n`;
+      if (imageFiles.length > 0) {
+        const noun = imageFiles.length === 1 ? "an image" : `${imageFiles.length} images`;
+        attachmentContext = `\n\n[The user pasted ${noun}. View ${imageFiles.length === 1 ? "it" : "them"} with the Read tool before responding.]\n${lines.join("\n")}\n`;
+      } else {
+        attachmentContext = `\n\n[Attached files]\n${lines.join("\n")}\n`;
+      }
     }
   }
 

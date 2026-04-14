@@ -179,6 +179,7 @@ export function Composer({
   const repoDropdownRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const isComposingRef = useRef(false);
+  const stageFilesRef = useRef<(files: FileList | File[]) => void>(() => {});
 
   const handleAttachClick = useCallback(() => {
     fileInputRef.current?.click();
@@ -199,6 +200,7 @@ export function Composer({
   const fileMention = useFileMention({ maxSuggestions: 8 });
   const threadMention = useThreadMention({ messages: allMessages, maxSuggestions: 8 });
   const attachments = useAttachments();
+  stageFilesRef.current = attachments.stageFiles;
   const fileAttachments = useComposerAttachments();
   const composerHistory = useComposerHistory();
 
@@ -281,6 +283,29 @@ export function Composer({
           }, 0);
           return false;
         },
+      },
+      handlePaste: (_view, event) => {
+        const files = getClipboardAttachmentFiles(event.clipboardData);
+        if (files.length > 0) {
+          stageFilesRef.current(files);
+          return true;
+        }
+        if (clipboardMayContainImageAttachments(event.clipboardData)) {
+          const clipboardReader = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+          if (typeof clipboardReader?.read === "function") {
+            void readClipboardAttachmentFiles(event.clipboardData, clipboardReader)
+              .then((attachmentFiles) => {
+                if (attachmentFiles.length > 0) {
+                  stageFilesRef.current(attachmentFiles);
+                }
+              })
+              .catch((error) => {
+                console.error("Failed to read pasted clipboard attachments:", error);
+              });
+            return true;
+          }
+        }
+        return false;
       },
       handleKeyDown: (_view, event) => {
         // Tab or Enter selects the active autocomplete item
@@ -430,37 +455,8 @@ export function Composer({
     }
   }, [editor, mention]);
 
-  const handlePasteCapture = useCallback((event: React.ClipboardEvent<HTMLDivElement>) => {
-    const { clipboardData } = event;
-    const directFiles = getClipboardAttachmentFiles(clipboardData);
-    if (directFiles.length > 0) {
-      event.preventDefault();
-      event.stopPropagation();
-      attachments.stageFiles(directFiles);
-      return;
-    }
-
-    const clipboardReader = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
-    if (
-      !clipboardMayContainImageAttachments(clipboardData) ||
-      typeof clipboardReader?.read !== "function"
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-    event.stopPropagation();
-
-    void readClipboardAttachmentFiles(clipboardData, clipboardReader)
-      .then((attachmentFiles) => {
-        if (attachmentFiles.length > 0) {
-          attachments.stageFiles(attachmentFiles);
-        }
-      })
-      .catch((error) => {
-        console.error("Failed to read pasted clipboard attachments:", error);
-      });
-  }, [attachments]);
+  // Image paste is handled by ProseMirror's handlePaste in the editor config above,
+  // using stageFilesRef for fresh closure access.
 
   // ─── Selection handlers ────────────────────────────────────────────────────
 
@@ -817,7 +813,7 @@ export function Composer({
                 }}
               />
 
-              <div className="flex-1 relative" onClick={refreshMentionState} onPasteCapture={handlePasteCapture}>
+              <div className="flex-1 relative" onClick={refreshMentionState}>
                 <EditorContent editor={editor} className="composer-editor" />
                 <MentionPopover
                   isOpen={mention.isOpen && !command.isOpen}
