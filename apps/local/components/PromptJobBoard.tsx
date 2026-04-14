@@ -1411,9 +1411,29 @@ export default function PromptJobBoard({
                           ) : null}
                         </div>
                       </div>
-                      <span
-                        className={`mt-1 inline-block size-2 shrink-0 rounded-full ${stateDotClass(job.state)}`}
-                      />
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleToggle(job);
+                        }}
+                        type="button"
+                        role="switch"
+                        aria-checked={job.state === "active"}
+                        title={job.state === "active" ? "Pause" : "Resume"}
+                        className={`relative inline-flex h-[18px] w-[32px] shrink-0 cursor-pointer rounded-full border transition-colors ${
+                          job.state === "active"
+                            ? "border-emerald-400/30 bg-emerald-500/40"
+                            : "border-[var(--card-border)] bg-[var(--muted)]"
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none absolute top-[2px] size-[12px] rounded-full bg-white/90 shadow-sm transition-transform ${
+                            job.state === "active"
+                              ? "translate-x-[16px]"
+                              : "translate-x-[2px]"
+                          }`}
+                        />
+                      </button>
                     </div>
                   </div>
                 );
