@@ -58,16 +58,17 @@ export function ProjectHome({
         <section>
           <h2 className="mb-3 text-sm text-[var(--muted-foreground)]">What's happening now</h2>
           <div className="space-y-4">
-            <WorkingNowCard
-              projectSlug={projectSlug}
-              projectThreadIds={threadIds}
-            />
             <ScheduledTasksSummaryCard
               projectId={projectId}
               projectSlug={projectSlug}
               onViewAll={() => router.push(`/projects/${projectSlug}/automations`)}
             />
+            <WorkingNowCard
+              projectSlug={projectSlug}
+              projectThreadIds={threadIds}
+            />
             <RecentlyCompletedCard
+              projectId={projectId}
               projectSlug={projectSlug}
               projectThreadIds={threadIds}
             />
