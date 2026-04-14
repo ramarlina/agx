@@ -2492,20 +2492,6 @@ export function ProjectObjectiveDetail({
                             {objective.key}
                           </code>.
                         </p>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            setCreatingLinearWorker(true);
-                            await handleObjectiveLinearWorkerCreate();
-                            setCreatingLinearWorker(false);
-                          }}
-                          disabled={creatingLinearWorker || !objective.teamId}
-                          title={!objective.teamId ? "Assign a team to this objective first" : undefined}
-                          className="inline-flex items-center gap-2 rounded-xl border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-3 py-2 text-sm text-[var(--status-completed-text)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <Sparkles className="h-4 w-4" />
-                          {creatingLinearWorker ? "Creating..." : !objective.teamId ? "Assign team to work" : "Work Linear tickets"}
-                        </button>
                       </div>
                       {!linearConnected ? (
                         <EmptyState label="Connect Linear to create and track tickets for this objective." />
