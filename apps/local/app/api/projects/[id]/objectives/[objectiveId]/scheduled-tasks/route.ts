@@ -121,6 +121,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
+    if (!objectiveContext.objective.teamId) {
+      return NextResponse.json(
+        {
+          error:
+            "Assign a team to this objective before creating scheduled tasks.",
+        },
+        { status: 400 }
+      );
+    }
+
     const store = getPromptJobStore();
     const job = store.createJob({
       name: title,

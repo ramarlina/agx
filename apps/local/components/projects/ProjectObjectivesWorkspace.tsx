@@ -640,24 +640,27 @@ function ObjectiveChatPanel({
 
     async function loadParticipants() {
       try {
-        const [participantsResponse, projectAgentsResponse] = await Promise.all([
+        const agentsUrl = objective.teamId
+          ? `/api/projects/${projectId}/teams/${objective.teamId}/agents`
+          : `/api/projects/${projectId}/agents`;
+        const [participantsResponse, agentsResponse] = await Promise.all([
           fetch("/api/participants"),
-          fetch(`/api/projects/${projectId}/agents`),
+          fetch(agentsUrl),
         ]);
         const rawParticipants = participantsResponse.ok
           ? await participantsResponse.json()
           : [];
         const allParticipants = Array.isArray(rawParticipants) ? (rawParticipants as Participant[]) : [];
-        const rawProjectAgents = projectAgentsResponse.ok
-          ? await projectAgentsResponse.json()
+        const rawAgents = agentsResponse.ok
+          ? await agentsResponse.json()
           : { agents: [] };
-        const projectAgentsPayload =
-          rawProjectAgents && typeof rawProjectAgents === "object"
-            ? (rawProjectAgents as { agents?: ProjectAgentSummary[] })
+        const agentsPayload =
+          rawAgents && typeof rawAgents === "object"
+            ? (rawAgents as { agents?: ProjectAgentSummary[] })
             : { agents: [] };
         if (cancelled) return;
 
-        const orderedAgentIds = (projectAgentsPayload.agents ?? [])
+        const orderedAgentIds = (agentsPayload.agents ?? [])
           .slice()
           .sort((left, right) => left.routing_order - right.routing_order)
           .map((agent) => agent.agent_id);
@@ -684,7 +687,7 @@ function ObjectiveChatPanel({
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, objective.teamId]);
 
   useEffect(() => {
     if (!objective.threadId) {
@@ -1998,6 +2001,11 @@ export function ProjectObjectiveDetail({
       return false;
     }
 
+    if (!objective.teamId) {
+      setSaveError("Assign a team to this objective before creating a worker.");
+      return false;
+    }
+
     setSaveError(null);
 
     try {
@@ -2476,11 +2484,12 @@ export function ProjectObjectiveDetail({
                             await handleObjectiveLinearWorkerCreate();
                             setCreatingLinearWorker(false);
                           }}
-                          disabled={creatingLinearWorker}
+                          disabled={creatingLinearWorker || !objective.teamId}
+                          title={!objective.teamId ? "Assign a team to this objective first" : undefined}
                           className="inline-flex items-center gap-2 rounded-xl border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-3 py-2 text-sm text-[var(--status-completed-text)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <Sparkles className="h-4 w-4" />
-                          {creatingLinearWorker ? "Creating..." : "Work Linear tickets"}
+                          {creatingLinearWorker ? "Creating..." : !objective.teamId ? "Assign team to work" : "Work Linear tickets"}
                         </button>
                       </div>
                       {!linearConnected ? (

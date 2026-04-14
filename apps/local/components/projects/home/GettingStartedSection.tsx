@@ -87,7 +87,9 @@ export function GettingStartedSection({
           </div>
           <div>
             <div className="font-medium text-[var(--foreground)]">Scheduled tasks and Linear</div>
-            <p>Add automations and ticket sync after the project has enough context to act on.</p>
+            <p>
+              Add automations and ticket sync after the project has enough context to act on.
+            </p>
           </div>
         </div>
         <button

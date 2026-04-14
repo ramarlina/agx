@@ -151,10 +151,12 @@ export function WorkingNowCard({
     });
   }
 
+  if (agentGroups.length === 0) return null;
+
   const totalActivities = activeProcesses.length;
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)]">
+    <section className="col-span-full overflow-hidden rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)]">
       <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
         <div>
           <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
@@ -171,58 +173,52 @@ export function WorkingNowCard({
         </span>
       </div>
 
-      {agentGroups.length === 0 ? (
-        <div className="px-4 py-6 text-sm text-[var(--muted-foreground)]">
-          No agents are actively running in this project right now.
-        </div>
-      ) : (
-        <div className="divide-y divide-[var(--border)]">
-          {agentGroups.map((group) => (
-            <div key={group.agentId} className="px-4 py-3">
-              {/* Agent header */}
-              <div className="flex items-center gap-2 mb-2">
-                <span className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--foreground)]">
-                  <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                  {group.agentName}
+      <div className="divide-y divide-[var(--border)]">
+        {agentGroups.map((group) => (
+          <div key={group.agentId} className="px-4 py-3">
+            {/* Agent header */}
+            <div className="flex items-center gap-2 mb-2">
+              <span className="inline-flex items-center gap-1.5 text-sm font-medium text-[var(--foreground)]">
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                {group.agentName}
+              </span>
+              {group.activities.length > 1 && (
+                <span className="rounded-full bg-[var(--secondary)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]">
+                  {group.activities.length} threads
                 </span>
-                {group.activities.length > 1 && (
-                  <span className="rounded-full bg-[var(--secondary)] px-2 py-0.5 text-[10px] text-[var(--muted-foreground)]">
-                    {group.activities.length} threads
-                  </span>
-                )}
-              </div>
-
-              {/* Activity rows */}
-              <div className="space-y-1 ml-4">
-                {group.activities.map((activity) => (
-                  <div
-                    key={activity.key}
-                    className="mx-[-0.5rem] flex cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-[var(--secondary)]"
-                    onClick={() =>
-                      router.push(
-                        activity.linearIssueId && activity.linearRunId
-                          ? `/projects/${projectSlug}/linear?issue=${encodeURIComponent(activity.linearIssueId)}&run=${encodeURIComponent(activity.linearRunId)}`
-                          : `/projects/${projectSlug}/thread/${encodeURIComponent(activity.workspaceId)}${activity.threadId ? `?open=${encodeURIComponent(activity.threadId)}` : ""}`
-                      )
-                    }
-                  >
-                    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-2 py-0.5 text-[11px] font-medium text-[var(--status-completed-text)]">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                      {activity.state === "spawning" ? "Starting" : "Working"}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-[var(--foreground)]">
-                      {activity.threadLabel}
-                    </span>
-                    <span className="shrink-0 text-xs text-[var(--muted-foreground)]">
-                      {activity.lastActiveLabel}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              )}
             </div>
-          ))}
-        </div>
-      )}
+
+            {/* Activity rows */}
+            <div className="space-y-1 ml-4">
+              {group.activities.map((activity) => (
+                <div
+                  key={activity.key}
+                  className="mx-[-0.5rem] flex cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-[var(--secondary)]"
+                  onClick={() =>
+                    router.push(
+                      activity.linearIssueId && activity.linearRunId
+                        ? `/projects/${projectSlug}/linear?issue=${encodeURIComponent(activity.linearIssueId)}&run=${encodeURIComponent(activity.linearRunId)}`
+                        : `/projects/${projectSlug}/thread/${encodeURIComponent(activity.workspaceId)}${activity.threadId ? `?open=${encodeURIComponent(activity.threadId)}` : ""}`
+                    )
+                  }
+                >
+                  <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-2 py-0.5 text-[11px] font-medium text-[var(--status-completed-text)]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    {activity.state === "spawning" ? "Starting" : "Working"}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[var(--foreground)]">
+                    {activity.threadLabel}
+                  </span>
+                  <span className="shrink-0 text-xs text-[var(--muted-foreground)]">
+                    {activity.lastActiveLabel}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
     </section>
   );
 }

@@ -72,7 +72,10 @@ export function ProjectHome({
         const relevant = items.filter((item) => {
           if (item.state !== "spawning" && item.state !== "running") return false;
           if ((item.projectSlug ?? "").trim().toLowerCase() === normalizedSlug) return true;
-          return threadIdSet.has((item.workspaceId ?? "").trim()) || threadIdSet.has((item.threadId ?? "").trim());
+          return (
+            threadIdSet.has((item.workspaceId ?? "").trim()) ||
+            threadIdSet.has((item.threadId ?? "").trim())
+          );
         });
         setLiveCount(relevant.length);
       } catch {
@@ -124,7 +127,8 @@ export function ProjectHome({
               <div className="space-y-2">
                 <h1 className="text-2xl font-semibold text-[var(--foreground)]">{projectName}</h1>
                 <p className="max-w-3xl text-sm leading-6 text-[var(--muted-foreground)]">
-                  {projectDescription?.trim() || "Direction, execution paths, and live momentum for this project in one place."}
+                  {projectDescription?.trim() ||
+                    "Direction, execution paths, and live momentum for this project in one place."}
                 </p>
               </div>
             </div>
@@ -134,14 +138,18 @@ export function ProjectHome({
                   <FolderKanban className="h-3.5 w-3.5" />
                   Direction
                 </div>
-                <p className="mt-2 text-sm text-[var(--foreground)]">Objectives define what matters next.</p>
+                <p className="mt-2 text-sm text-[var(--foreground)]">
+                  Objectives define what matters next.
+                </p>
               </div>
               <div className="rounded-2xl border border-[var(--border)] bg-[var(--secondary)] px-4 py-3">
                 <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
                   <ArrowRight className="h-3.5 w-3.5" />
                   Paths
                 </div>
-                <p className="mt-2 text-sm text-[var(--foreground)]">Chat, terminal, and Linear stay one click away.</p>
+                <p className="mt-2 text-sm text-[var(--foreground)]">
+                  Chat, terminal, and Linear stay one click away.
+                </p>
               </div>
               <div className="rounded-2xl border border-[var(--border)] bg-[var(--secondary)] px-4 py-3">
                 <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
@@ -149,7 +157,9 @@ export function ProjectHome({
                   Momentum
                 </div>
                 <p className="mt-2 text-sm text-[var(--foreground)]">
-                  {liveCount > 0 ? `${liveCount} live ${liveCount === 1 ? "signal" : "signals"} right now.` : "No live activity right now."}
+                  {liveCount > 0
+                    ? `${liveCount} live ${liveCount === 1 ? "signal" : "signals"} right now.`
+                    : "No live activity right now."}
                 </p>
               </div>
             </div>
@@ -200,10 +210,7 @@ export function ProjectHome({
           </div>
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <WorkingNowCard
-              projectSlug={projectSlug}
-              projectThreadIds={threadIds}
-            />
+            <WorkingNowCard projectSlug={projectSlug} projectThreadIds={threadIds} />
             <ScheduledTasksSummaryCard
               projectId={projectId}
               projectSlug={projectSlug}
@@ -216,7 +223,13 @@ export function ProjectHome({
             title="Recent Activity"
             emptyLabel="No activity yet"
             onSelectThread={handleRecentThreadSelect}
-            onViewAll={() => router.push(primaryThreadId ? `/projects/${projectSlug}/thread/${encodeURIComponent(primaryThreadId)}` : `/projects/${projectSlug}`)}
+            onViewAll={() =>
+              router.push(
+                primaryThreadId
+                  ? `/projects/${projectSlug}/thread/${encodeURIComponent(primaryThreadId)}`
+                  : `/projects/${projectSlug}`
+              )
+            }
           />
         </section>
 
