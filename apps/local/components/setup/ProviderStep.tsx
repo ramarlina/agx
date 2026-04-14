@@ -139,7 +139,7 @@ export function ProviderStep({ clis, readyState, authenticatedCount, totalCount,
   return (
     <SetupLayout
       currentStep={1}
-      totalSteps={3}
+      totalSteps={4}
       footer={
         <div className="flex items-center justify-between">
           <span className="text-[13px] text-[var(--muted-foreground)]">

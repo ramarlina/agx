@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import type { ProjectData } from "@/components/setup/ProjectStep";
 import type { SelectedTeam } from "@/components/setup/TeamsStep";
 
-export type SetupStep = 1 | 2 | 3;
+export type SetupStep = 1 | 2 | 3 | 4;
 
 export interface SetupFlowState {
   step: SetupStep;
@@ -31,7 +31,7 @@ export function useSetupFlow() {
   const [error, setError] = useState<string | null>(null);
 
   const goNext = useCallback(() => {
-    setStep((s) => Math.min(s + 1, 3) as SetupStep);
+    setStep((s) => Math.min(s + 1, 4) as SetupStep);
   }, []);
 
   const goBack = useCallback(() => {
