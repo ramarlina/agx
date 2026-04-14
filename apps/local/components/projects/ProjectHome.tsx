@@ -68,6 +68,7 @@ export function ProjectHome({
               onViewAll={() => router.push(`/projects/${projectSlug}/automations`)}
             />
             <RecentlyCompletedCard
+              projectId={projectId}
               projectSlug={projectSlug}
               projectThreadIds={threadIds}
             />

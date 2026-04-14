@@ -21,7 +21,14 @@ interface Participant {
   name: string;
 }
 
+interface TeamEntry {
+  id: string;
+  name: string;
+  agents: Array<{ agent_id: string }>;
+}
+
 interface RecentlyCompletedCardProps {
+  projectId: string;
   projectSlug: string;
   projectThreadIds?: string[];
 }
@@ -46,12 +53,14 @@ function formatLastActive(lastActivity: number): string {
 }
 
 export function RecentlyCompletedCard({
+  projectId,
   projectSlug,
   projectThreadIds = [],
 }: RecentlyCompletedCardProps) {
   const router = useRouter();
   const [completedProcesses, setCompletedProcesses] = useState<EnrichedProcessEntry[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
+  const [teams, setTeams] = useState<TeamEntry[]>([]);
 
   const fetchParticipants = useCallback(async () => {
     try {
@@ -64,9 +73,21 @@ export function RecentlyCompletedCard({
     }
   }, []);
 
+  const fetchTeams = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/teams`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setTeams(Array.isArray(data) ? data : []);
+    } catch {
+      // silent
+    }
+  }, [projectId]);
+
   useEffect(() => {
     fetchParticipants();
-  }, [fetchParticipants]);
+    fetchTeams();
+  }, [fetchParticipants, fetchTeams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,6 +129,14 @@ export function RecentlyCompletedCard({
   const getAgentName = (agentId: string) =>
     participantMap.get(agentId) || agentId.slice(0, 8);
 
+  // Build agent → team lookup
+  const agentTeamMap = new Map<string, { id: string; name: string }>();
+  for (const team of teams) {
+    for (const agent of team.agents) {
+      agentTeamMap.set(agent.agent_id, { id: team.id, name: team.name });
+    }
+  }
+
   if (completedProcesses.length === 0) return null;
 
   return (
@@ -128,6 +157,7 @@ export function RecentlyCompletedCard({
         <table className="min-w-full text-sm">
           <thead className="bg-[var(--secondary)]">
             <tr className="text-left text-[11px] uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+              <th className="px-4 py-3 font-medium">Team</th>
               <th className="px-4 py-3 font-medium">Agent</th>
               <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium">Thread</th>
@@ -147,6 +177,21 @@ export function RecentlyCompletedCard({
                   )
                 }
               >
+                <td className="px-4 py-3">
+                  {agentTeamMap.has(process.agentId) ? (
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        router.push(`/projects/${projectSlug}/teams/${agentTeamMap.get(process.agentId)!.id}`);
+                      }}
+                      className="text-left font-medium text-[var(--foreground)] transition-colors hover:text-[var(--primary)]"
+                    >
+                      {agentTeamMap.get(process.agentId)!.name}
+                    </button>
+                  ) : (
+                    <span className="text-[var(--muted-foreground)]">Unassigned</span>
+                  )}
+                </td>
                 <td className="px-4 py-3 text-[var(--foreground)]">{getAgentName(process.agentId)}</td>
                 <td className="px-4 py-3">
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--secondary)] px-2 py-0.5 text-[11px] font-medium text-[var(--muted-foreground)]">
