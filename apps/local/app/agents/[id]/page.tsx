@@ -77,6 +77,13 @@ interface AgentProfile {
           source: string;
           form: string;
         }>;
+        skillBindings: Array<{
+          repo: string;
+          skillId: string;
+          condition: string;
+          source: string;
+          form: string;
+        }>;
         learnedMemories: Array<{
           id: string;
           taskId: string;
@@ -194,6 +201,7 @@ export default function AgentProfilePage() {
   const reflections = journal.filter((e) => e.type === "reflection");
   const inspectability = profile?.inspectability;
   const portableKnowledge = inspectability?.knowledge.agent.portableSkills ?? [];
+  const boundSkills = inspectability?.knowledge.agent.skillBindings ?? [];
   const learnedKnowledge = inspectability?.knowledge.agent.learnedMemories ?? [];
   const evidenceSummary = inspectability?.evidence;
 
@@ -417,14 +425,14 @@ export default function AgentProfilePage() {
               </div>
             )}
 
-            {agent.skills && agent.skills.length > 0 && (
+            {((agent.skills && agent.skills.length > 0) || (agent.skillBindings && agent.skillBindings.length > 0)) && (
               <div className="bg-[var(--card-bg)] rounded-2xl border border-[var(--border)] p-5">
                 <h3 className="text-[11px] font-black text-[var(--muted-foreground)] uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
                   <BrainCircuit className="w-3.5 h-3.5" /> Portable Knowledge
                 </h3>
                 <div className="flex flex-col gap-2">
-                  {agent.skills.map((s, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs p-2 hover:bg-[var(--app-shell-subtle)] rounded-lg transition-colors">
+                  {agent.skills?.map((s, i) => (
+                    <div key={`skill-${i}`} className="flex items-center gap-2 text-xs p-2 hover:bg-[var(--app-shell-subtle)] rounded-lg transition-colors">
                       <Zap size={10} className="text-blue-500 shrink-0" />
                       <span className="text-blue-600 font-mono truncate" title={s.file}>
                         {s.file.split("/").pop()}
@@ -432,6 +440,19 @@ export default function AgentProfilePage() {
                       {s.condition && (
                         <span className="text-[var(--muted-foreground)] text-[10px] ml-auto shrink-0">
                           {s.condition}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                  {agent.skillBindings?.map((b, i) => (
+                    <div key={`binding-${i}`} className="flex items-center gap-2 text-xs p-2 hover:bg-[var(--app-shell-subtle)] rounded-lg transition-colors">
+                      <BookOpen size={10} className="text-emerald-500 shrink-0" />
+                      <span className="text-emerald-600 font-mono truncate" title={`${b.repo}/${b.skillId}`}>
+                        {b.skillId}
+                      </span>
+                      {b.condition && (
+                        <span className="text-[var(--muted-foreground)] text-[10px] ml-auto shrink-0">
+                          {b.condition}
                         </span>
                       )}
                     </div>
@@ -617,7 +638,7 @@ export default function AgentProfilePage() {
                       <BrainCircuit className="w-4 h-4" /> Agent Knowledge
                     </h2>
                     <span className="text-xs text-[var(--muted-foreground)]">
-                      {portableKnowledge.length + learnedKnowledge.length} items
+                      {portableKnowledge.length + boundSkills.length + learnedKnowledge.length} items
                     </span>
                   </div>
                   <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -626,7 +647,7 @@ export default function AgentProfilePage() {
                         <div className="text-[10px] font-black uppercase tracking-wider text-[var(--muted-foreground)]">Portable Knowledge</div>
                         <span className="text-[10px] text-[var(--muted-foreground)]">Human-authored</span>
                       </div>
-                      {portableKnowledge.length === 0 ? (
+                      {portableKnowledge.length === 0 && boundSkills.length === 0 ? (
                         <p className="text-sm text-[var(--muted-foreground)]">No portable knowledge attached.</p>
                       ) : (
                         <div className="space-y-2">
@@ -640,6 +661,20 @@ export default function AgentProfilePage() {
                               </div>
                               {item.condition ? (
                                 <p className="mt-2 text-xs text-[var(--muted-foreground)]">Use when: {item.condition}</p>
+                              ) : null}
+                            </div>
+                          ))}
+                          {boundSkills.map((item) => (
+                            <div key={`${item.repo}:${item.skillId}`} className="rounded-2xl border border-[var(--border)] bg-[var(--app-shell-subtle)] p-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="font-mono text-xs text-[var(--foreground)] truncate" title={`${item.repo}/${item.skillId}`}>
+                                  {item.skillId}
+                                </span>
+                                <span className="text-[10px] font-medium text-[var(--muted-foreground)] shrink-0">{item.form}</span>
+                              </div>
+                              <p className="mt-1 text-[10px] text-[var(--muted-foreground)] font-mono truncate" title={item.repo}>{item.repo}</p>
+                              {item.condition ? (
+                                <p className="mt-1 text-xs text-[var(--muted-foreground)]">Use when: {item.condition}</p>
                               ) : null}
                             </div>
                           ))}
