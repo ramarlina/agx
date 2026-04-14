@@ -176,14 +176,6 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       chatSessionVersion: chatSessionVersion ?? objective.chatSessionVersion,
       scheduledTaskIds: scheduledTaskIds ?? objective.scheduledTaskIds,
       summary: summaryValue,
-      cadence:
-        body.cadence !== undefined
-          ? readNullableString(body.cadence) ?? ""
-          : objective.cadence,
-      condition:
-        body.condition !== undefined
-          ? readNullableString(body.condition) ?? ""
-          : objective.condition,
       updatedAt: new Date().toISOString(),
     };
 

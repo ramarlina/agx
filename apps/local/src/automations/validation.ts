@@ -222,10 +222,10 @@ function normalizePromptTarget(value: unknown): PromptJobAutomationTarget {
   if (
     executionMode &&
     executionMode !== "prompt" &&
-    executionMode !== "objective_linear_ticket"
+    executionMode !== "objective_worker"
   ) {
     throw new Error(
-      'Prompt-job target.executionMode must be "prompt" or "objective_linear_ticket".',
+      'Prompt-job target.executionMode must be "prompt" or "objective_worker".',
     );
   }
 
@@ -236,7 +236,7 @@ function normalizePromptTarget(value: unknown): PromptJobAutomationTarget {
   if (prompt !== undefined) target.prompt = prompt;
   if (objectiveId) target.objectiveId = objectiveId;
   if (objectiveKey) target.objectiveKey = objectiveKey;
-  if (executionMode === "prompt" || executionMode === "objective_linear_ticket") {
+  if (executionMode === "prompt" || executionMode === "objective_worker") {
     target.executionMode = executionMode;
   }
   return target;

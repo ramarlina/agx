@@ -141,7 +141,7 @@ describe('/api/prompt-jobs routes', () => {
         projectId: 'project-1',
         objectiveId: 'objective-1',
         objectiveKey: 'growth-daily-visitors',
-        executionMode: 'objective_linear_ticket',
+        executionMode: 'objective_worker',
         cadence: '0 9 * * *',
       }),
       headers: { 'Content-Type': 'application/json' },
@@ -155,15 +155,15 @@ describe('/api/prompt-jobs routes', () => {
       projectId: 'project-1',
       objectiveId: 'objective-1',
       objectiveKey: 'growth-daily-visitors',
-      executionMode: 'objective_linear_ticket',
-      prompt: expect.stringContaining('Review the outstanding Linear tickets'),
+      executionMode: 'objective_worker',
+      prompt: expect.stringContaining('Observe the full state of this objective'),
       cadence: 'Daily at 9 AM',
     }));
     expect(payload.job).toEqual(expect.objectContaining({
       id: 'job-3',
       cadence: 'Daily at 9 AM',
       cronExpr: '0 9 * * *',
-      executionMode: 'objective_linear_ticket',
+      executionMode: 'objective_worker',
     }));
   });
 

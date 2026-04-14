@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPromptJobStore } from '@/src/prompt-scheduler/get-store';
+import { OBJECTIVE_WORKER_DEFAULT_PROMPT } from '@/src/prompt-scheduler/objective-worker-job';
 import {
   computeNextRun,
   computePrevRun,
@@ -7,7 +8,6 @@ import {
   parseCadence,
 } from '@/src/prompt-scheduler/cron';
 import {
-  DEFAULT_OBJECTIVE_LINEAR_WORKER_PROMPT,
   type PromptJobState,
 } from '@/src/prompt-scheduler/types';
 
@@ -126,8 +126,8 @@ export async function POST(req: NextRequest) {
     const resolvedPrompt =
       typeof prompt === 'string' && prompt.trim()
         ? prompt
-        : executionMode === 'objective_linear_ticket'
-          ? DEFAULT_OBJECTIVE_LINEAR_WORKER_PROMPT
+        : executionMode === 'objective_worker'
+          ? OBJECTIVE_WORKER_DEFAULT_PROMPT
           : '';
 
     if (!name || !resolvedPrompt) {

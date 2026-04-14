@@ -20,8 +20,6 @@ export interface ProjectObjective {
   /** @deprecated Use notes instead. Derived from the first note for backward compat. */
   summary: string;
   notes?: ObjectiveNoteFile[];
-  cadence: string;
-  condition: string;
   progress: number;
   status: ProjectObjectiveHealth;
   createdAt: string;
@@ -77,8 +75,6 @@ interface CreateProjectObjectiveInput {
   chatSessionVersion?: number;
   scheduledTaskIds?: string[];
   summary?: string;
-  cadence?: string;
-  condition?: string;
   progress?: number;
   status?: ProjectObjectiveHealth;
   now: string;
@@ -270,8 +266,6 @@ function normalizeObjective(raw: unknown): ProjectObjective | null {
     chatSessionVersion: readNonNegativeInteger(raw.chatSessionVersion, 0),
     scheduledTaskIds: readStringArray(raw.scheduledTaskIds ?? raw.promptJobIds),
     summary: readString(raw.summary),
-    cadence: readString(raw.cadence),
-    condition: readString(raw.condition),
     progress: readProgress(raw.progress),
     status: readObjectiveHealth(raw.status),
     createdAt,
@@ -370,7 +364,6 @@ function normalizeLegacyGoal(raw: unknown): ProjectObjective | null {
   return normalizeObjective({
     ...raw,
     summary: mergedSummary,
-    cadence: "",
   });
 }
 
@@ -503,8 +496,6 @@ export function createProjectObjective(
     ),
     scheduledTaskIds: readStringArray(input.scheduledTaskIds ?? []),
     summary: input.summary?.trim() ?? "",
-    cadence: input.cadence?.trim() ?? "",
-    condition: input.condition?.trim() ?? "",
     progress: readProgress(input.progress ?? 0),
     status: input.status ?? "on_track",
     createdAt: input.now,

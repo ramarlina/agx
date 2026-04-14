@@ -95,7 +95,7 @@ describe("automation repository", () => {
         ...buildPromptDefinition("objective-review").target,
         objectiveId: "objective-growth",
         objectiveKey: "growth-daily-visitors",
-        executionMode: "objective_linear_ticket" as const,
+        executionMode: "objective_worker" as const,
       },
     });
     const parsed = parseAutomationMarkdown(markdown);
@@ -104,7 +104,7 @@ describe("automation repository", () => {
       type: "prompt_job",
       objectiveId: "objective-growth",
       objectiveKey: "growth-daily-visitors",
-      executionMode: "objective_linear_ticket",
+      executionMode: "objective_worker",
     });
   });
 

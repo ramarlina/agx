@@ -4,6 +4,7 @@ import { buildProjectUpdatePayload } from "../payload";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import { PROJECT_OBJECTIVES_METADATA_KEY, readProjectObjectivesWorkspace } from "@/lib/project-objectives";
 import { getObjectiveRepository } from "@/src/objectives/repository";
+import { ensureObjectiveWorkerJob } from "@/src/prompt-scheduler/objective-worker-job";
 import { hydrateProjectObjectiveMetadata } from "../objective-metadata";
 
 type ParamsArg = Promise<{ id: string }>;
@@ -77,6 +78,18 @@ export async function PATCH(request: NextRequest, { params }: { params: ParamsAr
         const repo = getObjectiveRepository(slug);
         const workspace = readProjectObjectivesWorkspace(updates.metadata);
         repo.writeWorkspace(workspace);
+
+        for (const objective of workspace.objectives) {
+          try {
+            ensureObjectiveWorkerJob({
+              projectId,
+              objectiveId: objective.id,
+              objectiveKey: objective.key,
+            });
+          } catch {
+            // Worker job creation is best-effort
+          }
+        }
       } catch (error) {
         console.error("[objectives] failed to sync to files:", error);
       }

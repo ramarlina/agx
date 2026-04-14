@@ -78,8 +78,23 @@ jest.mock('@/lib/project-objective-context', () => ({
 jest.mock('@/src/objectives/activities/repository', () => ({
   getActivityRepository: () => ({
     append: (...args: unknown[]) => mockActivityAppend(...args),
+    list: () => ({ activities: [] }),
   }),
 }));
+
+jest.mock('@/src/objectives/notes', () => ({
+  getNoteRepository: () => ({
+    readAll: () => [],
+  }),
+}));
+
+jest.mock('@/lib/project-objectives', () => {
+  const actual = jest.requireActual('@/lib/project-objectives');
+  return {
+    ...actual,
+    writeProjectHealthSnapshot: actual.writeProjectHealthSnapshot,
+  };
+});
 
 describe('prompt scheduler processor', () => {
   let store: Record<string, unknown>;
@@ -145,6 +160,7 @@ describe('prompt scheduler processor', () => {
       getJob: jest.fn().mockReturnValue(job),
       updateRun,
       updateJob,
+      listJobs: jest.fn().mockReturnValue([]),
     };
     mockGetPromptJobStore.mockReturnValue(store);
     mockRunCliResponse.mockImplementationOnce(async ({ onDelta }: { onDelta?: (chunk: string) => void }) => {
@@ -181,6 +197,7 @@ describe('prompt scheduler processor', () => {
       getJob: jest.fn().mockReturnValue(job),
       updateRun,
       updateJob,
+      listJobs: jest.fn().mockReturnValue([]),
     };
     mockGetPromptJobStore.mockReturnValue(store);
     mockRunCliResponse.mockImplementationOnce(async ({ onDelta }: { onDelta?: (chunk: string) => void }) => {
@@ -211,7 +228,7 @@ describe('prompt scheduler processor', () => {
       projectId: 'project-1',
       objectiveId: 'objective-1',
       objectiveKey: 'growth-daily-visitors',
-      executionMode: 'objective_linear_ticket',
+      executionMode: 'objective_worker',
     };
     const run = { id: 'run-objective-stop', jobId: job.id, status: 'queued' };
     store = {
@@ -219,6 +236,7 @@ describe('prompt scheduler processor', () => {
       getJob: jest.fn().mockReturnValue(job),
       updateRun,
       updateJob,
+      listJobs: jest.fn().mockReturnValue([]),
     };
     mockGetPromptJobStore.mockReturnValue(store);
     mockLoadDbParticipants.mockResolvedValue([
@@ -314,7 +332,7 @@ describe('prompt scheduler processor', () => {
       projectId: 'project-1',
       objectiveId: 'objective-1',
       objectiveKey: 'growth-daily-visitors',
-      executionMode: 'objective_linear_ticket',
+      executionMode: 'objective_worker',
     };
     const run = { id: 'run-objective-work', jobId: job.id, status: 'queued' };
     store = {
@@ -322,6 +340,7 @@ describe('prompt scheduler processor', () => {
       getJob: jest.fn().mockReturnValue(job),
       updateRun,
       updateJob,
+      listJobs: jest.fn().mockReturnValue([]),
     };
     mockGetPromptJobStore.mockReturnValue(store);
     mockLoadDbParticipants.mockResolvedValue([
@@ -442,7 +461,7 @@ describe('prompt scheduler processor', () => {
       projectId: 'project-1',
       objectiveId: 'objective-1',
       objectiveKey: 'growth-daily-visitors',
-      executionMode: 'objective_linear_ticket',
+      executionMode: 'objective_worker',
     };
     const run = { id: 'run-objective-prompt', jobId: job.id, status: 'queued' };
     store = {
@@ -450,6 +469,7 @@ describe('prompt scheduler processor', () => {
       getJob: jest.fn().mockReturnValue(job),
       updateRun,
       updateJob,
+      listJobs: jest.fn().mockReturnValue([]),
     };
     mockGetPromptJobStore.mockReturnValue(store);
     mockLoadDbParticipants.mockResolvedValue([
@@ -622,6 +642,7 @@ describe('prompt scheduler processor', () => {
       getJob: jest.fn().mockReturnValue(job),
       updateRun,
       updateJob,
+      listJobs: jest.fn().mockReturnValue([]),
     };
     mockGetPromptJobStore.mockReturnValue(store);
     mockLoadProjectObjectiveContext.mockResolvedValue({
@@ -671,6 +692,7 @@ describe('prompt scheduler processor', () => {
       getJob: jest.fn().mockReturnValue(job),
       updateRun,
       updateJob,
+      listJobs: jest.fn().mockReturnValue([]),
     };
     mockGetPromptJobStore.mockReturnValue(store);
     mockLoadProjectObjectiveContext.mockResolvedValue({

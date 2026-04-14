@@ -56,6 +56,7 @@ export function automationRecordToPromptJob(record: AutomationRecord): PromptJob
     catchUpPolicy: execution.catchUpPolicy,
     cancelCheckSec: execution.cancelCheckSec,
     executionMode: record.definition.target.executionMode ?? DEFAULT_PROMPT_JOB_EXECUTION_MODE,
+    builtIn: record.definition.target.builtIn === true || record.definition.target.executionMode === "objective_worker",
     condition: execution.condition ?? (trigger.type === "condition" ? trigger.condition : ""),
     nextRunAt: record.runtimeState.nextRunAt ?? null,
     lastRunAt: record.runtimeState.lastRunAt ?? null,

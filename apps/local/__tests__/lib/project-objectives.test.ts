@@ -21,8 +21,6 @@ describe("project-objectives", () => {
       title: "Get 50 visitors daily",
       teamId: "team-growth",
       summary: "Focus on referral traffic first.",
-      cadence: "Every weekday morning",
-      condition: "traffic is below target",
       progress: 40,
       status: "at_risk",
       now: "2026-04-09T12:00:00.000Z",
@@ -38,8 +36,6 @@ describe("project-objectives", () => {
     expect(metadata.owner).toBe("marketing");
     expect(metadata[PROJECT_OBJECTIVES_METADATA_KEY]).toBeDefined();
     expect(roundTrip.objectives[0].title).toBe("Get 50 visitors daily");
-    expect(roundTrip.objectives[0].cadence).toBe("Every weekday morning");
-    expect(roundTrip.objectives[0].condition).toBe("traffic is below target");
     expect(roundTrip.objectives[0].teamId).toBe("team-growth");
     expect(roundTrip.objectives[0].key).toBe("get-50-visitors-daily");
     expect(roundTrip.objectives[0].scheduledTaskIds).toEqual([]);
@@ -86,8 +82,6 @@ describe("project-objectives", () => {
     expect(workspace.objectives).toHaveLength(1);
     expect(workspace.objectives[0].title).toBe("Launch campaign");
     expect(workspace.objectives[0].summary).toContain("Measure: 5k signups");
-    expect(workspace.objectives[0].cadence).toBe("");
-    expect(workspace.objectives[0].condition).toBe("");
 
     const timeline = buildObjectiveTimelineActivities({
       objective: workspace.objectives[0],

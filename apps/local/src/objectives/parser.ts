@@ -64,8 +64,6 @@ export function parseObjectiveFrontmatter(raw: Record<string, unknown>, summary:
     chatSessionVersion: readNonNegativeInteger(raw.chatSessionVersion, 0),
     scheduledTaskIds: readStringArray(raw.scheduledTaskIds),
     summary,
-    cadence: readString(raw.cadence),
-    condition: readString(raw.condition),
     progress: readProgress(raw.progress),
     status: readHealth(raw.status),
     createdAt,

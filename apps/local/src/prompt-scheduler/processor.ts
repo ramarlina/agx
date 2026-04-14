@@ -4,30 +4,17 @@ import { homedir } from 'os';
 
 import { getPromptJobStore } from './get-store';
 import { pollDueJobs } from './engine';
-import { getAgent, getAgentSkills, getProjectAgents, getTeamAgents } from '@/lib/db';
+import { getAgent, getAgentSkills, getProjectAgents } from '@/lib/db';
 import { LOCAL_USER } from '@/lib/auth-mode';
 import { loadDbParticipants } from '@/lib/agent-participants';
 import { runCliResponse, buildCliAttempts } from '@/lib/cli-runner';
 import { startScriptedLinearSession } from '@/lib/linear-scripted-session';
-import { getIssueActiveAgents } from '@/lib/linear-run-store';
 import {
-  filterObjectiveLinearIssuesForAction,
   isObjectiveLinearTerminalStatus,
-  listObjectiveLinearIssues,
 } from '@/lib/objective-linear-issues';
 import {
   loadProjectObjectiveContext,
-  persistProjectHealthSnapshot,
-  persistProjectObjectiveWorkspace,
 } from '@/lib/project-objective-context';
-import {
-  normalizeProjectHealthProgress,
-  normalizeProjectHealthStatus,
-  upsertProjectObjective,
-  writeProjectHealthSnapshot,
-  type ProjectHealthSnapshot,
-  type ProjectObjectiveHealth,
-} from '@/lib/project-objectives';
 import { getActivityRepository } from '@/src/objectives/activities/repository';
 import type { ChatProvider } from '@/lib/types';
 import type { LinearIssueSummary } from '@/lib/linear-issues';
@@ -40,27 +27,6 @@ let pumpScheduled = false;
 let pumpRunning = false;
 
 const AGENTS_DIR = join(homedir(), '.agx', 'agents');
-const OBJECTIVE_CONTROLLER_SYSTEM_CONTEXT = [
-  'You are deciding what action an objective worker should take next.',
-  'Return ONLY raw JSON with no markdown fences or commentary.',
-  'Valid responses:',
-  '{"action":"work_ticket","ticketId":"ticket-id-from-list","reason":"short reason","objectiveProgress":42,"objectiveStatus":"at_risk","projectProgress":35,"projectStatus":"at_risk"}',
-  '{"action":"run_prompt","prompt":"detailed instructions for the agent to execute","reason":"short reason","objectiveProgress":42,"objectiveStatus":"at_risk","projectProgress":35,"projectStatus":"at_risk"}',
-  '{"action":"stop","reason":"short reason","objectiveProgress":42,"objectiveStatus":"at_risk","projectProgress":35,"projectStatus":"at_risk"}',
-  'Rules:',
-  '- "work_ticket": Use when a specific eligible Linear ticket should be worked now. ticketId must exactly match one of the listed ids in ELIGIBLE TICKETS.',
-  '- "run_prompt": Use when the objective needs work not captured by an existing ticket — creating new tickets, drafting docs, reviewing PRs, research, or other non-ticket work. Provide a detailed prompt.',
-  '- "stop": Use when no action should be taken right now.',
-  'Percentages must be integers from 0 to 100.',
-  'Statuses must be one of: on_track, at_risk, off_track, done.',
-].join('\n');
-
-const HEALTH_LABELS: Record<ProjectObjectiveHealth, string> = {
-  on_track: 'On track',
-  at_risk: 'At risk',
-  off_track: 'Off track',
-  done: 'Done',
-};
 
 /** Build a short command string for process identification (used by stale-run reaper). */
 function buildHostCommand(provider: ChatProvider, model: string | null): string {
@@ -190,143 +156,7 @@ async function executePrompt(opts: {
   }
 }
 
-function extractFirstJsonObject(raw: string): Record<string, unknown> | null {
-  const trimmed = raw.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  const directParse = tryParseJsonObject(trimmed);
-  if (directParse) {
-    return directParse;
-  }
-
-  const start = trimmed.indexOf('{');
-  const end = trimmed.lastIndexOf('}');
-  if (start === -1 || end <= start) {
-    return null;
-  }
-
-  return tryParseJsonObject(trimmed.slice(start, end + 1));
-}
-
-function tryParseJsonObject(raw: string): Record<string, unknown> | null {
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function formatIssueLine(issue: LinearIssueSummary): string {
-  return [
-    `- id: ${issue.id}`,
-    `  identifier: ${issue.identifier}`,
-    `  title: ${issue.title}`,
-    `  status: ${issue.status}`,
-    `  assignee: ${issue.assignee ?? 'Unassigned'}`,
-    issue.url ? `  url: ${issue.url}` : null,
-  ]
-    .filter((line): line is string => Boolean(line))
-    .join('\n');
-}
-
-function formatObjectiveSummaryLine(input: {
-  title: string;
-  key: string;
-  progress: number;
-  status: ProjectObjectiveHealth;
-}): string {
-  return `- ${input.title} (${input.key}) | ${input.progress}% | ${input.status}`;
-}
-
-function formatHealthSummary(scope: string, progress: number, status: ProjectObjectiveHealth): string {
-  return `${scope}: ${progress}% ${HEALTH_LABELS[status]}`;
-}
-
-function buildObjectiveLinearControllerPrompt(input: {
-  jobPrompt: string;
-  objective: {
-    title: string;
-    key: string;
-    summary: string;
-    progress: number;
-    status: ProjectObjectiveHealth;
-  };
-  projectObjectives: Array<{
-    title: string;
-    key: string;
-    progress: number;
-    status: ProjectObjectiveHealth;
-  }>;
-  allIssues: LinearIssueSummary[];
-  eligibleIssues: LinearIssueSummary[];
-  activeIssueNotes: string[];
-}): string {
-  const sections = [
-    'OBJECTIVE',
-    `- Title: ${input.objective.title}`,
-    `- Label key: ${input.objective.key}`,
-    `- Summary: ${input.objective.summary.trim() || 'No summary provided.'}`,
-    `- Current progress: ${input.objective.progress}%`,
-    `- Current health: ${input.objective.status}`,
-    '',
-    'PROJECT OBJECTIVES',
-    input.projectObjectives.length > 0
-      ? input.projectObjectives.map((objective) => formatObjectiveSummaryLine(objective)).join('\n')
-      : '- No project objectives found.',
-    '',
-    'ALL OBJECTIVE TICKETS',
-    input.allIssues.length > 0
-      ? input.allIssues.map((issue) => formatIssueLine(issue)).join('\n\n')
-      : '- None.',
-    '',
-    'SCHEDULER GUIDANCE',
-    input.jobPrompt.trim() || 'No additional guidance provided.',
-    '',
-    'ELIGIBLE TICKETS',
-    input.eligibleIssues.length > 0
-      ? input.eligibleIssues.map((issue) => formatIssueLine(issue)).join('\n\n')
-      : '- None.',
-  ];
-
-  if (input.activeIssueNotes.length > 0) {
-    sections.push('', 'ALREADY ACTIVE ELSEWHERE', input.activeIssueNotes.join('\n'));
-  }
-
-  sections.push(
-    '',
-    'Choose "work_ticket" when one listed ticket is clearly the right next ticket to start now.',
-    'Choose "run_prompt" when the objective needs work not captured by an existing ticket (e.g. creating tickets, drafting docs, reviewing PRs).',
-    'Choose "stop" when no action should be taken right now.',
-    'If you choose "work_ticket", ticketId must exactly match one of the listed ids.',
-    'If you choose "run_prompt", provide a detailed prompt the executing agent will follow.',
-  );
-
-  return sections.join('\n');
-}
-
-function normalizeAssessmentProgress(value: unknown): number | null {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return null;
-  }
-  return normalizeProjectHealthProgress(value);
-}
-
-function normalizeAssessmentStatus(value: unknown): ProjectObjectiveHealth | null {
-  if (typeof value !== 'string' || !value.trim()) {
-    return null;
-  }
-  return normalizeProjectHealthStatus(value);
-}
-
-async function resolveObjectiveWorkerAgent(
-  job: PromptJob,
-  teamId?: string | null,
-): Promise<Participant> {
+async function resolveObjectiveWorkerAgent(job: PromptJob): Promise<Participant> {
   const participants = await loadDbParticipants();
 
   if (job.agentId) {
@@ -337,19 +167,8 @@ async function resolveObjectiveWorkerAgent(
     return assigned;
   }
 
-  if (teamId) {
-    const teamAgents = await getTeamAgents(teamId);
-    for (const teamAgent of teamAgents) {
-      const participant = participants.find((entry) => entry.id === teamAgent.agent_id) ?? null;
-      if (participant) {
-        return participant;
-      }
-    }
-    throw new Error('No agent in the assigned team is available to work this objective.');
-  }
-
   if (!job.projectId) {
-    throw new Error('Objective Linear worker requires a project context to resolve an agent.');
+    throw new Error('Objective worker requires a project context to resolve an agent.');
   }
 
   const projectAgents = await getProjectAgents(job.projectId);
@@ -360,7 +179,7 @@ async function resolveObjectiveWorkerAgent(
     }
   }
 
-  throw new Error('No project agent is available to work objective Linear tickets.');
+  throw new Error('No project agent is available to run the objective worker.');
 }
 
 async function appendObjectiveWorkerActivity(input: {
@@ -416,205 +235,7 @@ export async function logActionReceipt(
   }
 }
 
-async function executeObjectiveLinearWorker(opts: {
-  job: PromptJob;
-  controllerContext: {
-    provider: ChatProvider;
-    model: string | null;
-    identity: string | undefined;
-    self: string | undefined;
-    skills: string | undefined;
-  };
-  sessionAgent: Participant;
-  cliArgs?: string;
-  onSpawn?: (pid: number) => void;
-}): Promise<{ output: string; error: string; durationMs: number; status: 'success' | 'failed' }> {
-  const startMs = Date.now();
-
-  try {
-    if (!opts.job.projectId || !opts.job.objectiveId) {
-      throw new Error('Objective Linear worker jobs require projectId and objectiveId.');
-    }
-
-    const objectiveContext = await loadProjectObjectiveContext(
-      opts.job.projectId,
-      opts.job.objectiveId,
-    );
-    if (!objectiveContext) {
-      throw new Error('Objective context could not be resolved for this scheduled task.');
-    }
-
-    const [{ issues }, activeIssueAgents] = await Promise.all([
-      listObjectiveLinearIssues({
-        objectiveKey: objectiveContext.objective.key,
-        projectSlug: objectiveContext.project.slug,
-        refresh: true,
-      }),
-      getIssueActiveAgents(opts.job.projectId),
-    ]);
-
-    const objectiveIssueIds = new Set(issues.map((issue) => issue.id));
-    const activeObjectiveAgents = activeIssueAgents.filter((entry) => objectiveIssueIds.has(entry.issueId));
-    const activeIssueNotes = activeObjectiveAgents.map(
-      (entry) => `- ${entry.issueId}: already running with ${entry.agentName}`,
-    );
-    const eligibleIssues = filterObjectiveLinearIssuesForAction(
-      issues,
-      activeObjectiveAgents.map((entry) => entry.issueId),
-    );
-
-    // Phase 1: Controller decides what action to take
-    const controllerPrompt = buildObjectiveLinearControllerPrompt({
-      jobPrompt: opts.job.prompt,
-      objective: {
-        title: objectiveContext.objective.title,
-        key: objectiveContext.objective.key,
-        summary: objectiveContext.objective.summary,
-        progress: objectiveContext.objective.progress,
-        status: objectiveContext.objective.status,
-      },
-      projectObjectives: objectiveContext.workspace.objectives.map((objective) => ({
-        title: objective.title,
-        key: objective.key,
-        progress: objective.progress,
-        status: objective.status,
-      })),
-      allIssues: issues,
-      eligibleIssues,
-      activeIssueNotes,
-    });
-    const controllerResult = await executePrompt({
-      ...opts.controllerContext,
-      prompt: controllerPrompt,
-      systemContext: OBJECTIVE_CONTROLLER_SYSTEM_CONTEXT,
-      cliArgs: opts.cliArgs,
-      onSpawn: opts.onSpawn,
-    });
-
-    if (controllerResult.status !== 'success') {
-      return {
-        ...controllerResult,
-        output: controllerResult.output || 'Objective controller failed before selecting an action.',
-      };
-    }
-
-    const parsed = extractFirstJsonObject(controllerResult.output);
-    // Support both new "action" field and legacy "decision" field
-    const rawAction = typeof parsed?.action === 'string'
-      ? parsed.action.trim().toLowerCase()
-      : typeof parsed?.decision === 'string'
-        ? parsed.decision.trim().toLowerCase()
-        : '';
-    const action = rawAction === 'work' ? 'work_ticket' : rawAction;
-    const reason = typeof parsed?.reason === 'string' ? parsed.reason.trim() : '';
-    const objectiveProgress = normalizeAssessmentProgress(parsed?.objectiveProgress);
-    const objectiveStatus = normalizeAssessmentStatus(parsed?.objectiveStatus);
-    const projectProgress = normalizeAssessmentProgress(parsed?.projectProgress);
-    const projectStatus = normalizeAssessmentStatus(parsed?.projectStatus);
-    const projectNote = typeof parsed?.projectNote === 'string' ? parsed.projectNote.trim() : '';
-    const objectiveNote = typeof parsed?.objectiveNote === 'string' ? parsed.objectiveNote.trim() : '';
-    const nowIso = new Date().toISOString();
-
-    // Health side-effects (applied regardless of action type)
-    const objectiveHealthSummary =
-      objectiveProgress !== null && objectiveStatus
-        ? formatHealthSummary('Objective health', objectiveProgress, objectiveStatus)
-        : null;
-    const projectHealthSummary =
-      projectProgress !== null && projectStatus
-        ? formatHealthSummary('Project health', projectProgress, projectStatus)
-        : null;
-
-    const objectiveChanged =
-      objectiveProgress !== null &&
-      objectiveStatus !== null &&
-      (
-        objectiveProgress !== objectiveContext.objective.progress ||
-        objectiveStatus !== objectiveContext.objective.status
-      );
-    const nextWorkspace = objectiveChanged
-      ? upsertProjectObjective(objectiveContext.workspace, {
-          ...objectiveContext.objective,
-          progress: objectiveProgress!,
-          status: objectiveStatus!,
-          updatedAt: nowIso,
-        })
-      : objectiveContext.workspace;
-    const projectSnapshot: ProjectHealthSnapshot | null =
-      projectProgress !== null && projectStatus !== null
-        ? {
-            progress: projectProgress,
-            status: projectStatus,
-            updatedAt: nowIso,
-            source: `scheduled-task:${opts.job.id}`,
-            objectiveId: objectiveContext.objective.id,
-            objectiveKey: objectiveContext.objective.key,
-            note: projectNote || undefined,
-          }
-        : null;
-
-    if (objectiveChanged) {
-      await persistProjectObjectiveWorkspace({
-        projectId: objectiveContext.project.id,
-        currentMetadata: objectiveContext.project.metadata,
-        workspace: nextWorkspace,
-        transformMetadata: (metadata) =>
-          projectSnapshot ? writeProjectHealthSnapshot(metadata, projectSnapshot) : metadata,
-      });
-    } else if (projectSnapshot) {
-      await persistProjectHealthSnapshot({
-        projectId: objectiveContext.project.id,
-        currentMetadata: objectiveContext.project.metadata,
-        snapshot: projectSnapshot,
-      });
-    }
-
-    // Phase 2: Dispatch the action
-    const receipt = await dispatchObjectiveAction({
-      action,
-      parsed,
-      reason,
-      job: opts.job,
-      controllerContext: opts.controllerContext,
-      sessionAgent: opts.sessionAgent,
-      objectiveContext,
-      eligibleIssues,
-      issues,
-      healthSummaries: {
-        objectiveHealthSummary,
-        projectHealthSummary,
-        objectiveNote,
-        projectNote,
-      },
-      cliArgs: opts.cliArgs,
-      onSpawn: opts.onSpawn,
-      startMs,
-    });
-
-    // Phase 3: Log receipt to activity timeline
-    await logActionReceipt(receipt, {
-      jobId: opts.job.id,
-      projectId: opts.job.projectId,
-      objectiveId: opts.job.objectiveId!,
-    });
-
-    return {
-      output: receipt.result,
-      error: receipt.status === 'failed' ? receipt.result : '',
-      durationMs: Date.now() - startMs,
-      status: receipt.status,
-    };
-  } catch (err) {
-    return {
-      output: '',
-      error: err instanceof Error ? err.message : String(err),
-      durationMs: Date.now() - startMs,
-      status: 'failed',
-    };
-  }
-}
-
-async function dispatchObjectiveAction(opts: {
+export async function dispatchObjectiveAction(opts: {
   action: string;
   parsed: Record<string, unknown> | null;
   reason: string;
@@ -790,37 +411,11 @@ async function executeJobAction(
     onSpawn?: (pid: number) => void;
   } = {},
 ): Promise<{ output: string; error: string; durationMs: number; status: 'success' | 'failed' }> {
-  if (job.executionMode === 'objective_linear_ticket') {
-    let teamId: string | null = null;
-
-    if (job.projectId && job.objectiveId) {
-      const objectiveContext = await loadProjectObjectiveContext(job.projectId, job.objectiveId);
-      teamId = objectiveContext?.objective.teamId ?? null;
-
-      if (!teamId) {
-        await logActionReceipt(
-          {
-            action: 'team_gate',
-            jobName: job.name,
-            status: 'failed',
-            result: 'Execution blocked: no team assigned to this objective.',
-            reason: 'Assign a team before scheduled work can run.',
-            durationMs: 0,
-          },
-          { jobId: job.id, projectId: job.projectId, objectiveId: job.objectiveId },
-        );
-        return {
-          output: '',
-          error: 'Execution blocked: no team assigned to this objective.',
-          durationMs: 0,
-          status: 'failed',
-        };
-      }
-    }
-
-    const sessionAgent = await resolveObjectiveWorkerAgent(job, teamId);
+  if (job.executionMode === 'objective_worker') {
+    const { executeObjectiveWorker } = await import('./objective-worker');
+    const sessionAgent = await resolveObjectiveWorkerAgent(job);
     const controllerContext = await resolveJobContextForAgent(job, sessionAgent.id);
-    return executeObjectiveLinearWorker({
+    return executeObjectiveWorker({
       job,
       controllerContext,
       sessionAgent,

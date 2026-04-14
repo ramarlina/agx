@@ -27,17 +27,11 @@ import { Markdown } from "@/components/chat-ui/Markdown";
 import { agentAvatarUrl } from "@/components/chat-ui/ParticipantBar";
 import RichTextEditor from "@/components/RichTextEditor";
 import SearchCombo, { type ComboOption } from "@/components/SearchCombo";
-import { ScheduleConditionPicker } from "@/components/scheduling/ScheduleConditionPicker";
 import { ObjectiveScheduledTasksPanel } from "@/components/projects/ObjectiveScheduledTasksPanel";
 import { ObjectiveActivityTimeline } from "@/components/projects/ObjectiveActivityTimeline";
 import { LinearIcon } from "@/components/linear/LinearIcon";
 import { usePromptJobs } from "@/hooks/usePromptJobs";
 import { useInputCapabilities } from "@/hooks/useInputCapabilities";
-import { cronToHuman } from "@/src/graph/nl-schedule";
-import {
-  DEFAULT_OBJECTIVE_LINEAR_WORKER_NAME,
-  type PromptJobExecutionMode,
-} from "@/src/prompt-scheduler/types";
 import { threadService } from "@/services/threadService";
 import {
   loadObjectiveChatPanelWidth,
@@ -77,8 +71,6 @@ interface ObjectiveEditorDraft {
   title: string;
   teamId: string;
   summary: string;
-  cadence: string;
-  condition: string;
 }
 
 interface ObjectiveTeamDraft {
@@ -209,8 +201,6 @@ function buildEmptyObjectiveDraft(): ObjectiveEditorDraft {
     title: "",
     teamId: "",
     summary: "",
-    cadence: "",
-    condition: "",
   };
 }
 
@@ -220,8 +210,6 @@ function buildObjectiveDraft(objective: ProjectObjective): ObjectiveEditorDraft 
     title: objective.title,
     teamId: objective.teamId,
     summary: objective.summary,
-    cadence: objective.cadence,
-    condition: objective.condition,
   };
 }
 
@@ -266,12 +254,6 @@ function getAvailableTeams(
 
 function getTeamName(teams: ProjectTeamSummary[], teamId: string): string | null {
   return teams.find((team) => team.id === teamId)?.name ?? null;
-}
-
-function formatObjectiveCadence(cadence: string): string {
-  const trimmed = cadence.trim();
-  if (!trimmed) return "Not set yet";
-  return cronToHuman(trimmed) ?? trimmed;
 }
 
 function prependObjectiveLabelToPrompt(
@@ -401,27 +383,24 @@ function buildObjectiveChatPrefix(
     `Objective label: ${objective.key}`,
     teamName ? `Owning team: ${teamName}` : "",
     notesPreview ? `Current notes:\n${notesPreview}` : "Current notes: none yet.",
-    objective.cadence
-      ? `Wake schedule: ${formatObjectiveCadence(objective.cadence)}`
-      : "Wake schedule: not set yet.",
-    objective.condition ? `Wake condition: ${objective.condition}` : "",
+    "Wake schedule: managed by the built-in objective worker job.",
 
-    `## Objective file (source of truth)\n\nThis objective is stored as a frontmatter markdown file at:\n\`${objectiveFilePath}\`\n\nFile format:\n- YAML frontmatter between \`---\` delimiters contains all metadata (title, teamId, key, status, progress, cadence, condition, scheduledTaskIds, threadId, chatSessionVersion, createdAt, updatedAt).\n- \`## Activities\` section contains the activity timeline; each activity is a \`### Title\` block with metadata lines (\`- **id:**\`, \`- **source:**\`, \`- **created:**\`, \`- **body:**\`) and optional \`#### Replies\` sub-section.\n\nNotes are stored as separate files in \`${notesDir}\`. Each note is a markdown file with YAML frontmatter (id, title, objectiveId, createdAt, updatedAt) and a markdown body.\n\nWhen updating the objective, you can edit this file directly. Rules:\n- NEVER remove or break the \`---\` frontmatter delimiters.\n- NEVER change the \`id\` or \`createdAt\` fields.\n- Always update \`updatedAt\` to the current ISO timestamp when making changes.\n- After any edit, call \`GET ${validateRoute}\` to verify the file is still valid.\n- If validation fails, fix the errors immediately before doing anything else.`,
+    `## Objective file (source of truth)\n\nThis objective is stored as a frontmatter markdown file at:\n\`${objectiveFilePath}\`\n\nFile format:\n- YAML frontmatter between \`---\` delimiters contains all metadata (title, teamId, key, status, progress, scheduledTaskIds, threadId, chatSessionVersion, createdAt, updatedAt).\n- \`## Activities\` section contains the activity timeline; each activity is a \`### Title\` block with metadata lines (\`- **id:**\`, \`- **source:**\`, \`- **created:**\`, \`- **body:**\`) and optional \`#### Replies\` sub-section.\n\nNotes are stored as separate files in \`${notesDir}\`. Each note is a markdown file with YAML frontmatter (id, title, objectiveId, createdAt, updatedAt) and a markdown body.\n\nWhen updating the objective, you can edit this file directly. Rules:\n- NEVER remove or break the \`---\` frontmatter delimiters.\n- NEVER change the \`id\` or \`createdAt\` fields.\n- Always update \`updatedAt\` to the current ISO timestamp when making changes.\n- After any edit, call \`GET ${validateRoute}\` to verify the file is still valid.\n- If validation fails, fix the errors immediately before doing anything else.`,
 
     "Scheduled tasks live in the shared scheduled-task list and are filtered by this objective label.",
-    "Your job is to help the team develop the strategy needed to reach the goal, including the right combination of objective notes, wake cadence/condition, scheduled tasks, and Linear tickets.",
+    "Your job is to help the team develop the strategy needed to reach the goal, including the right combination of objective notes, scheduled tasks, and Linear tickets.",
     "Use the current session history to build on prior reasoning. Only reset and start from scratch when the user explicitly starts a new session.",
     "Use this thread to pressure-test strategy, suggest better tactics, rewrite the objective when asked, propose the right operational cadence, and take concrete follow-up actions when the user wants them applied.",
     "When suggesting edits, prefer editing the frontmatter file directly or using the notes API. When the user asks you to make a change, edit the file, validate, then confirm.",
     "Local objective APIs:",
-    `- PATCH ${objectiveRoute} with JSON fields such as {"title","cadence","condition","teamId","key"} to update the objective itself.`,
+    `- PATCH ${objectiveRoute} with JSON fields such as {"title","teamId","key"} to update the objective itself.`,
     `- GET ${notesRoute} to list all notes for this objective. Returns {"notes":[...],"total","page","limit","hasMore"}.`,
     `- POST ${notesRoute} with {"title","body"} to create a new note.`,
     `- GET ${notesRoute}/{noteId} to read a single note.`,
     `- PATCH ${notesRoute}/{noteId} with {"title","body"} to update a note.`,
     `- DELETE ${notesRoute}/{noteId} to delete a note.`,
     `- GET ${scheduledTasksRoute} to inspect the scheduled tasks already tracked for this objective.`,
-    `- POST ${scheduledTasksRoute} with {"name","prompt","cadence","condition","agentId","syncObjectiveSchedule":true} to create a scheduled task for this objective.`,
+    `- POST ${scheduledTasksRoute} with {"name","prompt","cadence","agentId"} to create a scheduled task for this objective.`,
     `- GET ${linearIssuesRoute} to inspect Linear tickets carrying the objective label "${objective.key}".`,
     `- POST ${linearIssuesRoute} with {"title","description","teamId","assigneeId","cycleId","stateId","priority"} to create a Linear ticket labeled "${objective.key}".`,
     `- GET ${validateRoute} to validate the objective file on disk. Returns {"valid":true} or {"valid":false,"errors":[...]}.`,
@@ -1524,8 +1503,6 @@ export function ProjectObjectivesOverview({
       teamId,
       key: generateProjectObjectiveKey(title, workspace.objectives),
       summary: objectiveEditor.summary,
-      cadence: objectiveEditor.cadence,
-      condition: objectiveEditor.condition,
       now,
     });
 
@@ -1534,6 +1511,17 @@ export function ProjectObjectivesOverview({
 
     try {
       await persistWorkspace(upsertProjectObjective(workspace, nextObjective));
+
+      // After the persist succeeds, ensure the built-in worker job exists
+      try {
+        await fetch(
+          `/api/projects/${project?.id}/objectives/${nextObjective.id}/worker`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' } },
+        );
+      } catch {
+        // Worker job creation is best-effort — will be lazily created on first run
+      }
+
       setObjectiveEditor(null);
       setSelectedObjectiveId(nextObjective.id);
     } catch (error) {
@@ -1685,7 +1673,6 @@ export function ProjectObjectiveDetail({
   const teamName = objective ? getTeamName(teams, objective.teamId) : null;
   const [objectiveEditor, setObjectiveEditor] = useState<ObjectiveEditorDraft | null>(null);
   const [teamEditor, setTeamEditor] = useState<ObjectiveTeamDraft | null>(null);
-  const [wakeEditor, setWakeEditor] = useState<ObjectiveEditorDraft | null>(null);
 
   const [activeTab, setActiveTab] = useState<ObjectiveDetailTab>("activity");
   const [activityTotal, setActivityTotal] = useState(0);
@@ -1701,7 +1688,7 @@ export function ProjectObjectiveDetail({
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [linearIssues, setLinearIssues] = useState<ObjectiveLinearIssueSummary[]>([]);
   const [linearConnected, setLinearConnected] = useState(true);
-  const [creatingLinearWorker, setCreatingLinearWorker] = useState(false);
+  const [workingOnObjective, setWorkingOnObjective] = useState(false);
 
   const { jobs: scheduledJobs } = usePromptJobs(project?.id ?? null, {
     requireProjectId: true,
@@ -1911,19 +1898,6 @@ export function ProjectObjectiveDetail({
     setTeamEditor(null);
   };
 
-  const handleWakeSave = async () => {
-    if (!wakeEditor || !objective) return;
-
-    const nextObjective = {
-      ...objective,
-      cadence: wakeEditor.cadence.trim(),
-      condition: wakeEditor.condition.trim(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    await runPersist(upsertProjectObjective(workspace, nextObjective));
-    setWakeEditor(null);
-  };
 
   const handleObjectiveDelete = async () => {
     if (!objective) return;
@@ -1964,7 +1938,6 @@ export function ProjectObjectiveDetail({
       catchUpPolicy: string;
       cadence: string;
       condition: string;
-      executionMode?: PromptJobExecutionMode;
     }) => {
       if (!project?.id || !objective?.id) {
         setSaveError("Objective not found.");
@@ -1981,10 +1954,7 @@ export function ProjectObjectiveDetail({
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               ...data,
-              prompt:
-                data.executionMode === "objective_linear_ticket"
-                  ? data.prompt
-                  : prependObjectiveLabelToPrompt(objective, data.prompt),
+              prompt: prependObjectiveLabelToPrompt(objective, data.prompt),
             }),
           }
         );
@@ -2006,7 +1976,7 @@ export function ProjectObjectiveDetail({
     [objective, project?.id, refetchProject]
   );
 
-  const handleObjectiveLinearWorkerCreate = useCallback(async () => {
+  const handleWorkOnObjective = useCallback(async () => {
     if (!project?.id || !objective?.id) {
       setSaveError("Objective not found.");
       return false;
@@ -2021,27 +1991,20 @@ export function ProjectObjectiveDetail({
 
     try {
       const response = await fetch(
-        `/api/projects/${project.id}/objectives/${objective.id}/scheduled-tasks`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: DEFAULT_OBJECTIVE_LINEAR_WORKER_NAME,
-            executionMode: "objective_linear_ticket",
-          }),
-        }
+        `/api/projects/${project.id}/objectives/${objective.id}/worker`,
+        { method: "PUT" },
       );
       const payload = (await response.json().catch(() => ({}))) as { error?: string };
 
       if (!response.ok) {
-        throw new Error(payload.error || "Failed to create objective Linear worker.");
+        throw new Error(payload.error || "Failed to trigger objective worker.");
       }
 
       await refetchProject();
       return true;
     } catch (error) {
       setSaveError(
-        error instanceof Error ? error.message : "Failed to create objective Linear worker."
+        error instanceof Error ? error.message : "Failed to trigger objective worker."
       );
       return false;
     }
@@ -2472,6 +2435,19 @@ export function ProjectObjectiveDetail({
                             {objective.key}
                           </code>.
                         </p>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            setWorkingOnObjective(true);
+                            await handleWorkOnObjective();
+                            setWorkingOnObjective(false);
+                          }}
+                          disabled={workingOnObjective}
+                          className="inline-flex items-center gap-2 rounded-xl border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-3 py-2 text-sm text-[var(--status-completed-text)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Sparkles className="h-4 w-4" />
+                          {workingOnObjective ? "Working..." : "Work on objective"}
+                        </button>
                       </div>
                       {!linearConnected ? (
                         <EmptyState label="Connect Linear to create and track tickets for this objective." />
@@ -2546,8 +2522,6 @@ export function ProjectObjectiveDetail({
                       objectiveKey={objective.key}
                       createDefaults={{
                         name: `Work on ${objective.title}`,
-                        cadence: objective.cadence,
-                        condition: objective.condition,
                       }}
                       onCreateTask={handleScheduledTaskCreate}
                     />
@@ -2591,15 +2565,6 @@ export function ProjectObjectiveDetail({
         </div>
       </div>
 
-      {wakeEditor ? (
-        <ObjectiveWakeModal
-          draft={wakeEditor}
-          isSaving={isSaving}
-          onChange={setWakeEditor}
-          onClose={() => setWakeEditor(null)}
-          onSave={() => void handleWakeSave()}
-        />
-      ) : null}
     </div>
   );
 }
@@ -2700,73 +2665,6 @@ function ObjectiveEditorModal({
             className="rounded-xl border border-[var(--status-in-progress-border)] bg-[var(--status-in-progress-bg)] px-3 py-2 text-sm font-medium text-[var(--status-in-progress-text)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isSaving ? "Saving..." : mode === "edit" ? "Save objective" : "Create objective"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ObjectiveWakeModal({
-  draft,
-  isSaving,
-  onChange,
-  onClose,
-  onSave,
-}: {
-  draft: ObjectiveEditorDraft;
-  isSaving: boolean;
-  onChange: (draft: ObjectiveEditorDraft) => void;
-  onClose: () => void;
-  onSave: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Edit wake schedule"
-        className="w-full max-w-2xl overflow-hidden rounded-[32px] border border-[var(--border)] bg-[var(--overlay-panel-strong)] shadow-2xl"
-      >
-        <div className="border-b border-[var(--border)] px-5 py-4">
-          <h3 className="text-lg font-semibold text-[var(--foreground)]">Edit wake schedule</h3>
-          <p className="mt-1 text-sm text-[var(--muted-foreground)]">
-            Control when agents should wake up and whether they should gate execution on a condition.
-          </p>
-        </div>
-
-        <div className="px-5 py-5">
-          <ScheduleConditionPicker
-            value={{ cadence: draft.cadence, condition: draft.condition }}
-            onChange={(nextValue) =>
-              onChange({
-                ...draft,
-                cadence: nextValue.cadence,
-                condition: nextValue.condition,
-              })
-            }
-            allowEmptySchedule
-            scheduleLabel="Schedule"
-            conditionLabel="Condition"
-            conditionHelpText="Use a condition when agents should only work on this objective in specific circumstances."
-          />
-        </div>
-
-        <div className="flex items-center justify-end gap-2 border-t border-[var(--border)] px-5 py-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-[var(--border)] px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={isSaving}
-            className="rounded-xl border border-[var(--status-in-progress-border)] bg-[var(--status-in-progress-bg)] px-3 py-2 text-sm font-medium text-[var(--status-in-progress-text)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {isSaving ? "Saving..." : "Save schedule"}
           </button>
         </div>
       </div>
