@@ -37,6 +37,10 @@ const Composer = dynamic(
   { ssr: false }
 );
 
+function createThreadId() {
+  return globalThis.crypto?.randomUUID?.() ?? `thread-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 function ResizeHandle({
   onResize,
 }: {
@@ -592,7 +596,10 @@ function TicketChatStarter({
   const defaultAgent = participants[0];
   const sessionScriptButtonLabel =
     activeSessionScriptLabel === "AGX default" ? "Session script" : activeSessionScriptLabel;
-  const threadIdRef = useRef(crypto.randomUUID());
+  const threadIdRef = useRef<string | null>(null);
+  if (!threadIdRef.current) {
+    threadIdRef.current = createThreadId();
+  }
   const { messages, setMessages, sendMessage, chatRuns } = useGroupChat(threadIdRef.current);
   const { processes, streaming } = useProcessPolling(
     { workspaceId: threadIdRef.current },
@@ -1306,7 +1313,8 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
     if (projectSlug) {
       params.set("projectSlug", projectSlug);
     }
-    const url = params.size > 0 ? `/api/linear/options?${params.toString()}` : "/api/linear/options";
+    const query = params.toString();
+    const url = query ? `/api/linear/options?${query}` : "/api/linear/options";
     fetch(url)
       .then((res) => res.json())
       .then((data) => {
