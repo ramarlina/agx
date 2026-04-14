@@ -1411,7 +1411,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
     loadMore,
     refresh: refreshIssues,
     updateIssue,
-  } = useLinearIssues(filters, connected, { projectSlug });
+  } = useLinearIssues(filters, connected && filterOptionsLoaded, { projectSlug });
   const selectedIssueFromList = useMemo(
     () => (selectedIssueId ? issues.find((issue) => issue.id === selectedIssueId) ?? null : null),
     [issues, selectedIssueId],
