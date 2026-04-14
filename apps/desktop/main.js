@@ -12,7 +12,7 @@ const REPO_ROOT = path.join(__dirname, "..", "..");
 const LOCAL_APP_ROOT = path.join(REPO_ROOT, "apps", "local");
 const CLI_ROOT = REPO_ROOT;
 
-const SERVER_PORT = 41741;
+const SERVER_PORT = isDev ? 41741 : 41781;
 const LOG_PATH = path.join(app.getPath("logs"), "agx.log");
 const DESKTOP_CHAT_DEBUG_LOG_PATH = path.join(app.getPath("home"), ".agx", "logs", "desktop-chat-debug.log");
 
@@ -209,7 +209,7 @@ async function startNextServer() {
     );
   }
 
-  const serverDir = getResourcePath("server");
+  const serverDir = getResourcePath(path.join("server", "apps", "local"));
   const serverEntry = path.join(serverDir, "server.js");
 
   if (!fs.existsSync(serverEntry)) {
@@ -327,12 +327,16 @@ function createWindow(port) {
     mainWindow.webContents.insertCSS(`
       .workspace-sidebar:not(.workspace-sidebar--collapsed) .workspace-sidebar__brand {
         min-height: 0;
-        padding: 0.5rem 0.75rem 0.5rem 4.75rem !important;
+        padding: 0.61rem 0.75rem 0.61rem 4.75rem !important;
       }
 
       .workspace-sidebar__brand,
       .desktop-titlebar {
         -webkit-app-region: drag;
+      }
+
+      .desktop-titlebar {
+        max-height: 49px;
       }
 
       .workspace-sidebar__brand a,
@@ -521,9 +525,28 @@ app.on("window-all-closed", () => {
   }
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", (e) => {
   if (serverProcess) {
-    serverProcess.kill();
+    e.preventDefault();
+    const proc = serverProcess;
     serverProcess = null;
+
+    log("[shutdown] sending SIGTERM to server");
+    proc.kill("SIGTERM");
+
+    // Force-kill after 5s if still alive
+    const forceKillTimer = setTimeout(() => {
+      try {
+        proc.kill("SIGKILL");
+        log("[shutdown] force-killed server (SIGKILL)");
+      } catch {}
+      app.quit();
+    }, 5000);
+
+    proc.on("exit", () => {
+      clearTimeout(forceKillTimer);
+      log("[shutdown] server exited cleanly");
+      app.quit();
+    });
   }
 });

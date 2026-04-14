@@ -18,11 +18,6 @@ docker run --rm -v "$PWD/$TARBALL:/tmp/pkg.tgz" node:20 bash -c '
   npm init -y > /dev/null 2>&1
   npm install /tmp/pkg.tgz 2>&1 | tail -3
 
-  echo "==> Rebuilding native modules for Linux..."
-  cd node_modules/@mndrk/agx/cloud-runtime/standalone
-  npm rebuild better-sqlite3 2>&1 | tail -3
-  cd /tmp/smoke
-
   echo "==> Starting board..."
   BOARD_DIR=node_modules/@mndrk/agx/cloud-runtime/standalone
 

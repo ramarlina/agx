@@ -26,7 +26,7 @@
     "electron-updater": "^6.3.9"
   },
   "devDependencies": {
-    "electron": "^35.0.1",
+    "electron": "35.7.5",
     "electron-builder": "^26.0.12"
   },
   "build": {
@@ -57,7 +57,7 @@
       },
       {
         "from": "../local/.next/static",
-        "to": "server/.next/static",
+        "to": "server/apps/local/.next/static",
         "filter": [
           "**/*"
         ]
