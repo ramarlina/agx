@@ -211,13 +211,13 @@ export function Composer({
   // Close repo dropdown on click outside
   useEffect(() => {
     if (!repoDropdownOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
+    const handleClickOutside = (e: PointerEvent) => {
       if (repoDropdownRef.current && !repoDropdownRef.current.contains(e.target as Node)) {
         setRepoDropdownOpen(false);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("pointerdown", handleClickOutside);
+    return () => document.removeEventListener("pointerdown", handleClickOutside);
   }, [repoDropdownOpen]);
 
   // Clear stale repo selections when available repos change (uncontrolled mode only).

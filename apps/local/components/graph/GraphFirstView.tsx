@@ -11,6 +11,7 @@ import GraphVersionHistory from "@/components/graph/GraphVersionHistory";
 import GraphComparisonModal from "@/components/graph/GraphComparisonModal";
 import { findRootNode } from "@/components/graph/graph-derived";
 import { useGraphUIStore, type NodeAction } from "@/components/graph/useGraphUIStore";
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import type { ExecutionGraph, ExecutionLifecycleState } from "@/src/graph/types";
 import type { Task } from "@/components/TaskCard";
 
@@ -43,6 +44,7 @@ export default function GraphFirstView({
   onDeleteTask,
   isDeletingTask = false,
 }: GraphFirstViewProps) {
+  const { isTouchLayout } = useInputCapabilities();
   const [showLogs, setShowLogs] = useState(false);
   const [logsNodeId, setLogsNodeId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -275,7 +277,8 @@ export default function GraphFirstView({
         </div>
         
         {/* Right sidebar - node details */}
-        <aside className="graph-first-view__sidebar">
+        {!isTouchLayout ? (
+          <aside className="graph-first-view__sidebar">
           {/* Collapsible task details */}
           <div className="graph-sidebar-section">
             <button
@@ -402,7 +405,8 @@ export default function GraphFirstView({
           />
 
           <GraphVersionHistory graph={graph} />
-        </aside>
+          </aside>
+        ) : null}
       </div>
       
       {/* Comparison modal */}

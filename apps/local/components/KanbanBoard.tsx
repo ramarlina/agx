@@ -26,6 +26,7 @@ import {
   FALLBACK_STAGE_CONFIG,
   type StageConfig
 } from "@/hooks/useWorkflows";
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 
 // Re-export for backward compatibility
 export const STAGES = FALLBACK_STAGES;
@@ -60,6 +61,7 @@ export default function KanbanBoard({
   creatingStage,
   graphColumnFn,
 }: KanbanBoardProps) {
+  const { isTouchLayout } = useInputCapabilities();
   // Use props or fallbacks
   const stages = propStages || FALLBACK_STAGES;
   const stageConfigMap = propStageConfig || FALLBACK_STAGE_CONFIG;
@@ -387,6 +389,46 @@ export default function KanbanBoard({
     }
   }
 
+  const handleStageMove = useCallback(async (task: Task, targetStage: string) => {
+    const originalStage = getColumn(task);
+    if (!checkTransition(originalStage || "", targetStage)) {
+      return;
+    }
+
+    const targetTasks = localTasks.filter((entry) => entry.id !== task.id && getColumn(entry) === targetStage);
+    const nextPriority =
+      targetTasks.length > 0
+        ? Math.max(...targetTasks.map((entry) => entry.priority || 0)) + 1
+        : 0;
+
+    const nextTasks = localTasks.map((entry) =>
+      entry.id === task.id
+        ? {
+            ...entry,
+            stage: targetStage as Task["stage"],
+            priority: nextPriority,
+          }
+        : entry
+    );
+
+    setLocalTasks(nextTasks);
+    onTasksChange?.(nextTasks);
+
+    if (!onTaskUpdate) {
+      return;
+    }
+
+    try {
+      await onTaskUpdate(task.id, {
+        stage: targetStage as Task["stage"],
+        priority: nextPriority,
+      });
+    } catch (error) {
+      console.error("Failed to update task:", error);
+      setLocalTasks(tasks);
+    }
+  }, [checkTransition, localTasks, onTaskUpdate, onTasksChange, tasks]);
+
   return (
     <DndContext
       sensors={sensors}
@@ -443,10 +485,13 @@ export default function KanbanBoard({
                 stage={stage}
                 tasks={grouped[stage] || []}
                 allTasks={localTasks}
+                stages={stages}
+                isTouchLayout={isTouchLayout}
                 selectedTaskId={selectedTaskId}
                 setSelectedTaskId={setSelectedTaskId}
                 onSelectTask={onSelectTask}
                 onTaskUpdate={onTaskUpdate}
+                onStageMove={handleStageMove}
                 index={index}
                 onAddTask={onAddTask}
                 config={stageConfigMap[stage] || { icon: '📌', label: stage, color: 'var(--primary)' }}
@@ -471,10 +516,13 @@ interface StageColumnProps {
   stage: string;
   tasks: Task[];
   allTasks: Task[];
+  stages: readonly string[];
+  isTouchLayout: boolean;
   selectedTaskId: string | null;
   setSelectedTaskId: (id: string | null) => void;
   onSelectTask?: (task: Task) => void;
   onTaskUpdate?: (taskId: string, updates: Partial<Task>) => Promise<void>;
+  onStageMove?: (task: Task, targetStage: string) => void | Promise<void>;
   index: number;
   onAddTask?: (title: string, stage: string) => void;
   config: StageConfig;
@@ -485,10 +533,13 @@ function StageColumn({
   stage,
   tasks,
   allTasks,
+  stages,
+  isTouchLayout,
   selectedTaskId,
   setSelectedTaskId,
   onSelectTask,
   onTaskUpdate,
+  onStageMove,
   index,
   onAddTask,
   config,
@@ -527,10 +578,13 @@ function StageColumn({
         stage={stage}
         tasks={tasks}
         allTasks={allTasks}
+        stages={stages}
+        isTouchLayout={isTouchLayout}
         selectedTaskId={selectedTaskId}
         setSelectedTaskId={setSelectedTaskId}
         onSelectTask={onSelectTask}
         onTaskUpdate={onTaskUpdate}
+        onStageMove={onStageMove}
         config={config}
         onAddTask={onAddTask}
         isCreating={isCreating}
@@ -543,16 +597,33 @@ interface FlatColumnContentProps {
   stage: string;
   tasks: Task[];
   allTasks: Task[];
+  stages: readonly string[];
+  isTouchLayout: boolean;
   selectedTaskId: string | null;
   setSelectedTaskId: (id: string | null) => void;
   onSelectTask?: (task: Task) => void;
   onTaskUpdate?: (taskId: string, updates: Partial<Task>) => Promise<void>;
+  onStageMove?: (task: Task, targetStage: string) => void | Promise<void>;
   config: StageConfig;
   onAddTask?: (title: string, stage: string) => void;
   isCreating?: boolean;
 }
 
-function FlatColumnContent({ stage, tasks, allTasks, selectedTaskId, setSelectedTaskId, onSelectTask, onTaskUpdate, config, onAddTask, isCreating }: FlatColumnContentProps) {
+function FlatColumnContent({
+  stage,
+  tasks,
+  allTasks,
+  stages,
+  isTouchLayout,
+  selectedTaskId,
+  setSelectedTaskId,
+  onSelectTask,
+  onTaskUpdate,
+  onStageMove,
+  config,
+  onAddTask,
+  isCreating,
+}: FlatColumnContentProps) {
   const allIds = useMemo(() => tasks.map(t => t.id), [tasks]);
   const [isAdding, setIsAdding] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -655,6 +726,18 @@ function FlatColumnContent({ stage, tasks, allTasks, selectedTaskId, setSelected
                 onClick={() => onSelectTask?.(task)}
                 onStatusChange={onTaskUpdate ? (s) => onTaskUpdate(task.id, { status: s }) : undefined}
                 onApprovalModeChange={onTaskUpdate ? (m) => onTaskUpdate(task.id, { approval_mode: m }) : undefined}
+                onStageChange={
+                  isTouchLayout && onStageMove
+                    ? (nextStage) => {
+                        if (nextStage) {
+                          void onStageMove(task, nextStage);
+                        }
+                      }
+                    : undefined
+                }
+                stageOptions={isTouchLayout ? stages : undefined}
+                currentStage={stage}
+                dragDisabled={isTouchLayout}
                 allTasks={allTasks}
                 relationship={rel}
               />
@@ -677,5 +760,3 @@ function FlatColumnContent({ stage, tasks, allTasks, selectedTaskId, setSelected
     </SortableContext>
   );
 }
-
-

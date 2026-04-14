@@ -10,6 +10,7 @@ import {
   Plus,
   FolderOpen,
   ChevronDown,
+  ChevronUp,
   GripVertical,
   Copy,
   Check,
@@ -33,6 +34,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { Participant, ChatProvider, SkillBinding } from "@/lib/types";
 import SearchCombo, { type ComboOption } from "@/components/SearchCombo";
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 
 const COLORS = ["#D97706", "#2563EB", "#059669", "#DC2626", "#7C3AED", "#DB2777", "#0891B2"];
 
@@ -60,12 +62,22 @@ function SortableAgentItem({
   p,
   isActive,
   isFirst,
+  dragDisabled = false,
+  canMoveUp = false,
+  canMoveDown = false,
+  onMoveUp,
+  onMoveDown,
   onToggleActive,
   onClickEdit,
 }: {
   p: Participant;
   isActive: boolean;
   isFirst: boolean;
+  dragDisabled?: boolean;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
   onToggleActive?: (participantId: string, active: boolean) => void;
   onClickEdit: () => void;
 }) {
@@ -76,7 +88,7 @@ function SortableAgentItem({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: p.id });
+  } = useSortable({ id: p.id, disabled: dragDisabled });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -92,9 +104,10 @@ function SortableAgentItem({
       >
         <button
           type="button"
-          className="flex-shrink-0 cursor-grab active:cursor-grabbing p-1 text-[var(--muted-foreground)] hover:text-[var(--muted-foreground)] transition-colors"
+          className={`flex-shrink-0 p-1 text-[var(--muted-foreground)] transition-colors ${dragDisabled ? "cursor-default opacity-40" : "cursor-grab active:cursor-grabbing hover:text-[var(--muted-foreground)]"}`}
           {...attributes}
           {...listeners}
+          disabled={dragDisabled}
         >
           <GripVertical size={12} />
         </button>
@@ -127,6 +140,36 @@ function SortableAgentItem({
         >
           <span className={`absolute top-[2px] left-[2px] w-2 h-2 bg-[var(--card-bg)] rounded-full shadow-sm transition-transform ${isActive ? "translate-x-2" : "translate-x-0"}`} />
         </button>
+        {dragDisabled && (canMoveUp || canMoveDown) ? (
+          <div className="flex items-center gap-0.5">
+            {canMoveUp ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onMoveUp?.();
+                }}
+                className="rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)]"
+                aria-label={`Move ${p.name} up`}
+              >
+                <ChevronUp size={12} />
+              </button>
+            ) : null}
+            {canMoveDown ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onMoveDown?.();
+                }}
+                className="rounded p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)]"
+                aria-label={`Move ${p.name} down`}
+              >
+                <ChevronDown size={12} />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -134,16 +177,16 @@ function SortableAgentItem({
 
 function useClickOutside(ref: React.RefObject<HTMLElement | null>, onClose: () => void) {
   useEffect(() => {
-    const handle = (e: MouseEvent) => {
+    const handle = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) {
         onClose();
       }
     };
     // Use timeout so the current click event finishes before we start listening
-    const id = setTimeout(() => document.addEventListener("mousedown", handle), 0);
+    const id = setTimeout(() => document.addEventListener("pointerdown", handle), 0);
     return () => {
       clearTimeout(id);
-      document.removeEventListener("mousedown", handle);
+      document.removeEventListener("pointerdown", handle);
     };
   }, [ref, onClose]);
 }
@@ -348,13 +391,13 @@ export function AgentForm({
 
   useEffect(() => {
     if (!skillPickerOpen) return;
-    const handle = (event: MouseEvent) => {
+    const handle = (event: PointerEvent) => {
       if (skillPickerRef.current && !skillPickerRef.current.contains(event.target as Node)) {
         setSkillPickerOpen(false);
       }
     };
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
+    document.addEventListener("pointerdown", handle);
+    return () => document.removeEventListener("pointerdown", handle);
   }, [skillPickerOpen]);
 
   useEffect(() => {
@@ -1011,6 +1054,7 @@ export function ParticipantBar({
   openAddNonce,
   variant = "default",
 }: Props) {
+  const { isTouchLayout } = useInputCapabilities();
   // "add" or participant id being edited, or null
   const [openPanel, setOpenPanel] = useState<string | null>(null);
   const isSidebar = variant === "sidebar";
@@ -1063,10 +1107,33 @@ export function ParticipantBar({
                 {showDivider && (
                   <div className="mx-2 my-1 border-t border-dashed border-[var(--border)]" />
                 )}
-                <SortableAgentItem
+              <SortableAgentItem
                   p={p}
                   isActive={activeSet.has(p.id)}
                   isFirst={index === 0}
+                  dragDisabled={isTouchLayout}
+                  canMoveUp={
+                    Boolean(onReorder) &&
+                    index > 0 &&
+                    activeSet.has(sortedParticipants[index - 1].id) === isActive
+                  }
+                  canMoveDown={
+                    Boolean(onReorder) &&
+                    index < sortedParticipants.length - 1 &&
+                    activeSet.has(sortedParticipants[index + 1].id) === isActive
+                  }
+                  onMoveUp={() => {
+                    if (!onReorder || index === 0) return;
+                    const reordered = [...sortedParticipants];
+                    [reordered[index - 1], reordered[index]] = [reordered[index], reordered[index - 1]];
+                    onReorder(reordered.map((participant) => participant.id));
+                  }}
+                  onMoveDown={() => {
+                    if (!onReorder || index >= sortedParticipants.length - 1) return;
+                    const reordered = [...sortedParticipants];
+                    [reordered[index], reordered[index + 1]] = [reordered[index + 1], reordered[index]];
+                    onReorder(reordered.map((participant) => participant.id));
+                  }}
                   onToggleActive={onToggleActive}
                   onClickEdit={() => setOpenPanel(openPanel === p.id ? null : p.id)}
                 />

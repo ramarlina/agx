@@ -5,6 +5,7 @@ import * as Diff from "diff";
 
 import { useGraphUIStore, resolveNodeActionInGraph, type NodeAction } from "@/components/graph/useGraphUIStore";
 import { formatNodeStatusLabel, getNodeLabel } from "@/components/graph/graph-derived";
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { sanitizeTaskObjective } from "@/src/graph/objective";
 import type {
   ExecutionGraph,
@@ -144,6 +145,7 @@ export default function NodeDetailPanel({
   onShowLogs,
   onRefetch,
 }: NodeDetailPanelProps) {
+  const { isTouchLayout } = useInputCapabilities();
   const selectedNodeId = useGraphUIStore((state) => state.selectedNodeId);
   const triggeringNodeId = useGraphUIStore((state) => state.triggeringNodeId);
   
@@ -165,12 +167,13 @@ export default function NodeDetailPanel({
   
   // Resize handling
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (isTouchLayout) return;
     e.preventDefault();
     setIsResizing(true);
-  }, []);
+  }, [isTouchLayout]);
   
   useEffect(() => {
-    if (!isResizing) return;
+    if (!isResizing || isTouchLayout) return;
     
     const handleMouseMove = (e: MouseEvent) => {
       const newWidth = window.innerWidth - e.clientX;
@@ -188,7 +191,7 @@ export default function NodeDetailPanel({
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [isResizing]);
+  }, [isResizing, isTouchLayout]);
   
   // Reset diff selection when node changes
   useEffect(() => {
@@ -235,17 +238,28 @@ export default function NodeDetailPanel({
     : "";
   
   return (
-    <aside
-      ref={panelRef}
-      className={`node-detail-panel ${isOpen ? "node-detail-panel--open" : ""}`}
-      style={{ width: `${width}px` }}
-    >
+    <>
+      {isTouchLayout ? (
+        <button
+          type="button"
+          className="fixed inset-0 z-40 bg-black/40"
+          onClick={onClose}
+          aria-label="Close node details"
+        />
+      ) : null}
+      <aside
+        ref={panelRef}
+        className={`node-detail-panel ${isOpen ? "node-detail-panel--open" : ""}${isTouchLayout ? " node-detail-panel--touch" : ""}`}
+        style={isTouchLayout ? undefined : { width: `${width}px` }}
+      >
       {/* Resize handle */}
-      <div
-        ref={resizeHandleRef}
-        className={`node-detail-panel__resize-handle ${isResizing ? "node-detail-panel__resize-handle--active" : ""}`}
-        onMouseDown={handleMouseDown}
-      />
+      {!isTouchLayout ? (
+        <div
+          ref={resizeHandleRef}
+          className={`node-detail-panel__resize-handle ${isResizing ? "node-detail-panel__resize-handle--active" : ""}`}
+          onMouseDown={handleMouseDown}
+        />
+      ) : null}
       
       {/* Header */}
       <header className="node-detail-panel__header">
@@ -492,7 +506,8 @@ export default function NodeDetailPanel({
           </div>
         )}
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }
 

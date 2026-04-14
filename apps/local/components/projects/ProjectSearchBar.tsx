@@ -19,6 +19,7 @@ import type {
   ProjectSearchResultKind,
   ProjectSearchSection,
 } from "@/lib/project-search";
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 
 interface ProjectSearchBarProps {
   projectId: string;
@@ -77,6 +78,7 @@ function iconForKind(kind: ProjectSearchResultKind) {
 }
 
 export function ProjectSearchBar({ projectId }: ProjectSearchBarProps) {
+  const { isTouchLayout } = useInputCapabilities();
   const router = useRouter();
   const pathname = usePathname();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -318,11 +320,11 @@ export function ProjectSearchBar({ projectId }: ProjectSearchBarProps) {
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
-        ) : (
+        ) : !isTouchLayout ? (
           <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-[var(--app-shell-border)] bg-[var(--app-shell-subtle)] px-1.5 py-0.5 font-sans text-[10px] font-bold text-[var(--app-shell-soft-text)]">
             ⌘K
           </kbd>
-        )}
+        ) : null}
       </div>
 
       {showPanel ? (

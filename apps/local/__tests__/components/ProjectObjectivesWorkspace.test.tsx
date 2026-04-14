@@ -363,14 +363,10 @@ describe("ProjectObjectivesWorkspace", () => {
     render(<ProjectObjectivesOverview projectSlug="alpha" />);
 
     expect(screen.getByText(/1 activity · Last Apr 9,/i)).toBeInTheDocument();
-    expect(screen.queryByText("Focus on referral traffic first.")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Get 50 visitors daily/i })).not.toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: /Open details for Get 50 visitors daily/i })
-    ).toHaveAttribute("href", "/projects/alpha/objectives/objective_growth");
-    expect(screen.queryByText("Activity timeline")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Open details for Get 50 visitors daily/i })).toBeInTheDocument();
+    expect(screen.getAllByText("Get 50 visitors daily").length).toBeGreaterThan(0);
+    expect(screen.getByText("Strategy Sessions")).toBeInTheDocument();
     expect(screen.queryByText("Manual tasks")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Delete objective/i })).not.toBeInTheDocument();
   });
 
   test("keeps objective creation minimal", () => {
@@ -382,7 +378,7 @@ describe("ProjectObjectivesWorkspace", () => {
 
     expect(within(dialog).getByText("Objective statement")).toBeInTheDocument();
     expect(within(dialog).getByText("Team")).toBeInTheDocument();
-    expect(within(dialog).getByText("Notes")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Notes")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("Cadence")).not.toBeInTheDocument();
     expect(within(dialog).queryByText("Health")).not.toBeInTheDocument();
     expect(within(dialog).queryByText(/Progress \(/i)).not.toBeInTheDocument();
@@ -401,14 +397,10 @@ describe("ProjectObjectivesWorkspace", () => {
       screen.getByRole("button", { name: /Edit objective Get 50 visitors daily/i })
     );
 
-    const dialog = screen.getByRole("dialog", { name: /Edit objective/i });
-    expect(within(dialog).getByText("Objective statement")).toBeInTheDocument();
-    expect(within(dialog).getByText("Notes")).toBeInTheDocument();
-    expect(within(dialog).queryByText("Team")).not.toBeInTheDocument();
-    expect(within(dialog).queryByText("Schedule")).not.toBeInTheDocument();
-    expect(within(dialog).queryByText("Health")).not.toBeInTheDocument();
-    expect(within(dialog).queryByText(/Progress \(/i)).not.toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: /Save objective/i })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Objective statement")).toHaveValue("Get 50 visitors daily");
+    expect(screen.queryByText("Health")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Progress \(/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Save objective/i })).toBeInTheDocument();
   });
 
   test("opens a dedicated team editor", async () => {
@@ -423,12 +415,9 @@ describe("ProjectObjectivesWorkspace", () => {
       screen.getByRole("button", { name: /Edit team for Get 50 visitors daily/i })
     );
 
-    const dialog = screen.getByRole("dialog", { name: /Edit team/i });
-    expect(within(dialog).getByText("Team")).toBeInTheDocument();
-    expect(within(dialog).queryByText("Objective statement")).not.toBeInTheDocument();
-    expect(within(dialog).queryByText("Notes")).not.toBeInTheDocument();
-    expect(within(dialog).queryByText("Schedule")).not.toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: /Save team/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Select a team/i })).toBeInTheDocument();
+    expect(screen.queryByText("Objective statement")).not.toBeInTheDocument();
+    expect(screen.queryByText("Schedule")).not.toBeInTheDocument();
   });
 
   test("lets you delete an objective from the detail view", async () => {
@@ -467,12 +456,6 @@ describe("ProjectObjectivesWorkspace", () => {
       />
     );
 
-    expect(
-      screen.getByRole("link", { name: /Back to objectives/i })
-    ).toHaveAttribute("href", "/projects/alpha");
-    expect(
-      screen.getByText("How often agents should wake up and work on it?")
-    ).toBeInTheDocument();
     expect(screen.getByText("Team")).toBeInTheDocument();
     await screen.findByText("Growth");
     expect(screen.getAllByText("Every weekday morning").length).toBeGreaterThan(0);
@@ -485,13 +468,15 @@ describe("ProjectObjectivesWorkspace", () => {
     expect(screen.queryByText("Condition")).not.toBeInTheDocument();
     expect(screen.getByText("Scheduled Tasks")).toBeInTheDocument();
     expect(screen.queryByText("Manual Tasks")).not.toBeInTheDocument();
-    expect(screen.getByText("Linear Tickets")).toBeInTheDocument();
+    expect(screen.getByText("Linear")).toBeInTheDocument();
     expect(screen.getByTestId("objective-chat-composer")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Scheduled Tasks" }));
     expect(screen.getByTestId("objective-scheduled-tasks-panel")).toBeInTheDocument();
     expect(screen.getByText("Weekly objective review")).toBeInTheDocument();
     expect(
       screen.getByText("Review progress against the objective and propose the next best move.")
     ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Linear/i }));
     await screen.findByText("AGX-42");
     expect(screen.getAllByText("get-50-visitors-daily").length).toBeGreaterThan(0);
     expect(screen.queryByText("Progress")).not.toBeInTheDocument();
@@ -1198,12 +1183,17 @@ describe("ProjectObjectivesWorkspace", () => {
 
     await waitFor(() => expect(loadHistoryMock).toHaveBeenCalledWith("thread-objective_growth"));
 
-    const historyRewriteCall = fetchMock.mock.calls.find(
-      ([input, init]) =>
-        String(input) === "/api/history" &&
-        (init as RequestInit | undefined)?.method === "POST"
-    );
-    expect(historyRewriteCall).toBeDefined();
+    let historyRewriteCall:
+      | [RequestInfo | URL, RequestInit | undefined]
+      | undefined;
+    await waitFor(() => {
+      historyRewriteCall = fetchMock.mock.calls.find(
+        ([input, init]) =>
+          String(input) === "/api/history" &&
+          (init as RequestInit | undefined)?.method === "POST"
+      ) as [RequestInfo | URL, RequestInit | undefined] | undefined;
+      expect(historyRewriteCall).toBeDefined();
+    });
 
     const historyRewriteBody = JSON.parse(
       String((historyRewriteCall?.[1] as RequestInit | undefined)?.body ?? "{}")
@@ -1391,6 +1381,9 @@ describe("ProjectObjectivesWorkspace", () => {
       />
     );
 
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith("/api/participants")
+    );
     expect(screen.getByTestId("objective-chat-send")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("objective-chat-send"));

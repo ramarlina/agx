@@ -28,6 +28,7 @@ import TaskDetailNodeComponent from "@/components/graph/TaskDetailNodeComponent"
 import { getNodeLabel } from "@/components/graph/graph-derived";
 import type { GraphFlowNode, TaskDetailNodeData } from "@/components/graph/graph-flow-types";
 import { useGraphUIStore } from "@/components/graph/useGraphUIStore";
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import type { ExecutionGraph, GraphNode, NodeStatus } from "@/src/graph/types";
 
 const NODE_TYPES = {
@@ -334,6 +335,7 @@ export default function ExecutionGraphPanel({
   taskDetailNode,
   onNodeClick,
 }: ExecutionGraphPanelProps) {
+  const { isTouchLayout } = useInputCapabilities();
   const [direction, setDirection] = useState<"TB" | "LR">("LR");
   const flowRef = useRef<ReactFlowInstance<GraphFlowNode, Edge> | null>(null);
   const initialFitDone = useRef(false);
@@ -423,11 +425,12 @@ export default function ExecutionGraphPanel({
         onNodesChange={onNodesChange}
         onNodeDragStop={onNodeDragStop}
         onNodeClick={handleNodeClick}
+        nodesDraggable={!isTouchLayout}
         panOnScroll
       >
         <Background gap={24} size={1.2} color="rgba(100, 116, 139, 0.25)" />
         <MiniMap pannable zoomable />
-        <Controls>
+        <Controls className={isTouchLayout ? "execution-graph-panel__controls execution-graph-panel__controls--touch" : "execution-graph-panel__controls"}>
           <ControlButton
             title="Fit graph"
             onClick={() => {

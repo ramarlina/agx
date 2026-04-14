@@ -6,6 +6,7 @@ import { useUrlSelection } from "@/hooks/useUrlSelection";
 import { useGroupChat } from "@/hooks/useGroupChat";
 import { useProcessPolling } from "@/hooks/useProcessPolling";
 import { useThreadState } from "@/hooks/useThreadState";
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { WorkspaceSidebar } from "@/components/thread/WorkspaceSidebar";
 import "@/styles/workspaceSidebar.css";
 import { MessageList } from "./MessageList";
@@ -221,6 +222,7 @@ export function ChatContainer({
   initialRootMessageId,
   showSidebar = true,
 }: ChatContainerProps = {}) {
+  const { isTouchLayout } = useInputCapabilities();
   const { getSelection, pushSelection, replaceSelection } = useUrlSelection();
   const {
     threads,
@@ -1757,9 +1759,9 @@ export function ChatContainer({
             ✕
           </button>
         </div>
-      ) : (
+      ) : !isTouchLayout ? (
         <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-md border border-[var(--app-shell-border)] bg-[var(--app-shell-subtle)] px-1.5 py-0.5 font-sans text-[10px] font-bold text-[var(--app-shell-soft-text)]">⌘K</kbd>
-      )}
+      ) : null}
     </div>
   );
 
@@ -1854,6 +1856,17 @@ export function ChatContainer({
                 {openThreadId ? (
                   <div className="desktop-titlebar border-b border-[var(--app-shell-border)] bg-[var(--app-shell-surface)] px-4 py-2.5 backdrop-blur-xl md:px-6 transition-colors duration-200 shrink-0">
                     <div className="mx-auto flex max-w-5xl items-center gap-3 min-w-0">
+                      {showSidebar && !workspaceSidebarVisible ? (
+                        <button
+                          type="button"
+                          onClick={toggleWorkspaceSidebar}
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--app-shell-border)] bg-[var(--app-shell-elevated)] text-[var(--app-shell-muted)] transition hover:border-[var(--app-shell-border-strong)] hover:text-[var(--foreground)]"
+                          title="Show sidebar"
+                          aria-label="Show sidebar"
+                        >
+                          <PanelLeftOpen className="h-4 w-4" strokeWidth={1.75} />
+                        </button>
+                      ) : null}
                       <button
                         onClick={() => navigateToThread(null)}
                         className="p-1.5 text-[var(--app-shell-muted)] hover:text-[var(--primary)] hover:bg-[var(--app-shell-subtle)] rounded-xl transition-all active:scale-95 flex-shrink-0"

@@ -42,13 +42,13 @@ export default function SearchCombo({
 
   const selected = useMemo(() => options.find((o) => o.id === value), [options, value]);
 
-  const handleClickOutside = useCallback((e: MouseEvent) => {
+  const handleClickOutside = useCallback((e: PointerEvent) => {
     if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
   }, []);
 
   useEffect(() => {
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("pointerdown", handleClickOutside);
+    return () => document.removeEventListener("pointerdown", handleClickOutside);
   }, [handleClickOutside]);
 
   return (

@@ -185,9 +185,9 @@ describe('KanbanBoard', () => {
   });
 
   describe('Responsive Design', () => {
-    test('board container has overflow-x-auto for horizontal scrolling', () => {
+    test('board uses a stacked mobile-first layout', () => {
       const { container } = render(<KanbanBoard tasks={mockTasks} />);
-      const boardContainer = container.querySelector('.overflow-auto');
+      const boardContainer = container.querySelector('.flex-col.xl\\:flex-row');
       expect(boardContainer).toBeInTheDocument();
     });
 

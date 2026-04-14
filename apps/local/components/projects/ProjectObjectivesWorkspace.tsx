@@ -32,6 +32,7 @@ import { ObjectiveScheduledTasksPanel } from "@/components/projects/ObjectiveSch
 import { ObjectiveActivityTimeline } from "@/components/projects/ObjectiveActivityTimeline";
 import { LinearIcon } from "@/components/linear/LinearIcon";
 import { usePromptJobs } from "@/hooks/usePromptJobs";
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { cronToHuman } from "@/src/graph/nl-schedule";
 import {
   DEFAULT_OBJECTIVE_LINEAR_WORKER_NAME,
@@ -142,11 +143,12 @@ function ObjectiveChatResizeHandle({
 }: {
   onResize: (delta: number) => void;
 }) {
+  const { isTouchLayout } = useInputCapabilities();
   const dragging = useRef(false);
   const lastX = useRef(0);
 
   useEffect(() => {
-    if (!dragging.current) return;
+    if (isTouchLayout || !dragging.current) return;
 
     const onMouseMove = (event: MouseEvent) => {
       const delta = lastX.current - event.clientX;
@@ -168,7 +170,11 @@ function ObjectiveChatResizeHandle({
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
-  });
+  }, [isTouchLayout, onResize]);
+
+  if (isTouchLayout) {
+    return null;
+  }
 
   return (
     <div
@@ -1293,11 +1299,12 @@ function ObjectiveListResizeHandle({
 }: {
   onResize: (delta: number) => void;
 }) {
+  const { isTouchLayout } = useInputCapabilities();
   const dragging = useRef(false);
   const lastX = useRef(0);
 
   useEffect(() => {
-    if (!dragging.current) return;
+    if (isTouchLayout || !dragging.current) return;
 
     const onMouseMove = (event: MouseEvent) => {
       const delta = event.clientX - lastX.current;
@@ -1319,7 +1326,11 @@ function ObjectiveListResizeHandle({
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
     };
-  });
+  }, [isTouchLayout, onResize]);
+
+  if (isTouchLayout) {
+    return null;
+  }
 
   return (
     <div
@@ -2162,15 +2173,17 @@ export function ProjectObjectiveDetail({
                     </button>
                   </div>
                 ) : (
-                  <div
-                    className="flex items-center gap-3 group cursor-pointer"
+                  <button
+                    type="button"
+                    aria-label={`Edit objective ${objective.title}`}
+                    className="flex items-center gap-3 group cursor-pointer text-left"
                     onClick={() => setObjectiveEditor(buildObjectiveDraft(objective))}
                   >
                     <h1 className="text-[28px] leading-tight font-semibold text-[var(--foreground)]">
                       {objective.title}
                     </h1>
                     <Pencil size={16} className="shrink-0 text-[var(--muted-foreground)] opacity-0 transition-opacity group-hover:opacity-100" />
-                  </div>
+                  </button>
                 )}
               </div>
 
@@ -2212,6 +2225,7 @@ export function ProjectObjectiveDetail({
                   ) : (
                     <button
                       type="button"
+                      aria-label={`Edit team for ${objective.title}`}
                       onClick={() => setTeamEditor({ teamId: objective.teamId })}
                       className="group -mx-1.5 -my-0.5 flex items-center gap-2 rounded px-1.5 py-0.5 transition-colors hover:bg-[var(--muted)]"
                     >
@@ -2234,6 +2248,7 @@ export function ProjectObjectiveDetail({
                   <button
                     type="button"
                     onClick={() => setWakeEditor(buildObjectiveDraft(objective))}
+                    aria-label={`Edit cadence for ${objective.title}`}
                     className="-my-0.5 rounded px-1.5 py-0.5 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--primary)]"
                   >
                     {formatObjectiveCadence(objective.cadence)}

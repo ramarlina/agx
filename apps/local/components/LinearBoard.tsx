@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ArrowDown, ArrowUp, Check, ChevronDown, Clock, ExternalLink, FileText, Link2, Play, Plus, RefreshCw, Search, Settings, User } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, Clock, ExternalLink, FileText, Link2, Play, Plus, RefreshCw, Search, Settings, User, X } from "lucide-react";
 import { useUrlSelection } from "@/hooks/useUrlSelection";
 import { useLinearIssues, type LinearIssue } from "@/hooks/useLinearIssues";
 import { useLinearConnection } from "@/hooks/useLinearConnection";
@@ -13,6 +13,7 @@ import { useProcessPolling } from "@/hooks/useProcessPolling";
 import { Markdown } from "@/components/chat-ui/Markdown";
 import RunScriptManager from "@/components/linear/RunScriptManager";
 import { stripMarkers } from "@/lib/chat-utils";
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import {
   loadLinearBoardFilters,
   persistLinearBoardFilters,
@@ -35,6 +36,10 @@ const Composer = dynamic(
   () => import("@/components/chat-ui/Composer").then((module) => module.Composer),
   { ssr: false }
 );
+
+function createThreadId() {
+  return globalThis.crypto?.randomUUID?.() ?? `thread-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 function ResizeHandle({
   onResize,
@@ -316,14 +321,14 @@ function FilterPopdown({
       return;
     }
 
-    const handlePointerDown = (event: MouseEvent) => {
+    const handlePointerDown = (event: PointerEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
         setOpen(false);
       }
     };
 
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [open]);
 
   useEffect(() => {
@@ -420,14 +425,14 @@ function MultiFilterPopdown({
       return;
     }
 
-    const handlePointerDown = (event: MouseEvent) => {
+    const handlePointerDown = (event: PointerEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
         setOpen(false);
       }
     };
 
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [open]);
 
   const toggleValue = useCallback(
@@ -591,7 +596,10 @@ function TicketChatStarter({
   const defaultAgent = participants[0];
   const sessionScriptButtonLabel =
     activeSessionScriptLabel === "AGX default" ? "Session script" : activeSessionScriptLabel;
-  const threadIdRef = useRef(crypto.randomUUID());
+  const threadIdRef = useRef<string | null>(null);
+  if (!threadIdRef.current) {
+    threadIdRef.current = createThreadId();
+  }
   const { messages, setMessages, sendMessage, chatRuns } = useGroupChat(threadIdRef.current);
   const { processes, streaming } = useProcessPolling(
     { workspaceId: threadIdRef.current },
@@ -1201,6 +1209,7 @@ interface LinearBoardProps {
 }
 
 export default function LinearBoard({ projectId, projectSlug, initialShowSettings }: LinearBoardProps) {
+  const { isTouchLayout } = useInputCapabilities();
   const {
     connected,
     loading: connectionLoading,
@@ -1238,6 +1247,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
   const [issueActiveAgents, setIssueActiveAgents] = useState<Map<string, Array<{ agentId: string; agentName: string }>>>(new Map());
   const [pickerIssue, setPickerIssue] = useState<LinearIssue | null>(null);
   const [pickerAnchor, setPickerAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [touchPanelTab, setTouchPanelTab] = useState<"runs" | "ticket">("runs");
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipNextFilterPersistRef = useRef(true);
   const runScriptsButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -1303,7 +1313,8 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
     if (projectSlug) {
       params.set("projectSlug", projectSlug);
     }
-    const url = params.size > 0 ? `/api/linear/options?${params.toString()}` : "/api/linear/options";
+    const query = params.toString();
+    const url = query ? `/api/linear/options?${query}` : "/api/linear/options";
     fetch(url)
       .then((res) => res.json())
       .then((data) => {
@@ -1575,6 +1586,24 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
   }, [replaceSelection, runs, runsLoading, selectedIssue, selectedRunId]);
 
   useEffect(() => {
+    if (!isTouchLayout) {
+      return;
+    }
+
+    if (!selectedIssue) {
+      setTouchPanelTab("runs");
+      return;
+    }
+
+    if (selectedRunId === NEW_SESSION_PANEL_ID || selectedRun || runs.length === 0) {
+      setTouchPanelTab("ticket");
+      return;
+    }
+
+    setTouchPanelTab("runs");
+  }, [isTouchLayout, runs.length, selectedIssue, selectedRun, selectedRunId]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadParticipants() {
@@ -1661,7 +1690,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
       return;
     }
 
-    const handlePointerDown = (event: MouseEvent) => {
+    const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (runScriptsPanelRef.current?.contains(target)) {
         return;
@@ -1678,10 +1707,10 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
       }
     };
 
-    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [showRunScripts]);
@@ -1797,7 +1826,327 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
 
   return (
     <div className="relative flex h-full overflow-hidden">
-      <div className="flex shrink-0 flex-col border-r border-[var(--card-border)]" style={{ width: ticketPanelWidth }}>
+      {isTouchLayout ? (
+        <>
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="shrink-0 border-b border-[var(--card-border)]">
+              <div className="flex h-12 items-center gap-2 px-3">
+                <div className="flex flex-1 items-center gap-2 rounded-md border border-[var(--card-border)] bg-[var(--background)] px-2.5 py-1.5 transition-all focus-within:border-[var(--muted-foreground)] focus-within:ring-1 focus-within:ring-[var(--muted-foreground)]">
+                  <Search size={14} className="shrink-0 text-[var(--muted-foreground)]" />
+                  <input
+                    type="text"
+                    className="flex-1 bg-transparent text-sm outline-none placeholder:text-[var(--muted-foreground)]"
+                    placeholder="Search tickets..."
+                    value={search}
+                    onChange={(event) => handleSearchChange(event.target.value)}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="shrink-0 rounded p-2 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card-bg)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => void refreshIssues()}
+                  title="Refresh tickets"
+                  aria-label="Refresh tickets"
+                  disabled={issuesLoading}
+                >
+                  <RefreshCw size={16} className={issuesLoading ? "animate-spin" : undefined} />
+                </button>
+                <button
+                  type="button"
+                  className="shrink-0 rounded p-2 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card-bg)] hover:text-[var(--foreground)]"
+                  onClick={() => {
+                    setShowRunScripts(false);
+                    setShowSettings(true);
+                  }}
+                  title="Linear settings"
+                >
+                  <Settings size={16} />
+                </button>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2">
+                {showStatusFilter ? (
+                  <MultiFilterPopdown
+                    label="Status"
+                    values={selectedStatuses}
+                    options={statusOptions}
+                    activeClasses="border-amber-500/30 bg-amber-500/10 text-amber-300"
+                    onChange={setSelectedStatuses}
+                    emptyLabel="All statuses"
+                  />
+                ) : null}
+                <MultiFilterPopdown
+                  label="Assignee"
+                  values={selectedAssigneeIds}
+                  options={assigneeOptions}
+                  activeClasses="border-blue-500/30 bg-blue-500/10 text-blue-400"
+                  onChange={setSelectedAssigneeIds}
+                  emptyLabel="All assignees"
+                />
+                {showWorkspaceFilter ? (
+                  <FilterSelect
+                    label="Workspace"
+                    value={selectedWorkspaceId}
+                    options={workspaceOptions}
+                    activeClasses="border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                    onChange={setSelectedWorkspaceId}
+                  />
+                ) : null}
+                {showCycleFilter ? (
+                  <FilterSelect
+                    label="Cycle"
+                    value={selectedCycleId}
+                    options={cycleOptions}
+                    activeClasses="border-purple-500/30 bg-purple-500/10 text-purple-400"
+                    onChange={setSelectedCycleId}
+                  />
+                ) : null}
+                <FilterSelect
+                  label="Sort"
+                  value={sortBy}
+                  options={[
+                    { value: "activity", label: "Activity" },
+                    { value: "identifier", label: "Ticket ID" },
+                    { value: "status", label: "Status" },
+                    { value: "created", label: "Created" },
+                  ]}
+                  activeClasses="border-sky-500/30 bg-sky-500/10 text-sky-400"
+                  onChange={(value) => setSortBy(value as typeof sortBy)}
+                />
+                <button
+                  type="button"
+                  className="rounded-full border border-[var(--card-border)] p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card-bg)] hover:text-[var(--foreground)]"
+                  title={sortDir === "desc" ? "Descending" : "Ascending"}
+                  onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
+                >
+                  {sortDir === "desc" ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
+                </button>
+                <button
+                  type="button"
+                  className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                    hasActivity
+                      ? "border-orange-500/30 bg-orange-500/10 text-orange-400"
+                      : "border-[var(--card-border)] text-[var(--muted-foreground)] hover:bg-[var(--card-bg)]"
+                  }`}
+                  onClick={() => setHasActivity((v) => !v)}
+                >
+                  My activity
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto">
+              {issuesLoading && issues.length === 0 ? (
+                <div className="px-3 py-4 text-xs text-[var(--muted-foreground)]">
+                  Loading tickets...
+                </div>
+              ) : issues.length === 0 ? (
+                <div className="px-3 py-4 text-xs text-[var(--muted-foreground)]">
+                  No tickets found.
+                </div>
+              ) : (
+                <>
+                  {issues.map((issue) => (
+                    <TicketRow
+                      key={issue.id}
+                      issue={issue}
+                      selected={selectedIssue?.id === issue.id}
+                      activeAgents={issueActiveAgents.get(issue.id)}
+                      participants={participants}
+                      onSelect={() => {
+                        setTouchPanelTab("runs");
+                        pushSelection({
+                          issue: issue.id,
+                          run: null,
+                        });
+                      }}
+                    />
+                  ))}
+                  {hasMore ? (
+                    <div
+                      ref={sentinelRef}
+                      className="py-2 text-center text-xs text-[var(--muted-foreground)]"
+                    >
+                      {issuesLoading ? "Loading..." : "Load more"}
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </div>
+          </div>
+
+          {selectedIssue ? (
+            <div className="absolute inset-0 z-20 flex flex-col bg-[var(--background)]">
+              <div className="flex items-center justify-between gap-3 border-b border-[var(--card-border)] px-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--muted-foreground)]">
+                    {selectedIssue.identifier}
+                  </div>
+                  <div className="truncate text-sm font-semibold text-[var(--foreground)]">
+                    {selectedIssue.title}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="rounded p-2 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card-bg)] hover:text-[var(--foreground)]"
+                  onClick={() => replaceSelection({ issue: null, run: null })}
+                  aria-label="Close ticket panel"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2 border-b border-[var(--card-border)] px-3 py-2">
+                <button
+                  type="button"
+                  className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                    touchPanelTab === "runs"
+                      ? "bg-[var(--card-bg)] text-[var(--foreground)]"
+                      : "text-[var(--muted-foreground)] hover:bg-[var(--card-bg)] hover:text-[var(--foreground)]"
+                  }`}
+                  onClick={() => setTouchPanelTab("runs")}
+                >
+                  Runs
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+                    touchPanelTab === "ticket"
+                      ? "bg-[var(--card-bg)] text-[var(--foreground)]"
+                      : "text-[var(--muted-foreground)] hover:bg-[var(--card-bg)] hover:text-[var(--foreground)]"
+                  }`}
+                  onClick={() => setTouchPanelTab("ticket")}
+                >
+                  Ticket
+                </button>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-hidden">
+                {touchPanelTab === "runs" ? (
+                  <div className="flex h-full flex-col overflow-hidden">
+                    <div className="relative flex items-center justify-between border-b border-[var(--card-border)] px-3 py-2">
+                      <h3 className="text-xs font-semibold text-[var(--foreground)]">Sessions</h3>
+                      <button
+                        ref={runScriptsButtonRef}
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card-bg)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
+                        onClick={() => {
+                          setShowRunScripts(false);
+                          setTouchPanelTab("ticket");
+                          pushSelection({ run: NEW_SESSION_PANEL_ID });
+                        }}
+                        title="Open a fresh chat for this ticket. You can choose or edit the session script in the ticket tab."
+                        aria-label="New session"
+                        disabled={!selectedIssue}
+                      >
+                        <Plus size={12} />
+                        New session
+                      </button>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto">
+                      {runsLoading && runs.length === 0 ? (
+                        <div className="px-3 py-4 text-xs text-[var(--muted-foreground)]">
+                          Loading sessions...
+                        </div>
+                      ) : runs.length === 0 ? (
+                        <div className="px-3 py-4 text-xs text-[var(--muted-foreground)]">
+                          No previous sessions yet.
+                        </div>
+                      ) : (
+                        runs.map((run) => {
+                          const runDisplay = getRunDisplayState(run);
+
+                          return (
+                            <button
+                              key={run.id}
+                              type="button"
+                              className={`w-full px-3 py-2 text-left text-xs transition-colors ${
+                                selectedRun?.id === run.id
+                                  ? "bg-[var(--card-bg)]"
+                                  : "hover:bg-[var(--card-bg)]"
+                              }`}
+                              onClick={() => {
+                                setTouchPanelTab("ticket");
+                                pushSelection({ run: run.id });
+                              }}
+                            >
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-[var(--foreground)]">
+                                  {getRunTitle(run)}
+                                </span>
+                                <span className="text-[10px] text-[var(--muted-foreground)]">
+                                  {formatRunTime(run.startedAt)}
+                                </span>
+                              </div>
+                              <div className="mt-0.5 flex items-center gap-1.5 text-[10px]">
+                                <span className={`font-medium ${STATUS_TEXT_COLORS[runDisplay.tone]}`}>
+                                  {runDisplay.label}
+                                </span>
+                                <span className="truncate text-[var(--muted-foreground)]">
+                                  {run.agentName}
+                                </span>
+                              </div>
+                              {run.durationMs != null ? (
+                                <div className="text-[10px] text-[var(--muted-foreground)]">
+                                  {(run.durationMs / 1000).toFixed(1)}s
+                                </div>
+                              ) : null}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                ) : selectedRun ? (
+                  <ThreadMessageList
+                    issue={selectedIssue ?? {
+                      id: selectedRun.issueId,
+                      identifier: selectedRun.issueIdentifier,
+                      title: selectedRun.issueTitle,
+                      url: null,
+                      status: selectedRun.issueStatus,
+                      assignee: selectedRun.issueAssignee,
+                      updatedAt: selectedRun.updatedAt,
+                    }}
+                    run={selectedRun}
+                    participants={participants}
+                    issueStatusOptions={issueStatusOptions}
+                    issueStatusUpdating={updatingIssueId === selectedRun.issueId}
+                    onIssueStatusChange={handleIssueStatusChange}
+                  />
+                ) : participants.length === 0 ? (
+                  <div className="flex h-full items-center justify-center text-xs text-[var(--muted-foreground)]">
+                    Add at least one agent to this project to start a session.
+                  </div>
+                ) : selectedRunId === NEW_SESSION_PANEL_ID || runs.length === 0 ? (
+                  <TicketChatStarter
+                    key={selectedIssue.id}
+                    issue={selectedIssue}
+                    participants={participants}
+                    projectId={projectId}
+                    projectSlug={projectSlug}
+                    issueStatusOptions={issueStatusOptions}
+                    issueStatusUpdating={updatingIssueId === selectedIssue.id}
+                    onIssueStatusChange={handleIssueStatusChange}
+                    activeSessionScriptLabel={activeSessionScriptLabel}
+                    onOpenSessionScripts={() => setShowRunScripts(true)}
+                    onStartScriptedSession={(event) => handleStartScriptedSession(selectedIssue, event)}
+                    createRun={createRun}
+                    updateRun={updateRun}
+                    onRunCreated={(runId) => pushSelection({ run: runId })}
+                  />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-xs text-[var(--muted-foreground)]">
+                    {runsLoading ? "Loading sessions..." : "Select a session to continue."}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <div className="flex shrink-0 flex-col border-r border-[var(--card-border)]" style={{ width: ticketPanelWidth }}>
         <div className="shrink-0 border-b border-[var(--card-border)]">
           <div className="flex h-12 items-center gap-2 px-3">
             <div className="flex flex-1 items-center gap-2 rounded-md border border-[var(--card-border)] bg-[var(--background)] px-2.5 py-1.5 transition-all focus-within:border-[var(--muted-foreground)] focus-within:ring-1 focus-within:ring-[var(--muted-foreground)]">
@@ -2091,6 +2440,8 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
           </div>
         )}
       </div>
+        </>
+      )}
 
       {/* Settings overlay */}
       {showSettings && (
@@ -2119,6 +2470,24 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
           </div>
         </div>
       )}
+
+      {showRunScripts && isTouchLayout ? (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/50 p-4">
+          <div
+            ref={runScriptsPanelRef}
+            className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-[var(--card-border)] bg-[var(--background)] p-4 shadow-2xl"
+          >
+            <RunScriptManager
+              projectSlug={projectSlug}
+              scripts={runScripts}
+              activeScriptId={activeScriptId}
+              onSetActiveScriptId={setActiveScriptId}
+              onSaveScript={saveScript}
+              onDeleteScript={deleteScript}
+            />
+          </div>
+        </div>
+      ) : null}
 
       {/* Agent picker popover */}
       {pickerIssue && pickerAnchor && (

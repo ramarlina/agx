@@ -233,10 +233,14 @@ export function ObjectiveActivityTimeline({
         if (!response.ok) throw new Error("Failed to load activities");
 
         const data = (await response.json()) as ObjectiveActivityPage;
-        setActivities((prev) => (append ? [...prev, ...data.activities] : data.activities));
-        setTotal(data.total);
-        onTotalChange?.(data.total);
-        setHasMore(data.hasMore);
+        const nextActivities = Array.isArray(data.activities) ? data.activities : [];
+        const nextTotal = typeof data.total === "number" ? data.total : nextActivities.length;
+        const nextHasMore = Boolean(data.hasMore);
+
+        setActivities((prev) => (append ? [...prev, ...nextActivities] : nextActivities));
+        setTotal(nextTotal);
+        onTotalChange?.(nextTotal);
+        setHasMore(nextHasMore);
       } catch (error) {
         console.error("Failed to fetch activities:", error);
       } finally {

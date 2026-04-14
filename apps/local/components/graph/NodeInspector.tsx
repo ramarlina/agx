@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { formatNodeStatusLabel, getNodeLabel } from "@/components/graph/graph-derived";
 import { useGraphUIStore, resolveNodeActionInGraph, type NodeAction } from "@/components/graph/useGraphUIStore";
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { sanitizeTaskObjective } from "@/src/graph/objective";
 import type { ExecutionGraph, RootNode, WorkNode, GateNode, NodeStatus } from "@/src/graph/types";
 
@@ -58,6 +59,7 @@ export default function NodeInspector({
   showLogsButton = true,
   onShowLogs,
 }: NodeInspectorProps) {
+  const { isTouchLayout } = useInputCapabilities();
   const selectedNodeId = useGraphUIStore((state) => state.selectedNodeId);
   const triggeringNodeId = useGraphUIStore((state) => state.triggeringNodeId);
   const setSelectedNodeId = useGraphUIStore((state) => state.setSelectedNodeId);
@@ -65,12 +67,13 @@ export default function NodeInspector({
   const panelRef = useRef<HTMLDivElement>(null);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (isTouchLayout) return;
     e.preventDefault();
     setIsResizing(true);
-  }, []);
+  }, [isTouchLayout]);
 
   useEffect(() => {
-    if (!isResizing) return;
+    if (!isResizing || isTouchLayout) return;
     const handleMouseMove = (e: MouseEvent) => {
       if (!panelRef.current) return;
       const rect = panelRef.current.getBoundingClientRect();
@@ -89,12 +92,12 @@ export default function NodeInspector({
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
     };
-  }, [isResizing]);
+  }, [isResizing, isTouchLayout]);
 
   if (!selectedNodeId || !graph.nodes[selectedNodeId]) {
     return (
       <aside ref={panelRef} className="graph-panel-card node-inspector node-inspector--resizable">
-        <div className="node-inspector__resize-handle" onMouseDown={handleMouseDown} />
+        {!isTouchLayout ? <div className="node-inspector__resize-handle" onMouseDown={handleMouseDown} /> : null}
         <div className="graph-panel-card__title">Node Inspector</div>
         <p className="graph-panel-card__empty">Select a node in the graph to inspect details.</p>
       </aside>
@@ -121,8 +124,8 @@ export default function NodeInspector({
   };
 
   return (
-    <aside ref={panelRef} className="graph-panel-card node-inspector node-inspector--resizable">
-      <div className="node-inspector__resize-handle" onMouseDown={handleMouseDown} />
+    <aside ref={panelRef} className={`graph-panel-card node-inspector ${isTouchLayout ? "node-inspector--touch" : "node-inspector--resizable"}`}>
+      {!isTouchLayout ? <div className="node-inspector__resize-handle" onMouseDown={handleMouseDown} /> : null}
       <div className="graph-panel-card__row">
         <div className="graph-panel-card__title">Node Inspector</div>
         <button
