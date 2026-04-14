@@ -63,6 +63,8 @@ export default function FloatingPanel({
   const { isTouchLayout } = useInputCapabilities();
   const dragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
   const resizeRef = useRef<{ startX: number; startY: number; originWidth: number; originHeight: number } | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const boundsRef = useRef<FloatingPanelBounds | null>(null);
 
   const initialBounds = useMemo(
     () => normalizeBounds(loadFloatingPanelBounds(panelId) ?? defaultBounds, minWidth, minHeight),
@@ -71,6 +73,10 @@ export default function FloatingPanel({
 
   const [bounds, setBounds] = useState<FloatingPanelBounds>(initialBounds);
   const [hydrated, setHydrated] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // Keep boundsRef in sync for use during drag/resize
+  boundsRef.current = bounds;
 
   useEffect(() => {
     setBounds(normalizeBounds(loadFloatingPanelBounds(panelId) ?? defaultBounds, minWidth, minHeight));
@@ -95,45 +101,64 @@ export default function FloatingPanel({
     return () => window.removeEventListener("resize", onResize);
   }, [isTouchLayout, minHeight, minWidth]);
 
+  // Attach drag/resize listeners only when actively dragging — no dependency on bounds
   useEffect(() => {
-    if (isTouchLayout) {
+    if (isTouchLayout || !isDragging) {
       return;
     }
 
+    const applyBoundsToDOM = (b: FloatingPanelBounds) => {
+      const el = panelRef.current;
+      if (!el) return;
+      el.style.left = `${b.x}px`;
+      el.style.top = `${b.y}px`;
+      el.style.width = `${b.width}px`;
+      el.style.height = `${b.height}px`;
+    };
+
     const onMouseMove = (event: MouseEvent) => {
       if (dragRef.current) {
-        const nextBounds = normalizeBounds(
+        const current = boundsRef.current!;
+        const next = normalizeBounds(
           {
-            ...bounds,
+            ...current,
             x: dragRef.current.originX + (event.clientX - dragRef.current.startX),
             y: dragRef.current.originY + (event.clientY - dragRef.current.startY),
           },
           minWidth,
           minHeight,
         );
-        setBounds(nextBounds);
+        boundsRef.current = next;
+        applyBoundsToDOM(next);
         return;
       }
 
       if (resizeRef.current) {
-        const nextBounds = normalizeBounds(
+        const current = boundsRef.current!;
+        const next = normalizeBounds(
           {
-            ...bounds,
+            ...current,
             width: resizeRef.current.originWidth + (event.clientX - resizeRef.current.startX),
             height: resizeRef.current.originHeight + (event.clientY - resizeRef.current.startY),
           },
           minWidth,
           minHeight,
         );
-        setBounds(nextBounds);
+        boundsRef.current = next;
+        applyBoundsToDOM(next);
       }
     };
 
     const onMouseUp = () => {
+      // Commit final position to React state (single re-render)
+      if (boundsRef.current) {
+        setBounds(boundsRef.current);
+      }
       dragRef.current = null;
       resizeRef.current = null;
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
+      setIsDragging(false);
     };
 
     window.addEventListener("mousemove", onMouseMove);
@@ -145,7 +170,7 @@ export default function FloatingPanel({
       document.body.style.userSelect = "";
       document.body.style.cursor = "";
     };
-  }, [bounds, isTouchLayout, minHeight, minWidth]);
+  }, [isDragging, isTouchLayout, minHeight, minWidth]);
 
   const handleDragStart = (event: React.MouseEvent<HTMLDivElement>) => {
     if (isTouchLayout) {
@@ -165,6 +190,7 @@ export default function FloatingPanel({
     };
     document.body.style.userSelect = "none";
     document.body.style.cursor = "grabbing";
+    setIsDragging(true);
   };
 
   const handleResizeStart = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -183,10 +209,12 @@ export default function FloatingPanel({
     };
     document.body.style.userSelect = "none";
     document.body.style.cursor = "nwse-resize";
+    setIsDragging(true);
   };
 
   return (
     <div
+      ref={panelRef}
       className={className}
       style={{
         position: "fixed",
