@@ -31,6 +31,7 @@ import { ObjectiveScheduledTasksPanel } from "@/components/projects/ObjectiveSch
 import { ObjectiveActivityTimeline } from "@/components/projects/ObjectiveActivityTimeline";
 import { LinearIcon } from "@/components/linear/LinearIcon";
 import { usePromptJobs } from "@/hooks/usePromptJobs";
+import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { threadService } from "@/services/threadService";
 import {
   loadObjectiveChatPanelWidth,

@@ -4,7 +4,7 @@ import { homedir } from 'os';
 
 import { getPromptJobStore } from './get-store';
 import { pollDueJobs } from './engine';
-import { getAgent, getAgentSkills, getProjectAgents, getTeamAgents } from '@/lib/db';
+import { getAgent, getAgentSkills, getProjectAgents } from '@/lib/db';
 import { LOCAL_USER } from '@/lib/auth-mode';
 import { loadDbParticipants } from '@/lib/agent-participants';
 import { runCliResponse, buildCliAttempts } from '@/lib/cli-runner';
@@ -156,108 +156,6 @@ async function executePrompt(opts: {
   }
 }
 
-function formatIssueLine(issue: LinearIssueSummary): string {
-  return [
-    `- id: ${issue.id}`,
-    `  identifier: ${issue.identifier}`,
-    `  title: ${issue.title}`,
-    `  status: ${issue.status}`,
-    `  assignee: ${issue.assignee ?? 'Unassigned'}`,
-    issue.url ? `  url: ${issue.url}` : null,
-  ]
-    .filter((line): line is string => Boolean(line))
-    .join('\n');
-}
-
-function formatObjectiveSummaryLine(input: {
-  title: string;
-  key: string;
-  progress: number;
-  status: ProjectObjectiveHealth;
-}): string {
-  return `- ${input.title} (${input.key}) | ${input.progress}% | ${input.status}`;
-}
-
-function formatHealthSummary(scope: string, progress: number, status: ProjectObjectiveHealth): string {
-  return `${scope}: ${progress}% ${HEALTH_LABELS[status]}`;
-}
-
-function buildObjectiveLinearControllerPrompt(input: {
-  jobPrompt: string;
-  objective: {
-    title: string;
-    key: string;
-    summary: string;
-    progress: number;
-    status: ProjectObjectiveHealth;
-  };
-  projectObjectives: Array<{
-    title: string;
-    key: string;
-    progress: number;
-    status: ProjectObjectiveHealth;
-  }>;
-  allIssues: LinearIssueSummary[];
-  eligibleIssues: LinearIssueSummary[];
-  activeIssueNotes: string[];
-}): string {
-  const sections = [
-    'OBJECTIVE',
-    `- Title: ${input.objective.title}`,
-    `- Label key: ${input.objective.key}`,
-    `- Summary: ${input.objective.summary.trim() || 'No summary provided.'}`,
-    `- Current progress: ${input.objective.progress}%`,
-    `- Current health: ${input.objective.status}`,
-    '',
-    'PROJECT OBJECTIVES',
-    input.projectObjectives.length > 0
-      ? input.projectObjectives.map((objective) => formatObjectiveSummaryLine(objective)).join('\n')
-      : '- No project objectives found.',
-    '',
-    'ALL OBJECTIVE TICKETS',
-    input.allIssues.length > 0
-      ? input.allIssues.map((issue) => formatIssueLine(issue)).join('\n\n')
-      : '- None.',
-    '',
-    'SCHEDULER GUIDANCE',
-    input.jobPrompt.trim() || 'No additional guidance provided.',
-    '',
-    'ELIGIBLE TICKETS',
-    input.eligibleIssues.length > 0
-      ? input.eligibleIssues.map((issue) => formatIssueLine(issue)).join('\n\n')
-      : '- None.',
-  ];
-
-  if (input.activeIssueNotes.length > 0) {
-    sections.push('', 'ALREADY ACTIVE ELSEWHERE', input.activeIssueNotes.join('\n'));
-  }
-
-  sections.push(
-    '',
-    'Choose "work_ticket" when one listed ticket is clearly the right next ticket to start now.',
-    'Choose "run_prompt" when the objective needs work not captured by an existing ticket (e.g. creating tickets, drafting docs, reviewing PRs).',
-    'Choose "stop" when no action should be taken right now.',
-    'If you choose "work_ticket", ticketId must exactly match one of the listed ids.',
-    'If you choose "run_prompt", provide a detailed prompt the executing agent will follow.',
-  );
-
-  return sections.join('\n');
-}
-
-function normalizeAssessmentProgress(value: unknown): number | null {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return null;
-  }
-  return normalizeProjectHealthProgress(value);
-}
-
-function normalizeAssessmentStatus(value: unknown): ProjectObjectiveHealth | null {
-  if (typeof value !== 'string' || !value.trim()) {
-    return null;
-  }
-  return normalizeProjectHealthStatus(value);
-}
-
 async function resolveObjectiveWorkerAgent(job: PromptJob): Promise<Participant> {
   const participants = await loadDbParticipants();
 
@@ -267,17 +165,6 @@ async function resolveObjectiveWorkerAgent(job: PromptJob): Promise<Participant>
       throw new Error(`Objective worker agent "${job.agentId}" is no longer available.`);
     }
     return assigned;
-  }
-
-  if (teamId) {
-    const teamAgents = await getTeamAgents(teamId);
-    for (const teamAgent of teamAgents) {
-      const participant = participants.find((entry) => entry.id === teamAgent.agent_id) ?? null;
-      if (participant) {
-        return participant;
-      }
-    }
-    throw new Error('No agent in the assigned team is available to work this objective.');
   }
 
   if (!job.projectId) {
