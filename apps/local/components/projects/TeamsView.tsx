@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Activity,
   AlertTriangle,
+  CheckCircle2,
   ChevronRight,
   Loader2,
   Plus,
@@ -79,6 +80,7 @@ export function TeamsView({
   const [teams, setTeams] = useState<Team[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [activeProcesses, setActiveProcesses] = useState<EnrichedProcessEntry[]>([]);
+  const [completedProcesses, setCompletedProcesses] = useState<EnrichedProcessEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const fetchTeams = useCallback(async () => {
@@ -123,15 +125,20 @@ export function TeamsView({
         if (!res.ok) return;
         const data: EnrichedProcessEntry[] = await res.json();
         if (cancelled) return;
-        const relevant = data
+        const projectProcesses = data.filter((process) => {
+          const processProjectSlug = process.projectSlug.trim().toLowerCase();
+          if (processProjectSlug && processProjectSlug === normalizedProjectSlug) return true;
+          return projectThreadIdSet.has(process.workspaceId) || projectThreadIdSet.has(process.threadId);
+        });
+        const relevant = projectProcesses
           .filter((process) => process.state === "spawning" || process.state === "running")
-          .filter((process) => {
-            const processProjectSlug = process.projectSlug.trim().toLowerCase();
-            if (processProjectSlug && processProjectSlug === normalizedProjectSlug) return true;
-            return projectThreadIdSet.has(process.workspaceId) || projectThreadIdSet.has(process.threadId);
-          })
           .sort((a, b) => b.lastActivity - a.lastActivity);
         setActiveProcesses(relevant);
+        const done = projectProcesses
+          .filter((process) => process.state === "done")
+          .sort((a, b) => b.lastActivity - a.lastActivity)
+          .slice(0, 10);
+        setCompletedProcesses(done);
       } catch {
         // keep the last known activity state
       }
@@ -183,6 +190,42 @@ export function TeamsView({
         linearRunId: process.linearRunId,
       }));
   });
+
+  const completedActivityRows = teams.flatMap((team) => {
+    const teamAgentIds = new Set(team.agents.map((agent) => agent.agent_id));
+    return completedProcesses
+      .filter((process) => teamAgentIds.has(process.agentId))
+      .map((process) => ({
+        key: `done-${team.id}-${process.workspaceId}-${process.threadId}-${process.agentId}`,
+        teamId: team.id,
+        teamName: team.name,
+        workspaceId: process.workspaceId,
+        threadId: process.threadId,
+        agentName: agentName(process.agentId),
+        threadLabel: formatActivityThread(process),
+        lastActiveLabel: formatLastActive(process.lastActivity),
+        linearIssueId: process.linearIssueId,
+        linearRunId: process.linearRunId,
+      }));
+  });
+
+  // Also include completed processes from unassigned agents
+  const unassignedCompletedRows = completedProcesses
+    .filter((process) => unassignedAgentIdSet.has(process.agentId))
+    .map((process) => ({
+      key: `done-unassigned-${process.workspaceId}-${process.threadId}-${process.agentId}`,
+      teamId: null as string | null,
+      teamName: "Unassigned",
+      workspaceId: process.workspaceId,
+      threadId: process.threadId,
+      agentName: agentName(process.agentId),
+      threadLabel: formatActivityThread(process),
+      lastActiveLabel: formatLastActive(process.lastActivity),
+      linearIssueId: process.linearIssueId,
+      linearRunId: process.linearRunId,
+    }));
+
+  const allCompletedRows = [...completedActivityRows, ...unassignedCompletedRows];
 
   // --- Loading ---
   if (loading) {
@@ -378,6 +421,78 @@ export function TeamsView({
                       <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-2 py-0.5 text-[11px] font-medium text-[var(--status-completed-text)]">
                         <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
                         {row.state === "spawning" ? "Starting" : "Working"}
+                      </span>
+                    </td>
+                    <td className="max-w-[24rem] px-4 py-3 text-[var(--muted-foreground)]">
+                      <span className="block truncate">{row.threadLabel}</span>
+                    </td>
+                    <td className="px-4 py-3 text-[var(--muted-foreground)]">{row.lastActiveLabel}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      {allCompletedRows.length > 0 && (
+        <section className="overflow-hidden rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)]">
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
+            <div>
+              <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Recently Completed
+              </div>
+              <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+                Last {allCompletedRows.length} completed{" "}
+                {allCompletedRows.length === 1 ? "task" : "tasks"} across teams.
+              </p>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-[var(--secondary)]">
+                <tr className="text-left text-[11px] uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                  <th className="px-4 py-3 font-medium">Team</th>
+                  <th className="px-4 py-3 font-medium">Agent</th>
+                  <th className="px-4 py-3 font-medium">Status</th>
+                  <th className="px-4 py-3 font-medium">Thread</th>
+                  <th className="px-4 py-3 font-medium">Last active</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allCompletedRows.map((row) => (
+                  <tr
+                    key={row.key}
+                    className="cursor-pointer border-t border-[var(--border)] text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]"
+                    onClick={() =>
+                      router.push(
+                        row.linearIssueId && row.linearRunId
+                          ? `/projects/${projectSlug}/linear?issue=${encodeURIComponent(row.linearIssueId)}&run=${encodeURIComponent(row.linearRunId)}`
+                          : `/projects/${projectSlug}/thread/${encodeURIComponent(row.workspaceId)}${row.threadId ? `?open=${encodeURIComponent(row.threadId)}` : ""}`
+                      )
+                    }
+                  >
+                    <td className="px-4 py-3">
+                      {row.teamId ? (
+                        <button
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            router.push(`/projects/${projectSlug}/teams/${row.teamId}`);
+                          }}
+                          className="text-left font-medium text-[var(--foreground)] transition-colors hover:text-[var(--primary)]"
+                        >
+                          {row.teamName}
+                        </button>
+                      ) : (
+                        <span className="text-[var(--muted-foreground)]">{row.teamName}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-[var(--foreground)]">{row.agentName}</td>
+                    <td className="px-4 py-3">
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--secondary)] px-2 py-0.5 text-[11px] font-medium text-[var(--muted-foreground)]">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Done
                       </span>
                     </td>
                     <td className="max-w-[24rem] px-4 py-3 text-[var(--muted-foreground)]">
