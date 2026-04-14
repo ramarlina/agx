@@ -4,7 +4,7 @@ import { homedir } from 'os';
 
 import { getPromptJobStore } from './get-store';
 import { pollDueJobs } from './engine';
-import { getAgent, getAgentSkills, getProjectAgents } from '@/lib/db';
+import { getAgent, getAgentSkills, getProjectAgents, getTeamAgents } from '@/lib/db';
 import { LOCAL_USER } from '@/lib/auth-mode';
 import { loadDbParticipants } from '@/lib/agent-participants';
 import { runCliResponse, buildCliAttempts } from '@/lib/cli-runner';
@@ -323,7 +323,10 @@ function normalizeAssessmentStatus(value: unknown): ProjectObjectiveHealth | nul
   return normalizeProjectHealthStatus(value);
 }
 
-async function resolveObjectiveWorkerAgent(job: PromptJob): Promise<Participant> {
+async function resolveObjectiveWorkerAgent(
+  job: PromptJob,
+  teamId?: string | null,
+): Promise<Participant> {
   const participants = await loadDbParticipants();
 
   if (job.agentId) {
@@ -332,6 +335,17 @@ async function resolveObjectiveWorkerAgent(job: PromptJob): Promise<Participant>
       throw new Error(`Objective worker agent "${job.agentId}" is no longer available.`);
     }
     return assigned;
+  }
+
+  if (teamId) {
+    const teamAgents = await getTeamAgents(teamId);
+    for (const teamAgent of teamAgents) {
+      const participant = participants.find((entry) => entry.id === teamAgent.agent_id) ?? null;
+      if (participant) {
+        return participant;
+      }
+    }
+    throw new Error('No agent in the assigned team is available to work this objective.');
   }
 
   if (!job.projectId) {
@@ -777,7 +791,34 @@ async function executeJobAction(
   } = {},
 ): Promise<{ output: string; error: string; durationMs: number; status: 'success' | 'failed' }> {
   if (job.executionMode === 'objective_linear_ticket') {
-    const sessionAgent = await resolveObjectiveWorkerAgent(job);
+    let teamId: string | null = null;
+
+    if (job.projectId && job.objectiveId) {
+      const objectiveContext = await loadProjectObjectiveContext(job.projectId, job.objectiveId);
+      teamId = objectiveContext?.objective.teamId ?? null;
+
+      if (!teamId) {
+        await logActionReceipt(
+          {
+            action: 'team_gate',
+            jobName: job.name,
+            status: 'failed',
+            result: 'Execution blocked: no team assigned to this objective.',
+            reason: 'Assign a team before scheduled work can run.',
+            durationMs: 0,
+          },
+          { jobId: job.id, projectId: job.projectId, objectiveId: job.objectiveId },
+        );
+        return {
+          output: '',
+          error: 'Execution blocked: no team assigned to this objective.',
+          durationMs: 0,
+          status: 'failed',
+        };
+      }
+    }
+
+    const sessionAgent = await resolveObjectiveWorkerAgent(job, teamId);
     const controllerContext = await resolveJobContextForAgent(job, sessionAgent.id);
     return executeObjectiveLinearWorker({
       job,

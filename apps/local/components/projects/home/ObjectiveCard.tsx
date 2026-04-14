@@ -1,6 +1,6 @@
 "use client";
 
-import { Target } from "lucide-react";
+import { AlertTriangle, Target } from "lucide-react";
 import type { ProjectObjective, ProjectObjectiveHealth } from "@/lib/project-objectives";
 
 interface ObjectiveCardProps {
@@ -46,7 +46,10 @@ export function ObjectiveCard({ objective, teamName, onClick }: ObjectiveCardPro
       </div>
 
       <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)]">
-        <span>{teamName ?? "No team"}</span>
+        <span className={teamName ? "" : "flex items-center gap-1 text-[var(--status-blocked-text)]"}>
+          {!teamName && <AlertTriangle className="h-3 w-3" />}
+          {teamName ?? "No team"}
+        </span>
         <span>{objective.progress}%</span>
       </div>
     </button>
