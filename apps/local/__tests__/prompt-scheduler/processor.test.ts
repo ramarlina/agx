@@ -423,9 +423,15 @@ describe('prompt scheduler processor', () => {
         ]),
       }),
     }));
+    expect(mockActivityAppend).toHaveBeenCalledTimes(1);
     expect(mockActivityAppend).toHaveBeenCalledWith(expect.objectContaining({
       body: expect.stringContaining('Started work on [ESO-1]'),
     }));
+    const activityPayload = mockActivityAppend.mock.calls[0]?.[0] as { body?: string } | undefined;
+    expect(activityPayload?.body).toContain('Linear run: linear-run-1');
+    expect(activityPayload?.body?.match(/Reason: This is the clearest next step\./g)).toHaveLength(1);
+    expect(activityPayload?.body?.match(/Linear run: linear-run-1/g)).toHaveLength(1);
+    expect(activityPayload?.body?.match(/Chat run: chat-run-1/g)).toHaveLength(1);
     expect(updateJob).toHaveBeenCalledWith(
       job.id,
       expect.objectContaining({ lastOutcome: 'success' }),
@@ -579,6 +585,50 @@ describe('prompt scheduler processor', () => {
         body: expect.stringContaining('Created design doc at docs/spec.md'),
       }),
     );
+  });
+
+  test('logActionReceipt avoids duplicating supplemental fields already present in the result body', async () => {
+    mockLoadProjectObjectiveContext.mockResolvedValue({
+      project: { id: 'project-1', slug: 'alpha', metadata: {} },
+      workspace: { objectives: [] },
+      objective: {
+        id: 'objective-1',
+        title: 'Grow daily visitors',
+        key: 'growth-daily-visitors',
+        summary: '',
+        progress: 20,
+        status: 'on_track',
+      },
+    });
+
+    const { logActionReceipt } = await import('@/src/prompt-scheduler/processor');
+    await logActionReceipt(
+      {
+        action: 'work_ticket',
+        jobName: 'Objective worker',
+        reason: 'This is the clearest next step.',
+        result: [
+          'Started work on [ESO-535](https://linear.app/example/issue/ESO-535): SEO basics',
+          'Reason: This is the clearest next step.',
+          'Linear run: linear-run-1',
+        ].join('\n\n'),
+        linearRunId: 'linear-run-1',
+        chatRunId: 'chat-run-1',
+        durationMs: 5000,
+        status: 'success',
+      },
+      {
+        jobId: 'job-1',
+        projectId: 'project-1',
+        objectiveId: 'objective-1',
+      },
+    );
+
+    expect(mockActivityAppend).toHaveBeenCalledTimes(1);
+    const activityPayload = mockActivityAppend.mock.calls[0]?.[0] as { body?: string } | undefined;
+    expect(activityPayload?.body?.match(/Reason: This is the clearest next step\./g)).toHaveLength(1);
+    expect(activityPayload?.body?.match(/Linear run: linear-run-1/g)).toHaveLength(1);
+    expect(activityPayload?.body?.match(/Chat run: chat-run-1/g)).toHaveLength(1);
   });
 
   test('logActionReceipt is a no-op when objective context cannot be loaded', async () => {

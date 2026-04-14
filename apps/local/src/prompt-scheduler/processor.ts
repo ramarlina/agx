@@ -395,13 +395,13 @@ export async function logActionReceipt(
       '',
       receipt.result,
     ];
-    if (receipt.reason) {
+    if (receipt.reason && !receipt.result.includes(`Reason: ${receipt.reason}`)) {
       lines.push('', `Reason: ${receipt.reason}`);
     }
-    if (receipt.linearRunId) {
+    if (receipt.linearRunId && !receipt.result.includes(`Linear run: ${receipt.linearRunId}`)) {
       lines.push('', `Linear run: ${receipt.linearRunId}`);
     }
-    if (receipt.chatRunId) {
+    if (receipt.chatRunId && !receipt.result.includes(`Chat run: ${receipt.chatRunId}`)) {
       lines.push('', `Chat run: ${receipt.chatRunId}`);
     }
 
@@ -900,7 +900,8 @@ async function fireConditionGate(job: PromptJob, run: PromptRun) {
   });
   store.updateJob(job.id, { lastOutcome: actionResult.status, lastRunAt: Date.now() });
 
-  if (job.objectiveId && job.projectId) {
+  // Objective-mode jobs already emit a richer receipt inside executeObjectiveLinearWorker.
+  if (job.objectiveId && job.projectId && job.executionMode !== 'objective_linear_ticket') {
     await logActionReceipt(
       {
         action: 'prompt',
@@ -945,7 +946,8 @@ async function fireRun(job: PromptJob, run: PromptRun) {
   });
   store.updateJob(job.id, { lastOutcome: result.status, lastRunAt: Date.now() });
 
-  if (job.objectiveId && job.projectId) {
+  // Objective-mode jobs already emit a richer receipt inside executeObjectiveLinearWorker.
+  if (job.objectiveId && job.projectId && job.executionMode !== 'objective_linear_ticket') {
     await logActionReceipt(
       {
         action: 'prompt',
