@@ -31,6 +31,7 @@ import {
 import { buildLinearExecutionPrompt } from "@/lib/linear-execution-prompt";
 import type { Participant } from "@/lib/types";
 import LinearSetup from "@/components/LinearSetup";
+import LinearWorkerConfig from "@/components/linear/LinearWorkerConfig";
 
 const Composer = dynamic(
   () => import("@/components/chat-ui/Composer").then((module) => module.Composer),
@@ -2466,6 +2467,9 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
                 onConfigureMcp={configureMcp}
                 onContinue={() => setShowSettings(false)}
               />
+              {connected && (
+                <LinearWorkerConfig projectId={projectId} />
+              )}
             </div>
           </div>
         </div>
