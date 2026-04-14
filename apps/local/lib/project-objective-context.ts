@@ -87,3 +87,13 @@ export async function persistProjectHealthSnapshot(input: {
     metadata: writeProjectHealthSnapshot(input.currentMetadata ?? {}, input.snapshot),
   });
 }
+
+export async function persistProjectObjectiveMetadata(input: {
+  projectId: string;
+  currentMetadata: Record<string, unknown> | undefined;
+  transformMetadata: (metadata: Record<string, unknown>) => Record<string, unknown>;
+}) {
+  return db.updateProject(input.projectId, LOCAL_USER.id, {
+    metadata: input.transformMetadata(input.currentMetadata ?? {}),
+  });
+}

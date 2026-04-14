@@ -13,6 +13,7 @@ import {
   FileText,
   Pencil,
   Plus,
+  Search,
   Trash2,
   User,
   Users,
@@ -29,6 +30,7 @@ import RichTextEditor from "@/components/RichTextEditor";
 import SearchCombo, { type ComboOption } from "@/components/SearchCombo";
 import { ObjectiveScheduledTasksPanel } from "@/components/projects/ObjectiveScheduledTasksPanel";
 import { ObjectiveActivityTimeline } from "@/components/projects/ObjectiveActivityTimeline";
+import { ObjectiveHealthTrend } from "@/components/projects/ObjectiveHealthTrend";
 import { LinearIcon } from "@/components/linear/LinearIcon";
 import { usePromptJobs } from "@/hooks/usePromptJobs";
 import { useInputCapabilities } from "@/hooks/useInputCapabilities";
@@ -1654,8 +1656,8 @@ export function ProjectObjectiveDetail({
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
   const [noteTitleDrafts, setNoteTitleDrafts] = useState<Record<string, string>>({});
   const [savingNoteIds, setSavingNoteIds] = useState<Set<string>>(new Set());
-  const [newNoteTitle, setNewNoteTitle] = useState("");
   const [isCreatingNote, setIsCreatingNote] = useState(false);
+  const [noteSearch, setNoteSearch] = useState("");
   const [linearIssues, setLinearIssues] = useState<ObjectiveLinearIssueSummary[]>([]);
   const [linearConnected, setLinearConnected] = useState(true);
   const [workingOnObjective, setWorkingOnObjective] = useState(false);
@@ -1804,7 +1806,6 @@ export function ProjectObjectiveDetail({
 
   const handleCreateNote = async () => {
     if (!project?.id || !objective?.id) return;
-    const title = newNoteTitle.trim() || "Untitled";
     setIsCreatingNote(true);
     try {
       const res = await fetch(
@@ -1812,14 +1813,13 @@ export function ProjectObjectiveDetail({
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title, body: "" }),
+          body: JSON.stringify({ title: "Untitled", body: "" }),
         },
       );
       if (res.ok) {
         const data = await res.json();
         setNotes((prev) => [data.note, ...prev]);
         setEditingNoteId(data.note.id);
-        setNewNoteTitle("");
       }
     } catch {
       setSaveError("Failed to create note.");
@@ -2172,6 +2172,18 @@ export function ProjectObjectiveDetail({
                   )}
                 </div>
 
+                {project.id && objective.id ? (
+                  <ObjectiveHealthTrend
+                    projectId={project.id}
+                    objectiveId={objective.id}
+                    objectiveKey={objective.key}
+                    metadata={project.metadata}
+                    currentProgress={objective.progress}
+                    currentStatus={objective.status}
+                    objectiveUpdatedAt={objective.updatedAt}
+                  />
+                ) : null}
+
               </div>
 
               {/* Work on objective */}
@@ -2248,24 +2260,18 @@ export function ProjectObjectiveDetail({
                 {/* Notes Tab */}
                 {activeTab === "notes" && (
                   <section className="space-y-4">
-                    <div className="flex justify-between items-end">
-                      <p className="text-sm text-[var(--muted-foreground)]">
-                        Capture the strategy, constraints, and what better looks like.
-                      </p>
-                    </div>
-
-                    {/* Create Note */}
-                    <div className="flex gap-2">
-                      <input
-                        type="text"
-                        value={newNoteTitle}
-                        onChange={(e) => setNewNoteTitle(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") handleCreateNote();
-                        }}
-                        placeholder="New note title..."
-                        className="flex-1 rounded-md border border-[var(--border)] bg-[var(--input)] px-3 py-1.5 text-sm text-[var(--foreground)] placeholder:text-[var(--app-shell-soft-text)] focus:border-[var(--primary)] focus:outline-none"
-                      />
+                    {/* Search + Create */}
+                    <div className="flex gap-2 items-center">
+                      <div className="relative flex-1">
+                        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                        <input
+                          type="text"
+                          value={noteSearch}
+                          onChange={(e) => setNoteSearch(e.target.value)}
+                          placeholder="Search notes..."
+                          className="w-full rounded-md border border-[var(--border)] bg-[var(--input)] py-1.5 pl-8 pr-3 text-sm text-[var(--foreground)] placeholder:text-[var(--app-shell-soft-text)] focus:border-[var(--primary)] focus:outline-none"
+                        />
+                      </div>
                       <button
                         type="button"
                         onClick={handleCreateNote}
@@ -2273,121 +2279,130 @@ export function ProjectObjectiveDetail({
                         className="flex items-center gap-1.5 rounded-md border border-[var(--status-in-progress-border)] bg-[var(--status-in-progress-bg)] px-3 py-1.5 text-sm font-medium text-[var(--status-in-progress-text)] transition-opacity hover:opacity-90 disabled:opacity-50"
                       >
                         <Plus size={14} />
-                        Add
+                        New note
                       </button>
                     </div>
 
-                    {/* Notes List */}
+                    {/* Masonry Grid */}
                     {isNotesLoading ? (
                       <p className="py-4 text-sm text-[var(--muted-foreground)]">Loading notes...</p>
                     ) : notes.length === 0 ? (
                       <p className="text-sm text-[var(--muted-foreground)] py-4">
                         No notes yet. Add one above.
                       </p>
-                    ) : (
-                      <div className="space-y-3">
-                        {notes.map((note) => {
-                          const isEditing = editingNoteId === note.id;
-                          const isSavingNote = savingNoteIds.has(note.id);
-                          const draftBody = noteDrafts[note.id] ?? note.body;
-                          const draftTitle = noteTitleDrafts[note.id] ?? note.title;
-
-                          return (
-                            <div
+                    ) : (() => {
+                      const q = noteSearch.toLowerCase();
+                      const filtered = q
+                        ? notes.filter(
+                            (n) =>
+                              n.title.toLowerCase().includes(q) ||
+                              n.body.toLowerCase().includes(q),
+                          )
+                        : notes;
+                      return filtered.length === 0 ? (
+                        <p className="text-sm text-[var(--muted-foreground)] py-4">
+                          No notes match your search.
+                        </p>
+                      ) : (
+                        <div className="columns-1 gap-3 sm:columns-2 lg:columns-3" style={{ columnFill: "balance" as const }}>
+                          {filtered.map((note) => (
+                            <button
                               key={note.id}
-                              className="overflow-hidden rounded-lg border border-[var(--border)]"
+                              type="button"
+                              onClick={() => setEditingNoteId(note.id)}
+                              className="mb-3 block w-full break-inside-avoid overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--overlay-panel-muted)] text-left transition-shadow hover:shadow-md"
                             >
-                              {/* Note Header */}
-                              <div className="flex items-center justify-between bg-[var(--overlay-panel-muted)] px-4 py-2.5">
-                                {isEditing ? (
-                                  <div className="flex items-center gap-2 flex-1 mr-2">
-                                    <FileText size={14} className="shrink-0 text-[var(--muted-foreground)]" />
-                                    <input
-                                      type="text"
-                                      value={draftTitle}
-                                      onChange={(e) =>
-                                        setNoteTitleDrafts((prev) => ({
-                                          ...prev,
-                                          [note.id]: e.target.value,
-                                        }))
-                                      }
-                                    className="flex-1 border-b border-[var(--border)] bg-transparent py-0.5 text-sm font-medium text-[var(--foreground)] focus:border-[var(--primary)] focus:outline-none"
-                                    />
-                                  </div>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setEditingNoteId(note.id)
-                                    }
-                                    className="flex items-center gap-2 text-sm font-medium text-[var(--foreground)] transition-colors hover:text-[var(--primary)]"
-                                  >
-                                    <FileText size={14} className="text-[var(--muted-foreground)]" />
-                                    {note.title}
-                                  </button>
-                                )}
-                                <div className="flex items-center gap-2">
-                                  <span className="text-[11px] text-[var(--muted-foreground)]">
-                                    {isSavingNote
-                                      ? "Saving..."
-                                      : new Date(note.updatedAt).toLocaleDateString()}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setEditingNoteId(isEditing ? null : note.id)
-                                    }
-                                    className="p-1 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-                                  >
-                                    <Pencil size={12} />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleDeleteNote(note.id)}
-                                    className="p-1 text-[var(--muted-foreground)] transition-colors hover:text-[var(--destructive)]"
-                                  >
-                                    <Trash2 size={12} />
-                                  </button>
-                                </div>
+                              <div className="px-3 pt-3 pb-1">
+                                <h4 className="text-sm font-medium text-[var(--foreground)] leading-snug">
+                                  {note.title}
+                                </h4>
                               </div>
-
-                              {/* Note Body */}
-                              {isEditing ? (
-                                <div className="px-4 py-3">
-                                  <ObjectiveNotesEditor
-                                    content={draftBody}
-                                    editable
-                                    onChange={(value) =>
-                                      setNoteDrafts((prev) => ({
-                                        ...prev,
-                                        [note.id]: value,
-                                      }))
-                                    }
-                                    placeholder="Write your note..."
-                                  />
-                                </div>
-                              ) : note.body.trim() ? (
-                                <div
-                                  className="cursor-pointer px-4 py-3 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--overlay-panel-muted)]"
-                                  onClick={() => setEditingNoteId(note.id)}
-                                >
-                                  <div className="line-clamp-3">
-                                    <Markdown content={note.body} />
-                                  </div>
-                                </div>
-                              ) : (
-                                <div
-                                  className="cursor-pointer px-4 py-3 text-sm italic text-[var(--muted-foreground)] transition-colors hover:bg-[var(--overlay-panel-muted)]"
-                                  onClick={() => setEditingNoteId(note.id)}
-                                >
-                                  Empty note — click to edit
+                              {note.body.trim() && (
+                                <div className="px-3 pb-2 text-xs text-[var(--muted-foreground)] line-clamp-4">
+                                  <Markdown content={note.body} />
                                 </div>
                               )}
+                              <div className="flex items-center justify-between px-3 pb-2">
+                                <span className="text-[10px] text-[var(--muted-foreground)]">
+                                  {new Date(note.updatedAt).toLocaleDateString()}
+                                </span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Note Edit Modal */}
+                    {editingNoteId && (() => {
+                      const note = notes.find((n) => n.id === editingNoteId);
+                      if (!note) return null;
+                      const draftBody = noteDrafts[note.id] ?? note.body;
+                      const draftTitle = noteTitleDrafts[note.id] ?? note.title;
+                      const isSavingNote = savingNoteIds.has(note.id);
+                      return (
+                        <div
+                          className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-[5vh]"
+                          onClick={(e) => {
+                            if (e.target === e.currentTarget) setEditingNoteId(null);
+                          }}
+                        >
+                          <div className="mx-6 w-full max-w-7xl rounded-xl border border-[var(--border)] bg-[var(--background)] shadow-xl">
+                            {/* Modal Header */}
+                            <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-3">
+                              <input
+                                type="text"
+                                autoFocus
+                                value={draftTitle}
+                                onFocus={(e) => {
+                                  if (draftTitle === "Untitled") e.target.select();
+                                }}
+                                onChange={(e) =>
+                                  setNoteTitleDrafts((prev) => ({
+                                    ...prev,
+                                    [note.id]: e.target.value,
+                                  }))
+                                }
+                                className="flex-1 bg-transparent text-base font-semibold text-[var(--foreground)] focus:outline-none"
+                              />
+                              <div className="flex items-center gap-2 ml-3">
+                                <span className="text-[11px] text-[var(--muted-foreground)]">
+                                  {isSavingNote ? "Saving..." : new Date(note.updatedAt).toLocaleDateString()}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteNote(note.id)}
+                                  className="p-1 text-[var(--muted-foreground)] transition-colors hover:text-[var(--destructive)]"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingNoteId(null)}
+                                  className="p-1 text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    )}
+                            {/* Modal Body */}
+                            <div className="max-h-[75vh] overflow-y-auto px-5 py-4">
+                              <ObjectiveNotesEditor
+                                content={draftBody}
+                                editable
+                                onChange={(value) =>
+                                  setNoteDrafts((prev) => ({
+                                    ...prev,
+                                    [note.id]: value,
+                                  }))
+                                }
+                                placeholder="Write your note..."
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </section>
                 )}
 
