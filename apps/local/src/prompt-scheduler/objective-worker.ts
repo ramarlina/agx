@@ -9,10 +9,11 @@ import { getActivityRepository } from '@/src/objectives/activities/repository';
 import { getNoteRepository } from '@/src/objectives/notes';
 import {
   loadProjectObjectiveContext,
-  persistProjectHealthSnapshot,
+  persistProjectObjectiveMetadata,
   persistProjectObjectiveWorkspace,
   type ProjectObjectiveContext,
 } from '@/lib/project-objective-context';
+import { appendObjectiveHealthSample } from '@/lib/objective-health-history';
 import { runCliResponse, buildCliAttempts } from '@/lib/cli-runner';
 import {
   normalizeProjectHealthProgress,
@@ -40,8 +41,8 @@ const OBJECTIVE_CONTROLLER_SYSTEM_CONTEXT = [
   '{"action":"stop","reason":"...","objectiveProgress":42,"objectiveStatus":"at_risk"}',
   'Rules:',
   '- "work_ticket": ticketId must exactly match one of the ELIGIBLE TICKETS ids.',
-  '- "run_prompt": for work not captured by existing tickets.',
-  '- "stop": when no action should be taken now.',
+  '- "run_prompt": for work not captured by existing tickets. When no tickets are actionable and the objective is not done, use this to plan: review notes, refine the last plan, or outline next steps. The prompt should instruct the agent to append to an existing note when one is relevant rather than creating a new note.',
+  '- "stop": only when the objective is done or genuinely no action (including planning) adds value.',
   'Percentages must be integers 0-100.',
   'Statuses: on_track, at_risk, off_track, done.',
 ].join('\n');
@@ -396,6 +397,18 @@ export async function executeObjectiveWorker(opts: {
         ? formatHealthSummary('Project health', projectProgress, projectStatus)
         : null;
 
+    const objectiveSample =
+      objectiveProgress !== null && objectiveStatus !== null
+        ? {
+            objectiveId: objectiveContext.objective.id,
+            objectiveKey: objectiveContext.objective.key,
+            progress: objectiveProgress,
+            status: objectiveStatus,
+            recordedAt: nowIso,
+            source: `scheduled-task:${opts.job.id}`,
+            note: objectiveNote || undefined,
+          }
+        : null;
     const objectiveChanged =
       objectiveProgress !== null &&
       objectiveStatus !== null &&
@@ -424,19 +437,29 @@ export async function executeObjectiveWorker(opts: {
           }
         : null;
 
+    const applyObjectiveHealthMetadata = (metadata: Record<string, unknown>) => {
+      let nextMetadata = metadata;
+      if (projectSnapshot) {
+        nextMetadata = writeProjectHealthSnapshot(nextMetadata, projectSnapshot);
+      }
+      if (objectiveSample) {
+        nextMetadata = appendObjectiveHealthSample(nextMetadata, objectiveSample);
+      }
+      return nextMetadata;
+    };
+
     if (objectiveChanged) {
       await persistProjectObjectiveWorkspace({
         projectId: objectiveContext.project.id,
         currentMetadata: objectiveContext.project.metadata,
         workspace: nextWorkspace,
-        transformMetadata: (metadata) =>
-          projectSnapshot ? writeProjectHealthSnapshot(metadata, projectSnapshot) : metadata,
+        transformMetadata: applyObjectiveHealthMetadata,
       });
-    } else if (projectSnapshot) {
-      await persistProjectHealthSnapshot({
+    } else if (objectiveSample || projectSnapshot) {
+      await persistProjectObjectiveMetadata({
         projectId: objectiveContext.project.id,
         currentMetadata: objectiveContext.project.metadata,
-        snapshot: projectSnapshot,
+        transformMetadata: applyObjectiveHealthMetadata,
       });
     }
 
