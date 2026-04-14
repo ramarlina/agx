@@ -1193,9 +1193,10 @@ export default function PromptJobBoard({
 
   const visibleJobs = useMemo(
     () =>
-      visibleJobIdSet
+      (visibleJobIdSet
         ? jobs.filter((job) => visibleJobIdSet.has(job.id))
-        : jobs,
+        : jobs
+      ).filter((job) => job.executionMode !== "linear_worker"),
     [jobs, visibleJobIdSet]
   );
   const filteredJobs = visibleJobs.filter((j) => filter === "all" || j.state === filter);
