@@ -378,37 +378,6 @@ export function CreateJobModal({
         </div>
 
         <div className="w-[380px] shrink-0 overflow-y-auto p-6 space-y-6">
-          <div>
-            <Label>Type</Label>
-            <div className="space-y-1.5">
-              {EXECUTION_MODE_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => {
-                    setExecutionMode(opt.value);
-                    if (opt.value === "linear_worker") {
-                      if (!name.trim()) setName(LINEAR_WORKER_JOB_NAME);
-                      if (!prompt.trim()) setPrompt(LINEAR_WORKER_DEFAULT_PROMPT);
-                    }
-                  }}
-                  className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
-                    executionMode === opt.value
-                      ? "border-[var(--foreground)] bg-[var(--foreground)]/5"
-                      : "border-[var(--card-border)] bg-[var(--muted)] hover:border-[var(--muted-foreground)]"
-                  }`}
-                >
-                  <div className="text-xs font-medium text-[var(--foreground)]">
-                    {opt.label}
-                  </div>
-                  <div className="text-[10px] text-[var(--muted-foreground)]">
-                    {opt.description}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-
           <AgentDropdown
             agents={agents}
             value={agentId}
