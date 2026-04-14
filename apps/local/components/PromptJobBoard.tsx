@@ -35,6 +35,27 @@ import type {
 } from "@/src/prompt-scheduler/types";
 import { cronToHuman } from "@/src/graph/nl-schedule";
 import { ScheduleConditionPicker } from "@/components/scheduling/ScheduleConditionPicker";
+import {
+  LINEAR_WORKER_DEFAULT_PROMPT,
+  LINEAR_WORKER_JOB_NAME,
+} from "@/src/prompt-scheduler/linear-worker-job";
+
+const EXECUTION_MODE_OPTIONS: Array<{
+  value: PromptJobExecutionMode;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "prompt",
+    label: "Prompt",
+    description: "Run a prompt on a schedule",
+  },
+  {
+    value: "linear_worker",
+    label: "Linear Worker",
+    description: "Observe Linear workspace and decide what to work on",
+  },
+];
 
 const Composer = dynamic(() => import("@/components/chat-ui/Composer").then((m) => m.Composer), {
   ssr: false,
@@ -243,6 +264,9 @@ export function CreateJobModal({
   contextLabel?: string | null;
 }) {
   const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [executionMode, setExecutionMode] = useState<PromptJobExecutionMode>(
+    editingJob?.executionMode ?? createDefaults?.executionMode ?? "prompt"
+  );
   const [name, setName] = useState(editingJob?.name ?? createDefaults?.name ?? "");
   const [prompt, setPrompt] = useState(editingJob?.prompt ?? createDefaults?.prompt ?? "");
   const [agentId, setAgentId] = useState(editingJob?.agentId ?? createDefaults?.agentId ?? "");
@@ -288,6 +312,7 @@ export function CreateJobModal({
       catchUpPolicy,
       cadence: cadence.trim(),
       condition: condition.trim(),
+      executionMode,
     });
     setSubmitting(false);
     onClose();
@@ -353,6 +378,37 @@ export function CreateJobModal({
         </div>
 
         <div className="w-[380px] shrink-0 overflow-y-auto p-6 space-y-6">
+          <div>
+            <Label>Type</Label>
+            <div className="space-y-1.5">
+              {EXECUTION_MODE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    setExecutionMode(opt.value);
+                    if (opt.value === "linear_worker") {
+                      if (!name.trim()) setName(LINEAR_WORKER_JOB_NAME);
+                      if (!prompt.trim()) setPrompt(LINEAR_WORKER_DEFAULT_PROMPT);
+                    }
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-lg border transition-all ${
+                    executionMode === opt.value
+                      ? "border-[var(--foreground)] bg-[var(--foreground)]/5"
+                      : "border-[var(--card-border)] bg-[var(--muted)] hover:border-[var(--muted-foreground)]"
+                  }`}
+                >
+                  <div className="text-xs font-medium text-[var(--foreground)]">
+                    {opt.label}
+                  </div>
+                  <div className="text-[10px] text-[var(--muted-foreground)]">
+                    {opt.description}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <AgentDropdown
             agents={agents}
             value={agentId}
@@ -897,6 +953,18 @@ function JobDetailView({
               <div className="px-6 py-5">
                 <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] px-5 py-4">
                   <div className="grid grid-cols-[96px,minmax(0,1fr)] items-center gap-x-4 gap-y-4">
+                    {job.executionMode && job.executionMode !== "prompt" && (
+                      <>
+                        <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
+                          Type
+                        </div>
+                        <div className="min-w-0">
+                          <span className="rounded-md border border-violet-400/20 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-400">
+                            {EXECUTION_MODE_OPTIONS.find((o) => o.value === job.executionMode)?.label ?? job.executionMode}
+                          </span>
+                        </div>
+                      </>
+                    )}
                     <div className="text-[11px] uppercase tracking-[0.12em] text-[var(--muted-foreground)]">
                       Agent
                     </div>
@@ -1404,6 +1472,11 @@ export default function PromptJobBoard({
                           >
                             {scheduleLabel}
                           </span>
+                          {job.executionMode === "linear_worker" ? (
+                            <span className="rounded-md border border-violet-400/20 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-violet-400">
+                              linear
+                            </span>
+                          ) : null}
                           {job.condition ? (
                             <span className="rounded-md border border-blue-400/20 bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-400">
                               gated
