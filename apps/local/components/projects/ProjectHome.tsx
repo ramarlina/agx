@@ -5,6 +5,7 @@ import { WorkingNowCard } from "./WorkingNowCard";
 import { TeamsSummaryCard } from "./TeamsSummaryCard";
 import { ScheduledTasksSummaryCard } from "./ScheduledTasksSummaryCard";
 import { FoldersSummaryCard } from "./FoldersSummaryCard";
+import { GettingStartedSection } from "./home/GettingStartedSection";
 import { ObjectivesSection } from "./home/ObjectivesSection";
 import { ToolPathsSection } from "./home/ToolPathsSection";
 
@@ -33,6 +34,12 @@ export function ProjectHome({
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-5xl mx-auto px-6 py-8 space-y-8">
+        <GettingStartedSection
+          projectName={projectName}
+          projectSlug={projectSlug}
+          primaryThreadId={primaryThreadId}
+        />
+
         {projectDescription && (
           <p className="text-sm text-[var(--muted-foreground)]">{projectDescription}</p>
         )}
