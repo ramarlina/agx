@@ -150,46 +150,51 @@ export default function NodeDetailPanel({
   const triggeringNodeId = useGraphUIStore((state) => state.triggeringNodeId);
   
   const [activeTab, setActiveTab] = useState<TabId>("execution");
-  const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const [diffRunA, setDiffRunA] = useState<string | null>(null);
   const [diffRunB, setDiffRunB] = useState<string | null>(null);
-  
+
   const panelRef = useRef<HTMLDivElement>(null);
   const resizeHandleRef = useRef<HTMLDivElement>(null);
-  
+
   // Get node data
   const node = selectedNodeId ? graph.nodes[selectedNodeId] : null;
   const nodeRuns = useMemo(
     () => selectedNodeId ? extractNodeRuns(graph, selectedNodeId) : [],
     [graph, selectedNodeId]
   );
-  
-  // Resize handling
+
+  // Resize handling — direct DOM manipulation to avoid re-renders
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (isTouchLayout) return;
     e.preventDefault();
     setIsResizing(true);
   }, [isTouchLayout]);
-  
+
   useEffect(() => {
     if (!isResizing || isTouchLayout) return;
-    
+
     const handleMouseMove = (e: MouseEvent) => {
+      if (!panelRef.current) return;
       const newWidth = window.innerWidth - e.clientX;
-      setWidth(Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth)));
+      const clamped = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, newWidth));
+      panelRef.current.style.width = `${clamped}px`;
     };
-    
+
     const handleMouseUp = () => {
       setIsResizing(false);
     };
-    
+
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
-    
+    document.body.style.cursor = "ew-resize";
+    document.body.style.userSelect = "none";
+
     return () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
     };
   }, [isResizing, isTouchLayout]);
   
@@ -250,7 +255,7 @@ export default function NodeDetailPanel({
       <aside
         ref={panelRef}
         className={`node-detail-panel ${isOpen ? "node-detail-panel--open" : ""}${isTouchLayout ? " node-detail-panel--touch" : ""}`}
-        style={isTouchLayout ? undefined : { width: `${width}px` }}
+        style={isTouchLayout ? undefined : { width: `${DEFAULT_WIDTH}px` }}
       >
       {/* Resize handle */}
       {!isTouchLayout ? (
