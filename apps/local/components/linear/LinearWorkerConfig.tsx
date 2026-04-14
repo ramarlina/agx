@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ChevronDown, ChevronRight, Pause, Play, RefreshCw } from "lucide-react";
+import { ChevronDown, ChevronRight, Play, RefreshCw } from "lucide-react";
 import { ScheduleConditionPicker, SimpleDropdown } from "@/components/scheduling/ScheduleConditionPicker";
 import {
   LINEAR_WORKER_DEFAULT_PROMPT,
@@ -21,6 +21,7 @@ interface TeamOption {
 
 interface LinearWorkerConfigProps {
   projectId?: string;
+  onJobLoaded?: (jobId: string | null) => void;
 }
 
 function formatNextRun(
@@ -87,6 +88,7 @@ function CollapsibleSection({
 
 export default function LinearWorkerConfig({
   projectId,
+  onJobLoaded,
 }: LinearWorkerConfigProps) {
   const [job, setJob] = useState<PromptJob | null>(null);
   const [teams, setTeams] = useState<TeamOption[]>([]);
@@ -120,13 +122,16 @@ export default function LinearWorkerConfig({
         setCadence(data.job.cronExpr || data.job.cadence || "*/30 * * * *");
         setCondition(data.job.condition || "");
         setTeamId(data.job.teamId || "");
+        onJobLoaded?.(data.job.id);
+      } else {
+        onJobLoaded?.(null);
       }
     } catch {
       // ignore
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, onJobLoaded]);
 
   const fetchTeams = useCallback(async () => {
     if (!projectId) return;
@@ -216,6 +221,26 @@ export default function LinearWorkerConfig({
     }
   }, [job, projectId, handleSave]);
 
+  const [runningNow, setRunningNow] = useState(false);
+
+  const handleRunNow = useCallback(async () => {
+    if (!job) return;
+    setRunningNow(true);
+    try {
+      await fetch("/api/prompt-jobs/poll", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jobId: job.id }),
+      });
+      // Refresh status after triggering
+      setTimeout(fetchWorker, 1000);
+    } catch {
+      // ignore
+    } finally {
+      setRunningNow(false);
+    }
+  }, [job, fetchWorker]);
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 py-12 justify-center text-sm text-[var(--muted-foreground)]">
@@ -234,15 +259,6 @@ export default function LinearWorkerConfig({
         <div className="flex items-center gap-4 text-xs text-[var(--muted-foreground)]">
           {job && (
             <>
-              <span
-                className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${
-                  isActive
-                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                    : "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
-                }`}
-              >
-                {job.state}
-              </span>
               <span>
                 Next: <span className="text-[var(--foreground)]">{formatNextRun(job.nextRunAt, job.state)}</span>
               </span>
@@ -260,26 +276,45 @@ export default function LinearWorkerConfig({
             </>
           )}
         </div>
-        <button
-          type="button"
-          disabled={saving}
-          onClick={handleToggle}
-          className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors ${
-            isActive
-              ? "border-yellow-500/30 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20"
-              : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
-          }`}
-        >
-          {isActive ? (
-            <>
-              <Pause size={12} /> Pause
-            </>
-          ) : (
-            <>
-              <Play size={12} /> {job ? "Resume" : "Enable"}
-            </>
+        <div className="flex items-center gap-3">
+          {/* Run Now button */}
+          {job && (
+            <button
+              type="button"
+              disabled={runningNow || saving}
+              onClick={handleRunNow}
+              className="flex items-center gap-1.5 rounded-lg border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-xs font-medium text-blue-400 transition-colors hover:bg-blue-500/20 disabled:opacity-40"
+            >
+              {runningNow ? (
+                <RefreshCw size={12} className="animate-spin" />
+              ) : (
+                <Play size={12} />
+              )}
+              Run now
+            </button>
           )}
-        </button>
+          {/* Enable / Disable toggle */}
+          <button
+            type="button"
+            disabled={saving}
+            onClick={handleToggle}
+            className="relative flex items-center gap-2.5 rounded-lg border border-[var(--card-border)] bg-[var(--muted)] px-3 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:border-[var(--muted-foreground)]"
+          >
+            {/* Toggle track */}
+            <span
+              className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${
+                isActive ? "bg-emerald-500" : "bg-[var(--card-border)]"
+              }`}
+            >
+              <span
+                className={`inline-block h-3 w-3 rounded-full bg-white transition-transform ${
+                  isActive ? "translate-x-3.5" : "translate-x-0.5"
+                }`}
+              />
+            </span>
+            {isActive ? "Enabled" : "Disabled"}
+          </button>
+        </div>
       </div>
 
       {/* Main layout: Left (prompts) | Right (config) */}

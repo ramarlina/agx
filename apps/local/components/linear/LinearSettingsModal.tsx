@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, type ComponentProps } from "react";
-import { Bot, Link2, X } from "lucide-react";
+import { Bot, Link2, ScrollText, X } from "lucide-react";
 import LinearSetup from "@/components/LinearSetup";
 import LinearWorkerConfig from "@/components/linear/LinearWorkerConfig";
+import LinearWorkerRunLog from "@/components/linear/LinearWorkerRunLog";
 
 type LinearSetupProps = ComponentProps<typeof LinearSetup>;
 
@@ -20,7 +21,7 @@ interface LinearSettingsModalProps {
   projectId?: string;
 }
 
-type SettingsTab = "connection" | "worker";
+type SettingsTab = "connection" | "worker" | "run-log";
 
 export default function LinearSettingsModal({
   connected,
@@ -35,10 +36,12 @@ export default function LinearSettingsModal({
   projectId,
 }: LinearSettingsModalProps) {
   const [tab, setTab] = useState<SettingsTab>(connected ? "worker" : "connection");
+  const [workerJobId, setWorkerJobId] = useState<string | null>(null);
 
   const tabs: Array<{ id: SettingsTab; label: string; icon: React.ReactNode; disabled?: boolean }> = [
     { id: "connection", label: "Connection", icon: <Link2 size={14} /> },
     { id: "worker", label: "Linear Worker", icon: <Bot size={14} />, disabled: !connected },
+    { id: "run-log", label: "Run Log", icon: <ScrollText size={14} />, disabled: !connected },
   ];
 
   return (
@@ -96,7 +99,10 @@ export default function LinearSettingsModal({
             />
           )}
           {tab === "worker" && connected && (
-            <LinearWorkerConfig projectId={projectId} />
+            <LinearWorkerConfig projectId={projectId} onJobLoaded={setWorkerJobId} />
+          )}
+          {tab === "run-log" && connected && (
+            <LinearWorkerRunLog jobId={workerJobId} />
           )}
         </div>
       </div>
