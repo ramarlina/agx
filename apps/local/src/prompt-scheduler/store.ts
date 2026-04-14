@@ -162,11 +162,9 @@ interface PromptJobListFilter {
 
 function rowToJob(row: PromptJobRow): PromptJob {
   const executionMode =
-    row.execution_mode === "objective_linear_ticket"
-      ? "objective_linear_ticket"
-      : row.execution_mode === "objective_worker"
-        ? "objective_worker"
-        : DEFAULT_PROMPT_JOB_EXECUTION_MODE;
+    row.execution_mode === "objective_linear_ticket" || row.execution_mode === "objective_worker"
+      ? "objective_worker"
+      : DEFAULT_PROMPT_JOB_EXECUTION_MODE;
   return {
     id: row.id,
     name: row.name,

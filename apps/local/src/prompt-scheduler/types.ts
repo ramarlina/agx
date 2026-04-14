@@ -3,7 +3,7 @@ export type OverlapPolicy = 'skip' | 'queue' | 'allow';
 export type CatchUpPolicy = 'fire_once' | 'replay_all' | 'skip';
 export type RunStatus = 'queued' | 'running' | 'success' | 'failed' | 'cancelled';
 export type TriggerType = 'scheduled' | 'condition';
-export type PromptJobExecutionMode = 'prompt' | 'objective_linear_ticket' | 'objective_worker';
+export type PromptJobExecutionMode = 'prompt' | 'objective_worker';
 
 export type ObjectiveActionType = 'work_ticket' | 'run_prompt' | 'stop';
 

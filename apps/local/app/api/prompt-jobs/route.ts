@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPromptJobStore } from '@/src/prompt-scheduler/get-store';
+import { OBJECTIVE_WORKER_DEFAULT_PROMPT } from '@/src/prompt-scheduler/objective-worker-job';
 import {
   computeNextRun,
   computePrevRun,
@@ -125,7 +126,9 @@ export async function POST(req: NextRequest) {
     const resolvedPrompt =
       typeof prompt === 'string' && prompt.trim()
         ? prompt
-        : '';
+        : executionMode === 'objective_worker'
+          ? OBJECTIVE_WORKER_DEFAULT_PROMPT
+          : '';
 
     if (!name || !resolvedPrompt) {
       return NextResponse.json(
