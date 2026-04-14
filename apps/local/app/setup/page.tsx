@@ -4,6 +4,7 @@
 import { useProviderStatus } from "@/hooks/useProviderStatus";
 import { useSetupFlow } from "@/hooks/useSetupFlow";
 import { ProviderStep } from "@/components/setup/ProviderStep";
+import { McpSetupStep } from "@/components/setup/McpSetupStep";
 import { ProjectStep } from "@/components/setup/ProjectStep";
 import { TeamsStep } from "@/components/setup/TeamsStep";
 import { AlertCircle, Loader2 } from "lucide-react";
@@ -42,6 +43,13 @@ export default function SetupPage() {
       )}
 
       {flow.step === 2 && (
+        <McpSetupStep
+          onNext={flow.goNext}
+          onBack={flow.goBack}
+        />
+      )}
+
+      {flow.step === 3 && (
         <ProjectStep
           data={flow.project}
           onChange={flow.setProject}
@@ -50,7 +58,7 @@ export default function SetupPage() {
         />
       )}
 
-      {flow.step === 3 && (
+      {flow.step === 4 && (
         <TeamsStep
           selectedTeams={flow.teams}
           onChange={flow.setTeams}

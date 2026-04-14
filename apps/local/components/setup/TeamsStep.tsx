@@ -140,8 +140,8 @@ export function TeamsStep({ selectedTeams, onChange, onNext, onBack }: TeamsStep
 
   return (
     <SetupLayout
-      currentStep={3}
-      totalSteps={3}
+      currentStep={4}
+      totalSteps={4}
       footer={
         <div className="flex items-center justify-between">
           <button type="button" onClick={onBack} className="text-[14px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors">
