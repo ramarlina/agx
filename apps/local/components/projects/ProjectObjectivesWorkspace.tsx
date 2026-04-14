@@ -2239,26 +2239,6 @@ export function ProjectObjectiveDetail({
                   )}
                 </div>
 
-                {/* Check-in Frequency Property */}
-                <div className="flex items-center gap-2">
-                  <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                    <Clock size={12} /> Check-in
-                  </span>
-                  <span className="text-[var(--app-shell-soft-text)]">·</span>
-                  <button
-                    type="button"
-                    onClick={() => setWakeEditor(buildObjectiveDraft(objective))}
-                    aria-label={`Edit cadence for ${objective.title}`}
-                    className="-my-0.5 rounded px-1.5 py-0.5 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--primary)]"
-                  >
-                    {formatObjectiveCadence(objective.cadence)}
-                  </button>
-                  {objective.condition ? (
-                    <span className="max-w-[200px] truncate text-xs text-[var(--muted-foreground)]">
-                      · {objective.condition}
-                    </span>
-                  ) : null}
-                </div>
               </div>
 
               {/* Tabs */}
