@@ -72,3 +72,4 @@ docs/
 !apps/desktop/docs/**
 apps/desktop/scripts/
 /notes/
+.worktrees
