@@ -2491,20 +2491,12 @@ export function ProjectObjectiveDetail({
                                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
                                         {issue.identifier}
                                       </p>
-                                      {issue.url ? (
-                                        <a
-                                          href={issue.url}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="mt-1 block text-sm font-medium text-[var(--foreground)] transition-colors hover:text-[var(--primary)]"
-                                        >
-                                          {issue.title}
-                                        </a>
-                                      ) : (
-                                        <p className="mt-1 text-sm font-medium text-[var(--foreground)]">
-                                          {issue.title}
-                                        </p>
-                                      )}
+                                      <a
+                                        href={`/projects/${projectSlug}/linear?issue=${issue.id}`}
+                                        className="mt-1 block text-sm font-medium text-[var(--foreground)] transition-colors hover:text-[var(--primary)]"
+                                      >
+                                        {issue.title}
+                                      </a>
                                     </div>
                                     <span className="rounded-full border border-[var(--tone-neutral-border)] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--tone-neutral)]">
                                       {issue.status}
@@ -2528,9 +2520,7 @@ export function ProjectObjectiveDetail({
                                 {doneIssues.map((issue) => (
                                   <a
                                     key={issue.id}
-                                    href={issue.url ?? "#"}
-                                    target="_blank"
-                                    rel="noreferrer"
+                                    href={`/projects/${projectSlug}/linear?issue=${issue.id}`}
                                     className="group flex items-center gap-3 rounded-md px-2 py-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
                                   >
                                     <span className="text-[11px] font-mono shrink-0">{issue.identifier}</span>
