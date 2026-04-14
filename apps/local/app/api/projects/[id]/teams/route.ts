@@ -4,6 +4,7 @@ import {
   getTeamAgents,
   createTeam,
   addTeamAgent,
+  addProjectAgent,
   createAgent,
   setAgentSkills,
 } from "@/lib/db";
@@ -137,7 +138,7 @@ function resolveRequestedAgents(value: unknown): { agents?: RequestedAgent[]; er
   return { agents: resolved };
 }
 
-async function provisionAgent(requested: RequestedAgent, teamId: string, order: number) {
+async function provisionAgent(requested: RequestedAgent, projectId: string, teamId: string, order: number) {
   const { preset } = requested;
   const identity = requested.identity ?? preset.identity;
   const agent = await createAgent(LOCAL_USER.id, {
@@ -161,6 +162,7 @@ async function provisionAgent(requested: RequestedAgent, teamId: string, order: 
   await setAgentSkillBindings(agent.id, requested.skillBindings ?? defaultBindings);
 
   await addTeamAgent(teamId, agent.id, preset.id, order);
+  await addProjectAgent(projectId, agent.id, order);
   return agent;
 }
 
@@ -227,7 +229,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       const team = await createTeam(projectId, teamName, templateId, metadata);
 
       for (let i = 0; i < agentsToProvision.length; i++) {
-        await provisionAgent(agentsToProvision[i], team.id, i);
+        await provisionAgent(agentsToProvision[i], projectId, team.id, i);
       }
 
       const agents = await getTeamAgents(team.id);
@@ -242,7 +244,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const team = await createTeam(projectId, name);
     if (requestedAgents.agents && requestedAgents.agents.length > 0) {
       for (let i = 0; i < requestedAgents.agents.length; i++) {
-        await provisionAgent(requestedAgents.agents[i], team.id, i);
+        await provisionAgent(requestedAgents.agents[i], projectId, team.id, i);
       }
     }
 
