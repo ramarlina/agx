@@ -113,37 +113,55 @@ export function RecentlyCompletedCard({
   return (
     <section className="col-span-full overflow-hidden rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)]">
       <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
-        <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
-          <CheckCircle2 className="h-3.5 w-3.5" />
-          Recently Completed
+        <div>
+          <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Recently Completed
+          </div>
+          <p className="mt-1 text-xs text-[var(--muted-foreground)]">
+            Last {completedProcesses.length} completed{" "}
+            {completedProcesses.length === 1 ? "task" : "tasks"}.
+          </p>
         </div>
       </div>
-
-      <div className="divide-y divide-[var(--border)]">
-        {completedProcesses.map((process) => (
-          <div
-            key={`${process.workspaceId}-${process.threadId}-${process.agentId}`}
-            className="flex cursor-pointer items-center gap-3 px-4 py-2.5 text-sm transition-colors hover:bg-[var(--secondary)]"
-            onClick={() =>
-              router.push(
-                process.linearIssueId && process.linearRunId
-                  ? `/projects/${projectSlug}/linear?issue=${encodeURIComponent(process.linearIssueId)}&run=${encodeURIComponent(process.linearRunId)}`
-                  : `/projects/${projectSlug}/thread/${encodeURIComponent(process.workspaceId)}${process.threadId ? `?open=${encodeURIComponent(process.threadId)}` : ""}`
-              )
-            }
-          >
-            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-[var(--muted-foreground)]" />
-            <span className="min-w-0 flex-1 truncate text-[var(--foreground)]">
-              {formatActivityThread(process)}
-            </span>
-            <span className="shrink-0 text-xs text-[var(--muted-foreground)]">
-              {getAgentName(process.agentId)}
-            </span>
-            <span className="shrink-0 text-xs text-[var(--muted-foreground)]">
-              {formatLastActive(process.lastActivity)}
-            </span>
-          </div>
-        ))}
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="bg-[var(--secondary)]">
+            <tr className="text-left text-[11px] uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+              <th className="px-4 py-3 font-medium">Agent</th>
+              <th className="px-4 py-3 font-medium">Status</th>
+              <th className="px-4 py-3 font-medium">Thread</th>
+              <th className="px-4 py-3 font-medium">Last active</th>
+            </tr>
+          </thead>
+          <tbody>
+            {completedProcesses.map((process) => (
+              <tr
+                key={`${process.workspaceId}-${process.threadId}-${process.agentId}`}
+                className="cursor-pointer border-t border-[var(--border)] text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]"
+                onClick={() =>
+                  router.push(
+                    process.linearIssueId && process.linearRunId
+                      ? `/projects/${projectSlug}/linear?issue=${encodeURIComponent(process.linearIssueId)}&run=${encodeURIComponent(process.linearRunId)}`
+                      : `/projects/${projectSlug}/thread/${encodeURIComponent(process.workspaceId)}${process.threadId ? `?open=${encodeURIComponent(process.threadId)}` : ""}`
+                  )
+                }
+              >
+                <td className="px-4 py-3 text-[var(--foreground)]">{getAgentName(process.agentId)}</td>
+                <td className="px-4 py-3">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--secondary)] px-2 py-0.5 text-[11px] font-medium text-[var(--muted-foreground)]">
+                    <CheckCircle2 className="h-3 w-3" />
+                    Done
+                  </span>
+                </td>
+                <td className="max-w-[24rem] px-4 py-3 text-[var(--muted-foreground)]">
+                  <span className="block truncate">{formatActivityThread(process)}</span>
+                </td>
+                <td className="px-4 py-3 text-[var(--muted-foreground)]">{formatLastActive(process.lastActivity)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </section>
   );
