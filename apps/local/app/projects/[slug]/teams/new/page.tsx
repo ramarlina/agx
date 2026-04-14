@@ -16,23 +16,22 @@ import {
   type AgentFormData,
 } from "@/components/chat-ui/ParticipantBar";
 import type { ChatProvider, SkillBinding } from "@/lib/types";
-import { Check, ChevronRight, Loader2, Pencil, Plus, Users, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Loader2, Pencil, Plus, Users, X } from "lucide-react";
 
+/** Matches lib/cli/providers.js PROVIDERS map. */
 const PROVIDERS: { id: string; label: string }[] = [
-  { id: "claude", label: "Claude" },
-  { id: "codex", label: "Codex" },
-  { id: "gemini", label: "Gemini" },
+  { id: "claude", label: "Claude Code" },
+  { id: "gemini", label: "Gemini CLI" },
   { id: "ollama", label: "Ollama" },
-  { id: "zai", label: "Z.AI" },
+  { id: "codex", label: "Codex CLI" },
 ];
 
-/** Well-known models per provider for the combobox suggestions. */
+/** Matches lib/cli/onboarding.js model lists per provider. */
 const MODEL_SUGGESTIONS: Record<string, string[]> = {
-  claude: ["claude-opus-4-20250514", "claude-sonnet-4-20250514", "claude-haiku-4-20250514"],
-  codex: ["o4-mini", "o3", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"],
-  gemini: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
-  ollama: ["qwen3:8b", "devstral", "qwen2.5-coder:14b", "llama3.3:70b", "deepseek-coder-v2:16b"],
-  zai: ["claude-opus-4-20250514", "claude-sonnet-4-20250514"],
+  claude: ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
+  gemini: ["gemini-3-pro-preview", "gemini-3-flash-preview"],
+  ollama: ["glm-5:cloud", "qwen3.5:397b-cloud", "qwen3.5:cloud", "minimax-m2.5:cloud", "kimi-k2.5:cloud"],
+  codex: ["gpt-5.3-codex", "gpt-5.1-code-mini"],
 };
 
 /** Searchable combobox: text input with dropdown suggestions, allows custom values. */
@@ -107,13 +106,76 @@ function ModelCombobox({
   );
 }
 
+/** Custom dropdown for provider selection. */
+function ProviderDropdown({
+  value,
+  onChange,
+  providers,
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  providers: { id: string; label: string }[];
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const selected = providers.find((p) => p.id === value);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  return (
+    <div ref={wrapperRef} className="relative shrink-0">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen(!open)}
+        className="h-8 px-2.5 pr-7 text-xs rounded-lg border bg-[var(--background)] text-left transition-colors hover:border-[var(--foreground)]/40 disabled:opacity-50 disabled:cursor-not-allowed min-w-[120px]"
+        style={{ borderColor: "var(--border)" }}
+      >
+        <span className={selected ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}>
+          {selected?.label ?? "Provider..."}
+        </span>
+        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--muted-foreground)]" />
+      </button>
+      {open && (
+        <div className="absolute z-50 top-full left-0 mt-1 min-w-[160px] rounded-lg border bg-[var(--background)] shadow-lg overflow-hidden" style={{ borderColor: "var(--border)" }}>
+          {providers.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => {
+                onChange(p.id);
+                setOpen(false);
+              }}
+              className={`w-full text-left px-3 py-2 text-xs transition-colors hover:bg-[var(--muted)] flex items-center justify-between gap-3 ${
+                p.id === value ? "text-[var(--foreground)] font-medium" : "text-[var(--muted-foreground)]"
+              }`}
+            >
+              {p.label}
+              {p.id === value && <Check className="w-3 h-3 text-[var(--foreground)]" />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Provider dropdown + model combobox, compact layout. */
 function ProviderModelSelector({
   provider,
   model,
   onProviderChange,
   onModelChange,
-  providers,
   label,
   disabled,
 }: {
@@ -121,7 +183,6 @@ function ProviderModelSelector({
   model: string;
   onProviderChange: (v: string) => void;
   onModelChange: (v: string) => void;
-  providers: { id: string; label: string }[];
   label?: string;
   disabled?: boolean;
 }) {
@@ -133,26 +194,15 @@ function ProviderModelSelector({
         <span className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase tracking-wide">{label}</span>
       )}
       <div className="flex items-center gap-2">
-        <select
+        <ProviderDropdown
           value={provider}
-          disabled={disabled}
-          onChange={(e) => {
-            onProviderChange(e.target.value);
+          onChange={(v) => {
+            onProviderChange(v);
             onModelChange("");
           }}
-          className="h-8 px-2 text-xs rounded-lg border bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:border-[var(--foreground)]/40 transition-colors appearance-none cursor-pointer pr-6 disabled:opacity-50"
-          style={{
-            borderColor: "var(--border)",
-            backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")",
-            backgroundRepeat: "no-repeat",
-            backgroundPosition: "right 6px center",
-          }}
-        >
-          <option value="">Provider...</option>
-          {providers.map((p) => (
-            <option key={p.id} value={p.id}>{p.label}</option>
-          ))}
-        </select>
+          providers={PROVIDERS}
+          disabled={disabled}
+        />
         <ModelCombobox
           value={model}
           onChange={onModelChange}
@@ -503,7 +553,6 @@ export default function NewTeamPage({ params }: { params: Promise<{ slug: string
               model={teamModel}
               onProviderChange={(v) => setTeamProvider((v || "") as ChatProvider | "")}
               onModelChange={setTeamModel}
-              providers={PROVIDERS}
               disabled={creating}
             />
             <p className="mt-1 text-[10px] text-[var(--muted-foreground)]">
