@@ -2204,6 +2204,23 @@ export function ProjectObjectiveDetail({
 
               </div>
 
+              {/* Work on objective */}
+              <div className="mb-6">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setWorkingOnObjective(true);
+                    await handleWorkOnObjective();
+                    setWorkingOnObjective(false);
+                  }}
+                  disabled={workingOnObjective}
+                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-3 py-2 text-sm text-[var(--status-completed-text)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  {workingOnObjective ? "Working..." : "Work on objective"}
+                </button>
+              </div>
+
               {/* Tabs */}
               <div className="mb-8 border-b border-[var(--border)]">
                 <nav className="flex gap-1 -mb-px" aria-label="Objective sections">
@@ -2435,19 +2452,6 @@ export function ProjectObjectiveDetail({
                             {objective.key}
                           </code>.
                         </p>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            setWorkingOnObjective(true);
-                            await handleWorkOnObjective();
-                            setWorkingOnObjective(false);
-                          }}
-                          disabled={workingOnObjective}
-                          className="inline-flex items-center gap-2 rounded-xl border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-3 py-2 text-sm text-[var(--status-completed-text)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <Sparkles className="h-4 w-4" />
-                          {workingOnObjective ? "Working..." : "Work on objective"}
-                        </button>
                       </div>
                       {!linearConnected ? (
                         <EmptyState label="Connect Linear to create and track tickets for this objective." />
