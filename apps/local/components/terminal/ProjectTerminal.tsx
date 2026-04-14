@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useParams } from "next/navigation";
 import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { useTerminalTabsStore } from "@/state/terminalTabs";
 import { useUrlSelection } from "@/hooks/useUrlSelection";
@@ -17,6 +18,8 @@ const GRID_DESKTOP_BREAKPOINT_PX = 960;
 const GRID_MAX_ROW_SPAN = 4;
 const GRID_MIN_ROW_HEIGHT_PX = 320;
 const GRID_MAX_ROW_HEIGHT_PX = 520;
+
+const DEFAULT_PROJECT_KEY = "__global__";
 
 type EditingTerminal = {
   sessionId: string;
@@ -38,8 +41,11 @@ type ResizeState = {
 type TerminalLayoutMode = "single" | "split" | "grid";
 
 export default function ProjectTerminal() {
+  const params = useParams<{ slug?: string }>();
+  const projectId = params?.slug ?? DEFAULT_PROJECT_KEY;
+
   const { isTouchLayout } = useInputCapabilities();
-  const sessions = useTerminalTabsStore((s) => s.sessions);
+  const sessions = useTerminalTabsStore((s) => s.getProjectSessions(projectId));
   const createSession = useTerminalTabsStore((s) => s.createSession);
   const closeSession = useTerminalTabsStore((s) => s.closeSession);
   const renameSession = useTerminalTabsStore((s) => s.renameSession);
@@ -78,10 +84,10 @@ export default function ProjectTerminal() {
   // Auto-create first session if none exist
   useEffect(() => {
     if (sessions.length === 0) {
-      const id = createSession();
+      const id = createSession(projectId);
       replaceSelection({ session: id });
     }
-  }, [sessions.length, createSession, replaceSelection]);
+  }, [sessions.length, createSession, replaceSelection, projectId]);
 
   // Auto-select first session if none selected but sessions exist
   useEffect(() => {
@@ -171,7 +177,7 @@ export default function ProjectTerminal() {
         ),
       );
 
-      updateTerminalLayout(resizeState.sessionId, resizeState.terminalId, {
+      updateTerminalLayout(projectId, resizeState.sessionId, resizeState.terminalId, {
         colSpan: nextColSpan,
         rowSpan: nextRowSpan,
       });
@@ -190,10 +196,10 @@ export default function ProjectTerminal() {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [resizeState, updateTerminalLayout]);
+  }, [resizeState, updateTerminalLayout, projectId]);
 
   function handleCreate() {
-    const id = createSession();
+    const id = createSession(projectId);
     replaceSelection({ session: id });
     setTouchSessionListOpen(false);
   }
@@ -210,12 +216,12 @@ export default function ProjectTerminal() {
         // Best-effort cleanup. The session is still removed from the UI.
       });
     });
-    closeSession(id);
+    closeSession(projectId, id);
   }
 
   function handleAddTerminal() {
     if (!selectedSession) return;
-    addTerminal(selectedSession.id);
+    addTerminal(projectId, selectedSession.id);
   }
 
   function handleCloseTerminal(sessionId: string, terminalId: string) {
@@ -231,7 +237,7 @@ export default function ProjectTerminal() {
     ).catch(() => {
       // Best-effort cleanup. The terminal is still removed from the UI.
     });
-    closeTerminal(sessionId, terminalId);
+    closeTerminal(projectId, sessionId, terminalId);
   }
 
   function handleStartRenameTerminal(sessionId: string, terminal: TerminalInstance) {
@@ -243,7 +249,7 @@ export default function ProjectTerminal() {
     if (!editingTerminal) return;
     const nextTitle = editingTitle.trim();
     if (nextTitle) {
-      renameTerminal(editingTerminal.sessionId, editingTerminal.terminalId, nextTitle);
+      renameTerminal(projectId, editingTerminal.sessionId, editingTerminal.terminalId, nextTitle);
     }
     setEditingTerminal(null);
     setEditingTitle("");
@@ -252,6 +258,10 @@ export default function ProjectTerminal() {
   function handleSelect(id: string) {
     replaceSelection({ session: id });
     setTouchSessionListOpen(false);
+  }
+
+  function handleRenameSession(id: string, title: string) {
+    renameSession(projectId, id, title);
   }
 
   function terminalStatusDotClass(status: TerminalStatus): string {
@@ -372,10 +382,10 @@ export default function ProjectTerminal() {
             key={terminal.id}
             tabId={terminal.id}
             onSessionReady={(backendSessionId) =>
-              setTerminalSessionId(sessionId, terminal.id, backendSessionId)
+              setTerminalSessionId(projectId, sessionId, terminal.id, backendSessionId)
             }
             onStatusChange={(status) =>
-              updateTerminalStatus(sessionId, terminal.id, status)
+              updateTerminalStatus(projectId, sessionId, terminal.id, status)
             }
           />
         </div>
@@ -413,7 +423,7 @@ export default function ProjectTerminal() {
                   onSelect={handleSelect}
                   onCreate={handleCreate}
                   onClose={handleClose}
-                  onRename={renameSession}
+                  onRename={handleRenameSession}
                 />
               </div>
             </>
@@ -513,7 +523,7 @@ export default function ProjectTerminal() {
               onSelect={handleSelect}
               onCreate={handleCreate}
               onClose={handleClose}
-              onRename={renameSession}
+              onRename={handleRenameSession}
             />
           </div>
 
