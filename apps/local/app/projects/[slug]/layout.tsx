@@ -52,7 +52,6 @@ function ProjectLayoutContent({
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(368);
-  const [hasLiveActivity, setHasLiveActivity] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     if (typeof window === "undefined") return "light";
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
@@ -84,46 +83,6 @@ function ProjectLayoutContent({
     () => projects.find((project) => project.slug === slug) ?? null,
     [projects, slug]
   );
-
-  useEffect(() => {
-    let cancelled = false;
-    const threadIds = currentProject?.thread_ids ?? [];
-    const normalizedSlug = slug.trim().toLowerCase();
-
-    const poll = async () => {
-      try {
-        const response = await fetch("/api/processes?enrich=1");
-        if (!response.ok || cancelled) return;
-        const data = await response.json() as Array<{
-          state?: string;
-          projectSlug?: string;
-          workspaceId?: string;
-          threadId?: string;
-        }>;
-        if (cancelled) return;
-        const live = data.some((item) => {
-          if (item.state !== "spawning" && item.state !== "running") return false;
-          if ((item.projectSlug ?? "").trim().toLowerCase() === normalizedSlug) return true;
-          return threadIds.includes(item.workspaceId ?? "") || threadIds.includes(item.threadId ?? "");
-        });
-        setHasLiveActivity(live);
-      } catch {
-        if (!cancelled) {
-          setHasLiveActivity(false);
-        }
-      }
-    };
-
-    void poll();
-    const intervalId = window.setInterval(() => {
-      void poll();
-    }, 5000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [currentProject?.thread_ids, slug]);
   const activeProjectThreadId = useMemo(() => {
     const match = pathname.match(/\/projects\/[^/]+\/thread\/([^/]+)/);
     return match?.[1] ? decodeURIComponent(match[1]) : currentProject?.thread_ids[0] ?? null;
@@ -243,23 +202,13 @@ function ProjectLayoutContent({
             <button
               type="button"
               onClick={() => router.push(`/projects/${slug}`)}
-              className="text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+              className={`text-xs transition-colors ${activeProjectView === "home" ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)] hover:text-[var(--foreground)]"}`}
             >
               {currentProject.name}
             </button>
-            <span className="text-xs text-[var(--muted-foreground)]">\</span>
-            {activeProjectView === "home" ? (
-              <span className="inline-flex items-center gap-2">
-                <span className="text-xs text-[var(--foreground)]">Home</span>
-                {hasLiveActivity && (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--status-completed-text)]">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    Live
-                  </span>
-                )}
-              </span>
-            ) : (
+            {activeProjectView !== "home" && (
               <>
+                <span className="text-xs text-[var(--muted-foreground)]">\</span>
                 <button
                   type="button"
                   onClick={() => router.push(`/projects/${slug}/${activeProjectView === "thread" ? "" : activeProjectView}`)}

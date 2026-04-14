@@ -160,4 +160,58 @@ describe("ProjectHome", () => {
     expect(screen.getByText("Project Context")).toBeInTheDocument();
     expect(screen.getByTestId("working-now-card")).toBeInTheDocument();
   });
+
+  test("explains the project mental model and points new users to the next steps", () => {
+    render(
+      <ProjectHome
+        projectId="project-1"
+        projectSlug="alpha"
+        projectName="Alpha"
+        projectMetadata={buildProjectMetadata()}
+        repos={[]}
+        threadIds={["thread-general"]}
+      />
+    );
+
+    expect(screen.getByText("Start here")).toBeInTheDocument();
+    expect(screen.getByText("Alpha is your project home base")).toBeInTheDocument();
+    expect(screen.getByText("How AGX is organized")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /1\. Add folders/i }));
+    expect(pushMock).toHaveBeenCalledWith("/projects/alpha/folders");
+  });
+
+  test("routes the start-here objective action to the project objectives view", () => {
+    render(
+      <ProjectHome
+        projectId="project-1"
+        projectSlug="alpha"
+        projectName="Alpha"
+        projectMetadata={buildProjectMetadata()}
+        repos={[]}
+        threadIds={["thread-general"]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /2\. Define an objective/i }));
+
+    expect(pushMock).toHaveBeenCalledWith("/projects/alpha/objectives");
+  });
+
+  test("routes the start-here chat action to the primary project thread", () => {
+    render(
+      <ProjectHome
+        projectId="project-1"
+        projectSlug="alpha"
+        projectName="Alpha"
+        projectMetadata={buildProjectMetadata()}
+        repos={[]}
+        threadIds={["thread-general"]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /3\. Start in chat/i }));
+
+    expect(pushMock).toHaveBeenCalledWith("/projects/alpha/thread/thread-general");
+  });
 });
