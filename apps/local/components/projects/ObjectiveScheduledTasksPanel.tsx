@@ -6,6 +6,7 @@ import { usePromptJobs } from "@/hooks/usePromptJobs";
 import { cronToHuman } from "@/src/graph/nl-schedule";
 import type { PromptJob, PromptRun } from "@/src/prompt-scheduler/types";
 import { CreateJobModal, type CreateJobData } from "@/components/PromptJobBoard";
+import { Markdown } from "@/components/chat-ui/Markdown";
 
 export type ObjectiveScheduledTaskDraft = CreateJobData;
 
@@ -120,8 +121,8 @@ function ObjectiveScheduledTaskDetailModal({
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
               Instructions
             </p>
-            <div className="whitespace-pre-wrap rounded-2xl border border-[var(--border)] bg-[var(--overlay-panel-muted)] px-4 py-4 text-sm leading-6 text-[var(--foreground)]">
-              {job.prompt || "No instructions yet"}
+            <div className="rounded-2xl border border-[var(--border)] bg-[var(--overlay-panel-muted)] px-4 py-4 text-sm leading-6 text-[var(--foreground)]">
+              <Markdown content={job.prompt || "No instructions yet"} />
             </div>
           </div>
 
