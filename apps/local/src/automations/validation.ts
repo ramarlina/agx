@@ -212,20 +212,25 @@ function normalizePromptTarget(value: unknown): PromptJobAutomationTarget {
   const prompt = typeof raw.prompt === "string" && raw.prompt.length > 0
     ? raw.prompt
     : undefined;
+  const scriptPrompt = typeof raw.scriptPrompt === "string" && raw.scriptPrompt.length > 0
+    ? raw.scriptPrompt
+    : undefined;
+  const teamId = asTrimmedString(raw.teamId);
   const objectiveId = asTrimmedString(raw.objectiveId);
   const objectiveKey = asTrimmedString(raw.objectiveKey);
   const executionMode = asTrimmedString(raw.executionMode);
 
-  if (!provider && !agentId) {
-    throw new Error("Prompt-job target requires provider or agentId.");
+  if (!provider && !agentId && !teamId) {
+    throw new Error("Prompt-job target requires provider, agentId, or teamId.");
   }
   if (
     executionMode &&
     executionMode !== "prompt" &&
-    executionMode !== "objective_worker"
+    executionMode !== "objective_worker" &&
+    executionMode !== "linear_worker"
   ) {
     throw new Error(
-      'Prompt-job target.executionMode must be "prompt" or "objective_worker".',
+      'Prompt-job target.executionMode must be "prompt", "objective_worker", or "linear_worker".',
     );
   }
 
@@ -234,9 +239,11 @@ function normalizePromptTarget(value: unknown): PromptJobAutomationTarget {
   if (model) target.model = model;
   if (cliArgs !== undefined) target.cliArgs = cliArgs;
   if (prompt !== undefined) target.prompt = prompt;
+  if (scriptPrompt !== undefined) target.scriptPrompt = scriptPrompt;
+  if (teamId) target.teamId = teamId;
   if (objectiveId) target.objectiveId = objectiveId;
   if (objectiveKey) target.objectiveKey = objectiveKey;
-  if (executionMode === "prompt" || executionMode === "objective_worker") {
+  if (executionMode === "prompt" || executionMode === "objective_worker" || executionMode === "linear_worker") {
     target.executionMode = executionMode;
   }
   return target;

@@ -1,16 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bot, Pause, Play, RefreshCw } from "lucide-react";
-import { ScheduleConditionPicker } from "@/components/scheduling/ScheduleConditionPicker";
+import dynamic from "next/dynamic";
+import { ChevronDown, ChevronRight, Pause, Play, RefreshCw } from "lucide-react";
+import { ScheduleConditionPicker, SimpleDropdown } from "@/components/scheduling/ScheduleConditionPicker";
+import {
+  LINEAR_WORKER_DEFAULT_PROMPT,
+  LINEAR_WORKER_DEFAULT_SCRIPT_PROMPT,
+} from "@/src/prompt-scheduler/linear-worker-constants";
 import type { PromptJob } from "@/src/prompt-scheduler/types";
 
-interface AgentOption {
+const RichTextEditor = dynamic(() => import("@/components/RichTextEditor"), {
+  ssr: false,
+});
+
+interface TeamOption {
   id: string;
   name: string;
-  provider: string;
-  model: string | null;
-  color: string;
 }
 
 interface LinearWorkerConfigProps {
@@ -41,20 +47,62 @@ function formatLastRun(epochMs: number | null): string {
   return `${Math.round(diff / 86_400_000)}d ago`;
 }
 
+function Label({ children }: { children: React.ReactNode }) {
+  return (
+    <label className="block text-[10px] font-semibold text-[var(--muted-foreground)] uppercase tracking-widest mb-2">
+      {children}
+    </label>
+  );
+}
+
+function CollapsibleSection({
+  title,
+  expanded,
+  onToggle,
+  children,
+}: {
+  title: string;
+  expanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left text-xs font-semibold text-[var(--muted-foreground)] uppercase tracking-widest hover:text-[var(--foreground)] transition-colors"
+      >
+        {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        {title}
+      </button>
+      {expanded && (
+        <div className="border-t border-[var(--card-border)]">
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function LinearWorkerConfig({
   projectId,
 }: LinearWorkerConfigProps) {
   const [job, setJob] = useState<PromptJob | null>(null);
-  const [agents, setAgents] = useState<AgentOption[]>([]);
+  const [teams, setTeams] = useState<TeamOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   // Form state
-  const [prompt, setPrompt] = useState("");
+  const [prompt, setPrompt] = useState(LINEAR_WORKER_DEFAULT_PROMPT);
+  const [scriptPrompt, setScriptPrompt] = useState(LINEAR_WORKER_DEFAULT_SCRIPT_PROMPT);
   const [cadence, setCadence] = useState("*/30 * * * *");
-  const [agentId, setAgentId] = useState("");
-  const [provider, setProvider] = useState("claude");
-  const [model, setModel] = useState("");
+  const [condition, setCondition] = useState("");
+  const [teamId, setTeamId] = useState("");
+
+  // Collapsible sections
+  const [selectionExpanded, setSelectionExpanded] = useState(false);
+  const [executionExpanded, setExecutionExpanded] = useState(true);
 
   const initialFetch = useRef(false);
 
@@ -67,11 +115,11 @@ export default function LinearWorkerConfig({
       const data = await res.json();
       if (data.job) {
         setJob(data.job);
-        setPrompt(data.job.prompt || "");
+        setPrompt(data.job.prompt || LINEAR_WORKER_DEFAULT_PROMPT);
+        setScriptPrompt(data.job.scriptPrompt || LINEAR_WORKER_DEFAULT_SCRIPT_PROMPT);
         setCadence(data.job.cronExpr || data.job.cadence || "*/30 * * * *");
-        setAgentId(data.job.agentId || "");
-        setProvider(data.job.provider || "claude");
-        setModel(data.job.model || "");
+        setCondition(data.job.condition || "");
+        setTeamId(data.job.teamId || "");
       }
     } catch {
       // ignore
@@ -80,24 +128,29 @@ export default function LinearWorkerConfig({
     }
   }, [projectId]);
 
-  const fetchAgents = useCallback(async () => {
+  const fetchTeams = useCallback(async () => {
+    if (!projectId) return;
     try {
-      const res = await fetch("/api/prompt-jobs/agents");
+      const res = await fetch(`/api/projects/${projectId}/teams`);
       if (!res.ok) return;
       const data = await res.json();
-      setAgents(data.agents ?? []);
+      const fetchedTeams: TeamOption[] = (data.teams ?? []).map((t: any) => ({
+        id: t.id,
+        name: t.name,
+      }));
+      setTeams(fetchedTeams);
     } catch {
       // ignore
     }
-  }, []);
+  }, [projectId]);
 
   useEffect(() => {
     if (!initialFetch.current) {
       initialFetch.current = true;
       fetchWorker();
-      fetchAgents();
+      fetchTeams();
     }
-  }, [fetchWorker, fetchAgents]);
+  }, [fetchWorker, fetchTeams]);
 
   // Poll for status updates
   useEffect(() => {
@@ -110,10 +163,10 @@ export default function LinearWorkerConfig({
     try {
       const body: Record<string, unknown> = {
         prompt,
+        scriptPrompt,
         cadence,
-        agentId,
-        provider,
-        model,
+        condition,
+        teamId,
       };
       if (projectId) body.projectId = projectId;
 
@@ -132,11 +185,10 @@ export default function LinearWorkerConfig({
     } finally {
       setSaving(false);
     }
-  }, [prompt, cadence, agentId, provider, model, projectId]);
+  }, [prompt, scriptPrompt, cadence, condition, teamId, projectId]);
 
   const handleToggle = useCallback(async () => {
     if (!job) {
-      // Create and enable
       await handleSave();
       return;
     }
@@ -166,11 +218,9 @@ export default function LinearWorkerConfig({
 
   if (loading) {
     return (
-      <div className="rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] p-4">
-        <div className="flex items-center gap-2 text-sm text-[var(--muted-foreground)]">
-          <RefreshCw size={14} className="animate-spin" />
-          Loading Linear Worker...
-        </div>
+      <div className="flex items-center gap-2 py-12 justify-center text-sm text-[var(--muted-foreground)]">
+        <RefreshCw size={14} className="animate-spin" />
+        Loading Linear Worker...
       </div>
     );
   }
@@ -178,24 +228,36 @@ export default function LinearWorkerConfig({
   const isActive = job?.state === "active";
 
   return (
-    <div className="rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)]">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-[var(--card-border)] px-4 py-3">
-        <div className="flex items-center gap-2.5">
-          <Bot size={16} className="text-[var(--muted-foreground)]" />
-          <span className="text-sm font-semibold text-[var(--foreground)]">
-            Linear Worker
-          </span>
+    <div className="flex flex-col gap-4 h-full">
+      {/* Status bar */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4 text-xs text-[var(--muted-foreground)]">
           {job && (
-            <span
-              className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${
-                isActive
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                  : "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
-              }`}
-            >
-              {job.state}
-            </span>
+            <>
+              <span
+                className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${
+                  isActive
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                    : "border-yellow-500/30 bg-yellow-500/10 text-yellow-400"
+                }`}
+              >
+                {job.state}
+              </span>
+              <span>
+                Next: <span className="text-[var(--foreground)]">{formatNextRun(job.nextRunAt, job.state)}</span>
+              </span>
+              <span>
+                Last: <span className="text-[var(--foreground)]">{formatLastRun(job.lastRunAt)}</span>
+              </span>
+              {job.lastOutcome && (
+                <span>
+                  Outcome:{" "}
+                  <span className={job.lastOutcome === "success" ? "text-emerald-400" : job.lastOutcome === "failed" ? "text-red-400" : "text-[var(--foreground)]"}>
+                    {job.lastOutcome}
+                  </span>
+                </span>
+              )}
+            </>
           )}
         </div>
         <button
@@ -220,103 +282,82 @@ export default function LinearWorkerConfig({
         </button>
       </div>
 
-      {/* Status bar */}
-      {job && (
-        <div className="flex items-center gap-4 border-b border-[var(--card-border)] px-4 py-2 text-xs text-[var(--muted-foreground)]">
-          <span>
-            Next run:{" "}
-            <span className="text-[var(--foreground)]">
-              {formatNextRun(job.nextRunAt, job.state)}
-            </span>
-          </span>
-          <span>
-            Last run:{" "}
-            <span className="text-[var(--foreground)]">
-              {formatLastRun(job.lastRunAt)}
-            </span>
-          </span>
-          {job.lastOutcome && (
-            <span>
-              Last outcome:{" "}
-              <span
-                className={
-                  job.lastOutcome === "success"
-                    ? "text-emerald-400"
-                    : job.lastOutcome === "failed"
-                      ? "text-red-400"
-                      : "text-[var(--foreground)]"
-                }
-              >
-                {job.lastOutcome}
-              </span>
-            </span>
-          )}
+      {/* Main layout: Left (prompts) | Right (config) */}
+      <div className="flex flex-1 min-h-0 gap-6 overflow-y-auto">
+        {/* Left: Collapsible prompt sections */}
+        <div className="flex flex-1 min-w-0 flex-col gap-4">
+          {/* Ticket Selection — collapsible */}
+          <CollapsibleSection
+            title="How to pick a ticket"
+            expanded={selectionExpanded}
+            onToggle={() => setSelectionExpanded(!selectionExpanded)}
+          >
+            <div className="min-h-[120px] overflow-y-auto resize-y" style={{ height: 320 }}>
+              <RichTextEditor
+                content={prompt}
+                onChange={(md) => setPrompt(md)}
+                placeholder="Describe how to pick which ticket to work on..."
+              />
+            </div>
+          </CollapsibleSection>
+
+          {/* Execution Prompt — collapsible */}
+          <CollapsibleSection
+            title="How to work a ticket"
+            expanded={executionExpanded}
+            onToggle={() => setExecutionExpanded(!executionExpanded)}
+          >
+            <div className="min-h-[300px] max-h-[50vh] overflow-y-auto">
+              <RichTextEditor
+                content={scriptPrompt}
+                onChange={(md) => setScriptPrompt(md)}
+                placeholder="Instructions injected into the agent session when working a ticket..."
+              />
+            </div>
+          </CollapsibleSection>
         </div>
-      )}
 
-      {/* Configuration */}
-      <div className="space-y-4 p-4">
-        <p className="text-xs text-[var(--muted-foreground)]">
-          The Linear Worker autonomously observes your full Linear workspace and
-          decides what to work on next, guided by the prompt below.
-        </p>
+        {/* Right: Team + Agent + Schedule */}
+        <div className="w-[340px] shrink-0 space-y-6">
+          {/* Team selector */}
+          {teams.length > 0 && (
+            <div>
+              <Label>Team</Label>
+              <SimpleDropdown
+                value={teamId || ""}
+                options={[
+                  { value: "", label: "Select a team" },
+                  ...teams.map((t) => ({ value: t.id, label: t.name })),
+                ]}
+                onChange={(v) => setTeamId(v)}
+                ariaLabel="Select team"
+              />
+              <p className="mt-1.5 text-[10px] text-[var(--muted-foreground)]">
+                Agents in this team become default participants of the linear chat.
+              </p>
+            </div>
+          )}
 
-        {/* Guiding prompt */}
-        <div>
-          <label className="mb-1 block text-xs font-medium text-[var(--muted-foreground)]">
-            Guiding prompt
-          </label>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            rows={4}
-            placeholder="e.g., Focus on high-priority bugs first. Then work on the current sprint tickets."
-            className="w-full rounded-lg border border-[var(--card-border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:border-[var(--primary)] focus:outline-none"
+          {/* Schedule */}
+          <ScheduleConditionPicker
+            value={{ cadence, condition }}
+            onChange={(next) => {
+              setCadence(next.cadence);
+              setCondition(next.condition);
+            }}
+            scheduleLabel="Schedule"
+            conditionLabel="Condition"
           />
         </div>
+      </div>
 
-        {/* Schedule */}
-        <ScheduleConditionPicker
-          value={{ cadence, condition: "" }}
-          onChange={(next) => setCadence(next.cadence)}
-          scheduleLabel="Schedule"
-        />
-
-        {/* Agent selector */}
-        <div>
-          <label className="mb-1 block text-xs font-medium text-[var(--muted-foreground)]">
-            Agent
-          </label>
-          <select
-            value={agentId}
-            onChange={(e) => {
-              setAgentId(e.target.value);
-              const selectedAgent = agents.find(
-                (a) => a.id === e.target.value
-              );
-              if (selectedAgent) {
-                setProvider(selectedAgent.provider);
-                setModel(selectedAgent.model || "");
-              }
-            }}
-            className="w-full rounded-lg border border-[var(--card-border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] focus:border-[var(--primary)] focus:outline-none"
-          >
-            <option value="">Default (claude)</option>
-            {agents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name} ({agent.provider}
-                {agent.model ? ` / ${agent.model}` : ""})
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {/* Save button */}
+      {/* Save button */}
+      <div className="flex shrink-0 justify-end pt-2">
         <button
           type="button"
           disabled={saving}
           onClick={handleSave}
-          className="w-full rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/10 px-4 py-2 text-sm font-medium text-[var(--primary)] transition-colors hover:bg-[var(--primary)]/20 disabled:opacity-50"
+          className="rounded-lg bg-[var(--foreground)] px-5 py-2 text-sm font-medium text-[var(--background)] transition-opacity hover:opacity-90 disabled:opacity-40"
         >
           {saving ? "Saving..." : "Save configuration"}
         </button>

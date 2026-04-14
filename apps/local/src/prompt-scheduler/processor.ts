@@ -4,7 +4,7 @@ import { homedir } from 'os';
 
 import { getPromptJobStore } from './get-store';
 import { pollDueJobs } from './engine';
-import { getAgent, getAgentSkills, getProjectAgents } from '@/lib/db';
+import { getAgent, getAgentSkills, getProjectAgents, getTeamAgents } from '@/lib/db';
 import { LOCAL_USER } from '@/lib/auth-mode';
 import { loadDbParticipants } from '@/lib/agent-participants';
 import { runCliResponse, buildCliAttempts } from '@/lib/cli-runner';
@@ -180,6 +180,30 @@ async function resolveObjectiveWorkerAgent(job: PromptJob): Promise<Participant>
   }
 
   throw new Error('No project agent is available to run the objective worker.');
+}
+
+/**
+ * Resolve the agent for a linear worker job.
+ * Priority: team lead (role_key contains "lead") → first agent by routing_order → fallback to agentId/project agents.
+ */
+async function resolveLinearWorkerAgent(job: PromptJob): Promise<Participant> {
+  const participants = await loadDbParticipants();
+
+  if (job.teamId) {
+    const teamAgents = await getTeamAgents(job.teamId);
+    if (teamAgents.length > 0) {
+      // Prefer the team lead (role_key contains "lead")
+      const leadAgent = teamAgents.find((ta) => ta.role_key.includes('lead'));
+      const selectedTeamAgent = leadAgent ?? teamAgents[0];
+      const participant = participants.find((p) => p.id === selectedTeamAgent.agent_id) ?? null;
+      if (participant) {
+        return participant;
+      }
+    }
+  }
+
+  // Fallback to explicit agentId or project agents
+  return resolveObjectiveWorkerAgent(job);
 }
 
 async function appendObjectiveWorkerActivity(input: {
@@ -426,7 +450,7 @@ async function executeJobAction(
 
   if (job.executionMode === 'linear_worker') {
     const { executeLinearWorker } = await import('./linear-worker');
-    const sessionAgent = await resolveObjectiveWorkerAgent(job);
+    const sessionAgent = await resolveLinearWorkerAgent(job);
     const controllerContext = await resolveJobContextForAgent(job, sessionAgent.id);
     return executeLinearWorker({
       job,
