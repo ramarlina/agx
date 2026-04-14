@@ -9,6 +9,7 @@ const mockGetIssueActiveAgents = jest.fn();
 const mockLoadProjectObjectiveContext = jest.fn();
 const mockPersistProjectObjectiveWorkspace = jest.fn();
 const mockPersistProjectHealthSnapshot = jest.fn();
+const mockPersistProjectObjectiveMetadata = jest.fn();
 const mockActivityList = jest.fn();
 const mockActivityAppend = jest.fn();
 const mockNoteReadAll = jest.fn();
@@ -45,6 +46,7 @@ jest.mock('@/lib/project-objective-context', () => ({
   loadProjectObjectiveContext: (...args: unknown[]) => mockLoadProjectObjectiveContext(...args),
   persistProjectObjectiveWorkspace: (...args: unknown[]) => mockPersistProjectObjectiveWorkspace(...args),
   persistProjectHealthSnapshot: (...args: unknown[]) => mockPersistProjectHealthSnapshot(...args),
+  persistProjectObjectiveMetadata: (...args: unknown[]) => mockPersistProjectObjectiveMetadata(...args),
 }));
 
 jest.mock('@/lib/project-objectives', () => ({
@@ -87,6 +89,7 @@ jest.mock('@/src/prompt-scheduler/processor', () => ({
 }));
 
 import { buildObjectiveObservation, executeObjectiveWorker } from '@/src/prompt-scheduler/objective-worker';
+import { readObjectiveHealthHistory } from '@/lib/objective-health-history';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -273,6 +276,7 @@ beforeEach(() => {
   mockLoadProjectObjectiveContext.mockResolvedValue(objectiveContext);
   mockPersistProjectObjectiveWorkspace.mockResolvedValue(undefined);
   mockPersistProjectHealthSnapshot.mockResolvedValue(undefined);
+  mockPersistProjectObjectiveMetadata.mockResolvedValue(undefined);
   mockLogActionReceipt.mockResolvedValue(undefined);
 });
 
@@ -567,6 +571,57 @@ describe('executeObjectiveWorker', () => {
 
     // Objective changed from 40/on_track to 60/at_risk so workspace should be persisted
     expect(mockPersistProjectObjectiveWorkspace).toHaveBeenCalledTimes(1);
+    const persistCall = mockPersistProjectObjectiveWorkspace.mock.calls[0][0] as {
+      transformMetadata?: (metadata: Record<string, unknown>) => Record<string, unknown>;
+    };
+    const metadataWithHistory = persistCall.transformMetadata?.({}) ?? {};
+    expect(readObjectiveHealthHistory(metadataWithHistory, "objective-1")).toEqual([
+      expect.objectContaining({
+        progress: 60,
+        status: "at_risk",
+        objectiveKey: "ship-v2-api",
+      }),
+    ]);
+  });
+
+  it('records objective health history even when the assessed value is unchanged', async () => {
+    mockDispatchObjectiveAction.mockResolvedValue({
+      action: 'stop',
+      jobName: 'Objective Worker',
+      reason: 'Still on track.',
+      result: 'No action taken.',
+      durationMs: 100,
+      status: 'success',
+    });
+
+    mockRunCliResponse.mockImplementation(async (opts: any) => {
+      opts.onDelta(JSON.stringify({
+        action: 'stop',
+        reason: 'Still on track.',
+        objectiveProgress: 40,
+        objectiveStatus: 'on_track',
+      }));
+    });
+
+    await executeObjectiveWorker({
+      job: baseJob as any,
+      controllerContext,
+      sessionAgent,
+    });
+
+    expect(mockPersistProjectObjectiveWorkspace).not.toHaveBeenCalled();
+    expect(mockPersistProjectObjectiveMetadata).toHaveBeenCalledTimes(1);
+    const persistCall = mockPersistProjectObjectiveMetadata.mock.calls[0][0] as {
+      transformMetadata?: (metadata: Record<string, unknown>) => Record<string, unknown>;
+    };
+    const metadataWithHistory = persistCall.transformMetadata?.({}) ?? {};
+    expect(readObjectiveHealthHistory(metadataWithHistory, "objective-1")).toEqual([
+      expect.objectContaining({
+        progress: 40,
+        status: "on_track",
+        objectiveKey: "ship-v2-api",
+      }),
+    ]);
   });
 
   it('handles legacy "decision" field', async () => {

@@ -38,7 +38,7 @@ import { ScheduleConditionPicker } from "@/components/scheduling/ScheduleConditi
 import {
   LINEAR_WORKER_DEFAULT_PROMPT,
   LINEAR_WORKER_JOB_NAME,
-} from "@/src/prompt-scheduler/linear-worker-job";
+} from "@/src/prompt-scheduler/linear-worker-constants";
 
 const EXECUTION_MODE_OPTIONS: Array<{
   value: PromptJobExecutionMode;
