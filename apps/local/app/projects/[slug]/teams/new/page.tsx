@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useMemo, useRef, useState } from "react";
+import { use, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   getAgentPresetBindings,
@@ -15,8 +15,155 @@ import {
   AgentForm,
   type AgentFormData,
 } from "@/components/chat-ui/ParticipantBar";
-import type { SkillBinding } from "@/lib/types";
-import { Check, Loader2, Pencil, Plus, Users, X } from "lucide-react";
+import type { ChatProvider, SkillBinding } from "@/lib/types";
+import { Check, ChevronRight, Loader2, Pencil, Plus, Users, X } from "lucide-react";
+
+const PROVIDERS: { id: string; label: string }[] = [
+  { id: "claude", label: "Claude" },
+  { id: "codex", label: "Codex" },
+  { id: "gemini", label: "Gemini" },
+  { id: "ollama", label: "Ollama" },
+  { id: "zai", label: "Z.AI" },
+];
+
+/** Well-known models per provider for the combobox suggestions. */
+const MODEL_SUGGESTIONS: Record<string, string[]> = {
+  claude: ["claude-opus-4-20250514", "claude-sonnet-4-20250514", "claude-haiku-4-20250514"],
+  codex: ["o4-mini", "o3", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"],
+  gemini: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"],
+  ollama: ["qwen3:8b", "devstral", "qwen2.5-coder:14b", "llama3.3:70b", "deepseek-coder-v2:16b"],
+  zai: ["claude-opus-4-20250514", "claude-sonnet-4-20250514"],
+};
+
+/** Searchable combobox: text input with dropdown suggestions, allows custom values. */
+function ModelCombobox({
+  value,
+  onChange,
+  suggestions,
+  placeholder = "Model name...",
+  disabled,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  suggestions: string[];
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const filtered = suggestions.filter((s) =>
+    s.toLowerCase().includes((filter || value).toLowerCase())
+  );
+
+  return (
+    <div ref={wrapperRef} className="relative flex-1">
+      <input
+        type="text"
+        value={value}
+        placeholder={placeholder}
+        disabled={disabled}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setFilter(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        className="w-full h-8 px-2.5 text-xs rounded-lg border bg-[var(--background)] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--foreground)]/40 transition-colors disabled:opacity-50"
+        style={{ borderColor: "var(--border)" }}
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-[160px] overflow-y-auto rounded-lg border bg-[var(--background)] shadow-lg" style={{ borderColor: "var(--border)" }}>
+          {filtered.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => {
+                onChange(s);
+                setFilter("");
+                setOpen(false);
+              }}
+              className={`w-full text-left px-2.5 py-1.5 text-xs transition-colors hover:bg-[var(--muted)] ${
+                s === value ? "text-[var(--foreground)] font-medium" : "text-[var(--muted-foreground)]"
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Provider dropdown + model combobox, compact layout. */
+function ProviderModelSelector({
+  provider,
+  model,
+  onProviderChange,
+  onModelChange,
+  providers,
+  label,
+  disabled,
+}: {
+  provider: string;
+  model: string;
+  onProviderChange: (v: string) => void;
+  onModelChange: (v: string) => void;
+  providers: { id: string; label: string }[];
+  label?: string;
+  disabled?: boolean;
+}) {
+  const suggestions = MODEL_SUGGESTIONS[provider] ?? [];
+
+  return (
+    <div className="space-y-1.5">
+      {label && (
+        <span className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase tracking-wide">{label}</span>
+      )}
+      <div className="flex items-center gap-2">
+        <select
+          value={provider}
+          disabled={disabled}
+          onChange={(e) => {
+            onProviderChange(e.target.value);
+            onModelChange("");
+          }}
+          className="h-8 px-2 text-xs rounded-lg border bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:border-[var(--foreground)]/40 transition-colors appearance-none cursor-pointer pr-6 disabled:opacity-50"
+          style={{
+            borderColor: "var(--border)",
+            backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")",
+            backgroundRepeat: "no-repeat",
+            backgroundPosition: "right 6px center",
+          }}
+        >
+          <option value="">Provider...</option>
+          {providers.map((p) => (
+            <option key={p.id} value={p.id}>{p.label}</option>
+          ))}
+        </select>
+        <ModelCombobox
+          value={model}
+          onChange={onModelChange}
+          suggestions={suggestions}
+          placeholder={provider ? "Select or type model..." : "Select a provider first"}
+          disabled={disabled}
+        />
+      </div>
+    </div>
+  );
+}
 
 const AGENT_COLORS = ["#D97706", "#2563EB", "#059669", "#DC2626", "#7C3AED", "#DB2777", "#0891B2"];
 
@@ -40,14 +187,14 @@ function toSkillBindings(preset: AgentPreset): SkillBinding[] {
   }));
 }
 
-function createAgentDraft(id: string, preset: AgentPreset, color: string): DraftAgent {
+function createAgentDraft(id: string, preset: AgentPreset, color: string, defaultProvider?: ChatProvider, defaultModel?: string): DraftAgent {
   return {
     id,
     roleId: preset.id,
     name: preset.name,
     title: preset.title,
-    provider: "claude",
-    model: "",
+    provider: defaultProvider || "claude",
+    model: defaultModel || "",
     identity: preset.identity,
     color,
     skills: [],
@@ -77,9 +224,12 @@ export default function NewTeamPage({ params }: { params: Promise<{ slug: string
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(null);
   const [draftAgents, setDraftAgents] = useState<DraftAgent[]>([]);
   const [teamName, setTeamName] = useState("");
+  const [teamProvider, setTeamProvider] = useState<ChatProvider | "">("");
+  const [teamModel, setTeamModel] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [agentEditor, setAgentEditor] = useState<AgentEditorState | null>(null);
+
 
   const templates = useMemo(() => listTeamTemplates(), []);
   const allPresets = useMemo(() => listAgentPresets(), []);
@@ -146,7 +296,7 @@ export default function NewTeamPage({ params }: { params: Promise<{ slug: string
   function seedDraftAgents(presets: AgentPreset[]) {
     setDraftAgents(
       presets.map((preset, index) =>
-        createAgentDraft(createDraftId(), preset, getNextColor(index)),
+        createAgentDraft(createDraftId(), preset, getNextColor(index), teamProvider || undefined, teamModel),
       ),
     );
   }
@@ -207,7 +357,7 @@ export default function NewTeamPage({ params }: { params: Promise<{ slug: string
       key: createEditorKey(),
       mode,
       draftId: null,
-      initial: createAgentDraft(createDraftId(), preset, getNextColor(draftAgents.length)),
+      initial: createAgentDraft(createDraftId(), preset, getNextColor(draftAgents.length), teamProvider || undefined, teamModel),
     });
   }
 
@@ -252,12 +402,14 @@ export default function NewTeamPage({ params }: { params: Promise<{ slug: string
     try {
       const body: Record<string, unknown> = {
         name: teamName.trim(),
+        provider: teamProvider || undefined,
+        model: teamModel || undefined,
         agents: draftAgents.map((agent) => ({
           roleId: agent.roleId,
           name: agent.name,
           title: agent.title || undefined,
-          provider: agent.provider,
-          model: agent.model,
+          provider: agent.provider || teamProvider || "claude" as string,
+          model: agent.model || teamModel || "",
           identity: agent.identity || undefined,
           color: agent.color,
           skills: agent.skills ?? [],
@@ -345,6 +497,21 @@ export default function NewTeamPage({ params }: { params: Promise<{ slug: string
           )}
 
           <div>
+            <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1.5">Default provider & model</label>
+            <ProviderModelSelector
+              provider={teamProvider}
+              model={teamModel}
+              onProviderChange={(v) => setTeamProvider((v || "") as ChatProvider | "")}
+              onModelChange={setTeamModel}
+              providers={PROVIDERS}
+              disabled={creating}
+            />
+            <p className="mt-1 text-[10px] text-[var(--muted-foreground)]">
+              Applies to all agents unless individually overridden.
+            </p>
+          </div>
+
+          <div>
             <div className="flex items-center justify-between gap-3 mb-2">
               <label className="block text-xs font-medium text-[var(--muted-foreground)]">
                 Agents ({draftAgents.length})
@@ -389,6 +556,16 @@ export default function NewTeamPage({ params }: { params: Promise<{ slug: string
                             {agent.title && (
                               <span className="text-xs text-[var(--muted-foreground)] truncate">
                                 {agent.title}
+                              </span>
+                            )}
+                            {agent.model && agent.model !== teamModel && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-violet-500/15 text-violet-400">
+                                custom
+                              </span>
+                            )}
+                            {(agent.model || teamModel) && (
+                              <span className="text-[10px] text-[var(--muted-foreground)]">
+                                {agent.model || teamModel}
                               </span>
                             )}
                             {(agent.skillBindings?.length ?? 0) > 0 && (
