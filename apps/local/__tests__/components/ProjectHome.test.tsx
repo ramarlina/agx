@@ -108,59 +108,6 @@ describe("ProjectHome", () => {
     pushMock.mockReset();
   });
 
-  test("routes recent objective threads to the objective detail view", () => {
-    render(
-      <ProjectHome
-        projectId="project-1"
-        projectSlug="alpha"
-        projectName="Alpha"
-        projectMetadata={buildProjectMetadata()}
-        repos={[]}
-        threadIds={["thread-general"]}
-      />
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Open objective thread" }));
-
-    expect(pushMock).toHaveBeenCalledWith("/projects/alpha/objectives/objective_growth");
-  });
-
-  test("keeps non-objective recent threads on the project chat route", () => {
-    render(
-      <ProjectHome
-        projectId="project-1"
-        projectSlug="alpha"
-        projectName="Alpha"
-        projectMetadata={buildProjectMetadata()}
-        repos={[]}
-        threadIds={["thread-general"]}
-      />
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Open general thread" }));
-
-    expect(pushMock).toHaveBeenCalledWith("/projects/alpha/thread/thread-general?open=root-general");
-  });
-
-  test("renders the direction, paths, momentum, and context sections", () => {
-    render(
-      <ProjectHome
-        projectId="project-1"
-        projectSlug="alpha"
-        projectName="Alpha"
-        projectMetadata={buildProjectMetadata()}
-        repos={[]}
-        threadIds={["thread-general"]}
-      />
-    );
-
-    expect(screen.getAllByText("Direction").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Paths").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Momentum").length).toBeGreaterThan(0);
-    expect(screen.getByText("Project Context")).toBeInTheDocument();
-    expect(screen.getByTestId("working-now-card")).toBeInTheDocument();
-  });
-
   test("explains the project mental model and points new users to the next steps", () => {
     render(
       <ProjectHome
@@ -213,5 +160,77 @@ describe("ProjectHome", () => {
     fireEvent.click(screen.getByRole("button", { name: /3\. Start in chat/i }));
 
     expect(pushMock).toHaveBeenCalledWith("/projects/alpha/thread/thread-general");
+  });
+
+  test("disables the start-here chat action when the project has no thread yet", () => {
+    render(
+      <ProjectHome
+        projectId="project-1"
+        projectSlug="alpha"
+        projectName="Alpha"
+        projectMetadata={buildProjectMetadata()}
+        repos={[]}
+        threadIds={[]}
+      />
+    );
+
+    const button = screen.getByRole("button", { name: /3\. Start in chat/i });
+    expect(button).toBeDisabled();
+
+    fireEvent.click(button);
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
+  test("routes recent objective threads to the objective detail view", () => {
+    render(
+      <ProjectHome
+        projectId="project-1"
+        projectSlug="alpha"
+        projectName="Alpha"
+        projectMetadata={buildProjectMetadata()}
+        repos={[]}
+        threadIds={["thread-general"]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open objective thread" }));
+
+    expect(pushMock).toHaveBeenCalledWith("/projects/alpha/objectives/objective_growth");
+  });
+
+  test("keeps non-objective recent threads on the project chat route", () => {
+    render(
+      <ProjectHome
+        projectId="project-1"
+        projectSlug="alpha"
+        projectName="Alpha"
+        projectMetadata={buildProjectMetadata()}
+        repos={[]}
+        threadIds={["thread-general"]}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open general thread" }));
+
+    expect(pushMock).toHaveBeenCalledWith("/projects/alpha/thread/thread-general?open=root-general");
+  });
+
+  test("renders the direction, paths, momentum, and context sections", () => {
+    render(
+      <ProjectHome
+        projectId="project-1"
+        projectSlug="alpha"
+        projectName="Alpha"
+        projectMetadata={buildProjectMetadata()}
+        repos={[]}
+        threadIds={["thread-general"]}
+      />
+    );
+
+    expect(screen.getAllByText("Direction").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Paths").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Momentum").length).toBeGreaterThan(0);
+    expect(screen.getByText("Project Context")).toBeInTheDocument();
+    expect(screen.getByTestId("working-now-card")).toBeInTheDocument();
   });
 });

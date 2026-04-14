@@ -23,9 +23,9 @@ export function GettingStartedSection({
           <BookOpenText className="h-4 w-4 text-[var(--primary)]" />
           Start here
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight text-[var(--foreground)]">
+        <h2 className="text-2xl font-semibold tracking-tight text-[var(--foreground)]">
           {projectName} is your project home base
-        </h1>
+        </h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--muted-foreground)]">
           Everything on this page is organized around one project. Add context first, decide what the
           project is trying to achieve, then use chat and automations to keep work moving.
