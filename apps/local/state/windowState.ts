@@ -19,7 +19,6 @@ export interface SidebarState {
   workspaceVisible: boolean;
   logPanelVisible: boolean;
   linearTicketPanelWidth: number;
-  linearRunsPanelWidth: number;
   objectiveChatPanelWidth: number;
   objectiveListPanelWidth: number;
 }
@@ -41,7 +40,6 @@ const DEFAULT_SIDEBAR: SidebarState = {
   workspaceVisible: true,
   logPanelVisible: false,
   linearTicketPanelWidth: 576,
-  linearRunsPanelWidth: 224,
   objectiveChatPanelWidth: 440,
   objectiveListPanelWidth: 320,
 };
@@ -187,14 +185,6 @@ export function loadLinearTicketPanelWidth(): number {
 
 export function persistLinearTicketPanelWidth(width: number): void {
   persistSidebarState({ linearTicketPanelWidth: width });
-}
-
-export function loadLinearRunsPanelWidth(): number {
-  return loadSidebarState().linearRunsPanelWidth;
-}
-
-export function persistLinearRunsPanelWidth(width: number): void {
-  persistSidebarState({ linearRunsPanelWidth: width });
 }
 
 export function loadObjectiveChatPanelWidth(): number {
