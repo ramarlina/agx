@@ -7,7 +7,7 @@ import { pollDueJobs } from './engine';
 import { getAgent, getAgentSkills, getProjectAgents, getTeamAgents } from '@/lib/db';
 import { LOCAL_USER } from '@/lib/auth-mode';
 import { loadDbParticipants } from '@/lib/agent-participants';
-import { runCliResponse, buildCliAttempts } from '@/lib/cli-runner';
+import { runCliResponse, buildCliAttempts, CliRunError } from '@/lib/cli-runner';
 import { startScriptedLinearSession } from '@/lib/linear-scripted-session';
 import {
   isObjectiveLinearTerminalStatus,
@@ -133,7 +133,7 @@ async function executePrompt(opts: {
   systemContext?: string;
   cliArgs?: string;
   onSpawn?: (pid: number) => void;
-}): Promise<{ output: string; error: string; durationMs: number; status: 'success' | 'failed' }> {
+}): Promise<{ output: string; error: string; durationMs: number; status: 'success' | 'failed'; exitCode: number | null; logs: string | null }> {
   const startMs = Date.now();
   let output = '';
 
@@ -150,9 +150,17 @@ async function executePrompt(opts: {
       onDelta: (chunk) => { output += chunk; },
       onSpawn: opts.onSpawn,
     });
-    return { output, error: '', durationMs: Date.now() - startMs, status: 'success' };
+    return { output, error: '', durationMs: Date.now() - startMs, status: 'success', exitCode: 0, logs: null };
   } catch (err) {
-    return { output, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - startMs, status: 'failed' };
+    const isCliErr = err instanceof CliRunError;
+    return {
+      output,
+      error: err instanceof Error ? err.message : String(err),
+      durationMs: Date.now() - startMs,
+      status: 'failed',
+      exitCode: isCliErr ? err.exitCode : null,
+      logs: isCliErr ? err.logs : null,
+    };
   }
 }
 
@@ -434,7 +442,7 @@ async function executeJobAction(
   opts: {
     onSpawn?: (pid: number) => void;
   } = {},
-): Promise<{ output: string; error: string; durationMs: number; status: 'success' | 'failed' }> {
+): Promise<{ output: string; error: string; durationMs: number; status: 'success' | 'failed'; exitCode?: number | null; logs?: string | null }> {
   if (job.executionMode === 'objective_worker') {
     const { executeObjectiveWorker } = await import('./objective-worker');
     const sessionAgent = await resolveObjectiveWorkerAgent(job);
@@ -574,6 +582,8 @@ async function fireRun(job: PromptJob, run: PromptRun) {
     output: result.output,
     error: result.error || undefined,
     durationMs: result.durationMs,
+    exitCode: result.exitCode ?? null,
+    logs: result.logs ?? null,
     finishedAt: new Date().toISOString(),
   });
   store.updateJob(job.id, { lastOutcome: result.status, lastRunAt: Date.now() });

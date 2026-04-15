@@ -71,6 +71,8 @@ export interface PromptRun {
   cancelledAt: string | null;
   hostPid: number | null;
   hostCommand: string | null;
+  exitCode: number | null;
+  logs: string | null;
   createdAt: string;
 }
 

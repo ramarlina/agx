@@ -150,6 +150,8 @@ interface PromptRunRow {
   cancelled_at: string | null;
   host_pid: number | null;
   host_command: string | null;
+  exit_code: number | null;
+  logs: string | null;
   created_at: string;
 }
 
@@ -210,6 +212,8 @@ function rowToRun(row: PromptRunRow): PromptRun {
     cancelledAt: row.cancelled_at,
     hostPid: row.host_pid,
     hostCommand: row.host_command,
+    exitCode: row.exit_code,
+    logs: row.logs,
     createdAt: row.created_at,
   };
 }
@@ -530,6 +534,8 @@ export class PromptJobStore {
       cancelledAt: "cancelled_at",
       hostPid: "host_pid",
       hostCommand: "host_command",
+      exitCode: "exit_code",
+      logs: "logs",
     };
 
     const setClauses: string[] = [];

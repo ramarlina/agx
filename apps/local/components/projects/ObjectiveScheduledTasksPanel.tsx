@@ -616,7 +616,18 @@ export function ObjectiveScheduledTasksPanel({
                     {isFailed && run.error && (
                       <p className="mt-1 ml-8 text-[11px] leading-snug text-[var(--destructive)] opacity-80 line-clamp-2">
                         {run.error}
+                        {run.exitCode != null && ` (exit ${run.exitCode})`}
                       </p>
+                    )}
+                    {isFailed && run.logs && (
+                      <details className="mt-1 ml-8 group">
+                        <summary className="cursor-pointer text-[10px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] select-none">
+                          Show tail logs
+                        </summary>
+                        <pre className="mt-1 max-h-40 overflow-auto rounded bg-[var(--muted)] px-2 py-1.5 text-[10px] leading-[1.4] text-[var(--foreground)] whitespace-pre-wrap break-words">
+                          {run.logs}
+                        </pre>
+                      </details>
                     )}
                   </div>
                 );

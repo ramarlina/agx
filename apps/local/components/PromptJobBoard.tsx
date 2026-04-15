@@ -507,11 +507,13 @@ function RunChatPanel({
   job,
   agentMap,
   onCancelRun,
+  onRerun,
 }: {
   run: PromptRun;
   job: PromptJob;
   agentMap: Record<string, AgentOption>;
   onCancelRun?: () => void;
+  onRerun?: () => void;
 }) {
   const threadId = `prompt-run:${run.id}`;
   const agentName =
@@ -692,21 +694,33 @@ function RunChatPanel({
                 : run.status === "queued"
                   ? "Queued"
                   : null}
+            {run.exitCode != null && ` · exit ${run.exitCode}`}
           </div>
         </div>
-        {isRunActive && onCancelRun && (
-          <button
-            onClick={() => {
-              setCancelling(true);
-              onCancelRun();
-            }}
-            disabled={cancelling}
-            className="inline-flex items-center gap-1 rounded-md border border-red-400/30 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.05em] text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
-          >
-            <X size={10} />
-            {cancelling ? "Cancelling…" : "Cancel"}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {run.status === "failed" && onRerun && (
+            <button
+              onClick={onRerun}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium text-[var(--foreground)] bg-[var(--muted)] hover:bg-[var(--muted)]/80 transition-colors"
+            >
+              <RefreshCw size={12} />
+              Rerun
+            </button>
+          )}
+          {isRunActive && onCancelRun && (
+            <button
+              onClick={() => {
+                setCancelling(true);
+                onCancelRun();
+              }}
+              disabled={cancelling}
+              className="inline-flex items-center gap-1 rounded-md border border-red-400/30 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.05em] text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+            >
+              <X size={10} />
+              {cancelling ? "Cancelling…" : "Cancel"}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Run metadata */}
@@ -790,6 +804,19 @@ function RunChatPanel({
                 </div>
               </div>
             </div>
+          )}
+
+          {/* Tail logs (captured on failure) */}
+          {run.logs && (
+            <details className="group">
+              <summary className="flex cursor-pointer items-center gap-1 text-[11px] text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors select-none">
+                <ChevronDown size={12} className="transition-transform group-open:rotate-180" />
+                Tail logs
+              </summary>
+              <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-[var(--muted)] px-3 py-2 text-[11px] leading-[1.5] text-[var(--foreground)] whitespace-pre-wrap break-words">
+                {run.logs}
+              </pre>
+            </details>
           )}
 
           {/* No output placeholder — richer for active runs */}
@@ -1206,6 +1233,7 @@ function JobDetailView({
             job={job}
             agentMap={agentMap}
             onCancelRun={onCancelRun}
+            onRerun={onRunNow}
           />
         ) : (
           <div className="flex min-w-0 flex-1 items-center justify-center text-[var(--muted-foreground)] text-sm">

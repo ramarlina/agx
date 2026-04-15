@@ -96,6 +96,23 @@ export function getPromptJobStore(): PromptJobStore {
       }
     }
 
+    const hasExitCode = db
+      .prepare("SELECT 1 FROM pragma_table_info('prompt_runs') WHERE name='exit_code'")
+      .get();
+    if (!hasExitCode) {
+      const v6Migration = readFileSync(
+        path.join(process.cwd(), 'db/sqlite/007_prompt_runs_diagnostics.sql'),
+        'utf-8',
+      );
+      for (const stmt of splitSqlStatements(v6Migration)) {
+        try {
+          db.exec(stmt);
+        } catch (err: any) {
+          if (!err.message?.includes('duplicate column')) throw err;
+        }
+      }
+    }
+
     _store = new PromptJobStore(db);
   }
   return _store;
