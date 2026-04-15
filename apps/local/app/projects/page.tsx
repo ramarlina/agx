@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import Layout from "@/components/Layout";
 import ProjectCard from "@/components/ProjectCard";
@@ -179,22 +178,6 @@ export default function ProjectsPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-20">
-            <Link
-              href="/projects/orphans"
-              className="p-5 rounded-2xl border border-dashed border-[var(--card-border)] bg-[var(--card-bg)] shadow-sm space-y-4 transition-all hover:border-[var(--primary)] hover:shadow-md"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h3 className="text-lg font-semibold">Orphan Tasks</h3>
-                  <p className="text-xs text-[var(--muted-foreground)] tracking-wide uppercase">
-                    Unassigned
-                  </p>
-                </div>
-              </div>
-              <p className="text-sm text-[var(--foreground)]">
-                Review tasks with empty project assignment and move them into the correct project.
-              </p>
-            </Link>
             {projects.map((project) => (
               <ProjectCard
                 key={project.id}
