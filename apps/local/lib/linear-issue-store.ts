@@ -1,5 +1,12 @@
 import "server-only";
 
+// TODO(multi-tracker): SQLite cache for Linear issues (table: `linear_issues`).
+// When supporting multiple trackers:
+//   - Add a `tracker_type TEXT NOT NULL DEFAULT 'linear'` column to the table.
+//   - Rename env var AGX_LINEAR_DIR → AGX_TICKETS_DIR (or keep as-is and add a tracker sub-dir).
+//   - team_key / cycle_* columns are Linear-specific; make them optional or move to a JSON blob
+//     so Jira sprint/board equivalents can be stored without schema changes.
+
 import { DatabaseSync } from "node:sqlite";
 import { promises as fs } from "node:fs";
 import os from "node:os";

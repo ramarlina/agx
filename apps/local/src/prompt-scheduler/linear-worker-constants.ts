@@ -1,3 +1,8 @@
+// TODO(multi-tracker): These constants are Linear-specific. When adding Jira or other trackers:
+//   - Add parallel JIRA_WORKER_* constants (or make a factory that accepts trackerType).
+//   - The DEFAULT_PROMPT and DEFAULT_SCRIPT_PROMPT reference "Linear MCP" — update those
+//     references to use the configured tracker's MCP name dynamically.
+//   - LINEAR_WORKER_DEFAULT_CADENCE can stay shared; it's tracker-agnostic.
 export const LINEAR_WORKER_JOB_NAME = 'Linear worker';
 export const LINEAR_WORKER_DEFAULT_CADENCE = 'every 30 minutes';
 
@@ -22,7 +27,7 @@ export const LINEAR_WORKER_DEFAULT_SCRIPT_PROMPT = `Work on {{ticket.identifier}
 
 ## Workflow
 
-1. **Read the ticket** — Read the full issue and comment thread via Linear MCP before acting.
+1. **Read the ticket** — Read the full issue and comment thread via the issue tracker MCP before acting.
 2. **Resume existing work** — Check for existing branches, PRs, knowledge-base notes, or prior discussion. Continue where things left off.
 3. **If unclear** — Post a clarifying comment on the ticket and stop. Don't guess.
 4. **If fresh** — Investigate the codebase, draft a plan, post it as a comment. Stop and wait for approval.
@@ -32,7 +37,7 @@ export const LINEAR_WORKER_DEFAULT_SCRIPT_PROMPT = `Work on {{ticket.identifier}
 ## Rules
 
 - Work in an isolated git worktree — never modify the main checkout directly.
-- Keep Linear accurate: update status, post comments, link PRs.
+- Keep the issue tracker accurate: update status, post comments, link PRs.
 - Add the \`active-session\` label when starting. Remove it when done.
 - Leave everything in a resumable state. Clean up worktrees when finished.
 - One ticket per session.`;

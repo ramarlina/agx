@@ -1,5 +1,11 @@
 import "server-only";
 
+// TODO(multi-tracker): This file fetches and caches issues from Linear.
+// Abstraction path: extract a `TicketFetcher` interface (pullIssues, listIssues, getIssueContext)
+// and move the Linear-specific GraphQL calls behind a `LinearTicketFetcher` implementation.
+// The cache in linear-issue-store.ts should grow a `tracker_type` column so Linear and Jira
+// issues can coexist in the same SQLite table.
+
 import fs from "node:fs";
 import path from "node:path";
 import { dump } from "js-yaml";

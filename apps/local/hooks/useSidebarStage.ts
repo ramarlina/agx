@@ -7,8 +7,12 @@ import { readProjectObjectivesWorkspace } from "@/lib/project-objectives";
  *
  * - stage1: Fresh start — Home, Threads, Terminal only
  * - stage2: First objective created — adds Objectives (with NEW badge)
- * - stage3: Linear connected — adds Linear, Teams section
+ * - stage3: Ticket tracker connected — adds Tasks (tickets), Teams section
  * - stage4: Power user — adds Environment Variables
+ *
+ * TODO(multi-tracker): stage3 is currently gated on `linearConnected` from /api/linear/status.
+ * When supporting multiple trackers, replace with a generic `trackerConnected` signal that
+ * checks whichever tracker is configured for the project.
  */
 export type SidebarStage = "stage1" | "stage2" | "stage3" | "stage4";
 
@@ -50,7 +54,7 @@ export function useSidebarStage(
     return readProjectObjectivesWorkspace(project.metadata).objectives.length > 0;
   }, [project]);
 
-  // Check Linear connection status (single fetch, not polled).
+  // Check ticket tracker connection status (currently Linear only — see TODO above).
   useEffect(() => {
     let cancelled = false;
     setLinearLoading(true);

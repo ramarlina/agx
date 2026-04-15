@@ -1,3 +1,8 @@
+// TODO(multi-tracker): `executionMode: 'linear_worker'` is Linear-specific.
+// When adding Jira or other trackers, either:
+//   (a) Add new modes ('jira_worker', 'github_issues_worker') and parallel job helpers, or
+//   (b) Introduce a single 'ticket_worker' mode with a `trackerType` field on the PromptJob.
+// Option (b) requires a DB migration to add `tracker_type` to the prompt_jobs table.
 import { getPromptJobStore } from './get-store';
 import type { PromptJob } from './types';
 export {

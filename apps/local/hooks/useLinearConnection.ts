@@ -1,3 +1,9 @@
+// TODO(multi-tracker): This hook manages the Linear OAuth/API-key connection.
+// Abstraction path: rename to `useTrackerConnection(trackerType: 'linear' | 'jira' | ...)`.
+// Each tracker type maps to its own `/api/<tracker>/status`, `/api/<tracker>/auth`, and
+// `/api/<tracker>/token` routes. The returned interface (connected, user, connect, disconnect,
+// configureMcp) stays the same — only the endpoints change.
+
 import { useState, useEffect, useCallback, useRef } from "react";
 
 interface CliStatus {
