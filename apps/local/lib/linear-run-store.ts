@@ -1,3 +1,10 @@
+// TODO(multi-tracker): The `linear_run` table records agent execution sessions per ticket.
+// When supporting multiple trackers:
+//   - Add a `tracker_type TEXT NOT NULL DEFAULT 'linear'` column.
+//   - Rename the table to `ticket_run` (with a migration) and update all references.
+//   - `LinearRunMode` / `LinearRunStatus` types are tracker-agnostic already; rename to
+//     `TicketRunMode` / `TicketRunStatus` when doing the broader rename.
+
 import { DatabaseSync } from "node:sqlite";
 import { promises as fs } from "fs";
 import os from "os";

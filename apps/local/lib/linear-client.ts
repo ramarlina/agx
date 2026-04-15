@@ -1,5 +1,15 @@
 import "server-only";
 
+// TODO(multi-tracker): This file is the Linear adapter boundary.
+// To add Jira, GitHub Issues, or another tracker:
+//   1. Create a parallel `jira-client.ts` (or `github-issues-client.ts`) with the same exported interface.
+//   2. Define a shared `TicketTrackerClient` interface in `lib/ticket-tracker-client.ts` covering:
+//      getViewer(), getIssues(), getIssue(), getTeams(), getCycles(), updateIssue(), addComment()
+//   3. Replace direct `getLinearClient()` calls in lib/linear-issues.ts and app/api/linear/* with
+//      `getTrackerClient(trackerType)` from a factory that reads the per-project tracker config.
+//   4. The token/auth storage in this file (linear-token.json) becomes tracker-specific;
+//      store under ~/.agx/<tracker>/token.json or a unified credentials store.
+
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
