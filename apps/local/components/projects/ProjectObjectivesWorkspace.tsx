@@ -216,28 +216,6 @@ function buildActivityMeta(count: number, lastActivityAt: string | null): string
   return `${activityLabel} · Last ${formatDateTime(lastActivityAt)}`;
 }
 
-function findObjectiveAssignedToTeam(
-  workspace: ProjectObjectiveWorkspaceState,
-  teamId: string,
-  excludeObjectiveId?: string
-): ProjectObjective | null {
-  if (!teamId) return null;
-  return (
-    workspace.objectives.find(
-      (entry) => entry.teamId === teamId && entry.id !== excludeObjectiveId
-    ) ?? null
-  );
-}
-
-function getAvailableTeams(
-  teams: ProjectTeamSummary[],
-  workspace: ProjectObjectiveWorkspaceState,
-  excludeObjectiveId?: string
-): ProjectTeamSummary[] {
-  return teams.filter(
-    (team) => !findObjectiveAssignedToTeam(workspace, team.id, excludeObjectiveId)
-  );
-}
 
 function getTeamName(teams: ProjectTeamSummary[], teamId: string): string | null {
   return teams.find((team) => team.id === teamId)?.name ?? null;
@@ -1374,10 +1352,6 @@ export function ProjectObjectivesOverview({
   const { isLoading, project, workspace, teams, persistWorkspace } =
     useProjectObjectivesWorkspace(projectSlug);
   const objectives = workspace.objectives;
-  const availableTeams = useMemo(
-    () => getAvailableTeams(teams, workspace),
-    [teams, workspace]
-  );
   const [selectedObjectiveId, setSelectedObjectiveId] = useState<string | null>(
     initialObjectiveId ?? null
   );
@@ -1463,12 +1437,6 @@ export function ProjectObjectivesOverview({
       setSaveError("Team is required.");
       return;
     }
-    const assignedObjective = findObjectiveAssignedToTeam(workspace, teamId);
-    if (assignedObjective) {
-      setSaveError(`Team is already assigned to "${assignedObjective.title}".`);
-      return;
-    }
-
     const now = new Date().toISOString();
     const nextObjective = createProjectObjective({
       title,
@@ -1615,7 +1583,7 @@ export function ProjectObjectivesOverview({
         <ObjectiveEditorModal
           mode="create"
           draft={objectiveEditor}
-          teams={availableTeams}
+          teams={teams}
           isSaving={isSaving}
           onChange={setObjectiveEditor}
           onClose={() => setObjectiveEditor(null)}
@@ -1637,10 +1605,6 @@ export function ProjectObjectiveDetail({
   const objective = useMemo(
     () => workspace.objectives.find((entry) => entry.id === objectiveId) ?? null,
     [objectiveId, workspace.objectives]
-  );
-  const availableTeams = useMemo(
-    () => getAvailableTeams(teams, workspace, objectiveId),
-    [objectiveId, teams, workspace]
   );
   const teamName = objective ? getTeamName(teams, objective.teamId) : null;
   const [objectiveEditor, setObjectiveEditor] = useState<ObjectiveEditorDraft | null>(null);
@@ -1852,12 +1816,6 @@ export function ProjectObjectiveDetail({
       setSaveError("Team is required.");
       return;
     }
-    const assignedObjective = findObjectiveAssignedToTeam(workspace, teamId, objective.id);
-    if (assignedObjective) {
-      setSaveError(`Team is already assigned to "${assignedObjective.title}".`);
-      return;
-    }
-
     const nextObjective = {
       ...objective,
       teamId,
@@ -2138,11 +2096,6 @@ export function ProjectObjectiveDetail({
                           setTeamEditor(next);
                           const teamId = id.trim();
                           if (!teamId || !objective) return;
-                          const conflict = findObjectiveAssignedToTeam(workspace, teamId, objective.id);
-                          if (conflict) {
-                            setSaveError(`Team is already assigned to "${conflict.title}".`);
-                            return;
-                          }
                           void runPersist(
                             upsertProjectObjective(workspace, {
                               ...objective,
