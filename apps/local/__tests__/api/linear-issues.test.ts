@@ -7,6 +7,7 @@ import { NextRequest } from "next/server";
 const mockEnsureLinearIssueCache = jest.fn();
 const mockListLinearIssueSummaries = jest.fn();
 const mockGetLinearClient = jest.fn();
+const mockGetIssueActivityMap = jest.fn();
 
 jest.mock("@/lib/linear-issues", () => ({
   ensureLinearIssueCache: (...args: unknown[]) => mockEnsureLinearIssueCache(...args),
@@ -14,7 +15,11 @@ jest.mock("@/lib/linear-issues", () => ({
 }));
 
 jest.mock("@/lib/linear-client", () => ({
-  getLinearClient: () => mockGetLinearClient(),
+  getLinearClient: (...args: unknown[]) => mockGetLinearClient(...args),
+}));
+
+jest.mock("@/lib/linear-run-store", () => ({
+  getIssueActivityMap: (...args: unknown[]) => mockGetIssueActivityMap(...args),
 }));
 
 describe("/api/linear/issues", () => {
@@ -26,6 +31,7 @@ describe("/api/linear/issues", () => {
       complete: true,
       pulledAt: "2026-04-07T00:00:00.000Z",
     });
+    mockGetIssueActivityMap.mockResolvedValue(new Map());
     mockListLinearIssueSummaries.mockResolvedValue({
       issues: [
         {
@@ -48,10 +54,18 @@ describe("/api/linear/issues", () => {
     });
   });
 
+  test("returns 400 when projectId is missing", async () => {
+    const { GET } = await import("@/app/api/linear/issues/route");
+    const response = await GET(new NextRequest("http://localhost/api/linear/issues"));
+    expect(response.status).toBe(400);
+  });
+
   test("returns cached issue summaries with sync metadata", async () => {
     const { GET } = await import("@/app/api/linear/issues/route");
     const response = await GET(
-      new NextRequest("http://localhost/api/linear/issues?projectSlug=agx&refresh=true")
+      new NextRequest(
+        "http://localhost/api/linear/issues?projectId=proj-1&projectSlug=agx&refresh=true"
+      )
     );
     const data = await response.json();
 
@@ -69,6 +83,7 @@ describe("/api/linear/issues", () => {
     ]);
     expect(data.refreshedAt).toBe("2026-04-07T00:00:00.000Z");
     expect(mockEnsureLinearIssueCache).toHaveBeenCalledWith({
+      projectId: "proj-1",
       refresh: true,
       projectSlug: "agx",
     });
@@ -81,6 +96,10 @@ describe("/api/linear/issues", () => {
       cycleId: undefined,
       cursor: undefined,
       limit: 50,
+      sortBy: undefined,
+      sortDir: undefined,
+      hasActivity: false,
+      activityMap: undefined,
     });
   });
 
@@ -99,7 +118,9 @@ describe("/api/linear/issues", () => {
     mockGetLinearClient.mockReturnValue(null);
 
     const { GET } = await import("@/app/api/linear/issues/route");
-    const response = await GET(new NextRequest("http://localhost/api/linear/issues"));
+    const response = await GET(
+      new NextRequest("http://localhost/api/linear/issues?projectId=proj-1")
+    );
     const data = await response.json();
 
     expect(response.status).toBe(401);
@@ -110,7 +131,7 @@ describe("/api/linear/issues", () => {
     const { GET } = await import("@/app/api/linear/issues/route");
     const response = await GET(
       new NextRequest(
-        "http://localhost/api/linear/issues?status=Todo&status=In%20Progress&assigneeId=user-2&assigneeId=user-3&teamId=team-2"
+        "http://localhost/api/linear/issues?projectId=proj-1&status=Todo&status=In%20Progress&assigneeId=user-2&assigneeId=user-3&teamId=team-2"
       )
     );
 
@@ -124,6 +145,10 @@ describe("/api/linear/issues", () => {
       cycleId: undefined,
       cursor: undefined,
       limit: 50,
+      sortBy: undefined,
+      sortDir: undefined,
+      hasActivity: false,
+      activityMap: undefined,
     });
   });
 });

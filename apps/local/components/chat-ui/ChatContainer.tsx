@@ -349,6 +349,10 @@ export function ChatContainer({
     () => projectSlug || threadProjects[0]?.slug || undefined,
     [projectSlug, threadProjects]
   );
+  const effectiveProjectId = useMemo(
+    () => threadProjects[0]?.id ?? undefined,
+    [threadProjects]
+  );
 
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [participantsLoaded, setParticipantsLoaded] = useState(false);
@@ -1589,6 +1593,7 @@ export function ChatContainer({
           participants={activeParticipants}
           projectGroups={threadProjects}
           projects={projectMentions}
+          projectId={effectiveProjectId}
           projectSlug={effectiveProjectSlug}
           messages={messages}
           commands={slashCommands}
@@ -1601,7 +1606,7 @@ export function ChatContainer({
         />
       );
     },
-    [handleThreadReply, handleStopThread, streaming, activeParticipants, threadProjects, projectMentions, effectiveProjectSlug, slashCommands, messages, autoMode, handleAutoModeChange, activeProcesses, activeChatRuns, activeProjectRepos, selectedRepoIds, handleRepoSelectionChange]
+    [handleThreadReply, handleStopThread, streaming, activeParticipants, threadProjects, projectMentions, effectiveProjectId, effectiveProjectSlug, slashCommands, messages, autoMode, handleAutoModeChange, activeProcesses, activeChatRuns, activeProjectRepos, selectedRepoIds, handleRepoSelectionChange]
   );
 
   const toggleWorkspaceSidebar = useCallback(() => {
@@ -2019,6 +2024,7 @@ export function ChatContainer({
                     participants={activeParticipants}
                     projects={projectMentions}
                     projectGroups={threadProjects}
+                    projectId={effectiveProjectId}
                     projectSlug={effectiveProjectSlug}
                     messages={messages}
                     commands={slashCommands}

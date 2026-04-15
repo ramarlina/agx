@@ -12,7 +12,7 @@ const mockEnsureLinearIssueCache = jest.fn();
 const mockListCachedLinearIssueStatuses = jest.fn();
 
 jest.mock("@/lib/linear-client", () => ({
-  getLinearClient: () => mockGetLinearClient(),
+  getLinearClient: (...args: unknown[]) => mockGetLinearClient(...args),
 }));
 
 jest.mock("@/lib/linear-issues", () => ({
@@ -51,11 +51,13 @@ describe("/api/linear/options", () => {
     ]);
 
     const { GET } = await import("@/app/api/linear/options/route");
-    const response = await GET(new NextRequest("http://localhost/api/linear/options?projectSlug=agx"));
+    const response = await GET(
+      new NextRequest("http://localhost/api/linear/options?projectId=proj-1&projectSlug=agx")
+    );
     const data = await response.json();
 
     expect(response.status).toBe(200);
-    expect(mockEnsureLinearIssueCache).toHaveBeenCalledWith({ projectSlug: "agx" });
+    expect(mockEnsureLinearIssueCache).toHaveBeenCalledWith({ projectId: "proj-1", projectSlug: "agx" });
     expect(data).toEqual({
       assignees: [{ id: "user-1", name: "Alex" }],
       statuses: ["Backlog", "Todo"],
@@ -80,7 +82,9 @@ describe("/api/linear/options", () => {
     mockCycles.mockRejectedValue(new Error("cycle query failed"));
 
     const { GET } = await import("@/app/api/linear/options/route");
-    const response = await GET(new NextRequest("http://localhost/api/linear/options"));
+    const response = await GET(
+      new NextRequest("http://localhost/api/linear/options?projectId=proj-1")
+    );
     const data = await response.json();
 
     expect(response.status).toBe(200);

@@ -27,7 +27,7 @@ interface ToolPathsSectionProps {
 
 export function ToolPathsSection({ projectId, projectSlug, primaryThreadId }: ToolPathsSectionProps) {
   const router = useRouter();
-  const { connected, loading: linearLoading } = useLinearConnection();
+  const { connected, loading: linearLoading } = useLinearConnection(projectId);
   const [threads, setThreads] = useState<ThreadEntry[] | null>(null);
   const [threadCount, setThreadCount] = useState(0);
 

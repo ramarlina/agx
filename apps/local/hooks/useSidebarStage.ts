@@ -52,9 +52,14 @@ export function useSidebarStage(
 
   // Check Linear connection status (single fetch, not polled).
   useEffect(() => {
+    if (!project?.id) {
+      setLinearConnected(false);
+      setLinearLoading(false);
+      return;
+    }
     let cancelled = false;
     setLinearLoading(true);
-    fetch("/api/linear/status")
+    fetch(`/api/linear/status?projectId=${encodeURIComponent(project.id)}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!cancelled) setLinearConnected(data?.connected === true);
@@ -66,7 +71,7 @@ export function useSidebarStage(
         if (!cancelled) setLinearLoading(false);
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [project?.id]);
 
   // Check whether the project has any automations (single fetch, not polled).
   useEffect(() => {

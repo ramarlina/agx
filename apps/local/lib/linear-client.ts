@@ -5,14 +5,16 @@ import { homedir } from "node:os";
 import path from "node:path";
 
 const AGX_DIR = path.join(homedir(), ".agx");
-const TOKEN_FILENAME = "linear-token.json";
-const LEGACY_TOKEN_PATH = ".linear-token.json";
 const LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql";
 
-interface LinearToken {
+export type TicketProvider = "linear";
+
+export interface LinearToken {
   accessToken: string;
   expiresAt?: number;
 }
+
+export type TicketProviderToken = LinearToken;
 
 interface LinearGraphQLError {
   message?: string;
@@ -217,53 +219,46 @@ interface LinearIssueConnection {
   };
 }
 
-function getTokenPath(): string {
-  return path.join(AGX_DIR, TOKEN_FILENAME);
+function getProjectTokenPath(projectId: string, provider: TicketProvider): string {
+  return path.join(AGX_DIR, "projects", projectId, "integrations", `${provider}.json`);
 }
 
-function getLegacyTokenPath(): string {
-  return path.join(process.cwd(), LEGACY_TOKEN_PATH);
-}
-
-export function getLinearToken(): LinearToken | null {
-  // Try the canonical path first
+export function getProjectTicketToken(
+  projectId: string,
+  provider: TicketProvider,
+): TicketProviderToken | null {
+  if (!projectId) return null;
   try {
-    const raw = readFileSync(getTokenPath(), "utf8");
-    return JSON.parse(raw) as LinearToken;
-  } catch {
-    // fall through
-  }
-
-  // Migrate from legacy cwd-relative path
-  try {
-    const legacyPath = getLegacyTokenPath();
-    const raw = readFileSync(legacyPath, "utf8");
-    const token = JSON.parse(raw) as LinearToken;
-    // Save to new location and clean up old file
-    saveLinearToken(token);
-    try { unlinkSync(legacyPath); } catch { /* ignore */ }
-    return token;
+    const raw = readFileSync(getProjectTokenPath(projectId, provider), "utf8");
+    return JSON.parse(raw) as TicketProviderToken;
   } catch {
     return null;
   }
 }
 
-export function saveLinearToken(token: LinearToken): void {
-  if (!existsSync(AGX_DIR)) {
-    mkdirSync(AGX_DIR, { recursive: true });
+export function saveProjectTicketToken(
+  projectId: string,
+  provider: TicketProvider,
+  token: TicketProviderToken,
+): void {
+  if (!projectId) {
+    throw new Error("projectId is required to save a ticket token");
   }
-  writeFileSync(getTokenPath(), JSON.stringify(token, null, 2));
+  const tokenPath = getProjectTokenPath(projectId, provider);
+  const dir = path.dirname(tokenPath);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  writeFileSync(tokenPath, JSON.stringify(token, null, 2));
 }
 
-export function deleteLinearToken(): void {
+export function deleteProjectTicketToken(
+  projectId: string,
+  provider: TicketProvider,
+): void {
+  if (!projectId) return;
   try {
-    unlinkSync(getTokenPath());
-  } catch {
-    // already gone
-  }
-  // Also clean up legacy location
-  try {
-    unlinkSync(getLegacyTokenPath());
+    unlinkSync(getProjectTokenPath(projectId, provider));
   } catch {
     // already gone
   }
@@ -871,8 +866,9 @@ export class LinearClient {
   }
 }
 
-export function getLinearClient(): LinearClient | null {
-  const token = getLinearToken();
+export function getLinearClient(projectId: string): LinearClient | null {
+  if (!projectId) return null;
+  const token = getProjectTicketToken(projectId, "linear");
   if (!token) return null;
   return new LinearClient(token.accessToken);
 }

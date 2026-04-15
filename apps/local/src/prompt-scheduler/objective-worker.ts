@@ -170,6 +170,7 @@ export async function buildObjectiveObservation(opts: {
     notes,
   ] = await Promise.all([
     listObjectiveLinearIssues({
+      projectId: project.id,
       objectiveKey: objective.key,
       projectSlug,
       refresh: true,

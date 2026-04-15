@@ -89,11 +89,17 @@ describe("LinearBoard", () => {
     global.fetch = jest.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
 
-      if (url === "/api/linear/options?projectSlug=agx" || url === "/api/linear/options") {
+      if (
+        url === "/api/linear/options?projectId=project-1&projectSlug=agx" ||
+        url === "/api/linear/options?projectId=project-1"
+      ) {
         return createFetchResponse({ assignees, statuses, teams, cycles });
       }
 
-       if (url === "/api/linear/issues/issue-1" && init?.method === "PATCH") {
+       if (
+         url === "/api/linear/issues/issue-1?projectId=project-1" &&
+         init?.method === "PATCH"
+       ) {
         const body = typeof init.body === "string" ? JSON.parse(init.body) : {};
         return createFetchResponse({
           issue: {
@@ -229,7 +235,9 @@ describe("LinearBoard", () => {
     render(<LinearBoard projectId="project-1" projectSlug="agx" />);
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith("/api/linear/options?projectSlug=agx");
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/linear/options?projectId=project-1&projectSlug=agx"
+      );
     });
 
     expect(screen.queryByRole("combobox", { name: "Workspace" })).not.toBeInTheDocument();
@@ -505,7 +513,7 @@ describe("LinearBoard", () => {
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(
-        "/api/linear/issues/issue-1",
+        "/api/linear/issues/issue-1?projectId=project-1",
         expect.objectContaining({
           method: "PATCH",
           body: JSON.stringify({ status: "In Progress" }),

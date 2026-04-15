@@ -44,8 +44,9 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Objective not found" }, { status: 404 });
     }
 
-    const client = getLinearClient();
+    const client = getLinearClient(resolved.projectId);
     const { issues, refreshedAt } = await listObjectiveLinearIssues({
+      projectId: resolved.projectId,
       objectiveKey: objectiveContext.objective.key,
       projectSlug: objectiveContext.project.slug,
       refresh: false,
@@ -81,7 +82,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: "Objective not found" }, { status: 404 });
     }
 
-    const client = getLinearClient();
+    const client = getLinearClient(resolved.projectId);
     if (!client) {
       return NextResponse.json({ error: "Linear is not connected" }, { status: 401 });
     }
@@ -168,6 +169,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     });
 
     await ensureLinearIssueCache({
+      projectId: resolved.projectId,
       refresh: true,
       projectSlug: objectiveContext.project.slug,
     });

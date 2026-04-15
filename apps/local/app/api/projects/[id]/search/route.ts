@@ -312,7 +312,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
   let linearIssues: ProjectSearchResult[] = [];
   try {
-    await ensureLinearIssueCache({ projectSlug: project.slug });
+    await ensureLinearIssueCache({ projectId: project.id, projectSlug: project.slug });
     const response = await listLinearIssueSummaries({
       search: query,
       limit: 10,

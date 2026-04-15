@@ -16,6 +16,11 @@ function toOptionalString(value: string | null): string | undefined {
 
 export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
+  const projectId = params.get("projectId")?.trim();
+  if (!projectId) {
+    return NextResponse.json({ error: "projectId required" }, { status: 400 });
+  }
+
   const statuses = Array.from(
     new Set(
       params
@@ -46,6 +51,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const pullResult = await ensureLinearIssueCache({
+      projectId,
       refresh,
       projectSlug,
     });
@@ -71,7 +77,7 @@ export async function GET(req: NextRequest) {
       activityMap,
     });
 
-    if (!data.syncState.lastPulledAt && !pullResult && !getLinearClient()) {
+    if (!data.syncState.lastPulledAt && !pullResult && !getLinearClient(projectId)) {
       return NextResponse.json({ error: "Not connected" }, { status: 401 });
     }
 

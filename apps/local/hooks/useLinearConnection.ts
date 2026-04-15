@@ -21,7 +21,7 @@ interface LinearConnectionState {
   refresh: () => Promise<boolean>;
 }
 
-export function useLinearConnection(): LinearConnectionState {
+export function useLinearConnection(projectId: string): LinearConnectionState {
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<{ name: string; email: string } | null>(null);
@@ -40,9 +40,15 @@ export function useLinearConnection(): LinearConnectionState {
   }, []);
 
   const refresh = useCallback(async () => {
+    if (!projectId) {
+      setConnected(false);
+      setLoading(false);
+      return false;
+    }
     try {
+      const query = `?projectId=${encodeURIComponent(projectId)}`;
       const [statusRes, mcpRes] = await Promise.all([
-        fetch("/api/linear/status"),
+        fetch(`/api/linear/status${query}`),
         fetch("/api/linear/mcp-setup"),
       ]);
       const statusData = await statusRes.json();
@@ -58,7 +64,7 @@ export function useLinearConnection(): LinearConnectionState {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [projectId]);
 
   useEffect(() => {
     refresh();
@@ -68,8 +74,13 @@ export function useLinearConnection(): LinearConnectionState {
   }, [refresh]);
 
   const connect = useCallback(() => {
+    if (!projectId) return;
     // Open OAuth in a new tab
-    window.open("/api/linear/auth", "_blank", "noopener");
+    window.open(
+      `/api/linear/auth?projectId=${encodeURIComponent(projectId)}`,
+      "_blank",
+      "noopener"
+    );
 
     // Poll for connection until successful
     if (pollRef.current) clearInterval(pollRef.current);
@@ -80,31 +91,40 @@ export function useLinearConnection(): LinearConnectionState {
         pollRef.current = null;
       }
     }, 2000);
-  }, [refresh]);
+  }, [projectId, refresh]);
 
-  const connectWithKey = useCallback(async (apiKey: string): Promise<{ ok: boolean; error?: string }> => {
-    try {
-      const res = await fetch("/api/linear/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accessToken: apiKey }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        return { ok: false, error: data.error || "Failed to save token" };
+  const connectWithKey = useCallback(
+    async (apiKey: string): Promise<{ ok: boolean; error?: string }> => {
+      if (!projectId) {
+        return { ok: false, error: "Missing projectId" };
       }
-      await refresh();
-      return { ok: true };
-    } catch {
-      return { ok: false, error: "Failed to connect" };
-    }
-  }, [refresh]);
+      try {
+        const res = await fetch("/api/linear/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId, accessToken: apiKey }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          return { ok: false, error: data.error || "Failed to save token" };
+        }
+        await refresh();
+        return { ok: true };
+      } catch {
+        return { ok: false, error: "Failed to connect" };
+      }
+    },
+    [projectId, refresh]
+  );
 
   const disconnect = useCallback(async () => {
-    await fetch("/api/linear/status", { method: "DELETE" });
+    if (!projectId) return;
+    await fetch(`/api/linear/status?projectId=${encodeURIComponent(projectId)}`, {
+      method: "DELETE",
+    });
     setConnected(false);
     setUser(null);
-  }, []);
+  }, [projectId]);
 
   const configureMcp = useCallback(async (cli: string): Promise<{ ok: boolean; error?: string }> => {
     try {

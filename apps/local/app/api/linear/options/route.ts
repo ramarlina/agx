@@ -12,14 +12,19 @@ function toOptionalString(value: string | null): string | undefined {
 }
 
 export async function GET(req: NextRequest) {
-  const client = getLinearClient();
+  const projectId = req.nextUrl.searchParams.get("projectId")?.trim();
+  if (!projectId) {
+    return NextResponse.json({ error: "projectId required" }, { status: 400 });
+  }
+
+  const client = getLinearClient(projectId);
   if (!client) {
     return NextResponse.json({ error: "Not connected" }, { status: 401 });
   }
 
   try {
     const projectSlug = toOptionalString(req.nextUrl.searchParams.get("projectSlug"));
-    await ensureLinearIssueCache({ projectSlug });
+    await ensureLinearIssueCache({ projectId, projectSlug });
 
     const [assigneesResult, teamsResult, cyclesResult, statusesResult] = await Promise.allSettled([
       client.users(),

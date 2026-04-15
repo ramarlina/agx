@@ -1171,6 +1171,7 @@ function ObjectiveChatPanel({
             onStop={interruptObjectiveChat}
             participants={participants}
             commands={[]}
+            projectId={projectId}
             projectSlug={projectSlug}
             loading={workspaceActivityStatus !== "ready"}
             activityStatus={workspaceActivityStatus}

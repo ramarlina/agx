@@ -935,6 +935,7 @@ function RunChatPanel({
           loading={isWorking}
           activityStatus={activityStatus}
           participants={participants}
+          projectId={job.projectId || undefined}
           commands={[]}
           placeholder="Follow up on this run..."
           initialPinnedParticipantId={job.agentId || undefined}

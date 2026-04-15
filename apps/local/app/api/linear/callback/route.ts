@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getConfiguredAppBaseUrl } from "@/lib/app-config";
-import { saveLinearToken } from "@/lib/linear-client";
+import { saveProjectTicketToken } from "@/lib/linear-client";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const AUTH_PROJECT_COOKIE = "agx-linear-auth-project";
+
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code");
-  if (!code) {
+  const projectId = req.cookies.get(AUTH_PROJECT_COOKIE)?.value?.trim();
+
+  if (!code || !projectId) {
     return NextResponse.redirect("/?linear=error");
   }
 
@@ -32,13 +36,14 @@ export async function GET(req: NextRequest) {
   }
 
   const data = await tokenRes.json();
-  saveLinearToken({
+  saveProjectTicketToken(projectId, "linear", {
     accessToken: data.access_token,
     expiresAt: data.expires_in
       ? Date.now() + data.expires_in * 1000
       : undefined,
   });
 
-  // Redirect back to the Linear tab
-  return NextResponse.redirect("/?linear=connected");
+  const response = NextResponse.redirect("/?linear=connected");
+  response.cookies.delete(AUTH_PROJECT_COOKIE);
+  return response;
 }

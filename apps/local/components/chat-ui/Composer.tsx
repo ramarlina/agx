@@ -84,6 +84,8 @@ interface Props {
   projects?: MentionProject[];
   /** Projects with agent rosters */
   projectGroups?: ProjectWithAgents[];
+  /** Active project id, used for scoping Linear issue pulls to the project's Linear token */
+  projectId?: string;
   /** Active project slug, used for scoping cached Linear issue pulls */
   projectSlug?: string;
   /** All messages in the current thread — used for @# discussion mentions */
@@ -140,6 +142,7 @@ export function Composer({
   participants,
   projects = [],
   projectGroups = [],
+  projectId,
   projectSlug,
   messages: allMessages = [],
   commands,
@@ -186,7 +189,11 @@ export function Composer({
   }, []);
 
   const [threadRefs, setThreadRefs] = useState<ThreadRef[]>([]);
-  const { issues: cachedLinearIssues } = useLinearIssueMentions({ projectSlug });
+  const { issues: cachedLinearIssues } = useLinearIssueMentions({
+    projectId: projectId ?? "",
+    projectSlug,
+    enabled: Boolean(projectId),
+  });
   const linearIssues = cachedLinearIssues as MentionLinearIssue[];
 
   const mention = useMentionAutocomplete({
