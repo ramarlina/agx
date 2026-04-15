@@ -157,7 +157,6 @@ export function RecentlyCompletedCard({
         <table className="min-w-full text-sm">
           <thead className="bg-[var(--secondary)]">
             <tr className="text-left text-[11px] uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
-              <th className="px-4 py-3 font-medium">Team</th>
               <th className="px-4 py-3 font-medium">Agent</th>
               <th className="px-4 py-3 font-medium">Status</th>
               <th className="px-4 py-3 font-medium">Thread</th>
@@ -177,21 +176,6 @@ export function RecentlyCompletedCard({
                   )
                 }
               >
-                <td className="px-4 py-3">
-                  {agentTeamMap.has(process.agentId) ? (
-                    <button
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        router.push(`/projects/${projectSlug}/teams/${agentTeamMap.get(process.agentId)!.id}`);
-                      }}
-                      className="text-left font-medium text-[var(--foreground)] transition-colors hover:text-[var(--primary)]"
-                    >
-                      {agentTeamMap.get(process.agentId)!.name}
-                    </button>
-                  ) : (
-                    <span className="text-[var(--muted-foreground)]">Unassigned</span>
-                  )}
-                </td>
                 <td className="px-4 py-3 text-[var(--foreground)]">{getAgentName(process.agentId)}</td>
                 <td className="px-4 py-3">
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--secondary)] px-2 py-0.5 text-[11px] font-medium text-[var(--muted-foreground)]">

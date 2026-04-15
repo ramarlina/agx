@@ -344,7 +344,10 @@ export default function ProjectTerminal() {
                   autoFocus
                 />
               ) : (
-                <div className="truncate text-sm font-medium text-[var(--foreground)]">
+                <div
+                  className="truncate text-sm font-medium text-[var(--foreground)] cursor-text"
+                  onDoubleClick={() => handleStartRenameTerminal(sessionId, terminal)}
+                >
                   {terminal.title}
                 </div>
               )}
