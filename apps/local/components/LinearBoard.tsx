@@ -25,8 +25,6 @@ import {
 import {
   loadLinearTicketPanelWidth,
   persistLinearTicketPanelWidth,
-  loadLinearRunsPanelWidth,
-  persistLinearRunsPanelWidth,
 } from "@/state/windowState";
 import {
   orderParticipantIds,
@@ -51,6 +49,7 @@ import {
   type FilterOption,
 } from "@/components/linear/LinearBoardFilters";
 import { TicketRow } from "@/components/linear/TicketRow";
+import { TicketPanel } from "@/components/linear/TicketPanel";
 import { useLinearParticipants } from "@/hooks/useLinearParticipants";
 import { useLinearActiveAgents } from "@/hooks/useLinearActiveAgents";
 import { agentAvatarUrl } from "@/lib/linear-board-utils";
@@ -71,8 +70,6 @@ function formatRunTime(iso: string): string {
   });
 }
 
-const NEW_SESSION_PANEL_ID = "new";
-
 interface CycleOption {
   id: string;
   number: number;
@@ -84,276 +81,6 @@ interface CycleOption {
 interface LinearEntityOption {
   id: string;
   name: string;
-}
-
-function TicketChatStarter({
-  issue,
-  participants,
-  projectId,
-  projectSlug,
-  issueStatusOptions,
-  issueStatusUpdating,
-  onIssueStatusChange,
-  activeSessionScriptLabel,
-  onOpenSessionScripts,
-  onStartScriptedSession,
-  createRun,
-  updateRun,
-  onRunCreated,
-}: {
-  issue: LinearIssue;
-  participants: Participant[];
-  projectId?: string;
-  projectSlug?: string;
-  issueStatusOptions: FilterOption[];
-  issueStatusUpdating: boolean;
-  onIssueStatusChange: (issue: LinearIssue, status: string) => void;
-  activeSessionScriptLabel: string;
-  onOpenSessionScripts: () => void;
-  onStartScriptedSession: (event: React.MouseEvent<HTMLButtonElement>) => void;
-  createRun: (input: {
-    projectId: string | null;
-    projectSlug: string | null;
-    issueId: string;
-    issueIdentifier: string;
-    issueTitle: string;
-    issueStatus: string;
-    issueAssignee: string | null;
-    agentId: string;
-    agentName: string;
-    mode: LinearRun["mode"];
-  }) => Promise<LinearRun>;
-  updateRun: (id: string, input: {
-    rootMessageId?: string | null;
-    chatRunId?: string | null;
-    status?: LinearRun["status"];
-    error?: string | null;
-  }) => Promise<LinearRun>;
-  onRunCreated: (runId: string) => void;
-}) {
-  const defaultAgent = participants[0];
-  const sessionScriptButtonLabel =
-    activeSessionScriptLabel === "AGX default" ? "Session script" : activeSessionScriptLabel;
-  const threadIdRef = useRef<string | null>(null);
-  if (!threadIdRef.current) {
-    threadIdRef.current = createThreadId();
-  }
-  const { messages, setMessages, sendMessage, chatRuns } = useGroupChat(threadIdRef.current);
-  const { processes, streaming } = useProcessPolling(
-    { workspaceId: threadIdRef.current },
-    { messages, setMessages }
-  );
-
-  const activeRunStatuses = new Set(["queued", "running", "awaiting_user", "blocked"]);
-  const isWorking =
-    chatRuns.some((entry) => activeRunStatuses.has(entry.status)) ||
-    processes.some((process) => process.state === "spawning" || process.state === "running");
-  const activityStatus: "ready" | "queued" | "working" = isWorking
-    ? chatRuns.some((entry) => entry.status === "queued")
-      ? "queued"
-      : "working"
-    : "ready";
-
-  const participantMap = useMemo(
-    () => new Map(participants.map((p) => [p.id, p])),
-    [participants]
-  );
-
-  const creatingRef = useRef(false);
-
-  const handleSend = useCallback(
-    async (
-      message: string,
-      maxRounds: number,
-      _attachmentIds?: string[],
-      _attachments?: unknown[],
-      pinnedParticipantId?: string,
-      promptPrefix?: string,
-      routing?: ComposerRoutingMetadata
-    ) => {
-      if (creatingRef.current) return;
-      creatingRef.current = true;
-
-      const agent = (pinnedParticipantId ? participants.find((p) => p.id === pinnedParticipantId) : null) ?? defaultAgent;
-      if (!agent) return;
-
-      try {
-        const run = await createRun({
-          projectId: projectId ?? null,
-          projectSlug: projectSlug ?? null,
-          issueId: issue.id,
-          issueIdentifier: issue.identifier,
-          issueTitle: issue.title,
-          issueStatus: issue.status,
-          issueAssignee: issue.assignee ?? null,
-          agentId: agent.id,
-          agentName: agent.name,
-          mode: "chat",
-        });
-
-        const { promptPrefix: ticketPrefix } = buildLinearExecutionPrompt({
-          issue: {
-            identifier: issue.identifier,
-            title: issue.title,
-            status: issue.status,
-            assignee: issue.assignee,
-          },
-          project: projectSlug ? { slug: projectSlug } : null,
-          runtime: {
-            recapFilePath: run.recapFilePath ?? null,
-          },
-        });
-
-        const combinedPrefix = ticketPrefix + (promptPrefix ? `\n${promptPrefix}` : "");
-
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            prompt: message,
-            promptPrefix: combinedPrefix,
-            threadId: run.threadId,
-            activeParticipantIds: [agent.id],
-            projectSlug: projectSlug ?? undefined,
-            routing,
-          }),
-        });
-
-        const payload = (await response.json().catch(() => ({}))) as {
-          error?: string;
-          chatRunId?: string;
-          userMessageId?: string;
-        };
-
-        if (!response.ok || !payload.chatRunId || !payload.userMessageId) {
-          throw new Error(payload.error || "Failed to start chat session");
-        }
-
-        await updateRun(run.id, {
-          chatRunId: payload.chatRunId,
-          rootMessageId: payload.userMessageId,
-        });
-
-        onRunCreated(run.id);
-      } catch (error) {
-        console.error("Failed to create chat session:", error);
-        creatingRef.current = false;
-        if (error instanceof Error) {
-          window.alert(error.message);
-        }
-      }
-    },
-    [issue, participants, defaultAgent, projectId, projectSlug, createRun, updateRun, onRunCreated]
-  );
-
-  return (
-    <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--card-border)] px-6">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="shrink-0 font-mono text-sm text-[var(--muted-foreground)]">
-            {issue.identifier}
-          </span>
-          <div className="h-1 w-1 shrink-0 rounded-full bg-[var(--card-border)]" />
-          <span className="truncate text-sm font-medium text-[var(--foreground)]">
-            {issue.title}
-          </span>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <IssueStatusSelect
-            status={issue.status}
-            options={issueStatusOptions}
-            disabled={issueStatusOptions.length === 0}
-            updating={issueStatusUpdating}
-            onChange={(status) => onIssueStatusChange(issue, status)}
-          />
-          <button
-            type="button"
-            className="flex items-center gap-1 rounded-md border border-[var(--card-border)] px-2 py-1 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card-bg)] hover:text-[var(--foreground)]"
-            onClick={onOpenSessionScripts}
-            title={`Session script: ${activeSessionScriptLabel}. Choose or edit the kickoff prompt for this ticket.`}
-          >
-            <FileText size={12} />
-            <span className="max-w-[120px] truncate">{sessionScriptButtonLabel}</span>
-          </button>
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-500 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-blue-600"
-            onClick={onStartScriptedSession}
-          >
-            <Play size={12} />
-            <span>Start scripted session</span>
-          </button>
-        </div>
-      </header>
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 pb-64">
-        {messages.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-[var(--muted-foreground)]">
-            <span className="text-sm">Start a new session for this ticket</span>
-            <span className="text-xs">Type a message to open a chat, or launch the active session script.</span>
-          </div>
-        ) : (
-          <div className="mx-auto max-w-4xl space-y-8">
-            {messages.map((msg) => {
-              const participant = msg.participantId ? participantMap.get(msg.participantId) : null;
-              const content = stripMarkers(msg.content);
-              if (!content.trim()) return null;
-              return (
-                <div key={msg.id} className="flex gap-3">
-                  {msg.role === "user" ? (
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[var(--app-shell-subtle,var(--card-bg))]">
-                      <User className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
-                    </div>
-                  ) : (
-                    <img
-                      src={agentAvatarUrl(msg.participantId ?? "", participant?.color)}
-                      alt={participant?.name ?? "Agent"}
-                      className="h-7 w-7 shrink-0 rounded-full object-cover"
-                    />
-                  )}
-                  <div className="min-w-0 flex-1 flex flex-col gap-1.5">
-                    <span className="text-sm font-semibold text-[var(--foreground)]">
-                      {msg.role === "user" ? "You" : participant?.name ?? "Agent"}
-                    </span>
-                    <div className="text-sm text-[var(--foreground)]">
-                      <Markdown content={content} isUser={msg.role === "user"} />
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-            {Object.entries(streaming).map(([participantId]) => {
-              const participant = participantMap.get(participantId);
-              return (
-                <div key={`stream-${participantId}`} className="flex items-center gap-3 text-sm text-[var(--muted-foreground)]">
-                  <img
-                    src={agentAvatarUrl(participantId, participant?.color)}
-                    alt={participant?.name ?? "Agent"}
-                    className="h-7 w-7 shrink-0 rounded-full object-cover"
-                  />
-                  {participant?.name ?? "Agent"} is thinking...
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      <div className="absolute bottom-3 left-3 right-3 p-2">
-        <Composer
-          onSend={handleSend}
-          onStop={() => {}}
-          participants={participants}
-          projectSlug={projectSlug ?? undefined}
-          loading={activityStatus !== "ready"}
-          commands={[]}
-          activityStatus={activityStatus}
-          placeholder={`Ask about ${issue.identifier}...`}
-          initialPinnedParticipantId={defaultAgent?.id}
-        />
-      </div>
-    </div>
-  );
 }
 
 function ThreadMessageList({
@@ -639,7 +366,6 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
   const [showSettings, setShowSettings] = useState(initialShowSettings ?? false);
   const [showRunScripts, setShowRunScripts] = useState(false);
   const [ticketPanelWidth, setTicketPanelWidth] = useState(() => loadLinearTicketPanelWidth() || 576);
-  const [runsPanelWidth, setRunsPanelWidth] = useState(() => loadLinearRunsPanelWidth() || 224);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filterOptionsLoaded, setFilterOptionsLoaded] = useState(false);
@@ -876,10 +602,9 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
     deleteScript,
   } = useLinearRunScripts(projectSlug);
 
-  const selectedRun =
-    selectedRunId && selectedRunId !== NEW_SESSION_PANEL_ID
-      ? runs.find((run) => run.id === selectedRunId) ?? null
-      : null;
+  const selectedRun = selectedRunId
+    ? runs.find((run) => run.id === selectedRunId) ?? null
+    : null;
   const assigneeOptions = useMemo<FilterOption[]>(
     () => assignees.map((assignee) => ({ value: assignee.id, label: assignee.name })),
     [assignees]
@@ -1019,7 +744,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
   }, [replaceSelection, selectedIssueId, selectedRunId]);
 
   useEffect(() => {
-    if (!selectedIssue || !selectedRunId || selectedRunId === NEW_SESSION_PANEL_ID || runsLoading) {
+    if (!selectedIssue || !selectedRunId || runsLoading) {
       return;
     }
 
@@ -1038,13 +763,13 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
       return;
     }
 
-    if (selectedRunId === NEW_SESSION_PANEL_ID || selectedRun || runs.length === 0) {
+    if (selectedRun || runs.length === 0) {
       setTouchPanelTab("ticket");
       return;
     }
 
     setTouchPanelTab("runs");
-  }, [isTouchLayout, runs.length, selectedIssue, selectedRun, selectedRunId]);
+  }, [isTouchLayout, runs.length, selectedIssue, selectedRun]);
 
   useEffect(() => {
     if (!showRunScripts) {
@@ -1401,7 +1126,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
                         onClick={() => {
                           setShowRunScripts(false);
                           setTouchPanelTab("ticket");
-                          pushSelection({ run: NEW_SESSION_PANEL_ID });
+                          pushSelection({ run: null });
                         }}
                         title="Open a fresh chat for this ticket. You can choose or edit the session script in the ticket tab."
                         aria-label="New session"
@@ -1487,10 +1212,11 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
                   <div className="flex h-full items-center justify-center text-xs text-[var(--muted-foreground)]">
                     Add at least one agent to this project to start a session.
                   </div>
-                ) : selectedRunId === NEW_SESSION_PANEL_ID || runs.length === 0 ? (
-                  <TicketChatStarter
+                ) : (
+                  <TicketPanel
                     key={selectedIssue.id}
                     issue={selectedIssue}
+                    runs={runs}
                     participants={participants}
                     projectId={projectId}
                     projectSlug={projectSlug}
@@ -1503,11 +1229,8 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
                     createRun={createRun}
                     updateRun={updateRun}
                     onRunCreated={(runId) => pushSelection({ run: runId })}
+                    onSelectRun={(runId) => pushSelection({ run: runId })}
                   />
-                ) : (
-                  <div className="flex h-full items-center justify-center text-xs text-[var(--muted-foreground)]">
-                    {runsLoading ? "Loading sessions..." : "Select a session to continue."}
-                  </div>
                 )}
               </div>
             </div>
@@ -1670,103 +1393,22 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
 
       <ResizeHandle onResize={(delta) => setTicketPanelWidth((w) => { const next = Math.max(180, Math.min(600, w + delta)); persistLinearTicketPanelWidth(next); return next; })} />
 
-      <div className="flex shrink-0 flex-col border-r border-[var(--card-border)]" style={{ width: runsPanelWidth }}>
-        <div className="relative flex items-center justify-between border-b border-[var(--card-border)] px-3 py-2">
-          <h3 className="text-xs font-semibold text-[var(--foreground)]">Sessions</h3>
-          <button
-            ref={runScriptsButtonRef}
-            type="button"
-            className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card-bg)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-40"
-            onClick={() => {
-              setShowRunScripts(false);
-              pushSelection({ run: NEW_SESSION_PANEL_ID });
-            }}
-            title="Open a fresh chat for this ticket. You can choose or edit the session script in the session details pane."
-            aria-label="New session"
-            disabled={!selectedIssue}
-          >
-            <Plus size={12} />
-            New session
-          </button>
-          {showRunScripts ? (
-            <div
-              ref={runScriptsPanelRef}
-              className="absolute right-3 top-full z-20 mt-2 max-h-[80vh] overflow-y-auto rounded-2xl border border-[var(--card-border)] bg-[var(--background)] p-4 shadow-2xl"
-              style={{ width: "min(760px, calc(100vw - 32px))" }}
-            >
-              <RunScriptManager
-                projectSlug={projectSlug}
-                scripts={runScripts}
-                activeScriptId={activeScriptId}
-                onSetActiveScriptId={setActiveScriptId}
-                onSaveScript={saveScript}
-                onDeleteScript={deleteScript}
-              />
-            </div>
-          ) : null}
+      {showRunScripts ? (
+        <div
+          ref={runScriptsPanelRef}
+          className="absolute right-6 top-16 z-20 max-h-[80vh] overflow-y-auto rounded-2xl border border-[var(--card-border)] bg-[var(--background)] p-4 shadow-2xl"
+          style={{ width: "min(760px, calc(100vw - 32px))" }}
+        >
+          <RunScriptManager
+            projectSlug={projectSlug}
+            scripts={runScripts}
+            activeScriptId={activeScriptId}
+            onSetActiveScriptId={setActiveScriptId}
+            onSaveScript={saveScript}
+            onDeleteScript={deleteScript}
+          />
         </div>
-
-        <div className="flex-1 overflow-y-auto">
-          {!selectedIssue ? (
-            <div className="px-3 py-4 text-xs text-[var(--muted-foreground)]">
-              Select a ticket to see sessions.
-            </div>
-          ) : (
-            <>
-              {runsLoading && runs.length === 0 ? (
-                <div className="px-3 py-4 text-xs text-[var(--muted-foreground)]">
-                  Loading sessions...
-                </div>
-              ) : runs.length === 0 ? (
-                <div className="px-3 py-4 text-xs text-[var(--muted-foreground)]">
-                  No previous sessions yet.
-                </div>
-              ) : (
-                runs.map((run) => {
-                  const runDisplay = getRunDisplayState(run);
-
-                  return (
-                    <button
-                      key={run.id}
-                      type="button"
-                      className={`w-full px-3 py-2 text-left text-xs transition-colors ${
-                        selectedRun?.id === run.id
-                          ? "bg-[var(--card-bg)]"
-                          : "hover:bg-[var(--card-bg)]"
-                      }`}
-                      onClick={() => pushSelection({ run: run.id })}
-                    >
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-[var(--foreground)]">
-                          {getRunTitle(run)}
-                        </span>
-                        <span className="text-[10px] text-[var(--muted-foreground)]">
-                          {formatRunTime(run.startedAt)}
-                        </span>
-                      </div>
-                      <div className="mt-0.5 flex items-center gap-1.5 text-[10px]">
-                        <span className={`font-medium ${STATUS_TEXT_COLORS[runDisplay.tone]}`}>
-                          {runDisplay.label}
-                        </span>
-                        <span className="truncate text-[var(--muted-foreground)]">
-                          {run.agentName}
-                        </span>
-                      </div>
-                      {run.durationMs != null ? (
-                        <div className="text-[10px] text-[var(--muted-foreground)]">
-                          {(run.durationMs / 1000).toFixed(1)}s
-                        </div>
-                      ) : null}
-                    </button>
-                  );
-                })
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      <ResizeHandle onResize={(delta) => setRunsPanelWidth((w) => { const next = Math.max(140, Math.min(500, w + delta)); persistLinearRunsPanelWidth(next); return next; })} />
+      ) : null}
 
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {selectedRun ? (
@@ -1794,10 +1436,11 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
           <div className="flex h-full items-center justify-center text-xs text-[var(--muted-foreground)]">
             Add at least one agent to this project to start a session.
           </div>
-        ) : selectedRunId === NEW_SESSION_PANEL_ID || runs.length === 0 ? (
-          <TicketChatStarter
+        ) : (
+          <TicketPanel
             key={selectedIssue.id}
             issue={selectedIssue}
+            runs={runs}
             participants={participants}
             projectId={projectId}
             projectSlug={projectSlug}
@@ -1810,11 +1453,8 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
             createRun={createRun}
             updateRun={updateRun}
             onRunCreated={(runId) => pushSelection({ run: runId })}
+            onSelectRun={(runId) => pushSelection({ run: runId })}
           />
-        ) : (
-          <div className="flex h-full items-center justify-center text-xs text-[var(--muted-foreground)]">
-            {runsLoading ? "Loading sessions..." : "Select a session to continue."}
-          </div>
         )}
       </div>
         </>
