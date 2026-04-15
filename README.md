@@ -24,7 +24,7 @@ agx init
 
 <p align="center">
   <a href="https://github.com/ramarlina/agx">
-    <img src="agx_chat.jpg" alt="AGX — chat with agents, approve before they act" width="100%">
+    <img src="agx-chat-to-tasks.gif" alt="AGX — chat with agents, approve before they act" width="100%">
   </a>
 </p>
 
