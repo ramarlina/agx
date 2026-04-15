@@ -83,6 +83,40 @@ function getDb(): DatabaseSync {
   try {
     db.exec("ALTER TABLE agent_processes ADD COLUMN response_message_id TEXT NOT NULL DEFAULT ''");
   } catch { /* column already exists */ }
+  // Ensure joined tables exist so getAllEnriched() doesn't fail on a fresh DB
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS messages (
+      thread_id TEXT NOT NULL,
+      id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      participant_id TEXT,
+      content TEXT NOT NULL,
+      timestamp INTEGER NOT NULL,
+      PRIMARY KEY (thread_id, id)
+    )
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS linear_runs (
+      id TEXT PRIMARY KEY,
+      project_id TEXT,
+      project_slug TEXT,
+      issue_id TEXT NOT NULL,
+      issue_identifier TEXT NOT NULL,
+      issue_title TEXT NOT NULL,
+      issue_status TEXT NOT NULL,
+      issue_assignee TEXT,
+      thread_id TEXT NOT NULL,
+      root_message_id TEXT,
+      chat_run_id TEXT,
+      agent_id TEXT NOT NULL,
+      agent_name TEXT NOT NULL,
+      mode TEXT NOT NULL DEFAULT 'chat',
+      status TEXT NOT NULL DEFAULT 'queued',
+      error TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
   return db;
 }
 
