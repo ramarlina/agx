@@ -194,7 +194,7 @@ function useClickOutside(ref: React.RefObject<HTMLElement | null>, onClose: () =
 export interface AgentFormData {
   name: string;
   roleId?: string;
-  title?: string;
+  role?: string;
   provider: ChatProvider;
   model: string;
   identity: string;
@@ -240,7 +240,7 @@ function buildAgentFormJson(data: AgentFormData, projectIds?: string[]) {
     {
       name: data.name,
       ...(data.roleId ? { roleId: data.roleId } : {}),
-      ...(data.title ? { title: data.title } : {}),
+      ...(data.role ? { role: data.role } : {}),
       provider: data.provider,
       model: data.model,
       identity: data.identity,
@@ -310,7 +310,7 @@ function parseAgentFormJson(raw: string, currentProvider: ChatProvider) {
     data: {
       name: typeof obj.name === "string" ? obj.name : "",
       roleId: typeof obj.roleId === "string" ? obj.roleId : undefined,
-      title: typeof obj.title === "string" ? obj.title : "",
+      role: typeof obj.role === "string" ? obj.role : "",
       provider,
       model: typeof obj.model === "string" ? obj.model : "",
       identity: typeof obj.identity === "string" ? obj.identity : "",
@@ -367,7 +367,7 @@ export function AgentForm({
 }) {
   const [name, setName] = useState(initial.name);
   const [roleId, setRoleId] = useState(initial.roleId ?? "");
-  const [title, setTitle] = useState(initial.title ?? "");
+  const [role, setRole] = useState(initial.role ?? "");
   const [provider, setProvider] = useState(initial.provider);
   const [model, setModel] = useState(initial.model);
   const [identity, setIdentity] = useState(initial.identity);
@@ -405,7 +405,7 @@ export function AgentForm({
     setJsonText(buildAgentFormJson({
       name,
       ...(showRoleField && roleId ? { roleId } : {}),
-      title,
+      role,
       provider,
       model,
       identity,
@@ -413,7 +413,7 @@ export function AgentForm({
       skills: parseSkillsText(skillsText),
       skillBindings,
     }, projects ? Array.from(selectedProjectIds) : undefined));
-  }, [viewMode, name, roleId, showRoleField, title, provider, model, identity, color, skillsText, skillBindings, selectedProjectIds, projects]);
+  }, [viewMode, name, roleId, showRoleField, role, provider, model, identity, color, skillsText, skillBindings, selectedProjectIds, projects]);
 
   useEffect(() => {
     if (!jsonCopied) return;
@@ -461,7 +461,7 @@ export function AgentForm({
 
     setName(data.name);
     setRoleId(data.roleId ?? "");
-    setTitle(data.title ?? "");
+    setRole(data.role ?? "");
     setProvider(data.provider);
     setModel(data.model);
     setIdentity(data.identity);
@@ -490,7 +490,7 @@ export function AgentForm({
     const currentData: AgentFormData = {
       name,
       roleId: nextRoleId,
-      title,
+      role,
       provider,
       model,
       identity,
@@ -521,7 +521,7 @@ export function AgentForm({
     setJsonText(buildAgentFormJson({
       name,
       ...(showRoleField && roleId ? { roleId } : {}),
-      title,
+      role,
       provider,
       model,
       identity,
@@ -545,7 +545,7 @@ export function AgentForm({
   const handleSubmit = () => {
     let nextName = name.trim();
     let nextRoleId = roleId;
-    let nextTitle = title.trim();
+    let nextRole = role.trim();
     let nextProvider = provider;
     let nextModel = model.trim();
     let nextIdentity = identity.trim();
@@ -559,7 +559,7 @@ export function AgentForm({
         const parsed = applyParsedJson(jsonText);
         nextName = parsed.data.name.trim();
         nextRoleId = parsed.data.roleId ?? "";
-        nextTitle = (parsed.data.title ?? "").trim();
+        nextRole = (parsed.data.role ?? "").trim();
         nextProvider = parsed.data.provider;
         nextModel = parsed.data.model.trim();
         nextIdentity = parsed.data.identity.trim();
@@ -579,7 +579,7 @@ export function AgentForm({
       {
         name: nextName,
         ...(showRoleField && nextRoleId ? { roleId: nextRoleId } : {}),
-        title: nextTitle || undefined,
+        role: nextRole || undefined,
         provider: nextProvider,
         model: nextModel,
         identity: nextIdentity,
@@ -724,33 +724,18 @@ export function AgentForm({
                 ) : (
                   <div className="space-y-2">
                     <label className="flex items-center gap-2 text-sm font-medium text-[var(--muted-foreground)]">
-                      Title
+                      Role
                     </label>
                     <input
                       type="text"
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
+                      value={role}
+                      onChange={(e) => setRole(e.target.value)}
                       className="w-full px-4 py-3 bg-[var(--app-shell-subtle)] border border-[var(--border)] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-                      placeholder="e.g. VP of Engineering"
+                      placeholder="e.g. Senior Backend Engineer"
                     />
                   </div>
                 )}
               </div>
-
-              {showRoleField && (
-                <div className="space-y-2">
-                  <label className="flex items-center gap-2 text-sm font-medium text-[var(--muted-foreground)]">
-                    Title
-                  </label>
-                  <input
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    className="w-full px-4 py-3 bg-[var(--app-shell-subtle)] border border-[var(--border)] rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
-                    placeholder="e.g. VP of Engineering"
-                  />
-                </div>
-              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -1140,10 +1125,10 @@ export function ParticipantBar({
                 {openPanel === p.id && !isAddPanelOpen && (
                 <AgentForm
                   title="Edit agent"
-                    initial={{ name: p.name, provider: p.provider, model: p.model || "", identity: p.identity || "", color: p.color, skills: p.skills || [], skillBindings: p.skillBindings || [] }}
+                    initial={{ name: p.name, role: p.role ?? "", provider: p.provider, model: p.model || "", identity: p.identity || "", color: p.color, skills: p.skills || [], skillBindings: p.skillBindings || [] }}
                     submitLabel="Save"
                     onSubmit={(data) => {
-                      onUpdate({ id: p.id, color: data.color ?? p.color, name: data.name, provider: data.provider, model: data.model, ...(data.identity ? { identity: data.identity } : {}), skills: data.skills ?? [], skillBindings: data.skillBindings ?? [] });
+                      onUpdate({ id: p.id, color: data.color ?? p.color, name: data.name, role: data.role, provider: data.provider, model: data.model, ...(data.identity ? { identity: data.identity } : {}), skills: data.skills ?? [], skillBindings: data.skillBindings ?? [] });
                       setOpenPanel(null);
                     }}
                     onCancel={() => setOpenPanel(null)}
@@ -1171,12 +1156,12 @@ export function ParticipantBar({
           {isAddPanelOpen && (
             <AgentForm
               title="Add agent"
-              initial={{ name: "", provider: "claude", model: "", identity: "", skills: [], skillBindings: [] }}
+              initial={{ name: "", role: "", provider: "claude", model: "", identity: "", skills: [], skillBindings: [] }}
               submitLabel="Add"
               onSubmit={(data) => {
                 const color = COLORS[participants.length % COLORS.length];
                 const id = data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-                onAdd({ id, color: data.color ?? color, name: data.name, provider: data.provider, model: data.model, ...(data.identity ? { identity: data.identity } : {}), skills: data.skills ?? [], skillBindings: data.skillBindings ?? [] });
+                onAdd({ id, color: data.color ?? color, name: data.name, role: data.role, provider: data.provider, model: data.model, ...(data.identity ? { identity: data.identity } : {}), skills: data.skills ?? [], skillBindings: data.skillBindings ?? [] });
                 setOpenPanel(null);
               }}
               onCancel={() => setOpenPanel(null)}
@@ -1211,10 +1196,10 @@ export function ParticipantBar({
           {openPanel === p.id && (
             <AgentForm
               title="Edit agent"
-              initial={{ name: p.name, provider: p.provider, model: p.model || "", identity: p.identity || "", color: p.color, skills: p.skills || [], skillBindings: p.skillBindings || [] }}
+              initial={{ name: p.name, role: p.role ?? "", provider: p.provider, model: p.model || "", identity: p.identity || "", color: p.color, skills: p.skills || [], skillBindings: p.skillBindings || [] }}
               submitLabel="Save"
               onSubmit={(data) => {
-                onUpdate({ id: p.id, color: data.color ?? p.color, name: data.name, provider: data.provider, model: data.model, ...(data.identity ? { identity: data.identity } : {}), skills: data.skills ?? [], skillBindings: data.skillBindings ?? [] });
+                onUpdate({ id: p.id, color: data.color ?? p.color, name: data.name, role: data.role, provider: data.provider, model: data.model, ...(data.identity ? { identity: data.identity } : {}), skills: data.skills ?? [], skillBindings: data.skillBindings ?? [] });
                 setOpenPanel(null);
               }}
               onCancel={() => setOpenPanel(null)}
@@ -1235,12 +1220,12 @@ export function ParticipantBar({
         {openPanel === "add" && (
           <AgentForm
             title="Add agent"
-            initial={{ name: "", provider: "claude", model: "", identity: "", skills: [], skillBindings: [] }}
+            initial={{ name: "", role: "", provider: "claude", model: "", identity: "", skills: [], skillBindings: [] }}
             submitLabel="Add"
             onSubmit={(data) => {
               const color = COLORS[participants.length % COLORS.length];
               const id = data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-              onAdd({ id, color: data.color ?? color, name: data.name, provider: data.provider, model: data.model, ...(data.identity ? { identity: data.identity } : {}), skills: data.skills ?? [], skillBindings: data.skillBindings ?? [] });
+              onAdd({ id, color: data.color ?? color, name: data.name, role: data.role, provider: data.provider, model: data.model, ...(data.identity ? { identity: data.identity } : {}), skills: data.skills ?? [], skillBindings: data.skillBindings ?? [] });
               setOpenPanel(null);
             }}
             onCancel={() => setOpenPanel(null)}

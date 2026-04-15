@@ -58,8 +58,9 @@ describe("team catalog", () => {
     const b = getAgentPreset("qa-engineer");
     expect(a).toEqual(b);
     expect(a).not.toBe(b);
+    const original = a!.name;
     a!.name = "Mutated";
-    expect(getAgentPreset("qa-engineer")!.name).toBe("QA Engineer");
+    expect(getAgentPreset("qa-engineer")!.name).toBe(original);
   });
 
   test("web-facing presets carry Next.js extraSkills", () => {
@@ -134,8 +135,9 @@ describe("team catalog", () => {
     expect(qaFromTemplate).toEqual(qaFromRegistry);
     expect(qaFromTemplate).not.toBe(qaFromRegistry);
 
+    const original = getAgentPreset("qa-engineer")!.name;
     qaFromTemplate.name = "Mutated";
-    expect(getAgentPreset("qa-engineer")!.name).toBe("QA Engineer");
+    expect(getAgentPreset("qa-engineer")!.name).toBe(original);
   });
 
   test("variant agents are independent clones", () => {

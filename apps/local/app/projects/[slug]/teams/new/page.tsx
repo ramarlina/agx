@@ -31,7 +31,7 @@ const MODEL_SUGGESTIONS: Record<string, string[]> = {
   claude: ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
   gemini: ["gemini-3-pro-preview", "gemini-3-flash-preview"],
   ollama: ["glm-5:cloud", "qwen3.5:397b-cloud", "qwen3.5:cloud", "minimax-m2.5:cloud", "kimi-k2.5:cloud"],
-  codex: ["gpt-5.3-codex", "gpt-5.1-code-mini"],
+  codex: ["gpt-5.4", "gpt-5.3-codex", "gpt-5.1-code-mini"],
 };
 
 /** Searchable combobox: text input with dropdown suggestions, allows custom values. */
@@ -242,7 +242,7 @@ function createAgentDraft(id: string, preset: AgentPreset, color: string, defaul
     id,
     roleId: preset.id,
     name: preset.name,
-    title: preset.title,
+    role: preset.role,
     provider: defaultProvider || "claude",
     model: defaultModel || "",
     identity: preset.identity,
@@ -257,7 +257,7 @@ function applyPreset(rolePreset: AgentPreset, currentData: AgentFormData): Agent
     ...currentData,
     roleId: rolePreset.id,
     name: rolePreset.name,
-    title: rolePreset.title,
+    role: rolePreset.role,
     identity: rolePreset.identity,
     skills: [],
     skillBindings: toSkillBindings(rolePreset),
@@ -320,7 +320,7 @@ export default function NewTeamPage({ params }: { params: Promise<{ slug: string
     () =>
       allPresets.map((preset) => ({
         id: preset.id,
-        label: preset.name,
+        label: preset.role,
         description: preset.identity,
         meta: preset.skillProfileId,
       })),
@@ -419,7 +419,7 @@ export default function NewTeamPage({ params }: { params: Promise<{ slug: string
       id: agentEditor.draftId ?? createDraftId(),
       roleId,
       name: data.name.trim(),
-      title: data.title?.trim(),
+      role: data.role?.trim(),
       provider: data.provider,
       model: data.model.trim(),
       identity: data.identity.trim(),
@@ -457,7 +457,7 @@ export default function NewTeamPage({ params }: { params: Promise<{ slug: string
         agents: draftAgents.map((agent) => ({
           roleId: agent.roleId,
           name: agent.name,
-          title: agent.title || undefined,
+          role: agent.role || undefined,
           provider: agent.provider || teamProvider || "claude" as string,
           model: agent.model || teamModel || "",
           identity: agent.identity || undefined,
@@ -580,7 +580,6 @@ export default function NewTeamPage({ params }: { params: Promise<{ slug: string
             {isConfigured ? (
               <div className="space-y-2">
                 {draftAgents.map((agent) => {
-                  const preset = presetMap.get(agent.roleId);
                   return (
                     <div
                       key={agent.id}
@@ -594,17 +593,9 @@ export default function NewTeamPage({ params }: { params: Promise<{ slug: string
                         <div className="min-w-0">
                           <div className="text-sm font-medium truncate">{agent.name}</div>
                           <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                            {preset && (
-                              <span
-                                className="text-[10px] px-1.5 py-0.5 rounded-full"
-                                style={{ background: "var(--card-bg)", color: "var(--muted-foreground)" }}
-                              >
-                                {preset.name}
-                              </span>
-                            )}
-                            {agent.title && (
+                            {agent.role && (
                               <span className="text-xs text-[var(--muted-foreground)] truncate">
-                                {agent.title}
+                                {agent.role}
                               </span>
                             )}
                             {agent.model && agent.model !== teamModel && (

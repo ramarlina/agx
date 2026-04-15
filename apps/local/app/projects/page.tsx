@@ -56,6 +56,13 @@ export default function ProjectsPage() {
     }
   }, [searchParams, projects, showModal]);
 
+  useEffect(() => {
+    if (searchParams.get("new") !== "1" || showModal) return;
+    openNewProjectModal();
+    router.replace("/projects");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   const handleProjectClick = useCallback((project: ProjectWithRepos) => {
     if (!project.slug) return;
     // Navigate directly to the individual project board.

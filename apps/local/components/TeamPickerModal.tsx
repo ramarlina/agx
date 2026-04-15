@@ -283,7 +283,7 @@ export default function TeamPickerModal({
                       <div className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 bg-emerald-500/15">
                         <Check className="w-3 h-3 text-emerald-400" />
                       </div>
-                      <span className="text-sm font-medium truncate">{preset.name}</span>
+                      <span className="text-sm font-medium truncate">{preset.role}</span>
                       <span
                         className="text-[10px] px-1.5 py-0.5 rounded-full flex-shrink-0"
                         style={{ background: "var(--card-bg)", color: "var(--muted-foreground)" }}
@@ -295,7 +295,7 @@ export default function TeamPickerModal({
                       onClick={() => togglePreset(preset.id)}
                       disabled={creating}
                       className="p-1.5 rounded-lg hover:bg-red-500/15 text-[var(--muted-foreground)] hover:text-red-400 transition-colors"
-                      title={`Remove ${preset.name}`}
+                      title={`Remove ${preset.role}`}
                     >
                       <X className="w-3.5 h-3.5" />
                     </button>
@@ -351,7 +351,7 @@ export default function TeamPickerModal({
                   }}
                 >
                   <Plus className="w-3 h-3" />
-                  {preset.name}
+                  {preset.role}
                 </button>
               ))}
               {availablePresets.length === 0 && (

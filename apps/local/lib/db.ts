@@ -251,7 +251,7 @@ export interface Agent {
   id: string;
   user_id: string;
   name: string;
-  title?: string;
+  role?: string;
   style: AgentStyle;
   description?: string;
   voice?: string;
@@ -2338,7 +2338,7 @@ export async function createAgent(
   input: {
     id?: string;
     name: string;
-    title?: string;
+    role?: string;
     style: AgentStyle;
     description?: string;
     voice?: string;
@@ -2357,7 +2357,7 @@ export async function createAgent(
     description: input.description ?? null,
   };
   if (input.id !== undefined) payload.id = input.id;
-  if (input.title !== undefined) payload.title = input.title;
+  if (input.role !== undefined) payload.role = input.role;
   if (input.voice !== undefined) payload.voice = input.voice;
   if (input.seed !== undefined) payload.seed = input.seed;
   if (input.model !== undefined) payload.model = input.model;
@@ -2384,7 +2384,7 @@ export async function updateAgent(
   userId: string,
   input: {
     name?: string;
-    title?: string;
+    role?: string;
     style?: AgentStyle;
     description?: string;
     voice?: string;
@@ -2398,7 +2398,7 @@ export async function updateAgent(
 
   const updatePayload: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (input.name !== undefined) updatePayload.name = input.name;
-  if (input.title !== undefined) updatePayload.title = input.title;
+  if (input.role !== undefined) updatePayload.role = input.role;
   if (input.style !== undefined) updatePayload.style = input.style;
   if (input.description !== undefined) updatePayload.description = input.description;
   if (input.voice !== undefined) updatePayload.voice = input.voice;
