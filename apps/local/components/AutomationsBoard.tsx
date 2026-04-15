@@ -148,13 +148,17 @@ export default function AutomationsBoard() {
     if (busy[taskId]) return;
     setBusy((prev) => ({ ...prev, [taskId]: true }));
     showToast("Running...");
-    const ok = await runNow(taskId);
+    const result = await runNow(taskId);
     setBusy((prev) => {
       const next = { ...prev };
       delete next[taskId];
       return next;
     });
-    if (ok) showToast("Run triggered successfully");
+    if (result.ok) {
+      showToast("Run triggered successfully");
+    } else if (result.skipReason === 'tick_in_progress') {
+      showToast("A run is already in progress");
+    }
   };
 
   const handleDelete = async (taskId: string) => {
@@ -282,7 +286,7 @@ export default function AutomationsBoard() {
                     const hasFails =
                       (item.schedule.consecutiveFailures ?? 0) > 0;
                     const overdue = isScheduleOverdue(item.schedule);
-                    const isRunning = busy[item.taskId];
+                    const isRunning = busy[item.taskId] || item.schedule.tickInProgress || item.executionState === 'running';
 
                     return (
                       <div
@@ -405,7 +409,7 @@ export default function AutomationsBoard() {
                 onToggle={() => handleToggle(selected)}
                 onDelete={() => handleDelete(selected.taskId)}
                 onClose={() => setSelectedId(null)}
-                isRunning={busy[selected.taskId] ?? false}
+                isRunning={busy[selected.taskId] || selected.schedule.tickInProgress || selected.executionState === 'running'}
               />
             ) : (
               <div className="space-y-4">

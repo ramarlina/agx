@@ -66,14 +66,19 @@ export function useAutomations() {
     return res.ok;
   }, [fetchAutomations]);
 
-  const runNow = useCallback(async (taskId: string) => {
+  const runNow = useCallback(async (taskId: string): Promise<{ ok: boolean; skipReason?: string }> => {
     const res = await fetch('/api/schedules/poll', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ taskId }),
     });
-    if (res.ok) await fetchAutomations();
-    return res.ok;
+    if (res.ok) {
+      await fetchAutomations();
+      return { ok: true };
+    }
+    const data = await res.json().catch(() => ({}));
+    await fetchAutomations();
+    return { ok: false, skipReason: data.skipReason };
   }, [fetchAutomations]);
 
   return {
