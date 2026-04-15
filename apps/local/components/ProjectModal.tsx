@@ -273,12 +273,13 @@ function ProjectFormFields({
                     className="input text-sm"
                     disabled={isSubmitting}
                   />
-                  <div className="flex items-center gap-2">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
                     <input
                       value={repo.path}
                       onChange={(e) => onRepoChange(index, "path", e.target.value)}
                       placeholder="Local path to folder"
-                      className="input text-sm flex-1"
+                      className={`input text-sm flex-1${repo.name.trim() && !repo.path.trim() ? " border-[var(--destructive)]/50 ring-1 ring-[var(--destructive)]/20" : ""}`}
                       disabled={isSubmitting}
                     />
                     <button
@@ -301,6 +302,10 @@ function ProjectFormFields({
                     >
                       Browse
                     </button>
+                  </div>
+                    {repo.name.trim() && !repo.path.trim() && (
+                      <p className="text-[11px] text-[var(--destructive)]">Local path is required</p>
+                    )}
                   </div>
                   {browsingRepoIndex === index && (
                     <div className="md:col-span-2">
@@ -405,6 +410,9 @@ export default function ProjectModal({
     };
   }, [editingProject]);
 
+  const hasIncompleteRepo = repos.some(r => r.name.trim() && !r.path.trim());
+  const isFormInvalid = !form.name.trim() || hasIncompleteRepo;
+
   if (!isOpen) return null;
 
   return (
@@ -474,7 +482,7 @@ export default function ProjectModal({
           </button>
           <button
             onClick={onSubmit}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isFormInvalid}
             className="btn-primary px-8 py-2 shadow-lg shadow-[var(--primary)]/20 min-w-[120px]"
           >
             {isSubmitting ? (
