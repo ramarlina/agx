@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { WorkspaceSidebar } from "@/components/thread/WorkspaceSidebar";
 import type { Thread } from "@/lib/storage";
 import type { ProjectWithAgents } from "@/hooks/useProjects";
+import type { SidebarStageResult } from "@/hooks/useSidebarStage";
 import {
   createProjectObjective,
   readProjectObjectivesWorkspace,
@@ -23,39 +24,60 @@ jest.mock("next/link", () => {
   };
 });
 
+function stageShow(stage: 1 | 2 | 3 | 4): SidebarStageResult["show"] {
+  return {
+    home: true,
+    threads: true,
+    terminal: true,
+    objectives: stage >= 2,
+    objectivesIsNew: stage === 2,
+    linear: stage >= 3,
+    teams: stage >= 3,
+    folders: stage >= 3,
+    scheduledTasks: stage >= 4,
+    envVars: stage >= 4,
+  };
+}
+
+const baseProject: ProjectWithAgents = {
+  id: "project-1",
+  name: "Alpha",
+  slug: "alpha",
+  description: "",
+  metadata: {},
+  created_at: "2026-03-08T00:00:00.000Z",
+  updated_at: "2026-03-08T00:00:00.000Z",
+  repos: [],
+  agents: [],
+  thread_ids: ["server-thread-1"],
+  workspace_ids: ["server-thread-1"],
+};
+
+function renderSidebar(overrides: Partial<React.ComponentProps<typeof WorkspaceSidebar>> = {}) {
+  return render(
+    <WorkspaceSidebar
+      threads={[] as Thread[]}
+      participants={[]}
+      activeThreadId={null}
+      isLoading={false}
+      isCreating={false}
+      onSelectThread={jest.fn()}
+      onCreateThread={jest.fn()}
+      onRenameThread={jest.fn()}
+      onDeleteThread={jest.fn()}
+      visible
+      projects={[baseProject]}
+      activeProjectId={baseProject.id}
+      activeProjectView="home"
+      stageShow={stageShow(4)}
+      {...overrides}
+    />
+  );
+}
+
 describe("WorkspaceSidebar", () => {
   test("renders objectives project links, but not knowledge", () => {
-    const project: ProjectWithAgents = {
-      id: "project-1",
-      name: "Alpha",
-      slug: "alpha",
-      description: "",
-      metadata: {},
-      created_at: "2026-03-08T00:00:00.000Z",
-      updated_at: "2026-03-08T00:00:00.000Z",
-      repos: [],
-      agents: [],
-      thread_ids: ["server-thread-1"],
-      workspace_ids: ["server-thread-1"],
-    };
-
-    render(
-      <WorkspaceSidebar
-        threads={[] as Thread[]}
-        participants={[]}
-        activeThreadId={null}
-        isLoading={false}
-        isCreating={false}
-        onSelectThread={jest.fn()}
-        onCreateThread={jest.fn()}
-        onRenameThread={jest.fn()}
-        onDeleteThread={jest.fn()}
-        visible
-        projects={[project]}
-        activeProjectId={project.id}
-        activeProjectView="objectives"
-      />
-    );
+    renderSidebar({ activeProjectView: "objectives", stageShow: stageShow(2) });
 
     expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/projects/alpha");
     expect(screen.getByRole("link", { name: "Objectives" })).toBeInTheDocument();
@@ -64,37 +86,12 @@ describe("WorkspaceSidebar", () => {
 
   test("navigates to a project's linked thread even when local thread metadata is missing", () => {
     const onSelectThread = jest.fn();
-    const project: ProjectWithAgents = {
-      id: "project-1",
-      name: "Alpha",
-      slug: "alpha",
-      description: "",
-      metadata: {},
-      created_at: "2026-03-08T00:00:00.000Z",
-      updated_at: "2026-03-08T00:00:00.000Z",
-      repos: [],
-      agents: [],
-      thread_ids: ["server-thread-1"],
-      workspace_ids: ["server-thread-1"],
-    };
 
-    render(
-      <WorkspaceSidebar
-        threads={[] as Thread[]}
-        participants={[]}
-        activeThreadId={null}
-        isLoading={false}
-        isCreating={false}
-        onSelectThread={onSelectThread}
-        onCreateThread={jest.fn()}
-        onRenameThread={jest.fn()}
-        onDeleteThread={jest.fn()}
-        visible
-        projects={[project]}
-        activeProjectId={project.id}
-        activeProjectView="objectives"
-      />
-    );
+    renderSidebar({
+      onSelectThread,
+      activeProjectView: "objectives",
+      stageShow: stageShow(2),
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Chat" }));
 
@@ -104,52 +101,22 @@ describe("WorkspaceSidebar", () => {
   test("prefers the project's thread_ids order over alphabetically sorted local threads", () => {
     const onSelectThread = jest.fn();
     const project: ProjectWithAgents = {
-      id: "project-1",
-      name: "Alpha",
-      slug: "alpha",
-      description: "",
-      metadata: {},
-      created_at: "2026-03-08T00:00:00.000Z",
-      updated_at: "2026-03-08T00:00:00.000Z",
-      repos: [],
-      agents: [],
+      ...baseProject,
       thread_ids: ["z-thread", "a-thread"],
       workspace_ids: ["z-thread", "a-thread"],
     };
     const threads: Thread[] = [
-      {
-        id: "a-thread",
-        title: "A thread",
-        messages: [],
-        createdAt: 1,
-        updatedAt: 1,
-      },
-      {
-        id: "z-thread",
-        title: "Z thread",
-        messages: [],
-        createdAt: 2,
-        updatedAt: 2,
-      },
+      { id: "a-thread", title: "A thread", messages: [], createdAt: 1, updatedAt: 1 },
+      { id: "z-thread", title: "Z thread", messages: [], createdAt: 2, updatedAt: 2 },
     ];
 
-    render(
-      <WorkspaceSidebar
-        threads={threads}
-        participants={[]}
-        activeThreadId={null}
-        isLoading={false}
-        isCreating={false}
-        onSelectThread={onSelectThread}
-        onCreateThread={jest.fn()}
-        onRenameThread={jest.fn()}
-        onDeleteThread={jest.fn()}
-        visible
-        projects={[project]}
-        activeProjectId={project.id}
-        activeProjectView="objectives"
-      />
-    );
+    renderSidebar({
+      threads,
+      onSelectThread,
+      projects: [project],
+      activeProjectView: "objectives",
+      stageShow: stageShow(2),
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Chat" }));
 
@@ -158,36 +125,16 @@ describe("WorkspaceSidebar", () => {
 
   test("does not expose a create-chat fallback when a project has no linked thread", () => {
     const project: ProjectWithAgents = {
-      id: "project-1",
-      name: "Alpha",
-      slug: "alpha",
-      description: "",
-      metadata: {},
-      created_at: "2026-03-08T00:00:00.000Z",
-      updated_at: "2026-03-08T00:00:00.000Z",
-      repos: [],
-      agents: [],
+      ...baseProject,
       thread_ids: [],
       workspace_ids: [],
     };
 
-    render(
-      <WorkspaceSidebar
-        threads={[] as Thread[]}
-        participants={[]}
-        activeThreadId={null}
-        isLoading={false}
-        isCreating={false}
-        onSelectThread={jest.fn()}
-        onCreateThread={jest.fn()}
-        onRenameThread={jest.fn()}
-        onDeleteThread={jest.fn()}
-        visible
-        projects={[project]}
-        activeProjectId={project.id}
-        activeProjectView="objectives"
-      />
-    );
+    renderSidebar({
+      projects: [project],
+      activeProjectView: "objectives",
+      stageShow: stageShow(2),
+    });
 
     expect(screen.queryByRole("button", { name: "Chat" })).not.toBeInTheDocument();
   });
@@ -204,15 +151,10 @@ describe("WorkspaceSidebar", () => {
       })
     );
     const project: ProjectWithAgents = {
-      id: "project-1",
-      name: "Alpha",
-      slug: "alpha",
-      description: "",
+      ...baseProject,
       metadata: writeProjectObjectivesWorkspace({}, workspace),
       created_at: now,
       updated_at: now,
-      repos: [],
-      agents: [],
       thread_ids: ["objective-chat:objective_growth"],
       workspace_ids: ["objective-chat:objective_growth"],
     };
@@ -236,25 +178,81 @@ describe("WorkspaceSidebar", () => {
       },
     ];
 
-    render(
-      <WorkspaceSidebar
-        threads={threads}
-        participants={[]}
-        activeThreadId={null}
-        isLoading={false}
-        isCreating={false}
-        onSelectThread={jest.fn()}
-        onCreateThread={jest.fn()}
-        onRenameThread={jest.fn()}
-        onDeleteThread={onDeleteThread}
-        visible
-        projects={[project]}
-        activeProjectId={project.id}
-        activeProjectView="objectives"
-      />
-    );
+    renderSidebar({
+      threads,
+      onDeleteThread,
+      projects: [project],
+      activeProjectView: "objectives",
+      stageShow: stageShow(2),
+    });
 
     expect(screen.queryByText("Unassigned Threads")).not.toBeInTheDocument();
     await waitFor(() => expect(onDeleteThread).toHaveBeenCalledWith("legacy-dup"));
+  });
+
+  describe("progressive stage gating", () => {
+    test("stage 1 shows only Home, Threads, and Terminal", () => {
+      renderSidebar({ stageShow: stageShow(1) });
+
+      expect(screen.getByRole("link", { name: "Home" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Threads" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Terminal" })).toBeInTheDocument();
+
+      expect(screen.queryByRole("link", { name: "Objectives" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Linear" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Scheduled Tasks" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Teams" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Folders" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Env Vars" })).not.toBeInTheDocument();
+    });
+
+    test("stage 2 adds Objectives with NEW badge", () => {
+      renderSidebar({ stageShow: stageShow(2) });
+
+      expect(screen.getByRole("link", { name: "Home" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Objectives" })).toBeInTheDocument();
+      expect(screen.getByText("NEW")).toBeInTheDocument();
+
+      expect(screen.queryByRole("link", { name: "Linear" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Scheduled Tasks" })).not.toBeInTheDocument();
+    });
+
+    test("stage 3 adds Linear and Teams, no NEW badge on Objectives", () => {
+      renderSidebar({ stageShow: stageShow(3) });
+
+      expect(screen.getByRole("link", { name: "Objectives" })).toBeInTheDocument();
+      expect(screen.queryByText("NEW")).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Linear" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Teams" })).toBeInTheDocument();
+
+      expect(screen.queryByRole("link", { name: "Scheduled Tasks" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Env Vars" })).not.toBeInTheDocument();
+    });
+
+    test("stage 4 shows full sidebar including Scheduled Tasks and Env Vars", () => {
+      renderSidebar({ stageShow: stageShow(4) });
+
+      expect(screen.getByRole("link", { name: "Objectives" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Linear" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Scheduled Tasks" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Teams" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Env Vars" })).toBeInTheDocument();
+    });
+
+    test("collapsed rail matches expanded sidebar for each stage", () => {
+      const { unmount: u1 } = renderSidebar({ visible: false, stageShow: stageShow(1) });
+      expect(screen.queryByRole("link", { name: "Objectives" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Linear" })).not.toBeInTheDocument();
+      u1();
+
+      const { unmount: u3 } = renderSidebar({ visible: false, stageShow: stageShow(3) });
+      expect(screen.getByRole("link", { name: "Objectives" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Linear" })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Scheduled Tasks" })).not.toBeInTheDocument();
+      u3();
+
+      renderSidebar({ visible: false, stageShow: stageShow(4) });
+      expect(screen.getByRole("link", { name: "Scheduled Tasks" })).toBeInTheDocument();
+    });
   });
 });
