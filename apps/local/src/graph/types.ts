@@ -343,8 +343,12 @@ export interface GraphSchedule {
   lastTickAt?: number;
   /** Pre-computed next tick timestamp (epoch ms) — set after each tick or activation */
   nextTickAt?: number;
-  /** Whether a tick is currently executing (overlap prevention) */
+  /** Whether a tick is currently executing (true when currentConcurrency > 0) */
   tickInProgress: boolean;
+  /** Maximum concurrent ticks allowed (default 5) */
+  maxConcurrency?: number;
+  /** Number of ticks currently executing */
+  currentConcurrency?: number;
   /** ISO timestamp when schedule was created */
   createdAt: string;
   /** Optional timestamp after which schedule should stop running */

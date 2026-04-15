@@ -524,6 +524,7 @@ export interface CreateGraphScheduleInput {
   description?: string;
   resetNodeIds: string[];
   maxRuns?: number;
+  maxConcurrency?: number;
   maxConsecutiveFailures?: number;
   activeUntil?: string;
   rootMessageId?: string;
@@ -627,6 +628,8 @@ export function createGraphSchedule(input: CreateGraphScheduleInput): GraphSched
     maxRuns: normalizeOptionalMaxRuns(input.maxRuns),
     runCount: 0,
     tickInProgress: false,
+    currentConcurrency: 0,
+    maxConcurrency: input.maxConcurrency,
     createdAt: normalizeOptionalIso(input.nowIso) ?? new Date().toISOString(),
     activeUntil: normalizeOptionalIso(input.activeUntil),
     rootMessageId: input.rootMessageId?.trim() || undefined,
@@ -673,6 +676,7 @@ export function deactivateGraphSchedule(graph: ExecutionGraph): ExecutionGraph {
       ...graph.schedule,
       state: 'stopped',
       tickInProgress: false,
+      currentConcurrency: 0,
     },
     updatedAt: new Date().toISOString(),
   };
@@ -689,7 +693,9 @@ export function prepareScheduledTick(
   if (schedule.state !== 'active') {
     return { graph, shouldRun: false, skipReason: 'inactive' };
   }
-  if (schedule.tickInProgress) {
+  const maxConcurrency = schedule.maxConcurrency ?? 5;
+  const currentConcurrency = schedule.currentConcurrency ?? 0;
+  if (currentConcurrency >= maxConcurrency) {
     return { graph, shouldRun: false, skipReason: 'overlap' };
   }
   if (schedule.maxRuns !== undefined && schedule.runCount >= schedule.maxRuns) {
@@ -722,6 +728,7 @@ export function prepareScheduledTick(
   nextGraph.schedule = {
     ...schedule,
     tickInProgress: true,
+    currentConcurrency: currentConcurrency + 1,
     lastTickAt: nowMs,
   };
   for (const nodeId of schedule.resetNodeIds) {
@@ -744,6 +751,8 @@ export function finalizeScheduledTick(
     return graph;
   }
 
+  const currentConcurrency = schedule.currentConcurrency ?? (schedule.tickInProgress ? 1 : 0);
+  const newConcurrency = Math.max(0, currentConcurrency - 1);
   const runCount = schedule.tickInProgress ? schedule.runCount + 1 : schedule.runCount;
   const shouldStop = schedule.maxRuns !== undefined && runCount >= schedule.maxRuns;
 
@@ -758,7 +767,8 @@ export function finalizeScheduledTick(
     schedule: {
       ...schedule,
       runCount,
-      tickInProgress: false,
+      tickInProgress: newConcurrency > 0,
+      currentConcurrency: newConcurrency,
       state: shouldStop ? 'stopped' : schedule.state,
       lastTickAt: schedule.lastTickAt ?? nowMs,
       nextTickAt,

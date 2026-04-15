@@ -72,6 +72,7 @@ export interface AutomationDefinition {
   trigger: AutomationTrigger;
   execution?: AutomationExecution;
   target: AutomationTarget;
+  maxConcurrency?: number;
   createdAt?: string;
   body?: string;
 }
@@ -86,6 +87,8 @@ export interface AutomationRuntimeState {
   runCount?: number;
   consecutiveFailures?: number;
   tickInProgress?: boolean;
+  maxConcurrency?: number;
+  currentConcurrency?: number;
   archivedAt?: string | null;
 }
 

@@ -185,6 +185,7 @@ function syncGraphAutomationRecord(graph: ExecutionGraph): void {
     runCount: graph.schedule.runCount,
     consecutiveFailures: graph.schedule.consecutiveFailures,
     tickInProgress: graph.schedule.tickInProgress,
+    currentConcurrency: graph.schedule.currentConcurrency,
   });
 }
 
@@ -606,13 +607,36 @@ export class GraphStore {
     const db = this.getDb();
     const result = db.prepare(
       `UPDATE execution_graphs
-       SET schedule = json_set(schedule, '$.tickInProgress', json('true')),
+       SET schedule = json_set(
+         schedule,
+         '$.tickInProgress', json('true'),
+         '$.currentConcurrency',
+           COALESCE(CAST(json_extract(schedule, '$.currentConcurrency') AS INTEGER), 0) + 1
+       ),
            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
        WHERE task_id = ?
-         AND json_extract(schedule, '$.tickInProgress') = 0
+         AND COALESCE(CAST(json_extract(schedule, '$.currentConcurrency') AS INTEGER), 0)
+             < COALESCE(CAST(json_extract(schedule, '$.maxConcurrency') AS INTEGER), 5)
          AND json_extract(schedule, '$.state') = 'active'`,
     ).run(taskId);
     return (result.changes ?? 0) > 0;
+  }
+
+  releaseScheduleTick(taskId: string): void {
+    const db = this.getDb();
+    db.prepare(
+      `UPDATE execution_graphs
+       SET schedule = json_set(
+         schedule,
+         '$.currentConcurrency',
+           MAX(0, COALESCE(CAST(json_extract(schedule, '$.currentConcurrency') AS INTEGER), 1) - 1),
+         '$.tickInProgress',
+           CASE WHEN COALESCE(CAST(json_extract(schedule, '$.currentConcurrency') AS INTEGER), 1) - 1 > 0
+                THEN json('true') ELSE json('false') END
+       ),
+           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       WHERE task_id = ?`,
+    ).run(taskId);
   }
 }
 
@@ -814,6 +838,7 @@ export function deactivateSchedulesByRootMessageId(rootMessageId: string): numbe
             ...graph.schedule,
             state: "stopped",
             tickInProgress: false,
+            currentConcurrency: 0,
           },
         },
         graph.graphVersion,
@@ -830,7 +855,7 @@ export function deactivateSchedulesByRootMessageId(rootMessageId: string): numbe
   const result = db
     .prepare(
       `UPDATE execution_graphs
-       SET schedule = json_set(schedule, '$.state', 'stopped', '$.tickInProgress', json('false')),
+       SET schedule = json_set(schedule, '$.state', 'stopped', '$.tickInProgress', json('false'), '$.currentConcurrency', 0),
            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
        WHERE schedule IS NOT NULL
          AND json_extract(schedule, '$.rootMessageId') = ?

@@ -26,7 +26,9 @@ export async function POST(request: NextRequest) {
       const result = await executeScheduleTick(body.taskId, { dispatchFunction, dispatchWork });
 
       if (!result.fired) {
-        const skipReason = result.graph?.schedule?.tickInProgress ? 'tick_in_progress' : 'not_due';
+        const schedule = result.graph?.schedule;
+        const atCapacity = schedule && (schedule.currentConcurrency ?? 0) >= (schedule.maxConcurrency ?? 5);
+        const skipReason = atCapacity ? 'max_concurrency_reached' : 'not_due';
         return NextResponse.json({
           success: false,
           taskId: body.taskId,
@@ -82,6 +84,8 @@ export async function GET() {
         runCount: s.schedule.runCount,
         lastTickAt: s.schedule.lastTickAt,
         tickInProgress: s.schedule.tickInProgress,
+        currentConcurrency: s.schedule.currentConcurrency ?? 0,
+        maxConcurrency: s.schedule.maxConcurrency ?? 5,
       })),
     });
   } catch (error) {

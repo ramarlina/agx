@@ -9,10 +9,10 @@ import { computeNextTickFromCron } from './scheduler';
  *
  * Invariants:
  * - Skip if schedule is not active
- * - Skip if a tick is already in progress (overlap prevention)
+ * - Skip if currentConcurrency >= maxConcurrency (default 5)
  * - Skip if maxRuns reached
  * - Reset only the specified resetNodeIds to pending
- * - Mark tickInProgress = true so concurrent ticks are skipped
+ * - Increment currentConcurrency and set tickInProgress = true
  */
 export interface ScheduleTickResult {
   graph: ExecutionGraph;
@@ -20,7 +20,7 @@ export interface ScheduleTickResult {
   /** Node IDs that were reset to pending */
   resetNodeIds: string[];
   /** Reason tick was skipped (if tickFired is false) */
-  skipReason?: 'not_active' | 'tick_in_progress' | 'max_runs_reached' | 'not_due' | 'no_schedule';
+  skipReason?: 'not_active' | 'tick_in_progress' | 'max_concurrency_reached' | 'max_runs_reached' | 'not_due' | 'no_schedule';
 }
 
 export function scheduleTickIfDue(
@@ -44,8 +44,10 @@ export function scheduleTickIfDue(
     return noTick('not_active');
   }
 
-  if (schedule.tickInProgress) {
-    return noTick('tick_in_progress');
+  const maxConcurrency = schedule.maxConcurrency ?? 5;
+  const currentConcurrency = schedule.currentConcurrency ?? 0;
+  if (currentConcurrency >= maxConcurrency) {
+    return noTick('max_concurrency_reached');
   }
 
   if (schedule.maxRuns != null && schedule.runCount >= schedule.maxRuns) {
@@ -94,9 +96,11 @@ export function scheduleTickIfDue(
     }
   }
 
+  const newConcurrency = currentConcurrency + 1;
   nextGraph.schedule = {
     ...schedule,
     tickInProgress: true,
+    currentConcurrency: newConcurrency,
     lastTickAt: nowMs,
     runCount: schedule.runCount + 1,
   };
@@ -114,13 +118,16 @@ export function scheduleTickIfDue(
  * were skipped by conditional).
  */
 export function completeScheduleTick(graph: ExecutionGraph): ExecutionGraph {
-  if (!graph.schedule || !graph.schedule.tickInProgress) {
+  if (!graph.schedule) {
     return graph;
   }
 
   const schedule = graph.schedule;
+  const currentConcurrency = schedule.currentConcurrency ?? (schedule.tickInProgress ? 1 : 0);
+  const newConcurrency = Math.max(0, currentConcurrency - 1);
+
   let nextTickAt = schedule.nextTickAt;
-  if (schedule.cronExpr) {
+  if (schedule.cronExpr && newConcurrency === 0) {
     nextTickAt = computeNextTickFromCron(schedule.cronExpr);
   }
 
@@ -128,7 +135,8 @@ export function completeScheduleTick(graph: ExecutionGraph): ExecutionGraph {
     ...graph,
     schedule: {
       ...schedule,
-      tickInProgress: false,
+      tickInProgress: newConcurrency > 0,
+      currentConcurrency: newConcurrency,
       nextTickAt,
     },
   };
@@ -172,6 +180,7 @@ export function createThreadMonitorSchedule(
     maxRuns,
     runCount: 0,
     tickInProgress: false,
+    currentConcurrency: 0,
     createdAt: new Date().toISOString(),
   };
 }
@@ -202,6 +211,7 @@ export function stopSchedule(graph: ExecutionGraph): ExecutionGraph {
       ...graph.schedule,
       state: 'stopped',
       tickInProgress: false,
+      currentConcurrency: 0,
     },
   };
 }
