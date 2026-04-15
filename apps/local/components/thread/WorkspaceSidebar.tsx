@@ -92,7 +92,7 @@ function RailTooltip({ label, children }: { label: string; children: React.React
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
   const show = () => {
-    const el = ref.current;
+    const el = (ref.current?.firstElementChild ?? ref.current) as HTMLElement | null;
     if (!el) return;
     const rect = el.getBoundingClientRect();
     setPos({ top: rect.top + rect.height / 2, left: rect.right + 8 });
