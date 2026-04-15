@@ -25,23 +25,8 @@ function LayoutContent({
                 href="/"
                 className="flex items-center gap-3 group"
               >
-                <svg
-                  width="52"
-                  height="31"
-                  viewBox="0 0 64 38"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="transition-transform group-hover:scale-105"
-                >
-                  <rect width="64" height="38" rx="8" fill="black" />
-                  <g stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M 14 27 C 17 16 19 10 20 8 C 21 12 23 20 25 27" />
-                    <path d="M 16 20 C 19 19 21 21 23 20" />
-                    <path d="M 40 13 C 35 10 30 13 30 19 C 30 25 34 28 38 27 C 40 26 40 22 40 20 L 36 20" />
-                    <path d="M 46 11 C 48 16 51 22 54 27" />
-                    <path d="M 54 11 C 52 16 49 22 46 27" />
-                  </g>
-                </svg>
+                <img src="/logo_light.png" alt="AGX" className="dark:hidden transition-transform group-hover:scale-105" style={{ height: 31, width: "auto" }} />
+                <img src="/logo_dark.png" alt="AGX" className="hidden dark:block transition-transform group-hover:scale-105" style={{ height: 31, width: "auto" }} />
               </Link>
             </div>
 
