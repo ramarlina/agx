@@ -48,16 +48,16 @@ npm run dev
 # Build to directory (fast, for testing)
 npm run pack
 
-# Build DMG + ZIP for macOS
+# Build DMG + ZIP for macOS (no publish, no notarize)
 npm run build:mac
 
-# Submit for notarization (returns quickly with a submission id)
+# Submit BOTH .zip and .dmg for notarization, returns quickly with ids
 npm run notarize:mac:submit
 
-# Wait for Apple + staple app and DMG
+# Wait for Apple to accept both, then staple .app + .dmg
 npm run notarize:mac:wait
 
-# Or run the full notarization flow
+# submit + wait in one go
 npm run notarize:mac
 
 # Full build + print the GitHub release command
@@ -69,7 +69,13 @@ npm run release:prep:notarized
 
 ### Build pipeline
 
-`build:icon` → `build:next` → `fix-standalone` → `build:cli` → `build:node` → `electron-builder` → `post-pack`
+`build:icon` → `build:next` → `fix-standalone` → `build:cli` → `build:node` → `electron-builder --mac --publish never` → `post-pack`
+
+`--publish never` is important: the `publish` entry in `package.json`
+targets the `ramarlina/agx` repo, and without this flag electron-builder
+will try to POST directly to the GitHub Releases API during the build.
+The separate `gh release create` step at the end of the release flow
+handles the actual upload.
 
 ## Code Signing & Notarization
 
@@ -115,23 +121,31 @@ The build will:
 
 ### Notarizing explicitly
 
-`electron-builder` notarization is disabled in-package so builds do not block inside `notarytool --wait`.
+`electron-builder`'s built-in notarization and publisher are both disabled
+(`build:mac` passes `--publish never`) so builds do not block inside
+`notarytool --wait` or try to hit the GitHub Releases API with the wrong
+token.
 
-Instead, notarize in two explicit steps:
+Notarize in two explicit steps:
 
 ```bash
 npm run notarize:mac:submit
 npm run notarize:mac:wait
 ```
 
-`notarize:mac:submit` submits the generated ZIP to Apple and writes the submission state to `dist/notarization.json`.
+`notarize:mac:submit` submits **both** the generated `.zip` and the `.dmg`
+to Apple as separate notarization jobs and writes the submission state
+(ids + paths) to `dist/notarization.json`.
 
-`notarize:mac:wait` waits for Apple to finish, staples the `.app`, and then retries DMG stapling:
+`notarize:mac:wait` polls both submissions until Apple accepts them, then
+staples the ticket onto:
 
-- `dist/mac-arm64/AGX.app`
-- `dist/agx-<version>-arm64.dmg`
+- `dist/mac-arm64/AGX.app` (from the `.zip` notarization)
+- `dist/AGX-<version>-arm64.dmg` (from the `.dmg` notarization)
 
-If the DMG ticket has not propagated yet, DMG stapling may still fail after retries even though Apple has already accepted the notarization. In that case the `.app` is still notarized and stapled, and macOS can verify the DMG notarization online during install.
+Both artifacts end up with a stapled ticket, so Gatekeeper can verify them
+offline. Run `xcrun stapler validate <path>` on either artifact to
+double-check before uploading to GitHub.
 
 ### Without signing (local testing only)
 
@@ -139,30 +153,53 @@ If no signing env vars are set, electron-builder falls back to ad-hoc signing. T
 
 ## Release Flow
 
-Releases are published as **GitHub Releases** on the `agx` repo (release artifacts are too large for git).
+Desktop releases are built, notarized, and uploaded **locally** — there is
+no CI workflow for them. The previous `release-agx-app.yml` was removed
+because the GitHub Actions `macos-latest` runner plus Apple's notarization
+queue often pushed the build past the step timeout, and the macOS runner
+adds ~4 extra minutes compared to a local build.
+
+Releases are published as **GitHub Releases** on the `agx` repo (release
+artifacts are too large to commit).
 
 ```bash
-# 1. Bump version in package.json/package-lock.json
+# From the repo root:
 
-# 2. Build and notarize locally
-npm run release:prep:notarized
+# 1. Bump version in apps/desktop/package.json (+ package-lock.json "apps/desktop")
+#    Usually align with the CLI version so both ship together.
 
-# 3. Publish the generated artifacts from apps/desktop/dist
-gh release create app-v0.1.1 \
-  dist/AGX-0.1.1-arm64.dmg \
-  dist/AGX-0.1.1-arm64-mac.zip \
-  dist/AGX-0.1.1-arm64.dmg.blockmap \
-  dist/AGX-0.1.1-arm64-mac.zip.blockmap \
+# 2. Full build + notarize + staple, from the workspace
+npm run release:prep:notarized --workspace apps/desktop
+```
+
+The last step prints a ready-to-run `gh release create app-v<version> ...`
+command listing every artifact in `apps/desktop/dist` that belongs to the
+current version plus the `agx-latest.*` + `latest-mac.yml` aliases used by
+electron-updater. Paste it to publish, or adapt and run by hand:
+
+```bash
+cd apps/desktop
+gh release create app-v2.3.1 \
+  dist/AGX-2.3.1-arm64.dmg \
+  dist/AGX-2.3.1-arm64-mac.zip \
+  dist/AGX-2.3.1-arm64.dmg.blockmap \
+  dist/AGX-2.3.1-arm64-mac.zip.blockmap \
   dist/agx-latest.dmg \
   dist/agx-latest.zip \
   dist/latest-mac.yml \
-  --title "AGX v0.1.1" \
-  --notes "Release notes here"
+  --title "AGX v2.3.1" \
+  --generate-notes
 ```
 
-`release:prep` and `release:prep:notarized` build the current app version, write release artifacts into `dist/`, and print the `gh release create ...` command for the current version.
+`--generate-notes` lets GitHub pull commit subjects since the previous
+release into the release body; replace with `--notes "..."` if you want to
+write them by hand. Drop `--draft` if you want it live immediately, or
+keep it as a draft first and run `gh release edit app-v<version> --draft=false`
+once you've reviewed it.
 
-The `electron-updater` auto-update mechanism reads from GitHub Releases (configured in `package.json` under `publish`).
+The `electron-updater` auto-update mechanism reads from GitHub Releases
+(configured in `package.json` under `publish`); once the release is
+published, existing users on older v2.x builds pick it up automatically.
 
 ## Download Page (agx-web)
 
