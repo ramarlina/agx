@@ -104,10 +104,12 @@ export default function ProjectsPage() {
     try {
       if (editingProject) {
         await updateProject(editingProject.id, payload);
+        closeModal();
       } else {
-        await createProject(payload);
+        const created = await createProject(payload);
+        closeModal();
+        router.push(`/projects/${created.slug}`);
       }
-      closeModal();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to save project";
       setModalFormError(message);
