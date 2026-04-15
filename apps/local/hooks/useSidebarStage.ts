@@ -8,7 +8,7 @@ import { readProjectObjectivesWorkspace } from "@/lib/project-objectives";
  * - stage1: Fresh start — Home, Threads, Terminal only
  * - stage2: First objective created — adds Objectives (with NEW badge)
  * - stage3: Linear connected — adds Linear, Teams section
- * - stage4: Power user — adds Scheduled Tasks, Environment Variables
+ * - stage4: Power user — adds Environment Variables
  */
 export type SidebarStage = "stage1" | "stage2" | "stage3" | "stage4";
 
@@ -115,7 +115,7 @@ export function useSidebarStage(
       linear: s === "stage3" || s === "stage4",
       teams: s === "stage3" || s === "stage4",
       folders: s === "stage3" || s === "stage4",
-      scheduledTasks: s === "stage4",
+      scheduledTasks: true,
       envVars: s === "stage4",
     };
   }, [stage]);

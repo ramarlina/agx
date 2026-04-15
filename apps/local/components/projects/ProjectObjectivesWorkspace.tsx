@@ -2162,8 +2162,8 @@ export function ProjectObjectiveDetail({
                   {([
                     { id: "activity" as const, label: "Activity", icon: Clock },
                     { id: "notes" as const, label: "Notes", icon: FileText },
-                    { id: "linear" as const, label: "Linear", icon: LinearIcon },
-                    { id: "scheduled-tasks" as const, label: "Scheduled Tasks", icon: CalendarClock },
+                    { id: "linear" as const, label: "Tasks", icon: LinearIcon },
+                    { id: "scheduled-tasks" as const, label: "Scheduled Jobs", icon: CalendarClock },
                   ]).map((tab) => (
                     <button
                       key={tab.id}

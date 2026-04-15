@@ -34,7 +34,7 @@ function stageShow(stage: 1 | 2 | 3 | 4): SidebarStageResult["show"] {
     linear: stage >= 3,
     teams: stage >= 3,
     folders: stage >= 3,
-    scheduledTasks: stage >= 4,
+    scheduledTasks: true,
     envVars: stage >= 4,
   };
 }
@@ -199,8 +199,8 @@ describe("WorkspaceSidebar", () => {
       expect(screen.getByRole("link", { name: "Terminal" })).toBeInTheDocument();
 
       expect(screen.queryByRole("link", { name: "Objectives" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: "Linear" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: "Scheduled Tasks" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Tasks" })).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Scheduled Jobs" })).toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "Teams" })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "Folders" })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "Env Vars" })).not.toBeInTheDocument();
@@ -213,28 +213,28 @@ describe("WorkspaceSidebar", () => {
       expect(screen.getByRole("link", { name: "Objectives" })).toBeInTheDocument();
       expect(screen.getByText("NEW")).toBeInTheDocument();
 
-      expect(screen.queryByRole("link", { name: "Linear" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: "Scheduled Tasks" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Tasks" })).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Scheduled Jobs" })).toBeInTheDocument();
     });
 
-    test("stage 3 adds Linear and Teams, no NEW badge on Objectives", () => {
+    test("stage 3 adds Tasks and Teams, no NEW badge on Objectives", () => {
       renderSidebar({ stageShow: stageShow(3) });
 
       expect(screen.getByRole("link", { name: "Objectives" })).toBeInTheDocument();
       expect(screen.queryByText("NEW")).not.toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Linear" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Tasks" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Teams" })).toBeInTheDocument();
 
-      expect(screen.queryByRole("link", { name: "Scheduled Tasks" })).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Scheduled Jobs" })).toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "Env Vars" })).not.toBeInTheDocument();
     });
 
-    test("stage 4 shows full sidebar including Scheduled Tasks and Env Vars", () => {
+    test("stage 4 shows full sidebar including Scheduled Jobs and Env Vars", () => {
       renderSidebar({ stageShow: stageShow(4) });
 
       expect(screen.getByRole("link", { name: "Objectives" })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Linear" })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Scheduled Tasks" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Tasks" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Scheduled Jobs" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Teams" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Env Vars" })).toBeInTheDocument();
     });
@@ -242,17 +242,17 @@ describe("WorkspaceSidebar", () => {
     test("collapsed rail matches expanded sidebar for each stage", () => {
       const { unmount: u1 } = renderSidebar({ visible: false, stageShow: stageShow(1) });
       expect(screen.queryByRole("link", { name: "Objectives" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: "Linear" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Tasks" })).not.toBeInTheDocument();
       u1();
 
       const { unmount: u3 } = renderSidebar({ visible: false, stageShow: stageShow(3) });
       expect(screen.getByRole("link", { name: "Objectives" })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Linear" })).toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: "Scheduled Tasks" })).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Tasks" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Scheduled Jobs" })).toBeInTheDocument();
       u3();
 
       renderSidebar({ visible: false, stageShow: stageShow(4) });
-      expect(screen.getByRole("link", { name: "Scheduled Tasks" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Scheduled Jobs" })).toBeInTheDocument();
     });
   });
 });

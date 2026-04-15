@@ -209,7 +209,7 @@ export function ScheduledTasksSummaryCard({
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Clock className="h-4 w-4 text-[var(--muted-foreground)]" />
-          <span className="text-sm font-medium text-[var(--foreground)]">Scheduled Tasks</span>
+          <span className="text-sm font-medium text-[var(--foreground)]">Scheduled Jobs</span>
           {!loading && scheduledCount > 0 && (
             <span className="rounded-full bg-[var(--secondary)] px-2 py-0.5 text-xs text-[var(--muted-foreground)]">
               {scheduledCount}

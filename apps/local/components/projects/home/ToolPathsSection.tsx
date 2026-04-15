@@ -103,7 +103,7 @@ export function ToolPathsSection({ projectId, projectSlug, primaryThreadId }: To
       {/* Linear */}
       <ToolPathCard
         icon={<LinearIcon className="w-4 h-4" />}
-        title="Linear"
+        title="Tasks"
         accentClass="text-blue-400"
         onClick={() => router.push(`/projects/${projectSlug}/linear`)}
         badge={
