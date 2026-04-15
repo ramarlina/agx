@@ -53,6 +53,18 @@ Ships as a CLI, a local web dashboard, and a macOS desktop app — all from one 
 
 > **Dogfooded hard:** 133 PRs and 500+ commits merged by AGX agents building AGX itself. [Read more →](https://runagx.com/blog)
 
+### AGX vs. Stateless Agents
+
+| | Stateless Agent (Claude, Codex, etc.) | AGX |
+|---|---|---|
+| **Resume a task** | Re-explain everything from scratch | Instant — loads last checkpoint |
+| **Cost to resume** | Grows with history (O(n) tokens) | Constant (O(1) tokens) |
+| **Multi-session tasks** | Manual context stitching | Automatic — wake/work/sleep loop |
+| **Crash recovery** | Lost work | Checkpoint survives restarts |
+| **Human gates** | Ad-hoc | Built-in approve/reject flow |
+| **Provider lock-in** | One provider per session | Switch Claude ↔ Codex ↔ Gemini ↔ Ollama freely |
+| **Observability** | Terminal scrollback | Dashboard, live presence, execution logs |
+
 ---
 
 ## Quickstart (2 minutes)
