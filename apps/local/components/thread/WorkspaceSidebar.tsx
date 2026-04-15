@@ -1426,7 +1426,7 @@ export function WorkspaceSidebar({
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 id, name: data.name, provider: data.provider, model: data.model, color: data.color ?? color,
-                ...(data.title ? { title: data.title } : {}),
+                ...(data.role ? { role: data.role } : {}),
                 ...(data.identity ? { identity: data.identity } : {}),
                 skills: data.skills ?? [],
                 skillBindings: data.skillBindings ?? [],
@@ -1585,7 +1585,7 @@ export function WorkspaceSidebar({
             title="Edit agent"
             initial={{
               name: agentDetailAgent.name,
-              title: agentDetailAgent.title || "",
+              role: agentDetailAgent.role || "",
               provider: agentDetailAgent.provider,
               model: agentDetailAgent.model || "",
               identity: agentDetailAgent.identity || "",
@@ -1606,7 +1606,7 @@ export function WorkspaceSidebar({
                 await onUpdateParticipant({
                   ...agentDetailAgent,
                   name: data.name,
-                  title: data.title || undefined,
+                  role: data.role || undefined,
                   provider: data.provider,
                   model: data.model,
                   color: data.color ?? agentDetailAgent.color,

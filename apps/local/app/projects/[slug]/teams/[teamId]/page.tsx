@@ -277,9 +277,10 @@ export default function TeamDetailPage({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: preset.name,
+          role: preset.role,
           provider: "claude",
           model: null,
-          identity: "",
+          identity: preset.identity,
           skills: bindings.map((b) => ({
             file: `${b.repo}/${b.skillId}`,
             ...(b.condition ? { condition: b.condition } : {}),
@@ -697,12 +698,13 @@ export default function TeamDetailPage({
           title="Edit agent"
           initial={{
             name: participantMap.get(editAgentId)!.name,
-            title: participantMap.get(editAgentId)!.title || "",
+            role: participantMap.get(editAgentId)!.role || "",
             provider: participantMap.get(editAgentId)!.provider,
             model: participantMap.get(editAgentId)!.model || "",
             identity: participantMap.get(editAgentId)!.identity || "",
             color: participantMap.get(editAgentId)!.color,
             skills: participantMap.get(editAgentId)!.skills || [],
+            skillBindings: participantMap.get(editAgentId)!.skillBindings || [],
           }}
           agentId={editAgentId}
           submitLabel="Save"
@@ -713,12 +715,13 @@ export default function TeamDetailPage({
               body: JSON.stringify({
                 id: editAgentId,
                 name: data.name,
-                title: data.title || null,
+                role: data.role || null,
                 provider: data.provider,
                 model: data.model,
                 color: data.color,
                 ...(data.identity ? { identity: data.identity } : {}),
                 skills: data.skills ?? [],
+                skillBindings: data.skillBindings ?? [],
               }),
             });
             setEditAgentId(null);

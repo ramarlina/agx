@@ -311,7 +311,7 @@ CREATE TABLE IF NOT EXISTS agents (
     model TEXT,
     provider TEXT,
     color TEXT,
-    title TEXT,
+    role TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     CHECK (style IN ('degen', 'conservative', 'specialist', 'balanced'))

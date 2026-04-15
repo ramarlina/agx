@@ -12,7 +12,7 @@ export interface Conversation {
 export interface Participant {
   id: string;
   name: string;
-  title?: string;
+  role?: string;
   provider: ChatProvider;
   model: string | null;
   color: string;
