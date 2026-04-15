@@ -29,7 +29,7 @@ import type { Participant } from "@/lib/types";
 import type { ProjectRepo, ProjectWithAgents, ProjectWithRepos, UpdateProjectPayload } from "@/hooks/useProjects";
 import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { useFocusManagement } from "@/hooks/useFocusManagement";
-import { useSidebarStage } from "@/hooks/useSidebarStage";
+import type { SidebarStageResult } from "@/hooks/useSidebarStage";
 import { agentAvatarUrl, AgentForm, type AgentFormData } from "@/components/chat-ui/ParticipantBar";
 import ProjectModal, { createProjectPayload, useProjectFormState } from "@/components/ProjectModal";
 import { readProjectObjectivesWorkspace } from "@/lib/project-objectives";
@@ -69,6 +69,7 @@ interface WorkspaceSidebarProps {
   activeProjectId?: string | null;
   activeProjectView?: "home" | "objectives" | "teams" | "thread" | "threads" | "knowledge" | "automations" | "linear" | "terminal" | "settings" | "env-vars" | "folders" | null;
   onAddTeam?: (projectId: string) => void;
+  stageShow?: SidebarStageResult["show"];
 }
 
 function WorkspaceSidebarBrandLogo({ compact = false }: { compact?: boolean }) {
@@ -263,6 +264,7 @@ export function WorkspaceSidebar({
   width,
   onWidthChange,
   onAddTeam,
+  stageShow: stageShowProp,
 }: WorkspaceSidebarProps) {
   const { isTouchLayout, isPhone } = useInputCapabilities();
   const resizing = useRef(false);
@@ -567,7 +569,11 @@ export function WorkspaceSidebar({
   const threadById = new Map(threads.map((thread) => [thread.id, thread]));
   const nonDefaultProjects = projectsProp.filter((project) => !project.is_default);
   const selectedProject = nonDefaultProjects.find((p) => p.id === activeProjectId) ?? nonDefaultProjects[0] ?? null;
-  const { show: stageShow } = useSidebarStage(selectedProject);
+  const stageShow = stageShowProp ?? {
+    home: true, threads: true, terminal: true, objectives: false,
+    objectivesIsNew: false, linear: false, teams: false, folders: false,
+    scheduledTasks: false, envVars: false,
+  };
 
   useEffect(() => {
     if (nonDefaultProjects.length === 0) {
