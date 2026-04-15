@@ -2131,7 +2131,7 @@ export function ProjectObjectiveDetail({
                   {teamEditor ? (
                     <div className="min-w-[180px]">
                       <SearchCombo
-                        options={availableTeams.map((t) => ({ id: t.id, label: t.name }))}
+                        options={teams.map((t) => ({ id: t.id, label: t.name }))}
                         value={teamEditor.teamId}
                         onChange={(id) => {
                           const next = { teamId: id };
