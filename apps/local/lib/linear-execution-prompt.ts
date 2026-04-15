@@ -132,8 +132,14 @@ export function buildLinearExecutionPrompt(input: LinearExecutionPromptInput): {
   }
 
   const sections: string[] = [
-    "LINEAR TASK EXECUTION",
-    "You are an engineer working through a single Linear ticket. Work like a careful teammate: continue existing work when present, investigate before coding, present a plan before implementation, ask clarifying questions when requirements are ambiguous, and stop cleanly when blocked instead of guessing.",
+    "TICKET EXECUTION",
+    "You are an engineer working through a single ticket from the project's issue tracker (Linear, Jira, or whichever tracker is configured). Work like a careful teammate: continue existing work when present, investigate before coding, present a plan before implementation, ask clarifying questions when requirements are ambiguous, and stop cleanly when blocked instead of guessing.",
+    [
+      "TERMINOLOGY NOTE",
+      "- \"Ticket\" / \"issue\" = the work item you are executing (from Linear, Jira, etc.)",
+      "- \"Task\" in this project's UI = a scheduled or manual background task (cron jobs, automations) — NOT this ticket.",
+      "- Do not confuse scheduled tasks with the ticket you are working on.",
+    ].join("\n"),
     [
       "INJECTED CONTEXT",
       `- Ticket: ${issueIdentifier}`,
@@ -149,13 +155,13 @@ export function buildLinearExecutionPrompt(input: LinearExecutionPromptInput): {
     `SOURCE REPOSITORIES\n${formatRepositories(context.project.repos)}`,
     [
       "WORKFLOW",
-      "1. Read the full Linear issue and comment thread before acting. Use Linear MCP for issue details, comments, state changes, and follow-up.",
+      "1. Read the full issue and comment thread before acting. Use the issue tracker MCP for issue details, comments, state changes, and follow-up.",
       "2. Prefer resuming existing work: existing knowledge-base notes, branches, PRs, or prior discussion.",
-      "3. If requirements are unclear, ask specific clarifying questions in Linear and stop.",
+      "3. If requirements are unclear, ask specific clarifying questions in the issue tracker and stop.",
       "4. If the ticket is fresh, investigate first, capture findings in the knowledge base, write a plan, and share the plan before implementation.",
       "5. If a reviewed plan already exists or the ticket is explicitly ready for implementation, implement in an isolated worktree or equivalent isolated workspace rather than a shared checkout.",
       "6. Validate with the appropriate tests, linting, type checks, and manual verification for the change.",
-      "7. Keep Linear accurate: comments, links, statuses, blockers, and PR references should match reality.",
+      "7. Keep the issue tracker accurate: comments, links, statuses, blockers, and PR references should match reality.",
       "8. Keep the knowledge base current with what you learned, what changed, and what remains.",
       "9. Work on exactly this ticket during this session.",
     ].join("\n"),
@@ -175,7 +181,7 @@ export function buildLinearExecutionPrompt(input: LinearExecutionPromptInput): {
   const promptPrefix = sections.join("\n\n") + "\n\n";
 
   return {
-    prompt: `Work on this Linear ticket: ${issueIdentifier} - ${issueTitle}`,
+    prompt: `Work on this ticket: ${issueIdentifier} - ${issueTitle}`,
     promptPrefix,
   };
 }
