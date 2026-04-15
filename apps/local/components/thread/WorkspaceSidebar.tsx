@@ -66,7 +66,7 @@ interface WorkspaceSidebarProps {
   onUpdateParticipant?: (participant: Participant) => Promise<unknown>;
   onSelectProject?: (projectId: string) => void;
   activeProjectId?: string | null;
-  activeProjectView?: "home" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "terminal" | "settings" | "env-vars" | "folders" | null;
+  activeProjectView?: "home" | "objectives" | "teams" | "thread" | "threads" | "knowledge" | "automations" | "linear" | "terminal" | "settings" | "env-vars" | "folders" | null;
   onAddTeam?: (projectId: string) => void;
 }
 
@@ -778,18 +778,10 @@ export function WorkspaceSidebar({
                 <TerminalSquare size={16} />
               </Link>
             </RailTooltip>
-            <RailTooltip label="Chat">
-              <button
-                type="button"
-                className={`workspace-sidebar__rail-icon${activeProjectView === "thread" ? " workspace-sidebar__rail-icon--active" : ""}`}
-                onClick={() => {
-                  const projectThreads = sortedWorkspaces.filter((t) => collapsedProject.thread_ids?.includes(t.id));
-                  const threadId = collapsedProject.thread_ids?.find((id) => threads.some((t) => t.id === id)) ?? projectThreads[0]?.id;
-                  if (threadId) onSelectThread(threadId);
-                }}
-              >
+            <RailTooltip label="Threads">
+              <Link href={`/projects/${collapsedSlug}/threads`} className={`workspace-sidebar__rail-icon${activeProjectView === "threads" || activeProjectView === "thread" ? " workspace-sidebar__rail-icon--active" : ""}`}>
                 <MessageSquare size={16} />
-              </button>
+              </Link>
             </RailTooltip>
 
             <div className="workspace-sidebar__rail-separator" />
@@ -899,6 +891,7 @@ export function WorkspaceSidebar({
           const isActiveProjectLinear = isActiveProject && activeProjectView === "linear";
           const isActiveProjectAutomations = isActiveProject && activeProjectView === "automations";
           const isActiveProjectTerminal = isActiveProject && activeProjectView === "terminal";
+          const isActiveProjectThreads = isActiveProject && (activeProjectView === "threads" || activeProjectView === "thread");
           const isActiveProjectThread = isActiveProject && activeProjectView === "thread" && primaryProjectThreadId === activeThreadId;
           const isActiveProjectTeams = isActiveProject && activeProjectView === "teams";
           const isActiveProjectFolders = isActiveProject && activeProjectView === "folders";
@@ -1016,33 +1009,28 @@ export function WorkspaceSidebar({
                     </Link>
                   </div>
                   <div className="workspace-sidebar__workspace-item">
-                    {primaryProjectThreadId ? (
-                      <button
-                        type="button"
-                        className={`workspace-sidebar__nav-item ${isActiveProjectThread ? "workspace-sidebar__nav-item--active" : ""}`}
-                        onClick={() => {
-                          onSelectThread(primaryProjectThreadId);
-                          closeTouchDrawer();
-                        }}
-                        aria-current={isActiveProjectThread ? "page" : undefined}
-                      >
-                        <MessageSquare size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                        <span className="workspace-sidebar__workspace-title text-sm">Chat</span>
-                        {navActivity?.chat.length > 0 && (
-                          <span className="inline-flex items-center -space-x-1 ml-auto shrink-0">
-                            {navActivity.chat.slice(0, 3).map((dot) => {
-                              const agent = participants.find((p) => p.id === dot.agentId);
-                              return (
-                                <span key={dot.agentId} className="relative inline-block" title={agent?.name}>
-                                  <img src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} className="h-3.5 w-3.5 rounded-full ring-[1.5px] ring-[var(--app-shell-pane)]" />
-                                  <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--app-shell-pane)]" />
-                                </span>
-                              );
-                            })}
-                          </span>
-                        )}
-                      </button>
-                    ) : null}
+                    <Link
+                      href={`/projects/${selectedProject.slug}/threads`}
+                      onClick={closeTouchDrawer}
+                      className={`workspace-sidebar__nav-item ${isActiveProjectThreads ? "workspace-sidebar__nav-item--active" : ""}`}
+                      aria-current={isActiveProjectThreads ? "page" : undefined}
+                    >
+                      <MessageSquare size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                      <span className="workspace-sidebar__workspace-title text-sm">Threads</span>
+                      {navActivity?.chat.length > 0 && (
+                        <span className="inline-flex items-center -space-x-1 ml-auto shrink-0">
+                          {navActivity.chat.slice(0, 3).map((dot) => {
+                            const agent = participants.find((p) => p.id === dot.agentId);
+                            return (
+                              <span key={dot.agentId} className="relative inline-block" title={agent?.name}>
+                                <img src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} className="h-3.5 w-3.5 rounded-full ring-[1.5px] ring-[var(--app-shell-pane)]" />
+                                <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--app-shell-pane)]" />
+                              </span>
+                            );
+                          })}
+                        </span>
+                      )}
+                    </Link>
                   </div>
                 </div>
               </div>
