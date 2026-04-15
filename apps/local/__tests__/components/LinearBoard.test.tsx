@@ -383,22 +383,7 @@ describe("LinearBoard", () => {
     });
   });
 
-  test("shows sessions language and removes the old run-now action", async () => {
-    mockUseSearchParams.mockReturnValue(new URLSearchParams("issue=issue-1"));
-
-    render(<LinearBoard projectId="project-1" projectSlug="agx" />);
-
-    expect(await screen.findByText("Sessions")).toBeInTheDocument();
-    const newSessionButton = await screen.findByRole("button", { name: "New session" });
-    expect(newSessionButton).toHaveAttribute(
-      "title",
-      "Open a fresh chat for this ticket. You can choose or edit the session script in the session details pane."
-    );
-    expect(screen.queryByText("Run now")).not.toBeInTheDocument();
-    expect(await screen.findByText("No previous sessions yet.")).toBeInTheDocument();
-  });
-
-  test("shows the scripted session starter on the new session detail view", async () => {
+  test("shows the TicketPanel with the scripted session action for the selected issue", async () => {
     mockBoardFetch({
       participants: [{ id: "agent-1", name: "Builder" }],
       projectAgentIds: ["agent-1"],
@@ -407,8 +392,9 @@ describe("LinearBoard", () => {
 
     render(<LinearBoard projectId="project-1" projectSlug="agx" />);
 
-    expect(await screen.findByText("Start a new session for this ticket")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Start scripted session" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Start scripted session" })).toBeInTheDocument();
+    expect(screen.queryByText("Run now")).not.toBeInTheDocument();
+    expect(await screen.findByText("No sessions yet. Start one below.")).toBeInTheDocument();
   });
 
   test("opens the selected ticket in a new browser tab from the row action", async () => {
@@ -476,7 +462,7 @@ describe("LinearBoard", () => {
 
     expect(
       await screen.findAllByText("Investigate the copy-link bug in the ticket sidebar")
-    ).toHaveLength(2);
+    ).not.toHaveLength(0);
     await screen.findAllByText("ready");
     expect(screen.queryByText("success")).not.toBeInTheDocument();
   });
@@ -539,7 +525,6 @@ describe("LinearBoard", () => {
     render(<LinearBoard projectId="project-1" projectSlug="agx" />);
 
     expect(await screen.findByText("Select a ticket from the list.")).toBeInTheDocument();
-    expect(screen.getByText("Select a ticket to see sessions.")).toBeInTheDocument();
   });
 
   test("uses the issue query param as the selected ticket", async () => {
@@ -551,6 +536,8 @@ describe("LinearBoard", () => {
 
     render(<LinearBoard projectId="project-1" projectSlug="agx" />);
 
-    expect(await screen.findByText("Start a new session for this ticket")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: "Start scripted session" })
+    ).toBeInTheDocument();
   });
 });

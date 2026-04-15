@@ -5,6 +5,8 @@ import {
 } from '@/lib/linear-issues';
 import { getIssueActiveAgents, type IssueActiveAgent } from '@/lib/linear-run-store';
 import { isObjectiveLinearTerminalStatus } from '@/lib/objective-linear-issues';
+import { getDefaultRunner } from '@/src/linear-recap/runner';
+import { readLatestRecap } from '@/src/linear-recap/storage';
 import { runCliResponse } from '@/lib/cli-runner';
 import { startScriptedLinearSession } from '@/lib/linear-scripted-session';
 import type { ChatProvider } from '@/lib/types';
@@ -91,6 +93,22 @@ function extractFirstJsonObject(raw: string): Record<string, unknown> | null {
   if (start === -1 || end <= start) return null;
 
   return tryParseJsonObject(trimmed.slice(start, end + 1));
+}
+
+const RECAP_STALENESS_MS = 6 * 60 * 60 * 1000; // 6 hours
+
+async function sweepStaleRecaps(issues: LinearIssueSummary[]): Promise<void> {
+  const runner = getDefaultRunner();
+  const now = Date.now();
+  for (const issue of issues) {
+    if (isObjectiveLinearTerminalStatus(issue.status ?? '')) continue;
+    const latest = await readLatestRecap(issue.id);
+    const isStale =
+      !latest || now - latest.generatedAt.getTime() > RECAP_STALENESS_MS;
+    if (isStale) {
+      runner.enqueue(issue.id);
+    }
+  }
 }
 
 function formatIssueLine(issue: LinearIssueSummary): string {
@@ -268,6 +286,9 @@ export async function executeLinearWorker(opts: {
       projectId: opts.job.projectId || undefined,
       projectSlug: undefined,
     });
+
+    // Kick off background recap generation for any issues whose latest.md is stale
+    await sweepStaleRecaps(observation.issues ?? []);
 
     // Phase 2: Decide - run controller LLM
     const controllerResult = await executePrompt({

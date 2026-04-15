@@ -44,6 +44,7 @@ interface LinearRunRow {
   mode: LinearRunMode;
   status: LinearRunStatus;
   error: string | null;
+  recap_file_path: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -76,6 +77,7 @@ export interface LinearRunRecord {
   status: LinearRunStatus;
   durationMs: number | null;
   lastError: string | null;
+  recapFilePath: string | null;
   startedAt: string;
   updatedAt: string;
   completedAt: string | null;
@@ -158,6 +160,7 @@ function mapRow(row: JoinedLinearRunRow): LinearRunRecord {
     durationMs:
       completedAtMs != null ? Math.max(completedAtMs - startedAtMs, 0) : null,
     lastError: row.chat_last_error ?? row.error,
+    recapFilePath: row.recap_file_path ?? null,
     startedAt: new Date(startedAtMs).toISOString(),
     updatedAt: new Date((row.chat_updated_at ?? row.updated_at) || row.updated_at).toISOString(),
     completedAt: toIso(completedAtMs),
@@ -219,6 +222,7 @@ async function withLinearRunDatabase<T>(run: (db: DatabaseSync) => T): Promise<T
         mode TEXT NOT NULL DEFAULT 'chat',
         status TEXT NOT NULL DEFAULT 'queued',
         error TEXT,
+        recap_file_path TEXT,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
@@ -236,6 +240,9 @@ async function withLinearRunDatabase<T>(run: (db: DatabaseSync) => T): Promise<T
       .all() as Array<{ name: string }>;
     if (!linearRunColumns.some((column) => column.name === "mode")) {
       db.exec("ALTER TABLE linear_runs ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat';");
+    }
+    if (!linearRunColumns.some((column) => column.name === "recap_file_path")) {
+      db.exec("ALTER TABLE linear_runs ADD COLUMN recap_file_path TEXT;");
     }
 
     return run(db);
@@ -257,6 +264,7 @@ export async function createLinearRun(input: {
   agentId: string;
   agentName: string;
   mode?: LinearRunMode;
+  recapFilePath?: string | null;
 }): Promise<LinearRunRecord> {
   const now = Date.now();
   const id = toOptionalString(input.id) ?? crypto.randomUUID();
@@ -268,8 +276,8 @@ export async function createLinearRun(input: {
       `INSERT INTO linear_runs (
         id, project_id, project_slug, issue_id, issue_identifier, issue_title,
         issue_status, issue_assignee, thread_id, root_message_id, chat_run_id,
-        agent_id, agent_name, mode, status, error, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, 'queued', NULL, ?, ?)`
+        agent_id, agent_name, mode, status, error, recap_file_path, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, 'queued', NULL, ?, ?, ?)`
     ).run(
       id,
       toOptionalString(input.projectId ?? null),
@@ -283,6 +291,7 @@ export async function createLinearRun(input: {
       input.agentId.trim(),
       input.agentName.trim(),
       mode,
+      toOptionalString(input.recapFilePath ?? null),
       now,
       now
     );
