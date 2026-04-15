@@ -1,6 +1,11 @@
 "use client";
 
 import { ProjectWithRepos } from "@/hooks/useProjects";
+import {
+  PROJECT_OBJECTIVES_METADATA_KEY,
+  LEGACY_PROJECT_GOALS_METADATA_KEY,
+  PROJECT_HEALTH_METADATA_KEY,
+} from "@/lib/project-objectives";
 
 interface ProjectCardProps {
   project: ProjectWithRepos;
@@ -10,15 +15,23 @@ interface ProjectCardProps {
   onManageTasks?: (project: ProjectWithRepos) => void;
 }
 
+const INTERNAL_METADATA_KEYS = new Set([
+  PROJECT_OBJECTIVES_METADATA_KEY,
+  LEGACY_PROJECT_GOALS_METADATA_KEY,
+  PROJECT_HEALTH_METADATA_KEY,
+]);
+
 function formatMetadata(metadata: Record<string, unknown>) {
-  return Object.entries(metadata ?? {}).filter(([key]) => key !== "undefined" && key !== "").map(([key, value]) => (
-    <div key={key} className="text-[12px] text-[var(--muted-foreground)] flex justify-between">
-      <span className="font-semibold">{key}</span>
-      <span className="truncate text-right">
-        {typeof value === "string" ? value : JSON.stringify(value)}
-      </span>
-    </div>
-  ));
+  return Object.entries(metadata ?? {})
+    .filter(([key]) => key !== "undefined" && key !== "" && !INTERNAL_METADATA_KEYS.has(key))
+    .map(([key, value]) => (
+      <div key={key} className="text-[12px] text-[var(--muted-foreground)] flex justify-between">
+        <span className="font-semibold">{key}</span>
+        <span className="truncate text-right">
+          {typeof value === "string" ? value : JSON.stringify(value)}
+        </span>
+      </div>
+    ));
 }
 
 export default function ProjectCard({ project, onEdit, onDelete, onClick, onManageTasks }: ProjectCardProps) {
@@ -95,7 +108,7 @@ export default function ProjectCard({ project, onEdit, onDelete, onClick, onMana
         </div>
       )}
 
-      {project.metadata && Object.keys(project.metadata).length > 0 && (
+      {project.metadata && Object.keys(project.metadata).some((key) => !INTERNAL_METADATA_KEYS.has(key)) && (
         <div className="p-3 rounded-lg bg-[var(--muted)]/20 border border-dashed border-[var(--card-border)] space-y-1">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
             Metadata
