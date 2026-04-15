@@ -53,6 +53,7 @@ export interface LinearIssueContext extends LinearIssueSummary {
 }
 
 export interface EnsureLinearIssueCacheInput {
+  projectId: string;
   refresh?: boolean;
   projectSlug?: string | null;
 }
@@ -223,9 +224,10 @@ function writeLinearIssuesToVault(
 }
 
 export async function pullLinearIssues(input: {
+  projectId: string;
   projectSlug?: string | null;
-} = {}): Promise<PullLinearIssuesResult> {
-  const client = getLinearClient();
+}): Promise<PullLinearIssuesResult> {
+  const client = getLinearClient(input.projectId);
   if (!client) {
     throw new Error("Not connected");
   }
@@ -317,7 +319,7 @@ export async function pullLinearIssues(input: {
 }
 
 export async function ensureLinearIssueCache(
-  input: EnsureLinearIssueCacheInput = {}
+  input: EnsureLinearIssueCacheInput
 ): Promise<PullLinearIssuesResult | null> {
   const refresh = Boolean(input.refresh);
   const scopeKey = toScopeKey(input.projectSlug);
@@ -333,12 +335,12 @@ export async function ensureLinearIssueCache(
     }
   }
 
-  const client = getLinearClient();
+  const client = getLinearClient(input.projectId);
   if (!client) {
     return null;
   }
 
-  return pullLinearIssues({ projectSlug: input.projectSlug });
+  return pullLinearIssues({ projectId: input.projectId, projectSlug: input.projectSlug });
 }
 
 export async function listLinearIssueSummaries(

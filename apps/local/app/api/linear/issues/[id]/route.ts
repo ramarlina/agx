@@ -53,7 +53,12 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
-  const client = getLinearClient();
+  const projectId = request.nextUrl.searchParams.get("projectId")?.trim();
+  if (!projectId) {
+    return NextResponse.json({ error: "projectId required" }, { status: 400 });
+  }
+
+  const client = getLinearClient(projectId);
   if (!client) {
     return NextResponse.json({ error: "Not connected" }, { status: 401 });
   }

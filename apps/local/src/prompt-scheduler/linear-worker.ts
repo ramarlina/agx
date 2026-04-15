@@ -138,13 +138,14 @@ export interface LinearWorkerObservation {
 
 export async function buildLinearWorkerObservation(opts: {
   job: PromptJob;
-  projectId?: string;
+  projectId: string;
   projectSlug?: string;
 }): Promise<LinearWorkerObservation> {
-  const { job, projectSlug } = opts;
+  const { job, projectId, projectSlug } = opts;
 
   // Refresh the cache and fetch all issues
   await ensureLinearIssueCache({
+    projectId,
     refresh: true,
     projectSlug: projectSlug ?? undefined,
   });
@@ -280,10 +281,19 @@ export async function executeLinearWorker(opts: {
   const startMs = Date.now();
 
   try {
+    if (!opts.job.projectId) {
+      return {
+        output: '',
+        error: 'Linear worker job missing projectId',
+        durationMs: Date.now() - startMs,
+        status: 'failed',
+      };
+    }
+
     // Phase 1: Observe - gather full workspace state
     const observation = await buildLinearWorkerObservation({
       job: opts.job,
-      projectId: opts.job.projectId || undefined,
+      projectId: opts.job.projectId,
       projectSlug: undefined,
     });
 

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { LinearIssue } from "@/hooks/useLinearIssues";
 
 interface UseLinearIssueMentionsOptions {
+  projectId: string;
   projectSlug?: string;
   enabled?: boolean;
   limit?: number;
@@ -15,15 +16,16 @@ interface UseLinearIssueMentionsReturn {
 }
 
 export function useLinearIssueMentions({
+  projectId,
   projectSlug,
   enabled = true,
   limit = 500,
-}: UseLinearIssueMentionsOptions = {}): UseLinearIssueMentionsReturn {
+}: UseLinearIssueMentionsOptions): UseLinearIssueMentionsReturn {
   const [issues, setIssues] = useState<LinearIssue[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || !projectId) {
       setIssues([]);
       setLoading(false);
       return;
@@ -31,6 +33,7 @@ export function useLinearIssueMentions({
 
     let cancelled = false;
     const params = new URLSearchParams();
+    params.set("projectId", projectId);
     params.set("limit", String(limit));
     if (projectSlug) {
       params.set("projectSlug", projectSlug);
@@ -58,7 +61,7 @@ export function useLinearIssueMentions({
     return () => {
       cancelled = true;
     };
-  }, [enabled, limit, projectSlug]);
+  }, [enabled, limit, projectId, projectSlug]);
 
   return { issues, loading };
 }

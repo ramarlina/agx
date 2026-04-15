@@ -244,6 +244,7 @@ export function TicketPanel({
           onSend={handleSend}
           onStop={() => {}}
           participants={participants}
+          projectId={projectId ?? undefined}
           projectSlug={projectSlug ?? undefined}
           loading={activityStatus !== "ready"}
           commands={[]}

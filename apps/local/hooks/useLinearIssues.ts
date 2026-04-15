@@ -24,6 +24,7 @@ interface Filters {
 }
 
 interface UseLinearIssuesOptions {
+  projectId: string;
   projectSlug?: string;
   limit?: number;
 }
@@ -40,7 +41,7 @@ interface UseLinearIssuesReturn {
 export function useLinearIssues(
   filters: Filters,
   enabled = true,
-  options: UseLinearIssuesOptions = {}
+  options: UseLinearIssuesOptions
 ): UseLinearIssuesReturn {
   const [issues, setIssues] = useState<LinearIssue[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,10 +57,11 @@ export function useLinearIssues(
 
   const fetchPage = useCallback(
     async (append: boolean, refresh = false) => {
-      if (!enabled) return;
+      if (!enabled || !options.projectId) return;
       setLoading(true);
       try {
         const params = new URLSearchParams();
+        params.set("projectId", options.projectId);
         if (filters.teamId) params.set("teamId", filters.teamId);
         if (filters.statuses?.length) {
           for (const status of filters.statuses) {
@@ -96,7 +98,7 @@ export function useLinearIssues(
         setLoading(false);
       }
     },
-    [filters.teamId, filters.statuses, filters.search, filters.assigneeIds, filters.assignedToMe, filters.cycleId, filters.sortBy, filters.sortDir, filters.hasActivity, enabled, options.projectSlug, options.limit],
+    [filters.teamId, filters.statuses, filters.search, filters.assigneeIds, filters.assignedToMe, filters.cycleId, filters.sortBy, filters.sortDir, filters.hasActivity, enabled, options.projectId, options.projectSlug, options.limit],
   );
 
   useEffect(() => {

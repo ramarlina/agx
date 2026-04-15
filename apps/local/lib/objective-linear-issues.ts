@@ -35,6 +35,7 @@ export function filterObjectiveLinearIssuesForAction(
 }
 
 export async function listObjectiveLinearIssues(input: {
+  projectId: string;
   objectiveKey: string;
   projectSlug?: string | null;
   refresh?: boolean;
@@ -44,6 +45,7 @@ export async function listObjectiveLinearIssues(input: {
   refreshedAt: string | null;
 }> {
   const pullResult = await ensureLinearIssueCache({
+    projectId: input.projectId,
     refresh: input.refresh,
     projectSlug: input.projectSlug,
   });

@@ -8,7 +8,7 @@ const mockGetLinearClient = jest.fn();
 const mockUpdateCachedLinearIssueStatus = jest.fn();
 
 jest.mock("@/lib/linear-client", () => ({
-  getLinearClient: () => mockGetLinearClient(),
+  getLinearClient: (...args: unknown[]) => mockGetLinearClient(...args),
 }));
 
 jest.mock("@/lib/linear-issue-store", () => ({
@@ -36,7 +36,7 @@ describe("/api/linear/issues/[id]", () => {
 
     const { PATCH } = await import("@/app/api/linear/issues/[id]/route");
     const response = await PATCH(
-      new NextRequest("http://localhost/api/linear/issues/issue-1", {
+      new NextRequest("http://localhost/api/linear/issues/issue-1?projectId=proj-1", {
         method: "PATCH",
         body: JSON.stringify({ status: "In Progress" }),
       }),
@@ -63,7 +63,7 @@ describe("/api/linear/issues/[id]", () => {
 
     const { PATCH } = await import("@/app/api/linear/issues/[id]/route");
     const response = await PATCH(
-      new NextRequest("http://localhost/api/linear/issues/issue-1", {
+      new NextRequest("http://localhost/api/linear/issues/issue-1?projectId=proj-1", {
         method: "PATCH",
         body: JSON.stringify({ status: "Done" }),
       }),

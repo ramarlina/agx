@@ -337,6 +337,7 @@ function ThreadMessageList({
             onSend={handleSend}
             onStop={stop}
             participants={participants}
+            projectId={run.projectId ?? undefined}
             projectSlug={run.projectSlug ?? undefined}
             loading={activityStatus !== "ready"}
             commands={[]}
@@ -372,7 +373,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
     connectWithKey,
     disconnect,
     configureMcp,
-  } = useLinearConnection();
+  } = useLinearConnection(projectId ?? "");
 
   const [setupDismissed, setSetupDismissed] = useState(false);
   const [showSettings, setShowSettings] = useState(initialShowSettings ?? false);
@@ -472,15 +473,15 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
 
   // Fetch filter options when connected
   useEffect(() => {
-    if (!connected) return;
+    if (!connected || !projectId) return;
     let cancelled = false;
     setFilterOptionsLoaded(false);
     const params = new URLSearchParams();
+    params.set("projectId", projectId);
     if (projectSlug) {
       params.set("projectSlug", projectSlug);
     }
-    const query = params.toString();
-    const url = query ? `/api/linear/options?${query}` : "/api/linear/options";
+    const url = `/api/linear/options?${params.toString()}`;
     fetch(url)
       .then((res) => res.json())
       .then((data) => {
@@ -505,7 +506,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
     return () => {
       cancelled = true;
     };
-  }, [connected, projectSlug]);
+  }, [connected, projectId, projectSlug]);
 
   useEffect(() => {
     if (!filterOptionsLoaded) {
@@ -576,7 +577,10 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
     loadMore,
     refresh: refreshIssues,
     updateIssue,
-  } = useLinearIssues(filters, connected && filterOptionsLoaded, { projectSlug });
+  } = useLinearIssues(filters, connected && filterOptionsLoaded && Boolean(projectId), {
+    projectId: projectId ?? "",
+    projectSlug,
+  });
   const selectedIssueFromList = useMemo(
     () => (selectedIssueId ? issues.find((issue) => issue.id === selectedIssueId) ?? null : null),
     [issues, selectedIssueId],
@@ -664,11 +668,14 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
 
       setUpdatingIssueId(issue.id);
       try {
-        const response = await fetch(`/api/linear/issues/${encodeURIComponent(issue.id)}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: nextStatus }),
-        });
+        const response = await fetch(
+          `/api/linear/issues/${encodeURIComponent(issue.id)}?projectId=${encodeURIComponent(projectId ?? "")}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ status: nextStatus }),
+          }
+        );
         const payload = (await response.json().catch(() => ({}))) as {
           error?: string;
           issue?: LinearIssue;
