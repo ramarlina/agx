@@ -210,7 +210,9 @@ async function startNextServer() {
   }
 
   const serverDir = getResourcePath(path.join("server", "apps", "local"));
-  const serverEntry = path.join(serverDir, "server.js");
+  const bundledEntry = path.join(serverDir, "agx-server.js");
+  const standaloneEntry = path.join(serverDir, "server.js");
+  const serverEntry = fs.existsSync(bundledEntry) ? bundledEntry : standaloneEntry;
 
   if (!fs.existsSync(serverEntry)) {
     throw new Error(`Server entry not found at ${serverEntry}`);
