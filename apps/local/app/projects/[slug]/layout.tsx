@@ -191,6 +191,7 @@ function ProjectLayoutContent({
         onRemoveAgentFromProject={removeAgentFromProject}
         activeProjectId={currentProject.id}
         activeProjectView={activeProjectView}
+        stageShow={stageShow}
         onUpdateParticipant={async (participant) => {
           const response = await fetch("/api/participants", {
             method: "PATCH",
