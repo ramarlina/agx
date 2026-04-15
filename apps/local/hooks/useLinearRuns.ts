@@ -30,6 +30,7 @@ export interface LinearRun {
   status: LinearRunStatus;
   durationMs: number | null;
   lastError: string | null;
+  recapFilePath: string | null;
   startedAt: string;
   updatedAt: string;
   completedAt: string | null;
