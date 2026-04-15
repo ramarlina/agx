@@ -178,18 +178,6 @@ function TicketChatStarter({
       if (!agent) return;
 
       try {
-        const { promptPrefix: ticketPrefix } = buildLinearExecutionPrompt({
-          issue: {
-            identifier: issue.identifier,
-            title: issue.title,
-            status: issue.status,
-            assignee: issue.assignee,
-          },
-          project: projectSlug ? { slug: projectSlug } : null,
-        });
-
-        const combinedPrefix = ticketPrefix + (promptPrefix ? `\n${promptPrefix}` : "");
-
         const run = await createRun({
           projectId: projectId ?? null,
           projectSlug: projectSlug ?? null,
@@ -202,6 +190,21 @@ function TicketChatStarter({
           agentName: agent.name,
           mode: "chat",
         });
+
+        const { promptPrefix: ticketPrefix } = buildLinearExecutionPrompt({
+          issue: {
+            identifier: issue.identifier,
+            title: issue.title,
+            status: issue.status,
+            assignee: issue.assignee,
+          },
+          project: projectSlug ? { slug: projectSlug } : null,
+          runtime: {
+            recapFilePath: run.recapFilePath ?? null,
+          },
+        });
+
+        const combinedPrefix = ticketPrefix + (promptPrefix ? `\n${promptPrefix}` : "");
 
         const response = await fetch("/api/chat", {
           method: "POST",

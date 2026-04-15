@@ -1,3 +1,5 @@
+import * as fs from "fs";
+
 export interface LinearExecutionIssueContext {
   identifier: string;
   title: string;
@@ -21,6 +23,7 @@ export interface LinearExecutionRuntimeContext {
   knowledgeBaseRoot?: string | null;
   issueKnowledgePath?: string | null;
   isolatedWorktreePath?: string | null;
+  recapFilePath?: string | null;
 }
 
 export interface LinearExecutionPromptInput {
@@ -124,7 +127,20 @@ export function buildLinearExecutionPrompt(input: LinearExecutionPromptInput): {
   const issueKnowledgePath = context.runtime.issueKnowledgePath;
   const isolatedWorktreePath = context.runtime.isolatedWorktreePath;
 
-  const promptPrefix = [
+  let recapSection = "";
+  const recapPath = input.runtime?.recapFilePath;
+  if (recapPath) {
+    try {
+      const content = fs.readFileSync(recapPath, "utf8").trim();
+      if (content) {
+        recapSection = `TICKET RECAP\n${content}`;
+      }
+    } catch {
+      // recap file may have been pruned; skip silently
+    }
+  }
+
+  const sections: string[] = [
     "LINEAR TASK EXECUTION",
     "You are an engineer working through a single Linear ticket. Work like a careful teammate: continue existing work when present, investigate before coding, present a plan before implementation, ask clarifying questions when requirements are ambiguous, and stop cleanly when blocked instead of guessing.",
     [
@@ -159,7 +175,13 @@ export function buildLinearExecutionPrompt(input: LinearExecutionPromptInput): {
       "- If a PR already exists, focus on CI failures, reviewer feedback, merge status, or ticket follow-up instead of starting over.",
       "- Leave the ticket and the knowledge base in a resumable state at the end of the session. Clean up temporary worktrees or session claims if your workflow created them.",
     ].join("\n"),
-  ].join("\n\n") + "\n\n";
+  ];
+
+  if (recapSection) {
+    sections.splice(3, 0, recapSection);
+  }
+
+  const promptPrefix = sections.join("\n\n") + "\n\n";
 
   return {
     prompt: `Work on this Linear ticket: ${issueIdentifier} - ${issueTitle}`,
