@@ -1,4 +1,6 @@
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+const { DatabaseSync: DatabaseSyncCtor } =
+  process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 import { pragmaSet } from "./sqlite-compat";
 import path from "path";
 import os from "os";
@@ -55,7 +57,7 @@ function toEntry(row: Row): AgentProcessEntry {
 
 function getDb(): DatabaseSync {
   mkdirSync(HISTORY_DIR, { recursive: true });
-  const db = new DatabaseSync(DB_PATH);
+  const db = new DatabaseSyncCtor(DB_PATH);
   pragmaSet(db, "journal_mode = WAL");
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_processes (

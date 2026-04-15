@@ -1,4 +1,6 @@
-import { DatabaseSync, type SQLInputValue } from "node:sqlite";
+import type { DatabaseSync, SQLInputValue } from "node:sqlite";
+const { DatabaseSync: DatabaseSyncCtor } =
+  process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 import { pragmaAll, pragmaSet, transaction, transactionFn } from "./sqlite-compat";
 import { promises as fs } from "fs";
 import path from "path";
@@ -466,7 +468,7 @@ function migrateLegacyTables(db: DatabaseSync): void {
 
 const withDatabase = async <T>(run: (db: DatabaseSync) => T): Promise<T> => {
   await fs.mkdir(HISTORY_DIR, { recursive: true });
-  const db = new DatabaseSync(DB_PATH);
+  const db = new DatabaseSyncCtor(DB_PATH);
   pragmaSet(db, "journal_mode = WAL");
   try {
     db.exec(`

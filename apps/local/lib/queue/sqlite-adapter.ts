@@ -1,4 +1,6 @@
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+const { DatabaseSync: DatabaseSyncCtor } =
+  process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 import { pragmaAll, transaction } from "../sqlite-compat";
 import { v4 as uuidv4 } from "uuid";
 import path from "path";
@@ -52,7 +54,7 @@ export class SQLiteQueueAdapter implements QueueAdapter {
       fs.mkdirSync(dir, { recursive: true });
     }
 
-    this.db = new DatabaseSync(finalPath);
+    this.db = new DatabaseSyncCtor(finalPath);
 
     // Apply contract PRAGMAs and validate environment
     const errors = validateSQLiteEnvironment(this.db, finalPath);

@@ -1,6 +1,8 @@
 import "server-only";
 
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+const { DatabaseSync: DatabaseSyncCtor } =
+  process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -209,7 +211,7 @@ function ensureColumn(db: DatabaseSync, table: string, column: string, sql: stri
 
 async function withLinearIssueDatabase<T>(run: (db: DatabaseSync) => T): Promise<T> {
   await fs.mkdir(LINEAR_DIR, { recursive: true });
-  const db = new DatabaseSync(DB_PATH);
+  const db = new DatabaseSyncCtor(DB_PATH);
   pragmaSet(db, "journal_mode = WAL");
   try {
     db.exec(`

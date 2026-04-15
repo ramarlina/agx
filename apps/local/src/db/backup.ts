@@ -1,4 +1,6 @@
-import { DatabaseSync, backup as sqliteBackup } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+const { DatabaseSync: DatabaseSyncCtor, backup: sqliteBackup } =
+  process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 import { pragmaAll } from "@/lib/sqlite-compat";
 import { DB_WAL_CHECKPOINT_INTERVAL_MS } from "@/lib/constants/timing";
 import fs from "fs";
@@ -85,7 +87,7 @@ export function restore(
   fs.copyFileSync(backupPath, targetDbPath);
 
   // Open and verify integrity
-  const db = new DatabaseSync(targetDbPath);
+  const db = new DatabaseSyncCtor(targetDbPath);
   const result = pragmaAll(db, "integrity_check") as { integrity_check: string }[];
   const status = result[0]?.integrity_check ?? "unknown";
 

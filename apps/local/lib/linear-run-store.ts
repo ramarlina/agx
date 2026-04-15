@@ -1,4 +1,6 @@
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+const { DatabaseSync: DatabaseSyncCtor } =
+  process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 import { promises as fs } from "fs";
 import os from "os";
 import path from "path";
@@ -169,7 +171,7 @@ function mapRow(row: JoinedLinearRunRow): LinearRunRecord {
 
 async function withLinearRunDatabase<T>(run: (db: DatabaseSync) => T): Promise<T> {
   await fs.mkdir(HISTORY_DIR, { recursive: true });
-  const db = new DatabaseSync(DB_PATH);
+  const db = new DatabaseSyncCtor(DB_PATH);
   pragmaSet(db, "journal_mode = WAL");
   try {
     db.exec(`
