@@ -464,19 +464,62 @@ export function CreateJobModal({
 
 // ── Run Chat Panel ──────────────────────────────────────────────────────────
 
+function useElapsedTime(startedAt: string | null, isActive: boolean) {
+  const [elapsed, setElapsed] = useState<number | null>(null);
+  useEffect(() => {
+    if (!startedAt || !isActive) {
+      setElapsed(null);
+      return;
+    }
+    const start = new Date(startedAt).getTime();
+    const tick = () => setElapsed(Math.max(0, Date.now() - start));
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [startedAt, isActive]);
+  return elapsed;
+}
+
+function formatElapsed(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  if (m < 60) return `${m}m ${rem}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+function formatTimestamp(iso: string | null): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 function RunChatPanel({
   run,
   job,
   agentMap,
+  onCancelRun,
 }: {
   run: PromptRun;
   job: PromptJob;
   agentMap: Record<string, AgentOption>;
+  onCancelRun?: () => void;
 }) {
   const threadId = `prompt-run:${run.id}`;
   const agentName =
     job.agentId && agentMap[job.agentId] ? agentMap[job.agentId].name : null;
   const agent = job.agentId ? agentMap[job.agentId] : null;
+
+  const isRunActive = run.status === "running" || run.status === "queued";
+  const elapsedMs = useElapsedTime(run.startedAt, run.status === "running");
+  const [cancelling, setCancelling] = useState(false);
 
   // Fetch project-scoped agent IDs
   const [projectAgentIds, setProjectAgentIds] = useState<Set<string>>(new Set());
@@ -624,16 +667,76 @@ function RunChatPanel({
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[var(--card-border)] px-4 py-2">
         <div className="min-w-0">
-          <div className="text-[12px] font-semibold text-[var(--foreground)] truncate">
+          <div className="text-[12px] font-semibold text-[var(--foreground)] truncate flex items-center gap-2">
             Run {run.id.slice(0, 8)}
+            <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+              run.status === "running" ? "bg-emerald-500/15 text-emerald-400" :
+              run.status === "queued" ? "bg-amber-500/15 text-amber-400" :
+              run.status === "success" ? "bg-emerald-500/10 text-emerald-400/70" :
+              run.status === "failed" ? "bg-red-500/15 text-red-400" :
+              run.status === "cancelled" ? "bg-[var(--muted)] text-[var(--muted-foreground)]" :
+              "bg-[var(--muted)] text-[var(--muted-foreground)]"
+            }`}>
+              {run.status === "running" && (
+                <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              )}
+              {run.status}
+            </span>
           </div>
           <div className="text-[10px] text-[var(--muted-foreground)]">
-            {run.status}{" "}
-            {run.durationMs != null &&
-              `· ${(run.durationMs / 1000).toFixed(1)}s`}
+            {run.status === "running" && elapsedMs != null
+              ? `Running · ${formatElapsed(elapsedMs)}`
+              : run.durationMs != null
+                ? formatElapsed(run.durationMs)
+                : run.status === "queued"
+                  ? "Queued"
+                  : null}
           </div>
         </div>
+        {isRunActive && onCancelRun && (
+          <button
+            onClick={() => {
+              setCancelling(true);
+              onCancelRun();
+            }}
+            disabled={cancelling}
+            className="inline-flex items-center gap-1 rounded-md border border-red-400/30 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.05em] text-red-400 transition-colors hover:bg-red-500/10 disabled:opacity-50"
+          >
+            <X size={10} />
+            {cancelling ? "Cancelling…" : "Cancel"}
+          </button>
+        )}
       </div>
+
+      {/* Run metadata */}
+      {(run.startedAt || run.hostPid || run.hostCommand) && (
+        <div className="border-b border-[var(--card-border)] px-4 py-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[10px]">
+          {run.startedAt && (
+            <>
+              <span className="text-[var(--muted-foreground)]">Started</span>
+              <span className="text-[var(--foreground)]">{formatTimestamp(run.startedAt)}</span>
+            </>
+          )}
+          {run.finishedAt && (
+            <>
+              <span className="text-[var(--muted-foreground)]">Finished</span>
+              <span className="text-[var(--foreground)]">{formatTimestamp(run.finishedAt)}</span>
+            </>
+          )}
+          {run.hostCommand && (
+            <>
+              <span className="text-[var(--muted-foreground)]">Command</span>
+              <span className="font-mono text-[var(--foreground)] truncate">{run.hostCommand}</span>
+            </>
+          )}
+          {run.hostPid && (
+            <>
+              <span className="text-[var(--muted-foreground)]">PID</span>
+              <span className="font-mono text-[var(--foreground)]">{run.hostPid}</span>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Messages area */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
@@ -688,14 +791,29 @@ function RunChatPanel({
             </div>
           )}
 
-          {/* No output placeholder */}
+          {/* No output placeholder — richer for active runs */}
           {!run.output && !run.error && (
             <div className="text-center py-12 text-[var(--muted-foreground)] text-sm">
-              {run.status === "queued"
-                ? "Waiting to start..."
-                : run.status === "running"
-                  ? "Running..."
-                  : "No output captured"}
+              {run.status === "queued" ? (
+                <div className="flex flex-col items-center gap-2">
+                  <Clock size={20} className="text-amber-400/60" />
+                  <span>Waiting to start…</span>
+                </div>
+              ) : run.status === "running" ? (
+                <div className="flex flex-col items-center gap-2">
+                  <RefreshCw size={20} className="text-emerald-400/60 animate-spin" />
+                  <span>
+                    {elapsedMs != null
+                      ? `Running · ${formatElapsed(elapsedMs)}`
+                      : "Running…"}
+                  </span>
+                  <span className="text-[11px] text-[var(--muted-foreground)]/60">
+                    Waiting for output…
+                  </span>
+                </div>
+              ) : (
+                "No output captured"
+              )}
             </div>
           )}
 
@@ -1086,6 +1204,7 @@ function JobDetailView({
             run={selectedRun}
             job={job}
             agentMap={agentMap}
+            onCancelRun={onCancelRun}
           />
         ) : (
           <div className="flex min-w-0 flex-1 items-center justify-center text-[var(--muted-foreground)] text-sm">
