@@ -1,5 +1,3 @@
-import * as fs from "fs";
-
 export interface LinearExecutionIssueContext {
   identifier: string;
   title: string;
@@ -23,7 +21,7 @@ export interface LinearExecutionRuntimeContext {
   knowledgeBaseRoot?: string | null;
   issueKnowledgePath?: string | null;
   isolatedWorktreePath?: string | null;
-  recapFilePath?: string | null;
+  recapContent?: string | null;
 }
 
 export interface LinearExecutionPromptInput {
@@ -128,16 +126,9 @@ export function buildLinearExecutionPrompt(input: LinearExecutionPromptInput): {
   const isolatedWorktreePath = context.runtime.isolatedWorktreePath;
 
   let recapSection = "";
-  const recapPath = input.runtime?.recapFilePath;
-  if (recapPath) {
-    try {
-      const content = fs.readFileSync(recapPath, "utf8").trim();
-      if (content) {
-        recapSection = `TICKET RECAP\n${content}`;
-      }
-    } catch {
-      // recap file may have been pruned; skip silently
-    }
+  const recapContent = input.runtime?.recapContent?.trim();
+  if (recapContent) {
+    recapSection = `TICKET RECAP\n${recapContent}`;
   }
 
   const sections: string[] = [

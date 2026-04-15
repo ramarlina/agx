@@ -128,7 +128,7 @@ export function TicketPanel({
       }
 
       try {
-        const run = await createRun({
+        const { run, recapContent } = await createRun({
           projectId: projectId ?? null,
           projectSlug: projectSlug ?? null,
           issueId: issue.id,
@@ -149,7 +149,7 @@ export function TicketPanel({
             assignee: issue.assignee,
           },
           project: projectSlug ? { slug: projectSlug } : null,
-          runtime: { recapFilePath: run.recapFilePath ?? null },
+          runtime: { recapContent },
         });
 
         const combinedPrefix = ticketPrefix + (promptPrefix ? `\n${promptPrefix}` : "");
