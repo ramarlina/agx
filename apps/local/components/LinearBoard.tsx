@@ -19,6 +19,10 @@ import {
   persistLinearBoardFilters,
 } from "@/state/linearBoardFilters";
 import {
+  loadPinnedIssueIds,
+  persistPinnedIssueIds,
+} from "@/state/linearBoardPins";
+import {
   loadLinearTicketPanelWidth,
   persistLinearTicketPanelWidth,
   loadLinearRunsPanelWidth,
@@ -647,6 +651,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
   const [sortBy, setSortBy] = useState<"activity" | "identifier" | "status" | "created">("activity");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [hasActivity, setHasActivity] = useState(false);
+  const [pinnedIssueIds, setPinnedIssueIds] = useState<Set<string>>(() => loadPinnedIssueIds(projectSlug));
   const [selectedIssueFallback, setSelectedIssueFallback] = useState<LinearIssue | null>(null);
   const [updatingIssueId, setUpdatingIssueId] = useState<string | null>(null);
   const { participants } = useLinearParticipants(projectId);
@@ -670,6 +675,19 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
     searchDebounceRef.current = setTimeout(() => setDebouncedSearch(value), 300);
   }, []);
 
+  const togglePin = useCallback((issueId: string) => {
+    setPinnedIssueIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(issueId)) {
+        next.delete(issueId);
+      } else {
+        next.add(issueId);
+      }
+      persistPinnedIssueIds(projectSlug, next);
+      return next;
+    });
+  }, [projectSlug]);
+
   useEffect(() => {
     return () => {
       if (searchDebounceRef.current) {
@@ -690,6 +708,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
     setSortBy(storedFilters.sortBy);
     setSortDir(storedFilters.sortDir);
     setHasActivity(storedFilters.hasActivity);
+    setPinnedIssueIds(loadPinnedIssueIds(projectSlug));
   }, [projectSlug]);
 
   useEffect(() => {
@@ -824,6 +843,21 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
   const selectedIssue =
     selectedIssueFromList ??
     (selectedIssueFallback?.id === selectedIssueId ? selectedIssueFallback : null);
+
+  const sortedIssues = useMemo(() => {
+    if (pinnedIssueIds.size === 0) return issues;
+    const pinned: LinearIssue[] = [];
+    const unpinned: LinearIssue[] = [];
+    for (const issue of issues) {
+      if (pinnedIssueIds.has(issue.id)) {
+        pinned.push(issue);
+      } else {
+        unpinned.push(issue);
+      }
+    }
+    return [...pinned, ...unpinned];
+  }, [issues, pinnedIssueIds]);
+
   const {
     runs,
     loading: runsLoading,
@@ -1269,21 +1303,29 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
                 </div>
               ) : (
                 <>
-                  {issues.map((issue) => (
-                    <TicketRow
-                      key={issue.id}
-                      issue={issue}
-                      selected={selectedIssue?.id === issue.id}
-                      activeAgents={issueActiveAgents.get(issue.id)}
-                      participants={participants}
-                      onSelect={() => {
-                        setTouchPanelTab("runs");
-                        pushSelection({
-                          issue: issue.id,
-                          run: null,
-                        });
-                      }}
-                    />
+                  {sortedIssues.map((issue, idx) => (
+                    <React.Fragment key={issue.id}>
+                      {pinnedIssueIds.size > 0 &&
+                        !pinnedIssueIds.has(issue.id) &&
+                        (idx === 0 || pinnedIssueIds.has(sortedIssues[idx - 1].id)) && (
+                          <div className="mx-4 border-t border-amber-500/20" />
+                        )}
+                      <TicketRow
+                        issue={issue}
+                        selected={selectedIssue?.id === issue.id}
+                        pinned={pinnedIssueIds.has(issue.id)}
+                        activeAgents={issueActiveAgents.get(issue.id)}
+                        participants={participants}
+                        onSelect={() => {
+                          setTouchPanelTab("runs");
+                          pushSelection({
+                            issue: issue.id,
+                            run: null,
+                          });
+                        }}
+                        onTogglePin={() => togglePin(issue.id)}
+                      />
+                    </React.Fragment>
                   ))}
                   {hasMore ? (
                     <div
@@ -1587,20 +1629,28 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
             </div>
           ) : (
             <>
-              {issues.map((issue) => (
-                <TicketRow
-                  key={issue.id}
-                  issue={issue}
-                  selected={selectedIssue?.id === issue.id}
-                  activeAgents={issueActiveAgents.get(issue.id)}
-                  participants={participants}
-                  onSelect={() =>
-                    pushSelection({
-                      issue: issue.id,
-                      run: null,
-                    })
-                  }
-                />
+              {sortedIssues.map((issue, idx) => (
+                <React.Fragment key={issue.id}>
+                  {pinnedIssueIds.size > 0 &&
+                    !pinnedIssueIds.has(issue.id) &&
+                    (idx === 0 || pinnedIssueIds.has(sortedIssues[idx - 1].id)) && (
+                      <div className="mx-4 border-t border-amber-500/20" />
+                    )}
+                  <TicketRow
+                    issue={issue}
+                    selected={selectedIssue?.id === issue.id}
+                    pinned={pinnedIssueIds.has(issue.id)}
+                    activeAgents={issueActiveAgents.get(issue.id)}
+                    participants={participants}
+                    onSelect={() =>
+                      pushSelection({
+                        issue: issue.id,
+                        run: null,
+                      })
+                    }
+                    onTogglePin={() => togglePin(issue.id)}
+                  />
+                </React.Fragment>
               ))}
               {hasMore ? (
                 <div

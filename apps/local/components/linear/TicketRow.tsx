@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { Check, ExternalLink, Link2 } from "lucide-react";
+import { Check, ExternalLink, Link2, Pin } from "lucide-react";
 import type { LinearIssue } from "@/hooks/useLinearIssues";
 import type { Participant } from "@/lib/types";
 import { STATUS_LABELS } from "@/lib/linear-run-status";
@@ -10,13 +10,17 @@ import { agentAvatarUrl, openLinearIssueTab } from "@/lib/linear-board-utils";
 export function TicketRow({
   issue,
   selected,
+  pinned,
   onSelect,
+  onTogglePin,
   activeAgents,
   participants,
 }: {
   issue: LinearIssue;
   selected: boolean;
+  pinned?: boolean;
   onSelect: () => void;
+  onTogglePin?: () => void;
   activeAgents?: Array<{ agentId: string; agentName: string }>;
   participants?: Participant[];
 }) {
@@ -104,6 +108,24 @@ export function TicketRow({
         </span>
       )}
       <div className="flex shrink-0 items-center gap-1">
+        {onTogglePin && (
+          <button
+            type="button"
+            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded transition-all hover:bg-zinc-700 hover:text-[var(--foreground)] ${
+              pinned
+                ? "text-amber-400 opacity-100"
+                : `text-[var(--muted-foreground)] ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`
+            }`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onTogglePin();
+            }}
+            title={pinned ? "Unpin ticket" : "Pin to top"}
+            aria-label={pinned ? "Unpin ticket" : "Pin to top"}
+          >
+            <Pin size={10} className={pinned ? "fill-current" : ""} />
+          </button>
+        )}
         <button
           type="button"
           className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)] transition-all hover:bg-zinc-700 hover:text-[var(--foreground)] ${
