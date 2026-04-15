@@ -173,46 +173,6 @@
   gap: 0;
 }
 
-.workspace-sidebar__brand-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.workspace-sidebar__brand-dot {
-  width: 0.625rem;
-  height: 0.625rem;
-  border-radius: 2px;
-}
-
-.workspace-sidebar__brand-dot--blue {
-  background: #3b82f6;
-}
-
-.workspace-sidebar__brand-dot--yellow {
-  background: #facc15;
-}
-
-.workspace-sidebar__brand-dot--mint {
-  background: #00e59b;
-}
-
-.workspace-sidebar__brand-dot--red {
-  background: #ef4444;
-}
-
-.workspace-sidebar__brand-text {
-  color: var(--foreground);
-  font-size: 1.25rem;
-  font-weight: 900;
-  letter-spacing: -0.05em;
-  line-height: 1;
-}
-
-.workspace-sidebar__brand-logo--compact .workspace-sidebar__brand-text {
-  display: none;
-}
 
 /* ──────────────────────────────────────────────
    Scrollable nav area  (flex-1, p-3, space-y-1)
