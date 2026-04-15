@@ -122,7 +122,7 @@ jest.mock("@/components/projects/ObjectiveScheduledTasksPanel", () => ({
     objectiveKey?: string;
   }) => (
     <div data-testid="objective-scheduled-tasks-panel">
-      <span>Scheduled Tasks</span>
+      <span>Scheduled Jobs</span>
       <span>{objectiveKey ?? "objective-board"}</span>
       <span>Weekly objective review</span>
       <span>Review progress against the objective and propose the next best move.</span>
@@ -466,17 +466,17 @@ describe("ProjectObjectivesWorkspace", () => {
       screen.getByRole("button", { name: /Edit cadence for Get 50 visitors daily/i })
     ).toBeInTheDocument();
     expect(screen.queryByText("Condition")).not.toBeInTheDocument();
-    expect(screen.getByText("Scheduled Tasks")).toBeInTheDocument();
+    expect(screen.getByText("Scheduled Jobs")).toBeInTheDocument();
     expect(screen.queryByText("Manual Tasks")).not.toBeInTheDocument();
-    expect(screen.getByText("Linear")).toBeInTheDocument();
+    expect(screen.getByText("Tasks")).toBeInTheDocument();
     expect(screen.getByTestId("objective-chat-composer")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Scheduled Tasks" }));
+    fireEvent.click(screen.getByRole("button", { name: "Scheduled Jobs" }));
     expect(screen.getByTestId("objective-scheduled-tasks-panel")).toBeInTheDocument();
     expect(screen.getByText("Weekly objective review")).toBeInTheDocument();
     expect(
       screen.getByText("Review progress against the objective and propose the next best move.")
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /^Linear/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Tasks/i }));
     await screen.findByText("AGX-42");
     expect(screen.getAllByText("get-50-visitors-daily").length).toBeGreaterThan(0);
     expect(screen.queryByText("Progress")).not.toBeInTheDocument();

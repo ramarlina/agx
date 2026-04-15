@@ -773,14 +773,14 @@ export function WorkspaceSidebar({
               </RailTooltip>
             )}
             {stageShow.linear && (
-              <RailTooltip label="Linear">
+              <RailTooltip label="Tasks">
                 <Link href={`/projects/${collapsedSlug}/linear`} className={`workspace-sidebar__rail-icon${activeProjectView === "linear" ? " workspace-sidebar__rail-icon--active" : ""}`}>
                   <LinearIcon size={16} />
                 </Link>
               </RailTooltip>
             )}
             {stageShow.scheduledTasks && (
-              <RailTooltip label="Scheduled Tasks">
+              <RailTooltip label="Scheduled Jobs">
                 <Link href={`/projects/${collapsedSlug}/automations`} className={`workspace-sidebar__rail-icon${activeProjectView === "automations" ? " workspace-sidebar__rail-icon--active" : ""}`}>
                   <Zap size={16} />
                 </Link>
@@ -987,7 +987,7 @@ export function WorkspaceSidebar({
                           aria-current={isActiveProjectLinear ? "page" : undefined}
                         >
                           <LinearIcon size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                          <span className="workspace-sidebar__workspace-title text-sm">Linear</span>
+                          <span className="workspace-sidebar__workspace-title text-sm">Tasks</span>
                           {navActivity?.linear.length > 0 && (
                             <span className="inline-flex items-center -space-x-1 ml-auto shrink-0">
                               {navActivity.linear.slice(0, 3).map((dot) => {
@@ -1021,7 +1021,7 @@ export function WorkspaceSidebar({
                           aria-current={isActiveProjectAutomations ? "page" : undefined}
                         >
                           <Zap size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                          <span className="workspace-sidebar__workspace-title text-sm">Scheduled Tasks</span>
+                          <span className="workspace-sidebar__workspace-title text-sm">Scheduled Jobs</span>
                         </Link>
                       </div>
                     )}
