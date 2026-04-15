@@ -4,6 +4,7 @@ import {
   listLinearRuns,
   type LinearRunMode,
 } from "@/lib/linear-run-store";
+import { readLatestRecap } from "@/src/linear-recap/storage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -74,6 +75,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const latestRecap = await readLatestRecap(issueId);
+    const recapFilePath = latestRecap?.filePath ?? null;
+
     const run = await createLinearRun({
       projectId: toOptionalString(body.projectId),
       projectSlug: toOptionalString(body.projectSlug),
@@ -85,6 +89,7 @@ export async function POST(request: NextRequest) {
       agentId,
       agentName,
       mode: toMode(body.mode),
+      recapFilePath,
     });
 
     return NextResponse.json({ run }, { status: 201 });
