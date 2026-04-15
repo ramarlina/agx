@@ -12,6 +12,7 @@ import {
   updateLinearRun,
   type LinearRunRecord,
 } from "@/lib/linear-run-store";
+import { readLatestRecap } from "@/src/linear-recap/storage";
 import { createChatRun, saveMessages } from "@/lib/history-store";
 import { ensureOrchestratorRuntime } from "@/lib/orchestrator/runtime";
 import type { ChatRunJobData, ChatRunPayload } from "@/lib/orchestrator/chat-types";
@@ -51,6 +52,8 @@ export async function startScriptedLinearSession(
     throw new Error(`Agent "${input.agentId}" could not be resolved for scripted Linear work.`);
   }
 
+  const latestRecap = await readLatestRecap(input.issue.id);
+
   let run = await createLinearRun({
     projectId: input.projectId ?? null,
     projectSlug: input.projectSlug ?? null,
@@ -62,6 +65,7 @@ export async function startScriptedLinearSession(
     agentId: agent.id,
     agentName: agent.name,
     mode: "scripted",
+    recapFilePath: latestRecap?.filePath ?? null,
   });
 
   try {
