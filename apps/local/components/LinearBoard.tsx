@@ -1882,8 +1882,8 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
                 />
                 <span className="flex flex-col">
                   <span className="font-medium text-[var(--foreground)]">{agent.name}</span>
-                  {agent.title ? (
-                    <span className="text-[10px] text-[var(--muted-foreground)]">{agent.title}</span>
+                  {agent.role ? (
+                    <span className="text-[10px] text-[var(--muted-foreground)]">{agent.role}</span>
                   ) : null}
                 </span>
               </button>

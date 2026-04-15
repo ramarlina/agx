@@ -1044,12 +1044,13 @@ export default function TeamAgentProfilePage({
           title="Edit agent"
           initial={{
             name: agent.name,
-            title: agent.title || "",
+            role: agent.role || "",
             provider: agent.provider,
             model: agent.model || "",
             identity: agent.identity || "",
             color: agent.color,
             skills: agent.skills || [],
+            skillBindings: agent.skillBindings || [],
           }}
           agentId={agent.id}
           submitLabel="Save"
@@ -1060,23 +1061,25 @@ export default function TeamAgentProfilePage({
               body: JSON.stringify({
                 id: agent.id,
                 name: data.name,
-                title: data.title || null,
+                role: data.role || null,
                 provider: data.provider,
                 model: data.model,
                 color: data.color,
                 ...(data.identity ? { identity: data.identity } : {}),
                 skills: data.skills ?? [],
+                skillBindings: data.skillBindings ?? [],
               }),
             });
             setAgent({
               ...agent,
               name: data.name,
-              title: data.title || undefined,
+              role: data.role || undefined,
               provider: data.provider,
               model: data.model,
               identity: data.identity,
               color: data.color ?? agent.color,
               skills: data.skills ?? [],
+              skillBindings: data.skillBindings ?? [],
             });
             setEditModal(false);
           }}

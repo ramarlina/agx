@@ -601,6 +601,19 @@ export class GraphStore {
       [graphId, event.eventType, toJson(event), event.timestamp],
     );
   }
+
+  claimScheduleTick(taskId: string): boolean {
+    const db = this.getDb();
+    const result = db.prepare(
+      `UPDATE execution_graphs
+       SET schedule = json_set(schedule, '$.tickInProgress', json('true')),
+           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')
+       WHERE task_id = ?
+         AND json_extract(schedule, '$.tickInProgress') = 0
+         AND json_extract(schedule, '$.state') = 'active'`,
+    ).run(taskId);
+    return (result.changes ?? 0) > 0;
+  }
 }
 
 export function createGraphStore(): GraphStore {

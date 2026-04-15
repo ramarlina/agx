@@ -191,7 +191,11 @@ function runMigrations(db: DatabaseSync): void {
     if (!agentColNames.has("model")) db.exec("ALTER TABLE agents ADD COLUMN model TEXT");
     if (!agentColNames.has("provider")) db.exec("ALTER TABLE agents ADD COLUMN provider TEXT");
     if (!agentColNames.has("color")) db.exec("ALTER TABLE agents ADD COLUMN color TEXT");
-    if (!agentColNames.has("title")) db.exec("ALTER TABLE agents ADD COLUMN title TEXT");
+    if (agentColNames.has("title") && !agentColNames.has("role")) {
+      db.exec("ALTER TABLE agents RENAME COLUMN title TO role");
+    } else if (!agentColNames.has("role")) {
+      db.exec("ALTER TABLE agents ADD COLUMN role TEXT");
+    }
   }
 
   db.exec(`

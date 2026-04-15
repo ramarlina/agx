@@ -15,7 +15,7 @@ export async function GET() {
       provider: a.provider || 'claude',
       model: a.model || null,
       color: a.color || '#6B7280',
-      title: a.title || null,
+      role: a.role || null,
     }));
     return NextResponse.json({ agents: items });
   } catch (error) {

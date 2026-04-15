@@ -17,7 +17,7 @@ export async function loadDbParticipants(): Promise<Participant[]> {
   return agents.map((agent) => ({
     id: agent.id,
     name: agent.name,
-    ...(agent.title ? { title: agent.title } : {}),
+    ...(agent.role ? { role: agent.role } : {}),
     provider: (agent.provider || "claude") as ChatProvider,
     model: agent.model || null,
     color: agent.color || "#6B7280",

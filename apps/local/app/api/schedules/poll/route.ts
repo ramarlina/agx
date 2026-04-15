@@ -25,10 +25,19 @@ export async function POST(request: NextRequest) {
       // Poll a specific task
       const result = await executeScheduleTick(body.taskId, { dispatchFunction, dispatchWork });
 
+      if (!result.fired) {
+        const skipReason = result.graph?.schedule?.tickInProgress ? 'tick_in_progress' : 'not_due';
+        return NextResponse.json({
+          success: false,
+          taskId: body.taskId,
+          skipReason,
+          error: result.error?.message ?? null,
+        }, { status: 409 });
+      }
+
       return NextResponse.json({
-        success: result.fired,
+        success: true,
         taskId: body.taskId,
-        error: result.error?.message ?? null,
       });
     }
 

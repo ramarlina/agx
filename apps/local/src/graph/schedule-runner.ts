@@ -315,8 +315,23 @@ export async function executeScheduleTick(
     return { fired: false, graph, error: new Error('No schedule on graph') };
   }
 
-  const tickResult = scheduleTickIfDue(graph);
+  // Atomic claim: only proceed if tickInProgress is currently false
+  const claimed = store.claimScheduleTick(taskId);
+  if (!claimed) {
+    return { fired: false, graph, error: new Error('Tick already in progress') };
+  }
+
+  // Re-read graph after atomic claim (tickInProgress is now true in DB)
+  const claimedGraph = store.getGraph(taskId) ?? graph;
+
+  const tickResult = scheduleTickIfDue(claimedGraph);
   if (!tickResult.tickFired) {
+    // Release the claim since we won't execute
+    const released = completeScheduleTick(claimedGraph);
+    store.updateGraphStructure(released.id, {
+      nodes: released.nodes,
+      schedule: released.schedule,
+    });
     return { fired: false, graph: tickResult.graph };
   }
 
@@ -330,6 +345,7 @@ export async function executeScheduleTick(
   let currentGraph = tickResult.graph;
   let loopCount = 0;
 
+  try {
   while (true) {
     loopCount++;
     const nodesBefore = Object.entries(currentGraph.nodes).map(([id, n]) => `${id}:${n.status}`).join(', ');
@@ -392,4 +408,13 @@ export async function executeScheduleTick(
   });
 
   return { fired: true, graph: finalGraph };
+  } catch (err) {
+    // Release tickInProgress on failure to prevent stranding the lock
+    const released = completeScheduleTick(currentGraph);
+    store.updateGraphStructure(released.id, {
+      nodes: released.nodes,
+      schedule: released.schedule,
+    });
+    throw err;
+  }
 }

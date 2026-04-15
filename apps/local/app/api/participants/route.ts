@@ -28,7 +28,7 @@ export async function GET() {
 interface ParticipantPayload {
   id?: unknown;
   name?: unknown;
-  title?: unknown;
+  role?: unknown;
   provider?: unknown;
   model?: unknown;
   identity?: unknown;
@@ -100,7 +100,7 @@ function toParticipant(body: ParticipantPayload, fallbackId?: string): Participa
     return null;
   }
 
-  const title = toOptionalString(body.title);
+  const role = toOptionalString(body.role);
   const identity = toOptionalString(body.identity);
   const identityFile = toOptionalString(body.identityFile);
   const skills = toSkills(body.skills);
@@ -123,7 +123,7 @@ function toParticipant(body: ParticipantPayload, fallbackId?: string): Participa
     provider,
     model,
     color,
-    ...(title ? { title } : {}),
+    ...(role ? { role } : {}),
     ...(identity ? { identity } : {}),
     ...(toOptionalString(body.voice) ? { voice: toOptionalString(body.voice) } : {}),
     ...(toOptionalString(body.seed) ? { seed: toOptionalString(body.seed) } : {}),
@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
     createdAgent = await createAgent(LOCAL_USER.id, {
       id: participant.id,
       name: participant.name,
-      title: participant.title,
+      role: participant.role,
       style: "balanced",
       description: participant.identity,
       model: participant.model ?? undefined,
@@ -179,8 +179,8 @@ export async function POST(request: NextRequest) {
   const created: Participant = {
     id: createdAgent.id,
     name: createdAgent.name,
-    ...(createdAgent.title || participant.title
-      ? { title: createdAgent.title || participant.title }
+    ...(createdAgent.role || participant.role
+      ? { role: createdAgent.role || participant.role }
       : {}),
     provider: (createdAgent.provider || participant.provider || "claude") as ChatProvider,
     model: createdAgent.model || participant.model || null,
@@ -227,7 +227,7 @@ export async function PATCH(request: NextRequest) {
   try {
     updatedAgent = await updateDbAgent(participant.id, LOCAL_USER.id, {
       name: participant.name,
-      title: participant.title,
+      role: participant.role,
       description: participant.identity,
       model: participant.model ?? undefined,
       provider: participant.provider,
@@ -253,8 +253,8 @@ export async function PATCH(request: NextRequest) {
   const updated: Participant = {
     id: updatedAgent.id,
     name: updatedAgent.name,
-    ...(updatedAgent.title || participant.title
-      ? { title: updatedAgent.title || participant.title }
+    ...(updatedAgent.role || participant.role
+      ? { role: updatedAgent.role || participant.role }
       : {}),
     provider: (updatedAgent.provider || participant.provider || "claude") as ChatProvider,
     model: updatedAgent.model || participant.model || null,
