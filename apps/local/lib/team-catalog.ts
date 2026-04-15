@@ -505,7 +505,7 @@ const teamTemplatesData: TeamTemplate[] = [
     id: "growth",
     name: "Growth",
     description: "Experiment and content team for acquisition, activation, and learning loops.",
-    icon: "megaphone",
+    icon: "trending-up",
     agents: [preset("team-lead"), preset("growth-marketer"), preset("content-writer")],
   },
   {

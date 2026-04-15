@@ -2,7 +2,22 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Check, ChevronDown, ChevronRight, Users, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  ClipboardList,
+  FlaskConical,
+  Hammer,
+  LifeBuoy,
+  type LucideIcon,
+  Megaphone,
+  Palette,
+  Settings,
+  TrendingUp,
+  Users,
+  X,
+} from "lucide-react";
 import { listTeamTemplates, getTemplateVariant, type TeamTemplate, type TeamTemplateVariant, type TeamTemplateId, type AgentPreset } from "@/lib/team-catalog";
 import { useProviders } from "@/hooks/useProviders";
 import { SetupLayout } from "./SetupLayout";
@@ -23,36 +38,12 @@ export interface SelectedTeam {
   agentOverrides?: AgentOverride[];
 }
 
-/** Well-known models per provider for the combobox suggestions. */
+/** Well-known models per provider. Mirrors app/projects/[slug]/teams/new/page.tsx. */
 const MODEL_SUGGESTIONS: Record<string, string[]> = {
-  claude: [
-    "claude-opus-4-20250514",
-    "claude-sonnet-4-20250514",
-    "claude-haiku-4-20250514",
-  ],
-  codex: [
-    "o4-mini",
-    "o3",
-    "gpt-4.1",
-    "gpt-4.1-mini",
-    "gpt-4.1-nano",
-  ],
-  gemini: [
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-  ],
-  ollama: [
-    "qwen3:8b",
-    "devstral",
-    "qwen2.5-coder:14b",
-    "llama3.3:70b",
-    "deepseek-coder-v2:16b",
-  ],
-  zai: [
-    "claude-opus-4-20250514",
-    "claude-sonnet-4-20250514",
-  ],
+  claude: ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5"],
+  gemini: ["gemini-3-pro-preview", "gemini-3-flash-preview"],
+  ollama: ["glm-5:cloud", "qwen3.5:397b-cloud", "qwen3.5:cloud", "minimax-m2.5:cloud", "kimi-k2.5:cloud"],
+  codex: ["gpt-5.3-codex", "gpt-5.1-code-mini"],
 };
 
 interface TeamsStepProps {
@@ -62,6 +53,18 @@ interface TeamsStepProps {
   onBack: () => void;
 }
 
+const TEMPLATE_ICONS: Record<string, LucideIcon> = {
+  hammer: Hammer,
+  "clipboard-list": ClipboardList,
+  palette: Palette,
+  megaphone: Megaphone,
+  "flask-conical": FlaskConical,
+  "life-buoy": LifeBuoy,
+  users: Users,
+  settings: Settings,
+  "trending-up": TrendingUp,
+};
+
 const STYLE_COLORS: Record<string, string> = {
   balanced: "bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300",
   specialist: "bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300",
@@ -69,21 +72,25 @@ const STYLE_COLORS: Record<string, string> = {
   analytical: "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300",
 };
 
-/** Searchable combobox: text input with dropdown suggestions, allows custom values. */
-function ModelCombobox({
+/** Custom button-style dropdown (matches /projects/[slug]/teams/new). */
+function OptionDropdown({
   value,
   onChange,
-  suggestions,
-  placeholder = "Model name...",
+  options,
+  placeholder,
+  disabled,
+  className = "",
 }: {
   value: string;
   onChange: (v: string) => void;
-  suggestions: string[];
-  placeholder?: string;
+  options: { id: string; label: string }[];
+  placeholder: string;
+  disabled?: boolean;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [filter, setFilter] = useState("");
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const selected = options.find((o) => o.id === value);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -95,40 +102,35 @@ function ModelCombobox({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const filtered = suggestions.filter((s) =>
-    s.toLowerCase().includes((filter || value).toLowerCase())
-  );
-
   return (
-    <div ref={wrapperRef} className="relative flex-1">
-      <input
-        type="text"
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => {
-          onChange(e.target.value);
-          setFilter(e.target.value);
-          setOpen(true);
-        }}
-        onFocus={() => setOpen(true)}
-        className="w-full h-8 px-2.5 text-[12px] rounded-md border border-[var(--card-border)] bg-[var(--background)] text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--foreground)]/40 transition-colors"
-      />
-      {open && filtered.length > 0 && (
-        <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-[160px] overflow-y-auto rounded-md border border-[var(--card-border)] bg-[var(--background)] shadow-lg">
-          {filtered.map((s) => (
+    <div ref={wrapperRef} className={`relative ${className}`}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+        className="w-full h-8 px-2.5 pr-7 text-[12px] rounded-md border border-[var(--card-border)] bg-[var(--background)] text-left transition-colors hover:border-[var(--foreground)]/40 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <span className={selected ? "text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}>
+          {selected?.label ?? placeholder}
+        </span>
+        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--muted-foreground)]" />
+      </button>
+      {open && options.length > 0 && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-[200px] overflow-y-auto rounded-md border border-[var(--card-border)] bg-[var(--background)] shadow-lg">
+          {options.map((o) => (
             <button
-              key={s}
+              key={o.id}
               type="button"
               onClick={() => {
-                onChange(s);
-                setFilter("");
+                onChange(o.id);
                 setOpen(false);
               }}
-              className={`w-full text-left px-2.5 py-1.5 text-[12px] transition-colors hover:bg-[var(--secondary)] ${
-                s === value ? "text-[var(--foreground)] font-medium" : "text-[var(--muted-foreground)]"
+              className={`w-full text-left px-2.5 py-1.5 text-[12px] transition-colors hover:bg-[var(--secondary)] flex items-center justify-between gap-2 ${
+                o.id === value ? "text-[var(--foreground)] font-medium" : "text-[var(--muted-foreground)]"
               }`}
             >
-              {s}
+              <span className="truncate">{o.label}</span>
+              {o.id === value && <Check className="w-3 h-3 text-[var(--foreground)] shrink-0" />}
             </button>
           ))}
         </div>
@@ -137,7 +139,7 @@ function ModelCombobox({
   );
 }
 
-/** Provider dropdown + model combobox, compact layout. */
+/** Provider dropdown + model dropdown, compact layout. */
 function ProviderModelSelector({
   provider,
   model,
@@ -153,7 +155,7 @@ function ProviderModelSelector({
   providers: { id: string; label: string }[];
   label?: string;
 }) {
-  const suggestions = MODEL_SUGGESTIONS[provider] ?? [];
+  const modelOptions = (MODEL_SUGGESTIONS[provider] ?? []).map((m) => ({ id: m, label: m }));
 
   return (
     <div className="space-y-1.5">
@@ -161,26 +163,23 @@ function ProviderModelSelector({
         <span className="text-[11px] font-medium text-[var(--muted-foreground)] uppercase tracking-wide">{label}</span>
       )}
       <div className="flex items-center gap-2">
-        <select
+        <OptionDropdown
           value={provider}
-          onChange={(e) => {
-            onProviderChange(e.target.value);
-            // Clear model when provider changes
+          onChange={(v) => {
+            onProviderChange(v);
             onModelChange("");
           }}
-          className="h-8 px-2 text-[12px] rounded-md border border-[var(--card-border)] bg-[var(--background)] text-[var(--foreground)] focus:outline-none focus:border-[var(--foreground)]/40 transition-colors appearance-none cursor-pointer pr-6"
-          style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")", backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center" }}
-        >
-          <option value="">Provider...</option>
-          {providers.map((p) => (
-            <option key={p.id} value={p.id}>{p.label}</option>
-          ))}
-        </select>
-        <ModelCombobox
+          options={providers}
+          placeholder="Provider..."
+          className="shrink-0 min-w-[140px]"
+        />
+        <OptionDropdown
           value={model}
           onChange={onModelChange}
-          suggestions={suggestions}
-          placeholder={provider ? "Select or type model..." : "Select a provider first"}
+          options={modelOptions}
+          placeholder={provider ? "Select model..." : "Select a provider first"}
+          disabled={!provider}
+          className="flex-1"
         />
       </div>
     </div>
@@ -283,7 +282,10 @@ function TemplateCard({
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-lg">{template.icon}</span>
+          {(() => {
+            const Icon = TEMPLATE_ICONS[template.icon];
+            return Icon ? <Icon className="w-4 h-4 text-[var(--muted-foreground)]" /> : null;
+          })()}
           <span className="text-[14px] font-semibold text-[var(--foreground)]">{template.name}</span>
         </div>
         {isSelected && (
