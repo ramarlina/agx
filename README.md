@@ -1,12 +1,13 @@
 <p align="center">
   <br>
-  <img src="agx_icon.png" width="256" alt="AGX Icon">
+  <img src="agx_icon.png" width="160" alt="AGX Icon">
 </p>
 
+<h3 align="center">AI coding agents forget everything between sessions.<br>AGX fixes that.</h3>
+
 <p align="center">
-  <strong>Your AI team's command center.</strong><br>
-  Chat with AI agents. Watch them plan. Approve before they act.<br>
-  All running locally on your machine.
+  AGX saves your agents' progress as durable checkpoints — not chat history.<br>
+  Resume any task instantly, no matter how long it ran. Runs locally, bring your own API keys.
 </p>
 
 <p align="center">
@@ -16,42 +17,55 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License"></a>
 </p>
 
+```bash
+npm install -g @mndrk/agx
+agx init
+```
+
+<p align="center">
+  <a href="https://github.com/ramarlina/agx">
+    <img src="agx_chat.jpg" alt="AGX — chat with agents, approve before they act" width="100%">
+  </a>
+</p>
+
 <p align="center">
   <a href="https://runagx.com">Website</a> •
   <a href="https://runagx.com/blog">Blog</a> •
-  <a href="#get-agx">Get AGX</a> •
-  <a href="#ui">UI</a> •
-  <a href="#desktop-app">Desktop</a> •
-  <a href="#cli">CLI</a> •
+  <a href="#get-agx">Install</a> •
+  <a href="#what-you-get">Features</a> •
   <a href="#how-it-works">How It Works</a> •
+  <a href="#cli">CLI</a> •
   <a href="#development">Development</a>
 </p>
 
 ---
 
-## What is AGX?
+## Why AGX?
 
-AGX is a **local-first command center for AI agents**. Set up projects, organize agent teams, define objectives, chat with agents, and run tasks — all from one app on your machine.
+Every AI coding agent — Claude, Codex, Gemini — starts from scratch each session. Long tasks get expensive to re-explain. Context gets lost. Work gets repeated.
 
-<p align="center">
-  <a href="https://github.com/ramarlina/agx">
-    <img src="agx_chat.jpg" alt="AGX Demo" width="100%">
-  </a>
-</p>
+AGX checkpoints agent state after every step. When you resume, the agent picks up exactly where it left off. No replaying history, no burning tokens on context windows. Resuming is constant-cost whether the task ran for 5 minutes or 5 days.
 
-Everything lives in one repo — CLI, web dashboard, and desktop app. Clone it and you have the full stack.
+It ships as a CLI, a local web dashboard, and a macOS desktop app — all from one repo.
 
-| Surface | What it does |
-|---------|-------------|
-| **UI** | Local web dashboard — project home, teams, objectives, chat, terminal, Linear integration |
-| **Desktop** | macOS app — bundles the UI, CLI, and Node runtime in one install |
-| **CLI** | Terminal interface — create tasks, run agents, manage projects, environment variables |
-
-All three share the same local SQLite database and ship from the same repo.
+We've been using AGX to build AGX — over 125 PRs merged by autonomous agents. Read more on the [blog](https://runagx.com/blog).
 
 ---
 
 ## Get AGX
+
+### npm (recommended)
+
+```bash
+npm install -g @mndrk/agx
+cd my-project
+agx init                   # First-time setup — picks up your API keys
+agx board start            # Open the local dashboard
+```
+
+### Desktop App (macOS)
+
+Download from [Releases](https://github.com/ramarlina/agx/releases). Bundles the UI, CLI, and Node runtime — install and go.
 
 ### From Source
 
@@ -61,86 +75,23 @@ cd agx && npm install
 npm run local:dev          # Run the dashboard in dev mode
 ```
 
-This gives you the full stack — CLI, web dashboard, and desktop app source. See [Development](#development) for more.
-
-### npm
-
-```bash
-npm install -g @mndrk/agx
-cd my-project
-agx init
-```
-
-Installs the CLI with the dashboard bundled in. Run `agx board start` to open the UI.
-
-### Desktop App (macOS)
-
-Download from [Releases](https://github.com/ramarlina/agx/releases). The desktop app bundles the UI, CLI, and a Node runtime — install and go.
-
-Or build from source:
-
-```bash
-cd apps/desktop
-npm run build:mac          # Build the macOS .app + .dmg
-```
-
 ---
 
-## UI
+## What You Get
 
-The local web dashboard runs as a Next.js app on your machine. Source lives in `apps/local`.
-
-```bash
-agx board start        # Open the dashboard in your browser
-agx ui open            # Alias for agx board open
-agx daemon start       # Start the background worker
-```
-
-Older `agx chat`, `agx chat start`, `agx chat open`, and `agx chat stop` commands still work as compatibility wrappers, but `agx board` is now the canonical UI command group.
-
-### Setup
-
-First launch walks you through a guided setup: detect and authenticate providers, create your first project, and configure agent teams. You land in Home when you're done.
-
-### Home
-
-Home is the persistent home base for each project, organized in three tiers:
-
-- **Direction** — Objectives define where the project is going. Track health, progress, and link to scheduled work.
-- **Paths** — Launch into Chat, Terminal, or Linear from here. Chat is the primary work surface; Terminal gives you PTY sessions with split panes.
-- **Momentum** — Running agents, recent scheduled task results, and an activity feed. Shows what's actively happening.
-
-### Teams
-
-Projects are organized around agent teams. Pick from preset templates (engineering, research, ops, etc.) or build custom teams. Tasks route to team agents automatically based on tags.
-
-### Objectives
-
-File-based objectives stored as frontmatter markdown in `~/.agx`. Each objective has an activity timeline, notes, health status, and can drive scheduled Linear work.
-
-### Terminal
-
-Built-in terminal with PTY sessions, WebSocket bridge, and split panes. Sessions persist and show active agent presence.
-
-### Chat
-
-Talk to Claude, Codex, Gemini, or Ollama. Push conversation outcomes to tasks or objectives.
-
-### Linear Integration
-
-Connect your Linear workspace to browse issues, track cycles, and route execution results back. Issues show active agent presence when work is running.
-
----
-
-## Desktop App
-
-The macOS desktop app bundles the UI, CLI, and a Node runtime into a single install. Download from [Releases](https://github.com/ramarlina/agx/releases) or [build from source](#get-agx).
+- **Chat with any provider** — Claude, Codex, Gemini, Ollama. Switch freely.
+- **Durable tasks** — Survive restarts, crashes, and reboots. State is checkpointed, not rebuilt from conversation history.
+- **Human-in-the-loop** — Agents pause at gates for your explicit approve/reject before touching anything dangerous.
+- **Local dashboard** — Project home, agent chat, built-in terminal, Linear integration. See what's running at a glance.
+- **Agent teams** — Group agents by role (engineering, research, ops). Tasks route automatically by tag.
+- **Live presence** — See which agents are active in the sidebar, on projects, and on Linear issues in real time.
+- **Fully local** — Runs on your machine. Your code never leaves. Full execution logs, task signing, destructive-command safeguards.
 
 ---
 
 ## CLI
 
-The CLI manages tasks, runs agents, and controls the dashboard and daemon.
+The CLI manages tasks, runs agents, and controls the dashboard.
 
 ### Setup
 
@@ -207,31 +158,17 @@ agx codex -p "Propose a migration plan"
 
 ---
 
-## Features
-
-- **Project home** — Objectives, chat, terminal, and Linear in one view. See what's running, what's on track, and where to jump in.
-- **Agent teams** — Preset templates for engineering, research, ops. Tasks route to team agents by tag. YAML export/import for portable config.
-- **Objectives** — File-based goals with activity timelines, health tracking, and notes. Drive scheduled work from objectives.
-- **Built-in terminal** — PTY sessions with split panes and agent presence indicators. Sessions persist across restarts.
-- **Execution graphs** — Tasks run as dynamic graphs with branch, fork, and join. Human-in-the-loop gates pause for your explicit `approve` / `reject`.
-- **Durable, resumable execution** — Tasks survive restarts, crashes, and reboots. State is checkpointed, not rebuilt from history.
-- **Multi-provider** — Claude, Codex, Gemini, Ollama. Use whatever fits.
-- **Local & inspectable** — Runs entirely on your machine. Full execution logs, task signing, safeguards for destructive commands.
-- **Live agent presence** — See which agents are active on the sidebar, project overview, and Linear issues in real time.
-
----
-
 ## How It Works
 
 AGX treats agent memory as **durable state**, not conversation history.
 
-Agents follow a **Wake → Work → Sleep** cycle:
+Each task runs in a **Wake - Work - Sleep** loop:
 
-1. **Wake** — Load full context from checkpointed state
+1. **Wake** — Load full context from the last checkpoint
 2. **Work** — Execute commands, edit files, validate output
-3. **Sleep** — Checkpoint state and yield, ready to resume
+3. **Sleep** — Save state and yield, ready to resume anytime
 
-Resuming a task is a constant-cost operation, no matter how long it has been running.
+Resuming is constant-cost. A task that ran for a week resumes as fast as one that ran for a minute.
 
 ### Architecture
 
@@ -357,5 +294,5 @@ MIT
 ---
 
 <p align="center">
-  <strong>Not a chatbot. Your AI team's command center.</strong>
+  <strong>Stop re-explaining context. Let your agents remember.</strong>
 </p>
