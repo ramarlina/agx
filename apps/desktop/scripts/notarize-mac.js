@@ -99,11 +99,15 @@ function ensureArtifactsExist() {
   }
 }
 
-function submit() {
-  ensureArtifactsExist();
+const TARGETS = [
+  { key: "zip", getPath: () => zipPath },
+  { key: "dmg", getPath: () => dmgPath },
+];
+
+function submitOne(artifactPath) {
   const raw = runNotarytool([
     "submit",
-    zipPath,
+    artifactPath,
     ...credentialsArgs(),
     "--output-format",
     "json",
@@ -112,19 +116,25 @@ function submit() {
   if (!parsed?.id) {
     throw new Error(`Notary submission did not return an id: ${raw}`);
   }
+  return { id: parsed.id, status: parsed.status ?? "Submitted" };
+}
+
+function submit() {
+  ensureArtifactsExist();
+  const submissions = {};
+  for (const target of TARGETS) {
+    const artifactPath = target.getPath();
+    console.log(`Submitting ${path.basename(artifactPath)} for notarization...`);
+    const result = submitOne(artifactPath);
+    submissions[target.key] = { ...result, path: artifactPath };
+    console.log(`  ${target.key}: ${result.id} (${result.status})`);
+  }
   writeState({
-    id: parsed.id,
-    status: parsed.status ?? "Submitted",
-    zipPath,
+    submissions,
     appPath,
-    dmgPath,
     submittedAt: new Date().toISOString(),
   });
-  console.log(`Submitted for notarization: ${parsed.id}`);
   console.log(`Saved state to ${statePath}`);
-  if (parsed.status) {
-    console.log(`Initial Apple status: ${parsed.status}`);
-  }
 }
 
 function fetchStatus(id) {
@@ -162,25 +172,10 @@ function stapleWithRetry(artifactPath, maxRetries = 8, delayMs = 15000) {
   }
 }
 
-function stapleAcceptedArtifacts(state) {
-  stapleWithRetry(state.appPath || appPath);
-  try {
-    stapleWithRetry(state.dmgPath || dmgPath);
-    console.log(`Stapled ${state.dmgPath || dmgPath}`);
-  } catch (err) {
-    console.warn(`[notarize] WARNING: DMG stapling failed (the .app inside is still notarized and stapled).`);
-    console.warn(`[notarize] Users can still install — macOS will verify notarization online.`);
-  }
-  console.log(`Notarization accepted: ${state.id}`);
-  console.log(`Stapled ${state.appPath || appPath}`);
-}
-
-function waitForCompletion() {
-  const state = readState();
-  if (state.status === "Accepted") {
-    console.log(`Notarization already accepted: ${state.id}`);
-    stapleAcceptedArtifacts(state);
-    return;
+function waitForSubmission(key, submission) {
+  if (submission.status === "Accepted") {
+    console.log(`[${key}] Already accepted: ${submission.id}`);
+    return submission;
   }
 
   const startedAt = Date.now();
@@ -189,9 +184,9 @@ function waitForCompletion() {
   let parsed = null;
 
   while (Date.now() - startedAt < timeoutMs) {
-    parsed = fetchStatus(state.id);
+    parsed = fetchStatus(submission.id);
     const status = parsed.status ?? "Unknown";
-    console.log(`[notarize] ${new Date().toISOString()} status=${status}`);
+    console.log(`[notarize] [${key}] ${new Date().toISOString()} status=${status}`);
     if (status === "Accepted" || status === "Invalid" || status === "Rejected") {
       break;
     }
@@ -199,27 +194,52 @@ function waitForCompletion() {
   }
 
   if (!parsed) {
-    throw new Error("Failed to fetch notarization status.");
+    throw new Error(`[${key}] Failed to fetch notarization status.`);
   }
-
-  writeState({
-    ...state,
-    status: parsed.status ?? state.status,
-    completedAt: new Date().toISOString(),
-    response: parsed,
-  });
 
   if (parsed.status !== "Accepted") {
     try {
-      const log = fetchLog(state.id);
+      const log = fetchLog(submission.id);
       console.error(JSON.stringify(log, null, 2));
     } catch (error) {
       console.error(`Failed to fetch notarization log: ${error.message || error}`);
     }
-    throw new Error(`Notarization did not succeed: ${parsed.status || "unknown"}`);
+    throw new Error(`[${key}] Notarization did not succeed: ${parsed.status || "unknown"}`);
   }
 
-  stapleAcceptedArtifacts(state);
+  return { ...submission, status: parsed.status, response: parsed };
+}
+
+function waitForCompletion() {
+  const state = readState();
+  if (!state.submissions) {
+    throw new Error(`Legacy notarization state detected. Delete ${statePath} and re-run submit.`);
+  }
+
+  const updated = {};
+  for (const [key, submission] of Object.entries(state.submissions)) {
+    updated[key] = waitForSubmission(key, submission);
+  }
+
+  writeState({
+    ...state,
+    submissions: updated,
+    completedAt: new Date().toISOString(),
+  });
+
+  // The zip submission notarizes the .app inside; staple the .app directly.
+  // The dmg submission notarizes the .dmg itself; staple it.
+  const appTarget = state.appPath || appPath;
+  stapleWithRetry(appTarget);
+  console.log(`Stapled ${appTarget}`);
+
+  if (updated.dmg) {
+    const dmgTarget = updated.dmg.path || dmgPath;
+    stapleWithRetry(dmgTarget);
+    console.log(`Stapled ${dmgTarget}`);
+  }
+
+  console.log(`Notarization accepted for all submissions.`);
 }
 
 if (command === "submit") {
