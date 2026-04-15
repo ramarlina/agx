@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ArrowDown, ArrowUp, Clock, FileText, Play, Plus, RefreshCw, Search, Settings, User, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft, Clock, FileText, Play, Plus, RefreshCw, Search, Settings, User, X } from "lucide-react";
 import { useUrlSelection } from "@/hooks/useUrlSelection";
 import { useLinearIssues, type LinearIssue } from "@/hooks/useLinearIssues";
 import { useLinearConnection } from "@/hooks/useLinearConnection";
@@ -90,6 +90,7 @@ function ThreadMessageList({
   issueStatusOptions,
   issueStatusUpdating,
   onIssueStatusChange,
+  onBack,
 }: {
   issue: LinearIssue;
   run: LinearRun;
@@ -97,6 +98,7 @@ function ThreadMessageList({
   issueStatusOptions: FilterOption[];
   issueStatusUpdating: boolean;
   onIssueStatusChange: (issue: LinearIssue, status: string) => void;
+  onBack?: () => void;
 }) {
   const { messages, setMessages, sendMessage, loadHistory, stop } = useGroupChat(
     run.threadId
@@ -183,6 +185,16 @@ function ThreadMessageList({
       {/* Merged header: ticket info + session status */}
       <header className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--card-border)] px-6">
         <div className="flex min-w-0 items-center gap-3">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="shrink-0 rounded p-0.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card-bg)] hover:text-[var(--foreground)]"
+              title="Back to sessions"
+            >
+              <ChevronLeft size={16} />
+            </button>
+          )}
           <span className="shrink-0 font-mono text-sm text-[var(--muted-foreground)]">
             {issue.identifier}
           </span>
@@ -1207,6 +1219,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
                     issueStatusOptions={issueStatusOptions}
                     issueStatusUpdating={updatingIssueId === selectedRun.issueId}
                     onIssueStatusChange={handleIssueStatusChange}
+                    onBack={() => replaceSelection({ run: null })}
                   />
                 ) : participants.length === 0 ? (
                   <div className="flex h-full items-center justify-center text-xs text-[var(--muted-foreground)]">
@@ -1427,6 +1440,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
             issueStatusOptions={issueStatusOptions}
             issueStatusUpdating={updatingIssueId === selectedRun.issueId}
             onIssueStatusChange={handleIssueStatusChange}
+            onBack={() => replaceSelection({ run: null })}
           />
         ) : !selectedIssue ? (
           <div className="flex h-full items-center justify-center text-xs text-[var(--muted-foreground)]">
