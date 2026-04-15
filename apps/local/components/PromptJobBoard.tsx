@@ -22,6 +22,7 @@ import { usePromptJobs } from "@/hooks/usePromptJobs";
 import { useGroupChat } from "@/hooks/useGroupChat";
 import { useProcessPolling } from "@/hooks/useProcessPolling";
 import { Markdown } from "@/components/chat-ui/Markdown";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import { stripMarkers } from "@/lib/chat-utils";
 import {
   orderParticipantIds,
@@ -1133,6 +1134,7 @@ export default function PromptJobBoard({
   const [selectedJobFallback, setSelectedJobFallback] = useState<PromptJob | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [editingJob, setEditingJob] = useState<PromptJob | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<PromptJob | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<string | null>(null);
   const [agentMap, setAgentMap] = useState<Record<string, AgentOption>>({});
@@ -1504,7 +1506,7 @@ export default function PromptJobBoard({
               setShowCreate(true);
             }}
             onToggle={() => handleToggle(selected)}
-            onDelete={() => handleDelete(selected.id)}
+            onDelete={() => setDeleteTarget(selected)}
             onRunNow={() => handleRunNow(selected.id)}
             onCancelRun={() => handleCancelRun(selected.id)}
             fetchRuns={fetchRuns}
@@ -1522,6 +1524,22 @@ export default function PromptJobBoard({
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        isOpen={Boolean(deleteTarget)}
+        title="Delete scheduled task?"
+        message="This permanently removes the task and all its run history. This cannot be undone."
+        preview={deleteTarget?.name}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={() => {
+          if (deleteTarget) {
+            void handleDelete(deleteTarget.id);
+          }
+          setDeleteTarget(null);
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

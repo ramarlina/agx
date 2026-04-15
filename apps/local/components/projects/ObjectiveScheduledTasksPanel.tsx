@@ -6,6 +6,7 @@ import { usePromptJobs } from "@/hooks/usePromptJobs";
 import { cronToHuman } from "@/src/graph/nl-schedule";
 import type { PromptJob, PromptRun } from "@/src/prompt-scheduler/types";
 import { CreateJobModal, type CreateJobData } from "@/components/PromptJobBoard";
+import ConfirmDialog from "@/components/ConfirmDialog";
 import RichTextEditor from "@/components/RichTextEditor";
 import { ScheduleConditionPicker } from "@/components/scheduling/ScheduleConditionPicker";
 
@@ -282,6 +283,7 @@ export function ObjectiveScheduledTasksPanel({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<PromptJob | null>(null);
   const [scheduleEditJobId, setScheduleEditJobId] = useState<string | null>(null);
   const [recentRuns, setRecentRuns] = useState<(PromptRun & { jobName: string })[]>([]);
 
@@ -549,8 +551,7 @@ export function ObjectiveScheduledTasksPanel({
                       title="Delete"
                       onClick={(event) => {
                         event.stopPropagation();
-                        if (!confirm(`Delete "${job.name}"? This cannot be undone.`)) return;
-                        void handleHide(job);
+                        setDeleteTarget(job);
                       }}
                       disabled={busyId === job.id}
                       className="rounded-lg border border-[var(--border)] p-2 text-[var(--muted-foreground)] transition-colors hover:border-[var(--status-failed-border)] hover:text-[var(--destructive)] disabled:cursor-not-allowed disabled:opacity-50"
@@ -624,6 +625,22 @@ export function ObjectiveScheduledTasksPanel({
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        isOpen={Boolean(deleteTarget)}
+        title="Delete scheduled task?"
+        message="This permanently removes the task and all its run history. This cannot be undone."
+        preview={deleteTarget?.name}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={() => {
+          if (deleteTarget) {
+            void handleHide(deleteTarget);
+          }
+          setDeleteTarget(null);
+        }}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </>
   );
 }
