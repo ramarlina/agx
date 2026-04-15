@@ -61,14 +61,16 @@ export function usePromptJobs(projectId?: string | null, options: UsePromptJobsO
   }, [fetchJobs]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const createJob = useCallback(async (input: any) => {
+  const createJob = useCallback(async (input: any): Promise<string | null> => {
     const res = await fetch('/api/prompt-jobs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(input),
     });
-    if (res.ok) await fetchJobs();
-    return res.ok;
+    if (!res.ok) return null;
+    const { job } = await res.json();
+    await fetchJobs();
+    return job?.id ?? null;
   }, [fetchJobs]);
 
   const updateJob = useCallback(async (id: string, updates: Partial<PromptJob>) => {

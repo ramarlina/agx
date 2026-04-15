@@ -1116,7 +1116,7 @@ export default function PromptJobBoard({
   visibleJobIds?: string[] | null;
   contextLabel?: string | null;
   createDefaults?: Partial<CreateJobData>;
-  onCreateJob?: (data: CreateJobData) => Promise<boolean>;
+  onCreateJob?: (data: CreateJobData) => Promise<string | null>;
 } = {}) {
   const {
     jobs, loading, refresh,
@@ -1221,17 +1221,16 @@ export default function PromptJobBoard({
   };
 
   const handleCreateOrUpdate = async (data: CreateJobData) => {
-    let ok = false;
-
     if (editingJob) {
-      ok = await updateJob(editingJob.id, data as any);
+      const ok = await updateJob(editingJob.id, data as any);
       if (ok) showToast(`Task "${data.name}" updated`);
     } else {
-      ok = onCreateJob
+      const newId = onCreateJob
         ? await onCreateJob(data)
         : await createJob({ ...data, projectId: projectId ?? '' });
-      if (ok) {
+      if (newId) {
         await refresh();
+        pushSelection({ job: newId, run: null });
         showToast(`Task "${data.name}" created`);
       }
     }
