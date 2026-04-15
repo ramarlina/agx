@@ -147,6 +147,8 @@ export function automationRecordToGraphSchedule(
         ? { nextTickAt: fallback.nextTickAt }
         : {}),
     tickInProgress: record.runtimeState.tickInProgress ?? fallback.tickInProgress ?? false,
+    currentConcurrency: record.runtimeState.currentConcurrency ?? fallback.currentConcurrency ?? 0,
+    maxConcurrency: fallback.maxConcurrency,
     createdAt: record.definition.createdAt ?? fallback.createdAt ?? new Date().toISOString(),
     ...(execution?.activeUntil ? { activeUntil: execution.activeUntil } : {}),
     ...(record.definition.target.rootMessageId
@@ -219,5 +221,6 @@ export function graphAutomationToRuntimeState(row: LegacyGraphAutomationRow): Au
     runCount: row.schedule.runCount,
     consecutiveFailures: row.schedule.consecutiveFailures,
     tickInProgress: row.schedule.tickInProgress,
+    currentConcurrency: row.schedule.currentConcurrency,
   });
 }

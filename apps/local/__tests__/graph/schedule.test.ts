@@ -89,13 +89,15 @@ describe('graph schedule', () => {
       expect(result.skipReason).toBe('not_active');
     });
 
-    it('returns tick_in_progress when a tick is already running', () => {
+    it('returns max_concurrency_reached when at capacity', () => {
       const schedule = createThreadMonitorSchedule(['pull-status', 'idle-check'], 60000);
       schedule.tickInProgress = true;
+      schedule.currentConcurrency = 5;
+      schedule.maxConcurrency = 5;
       const graph = makeMinimalGraph(schedule);
       const result = scheduleTickIfDue(graph, Date.now() + 120000);
       expect(result.tickFired).toBe(false);
-      expect(result.skipReason).toBe('tick_in_progress');
+      expect(result.skipReason).toBe('max_concurrency_reached');
     });
 
     it('returns max_runs_reached when maxRuns exhausted', () => {
@@ -143,6 +145,7 @@ describe('graph schedule', () => {
 
       // Schedule metadata updated
       expect(result.graph.schedule!.tickInProgress).toBe(true);
+      expect(result.graph.schedule!.currentConcurrency).toBe(1);
       expect(result.graph.schedule!.lastTickAt).toBe(now);
       expect(result.graph.schedule!.runCount).toBe(1);
     });
@@ -158,12 +161,24 @@ describe('graph schedule', () => {
   });
 
   describe('completeScheduleTick', () => {
-    it('clears tickInProgress', () => {
+    it('decrements currentConcurrency and clears tickInProgress when reaching zero', () => {
       const schedule = createThreadMonitorSchedule(['pull-status'], 60000);
       schedule.tickInProgress = true;
+      schedule.currentConcurrency = 1;
       const graph = makeMinimalGraph(schedule);
       const result = completeScheduleTick(graph);
       expect(result.schedule!.tickInProgress).toBe(false);
+      expect(result.schedule!.currentConcurrency).toBe(0);
+    });
+
+    it('keeps tickInProgress true when other ticks still running', () => {
+      const schedule = createThreadMonitorSchedule(['pull-status'], 60000);
+      schedule.tickInProgress = true;
+      schedule.currentConcurrency = 3;
+      const graph = makeMinimalGraph(schedule);
+      const result = completeScheduleTick(graph);
+      expect(result.schedule!.tickInProgress).toBe(true);
+      expect(result.schedule!.currentConcurrency).toBe(2);
     });
 
     it('is no-op when no schedule', () => {
@@ -207,13 +222,15 @@ describe('graph schedule', () => {
   });
 
   describe('stopSchedule', () => {
-    it('stops an active schedule and clears tickInProgress', () => {
+    it('stops an active schedule and resets concurrency', () => {
       const schedule = createThreadMonitorSchedule(['pull-status'], 60000);
       schedule.tickInProgress = true;
+      schedule.currentConcurrency = 3;
       const graph = makeMinimalGraph(schedule);
       const result = stopSchedule(graph);
       expect(result.schedule!.state).toBe('stopped');
       expect(result.schedule!.tickInProgress).toBe(false);
+      expect(result.schedule!.currentConcurrency).toBe(0);
     });
   });
 });

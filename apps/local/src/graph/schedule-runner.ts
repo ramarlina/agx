@@ -269,6 +269,7 @@ export async function pollSchedules(
           nodes: completed.nodes,
           schedule: completed.schedule,
         });
+        store.releaseScheduleTick(taskId);
       }
 
       result.tickedGraphIds.push(taskId);
@@ -278,17 +279,9 @@ export async function pollSchedules(
         graphId: taskId,
         error: err instanceof Error ? err : new Error(String(err)),
       });
-      // Unstick the tick so future polls aren't permanently blocked
       try {
-        const latest = store.getGraph(taskId);
-        if (latest?.schedule?.tickInProgress) {
-          const unstuck = completeScheduleTick(latest);
-          store.updateGraphStructure(unstuck.id, {
-            nodes: unstuck.nodes,
-            schedule: unstuck.schedule,
-          });
-          console.log(`[schedules:poll] ${taskId} force-completed stuck tick`);
-        }
+        store.releaseScheduleTick(taskId);
+        console.log(`[schedules:poll] ${taskId} released concurrency slot after error`);
       } catch { /* best effort */ }
     }
   }
@@ -315,10 +308,9 @@ export async function executeScheduleTick(
     return { fired: false, graph, error: new Error('No schedule on graph') };
   }
 
-  // Atomic claim: only proceed if tickInProgress is currently false
   const claimed = store.claimScheduleTick(taskId);
   if (!claimed) {
-    return { fired: false, graph, error: new Error('Tick already in progress') };
+    return { fired: false, graph, error: new Error('Max concurrency reached') };
   }
 
   // Re-read graph after atomic claim (tickInProgress is now true in DB)
@@ -326,12 +318,7 @@ export async function executeScheduleTick(
 
   const tickResult = scheduleTickIfDue(claimedGraph);
   if (!tickResult.tickFired) {
-    // Release the claim since we won't execute
-    const released = completeScheduleTick(claimedGraph);
-    store.updateGraphStructure(released.id, {
-      nodes: released.nodes,
-      schedule: released.schedule,
-    });
+    store.releaseScheduleTick(taskId);
     return { fired: false, graph: tickResult.graph };
   }
 
@@ -400,21 +387,16 @@ export async function executeScheduleTick(
     }
   }
 
-  // Persist final state
-  const finalGraph = completeScheduleTick(currentGraph);
-  store.updateGraphStructure(finalGraph.id, {
-    nodes: finalGraph.nodes,
-    schedule: finalGraph.schedule,
+  store.updateGraphStructure(currentGraph.id, {
+    nodes: currentGraph.nodes,
+    schedule: currentGraph.schedule,
   });
+  store.releaseScheduleTick(taskId);
 
+  const finalGraph = completeScheduleTick(currentGraph);
   return { fired: true, graph: finalGraph };
   } catch (err) {
-    // Release tickInProgress on failure to prevent stranding the lock
-    const released = completeScheduleTick(currentGraph);
-    store.updateGraphStructure(released.id, {
-      nodes: released.nodes,
-      schedule: released.schedule,
-    });
+    store.releaseScheduleTick(taskId);
     throw err;
   }
 }

@@ -156,8 +156,8 @@ export default function AutomationsBoard() {
     });
     if (result.ok) {
       showToast("Run triggered successfully");
-    } else if (result.skipReason === 'tick_in_progress') {
-      showToast("A run is already in progress");
+    } else if (result.skipReason === 'max_concurrency_reached') {
+      showToast("Maximum concurrent runs reached");
     }
   };
 
@@ -286,7 +286,7 @@ export default function AutomationsBoard() {
                     const hasFails =
                       (item.schedule.consecutiveFailures ?? 0) > 0;
                     const overdue = isScheduleOverdue(item.schedule);
-                    const isRunning = busy[item.taskId] || item.schedule.tickInProgress || item.executionState === 'running';
+                    const isRunning = busy[item.taskId] || (item.schedule.currentConcurrency ?? 0) >= (item.schedule.maxConcurrency ?? 5);
 
                     return (
                       <div

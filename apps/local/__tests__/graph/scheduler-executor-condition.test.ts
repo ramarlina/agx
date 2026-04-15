@@ -413,15 +413,25 @@ describe('scheduled recurrence guardrails', () => {
     const prepared = prepareScheduledTick(activatedAgain, 60_000);
     expect(prepared.shouldRun).toBe(true);
     expect(prepared.graph.schedule?.tickInProgress).toBe(true);
+    expect(prepared.graph.schedule?.currentConcurrency).toBe(1);
     expect(prepared.graph.nodes['pull-status'].status).toBe('pending');
     expect(prepared.graph.nodes['idle-check'].status).toBe('pending');
 
+    // With default maxConcurrency=5, a second tick is allowed
     const overlapping = prepareScheduledTick(prepared.graph, 120_000);
-    expect(overlapping.shouldRun).toBe(false);
-    expect(overlapping.skipReason).toBe('overlap');
+    expect(overlapping.shouldRun).toBe(true);
+    expect(overlapping.graph.schedule?.currentConcurrency).toBe(2);
+
+    // But at capacity, further ticks are blocked
+    const atCapacity = { ...prepared.graph };
+    atCapacity.schedule = { ...atCapacity.schedule!, currentConcurrency: 5, maxConcurrency: 5 };
+    const blocked = prepareScheduledTick(atCapacity, 120_000);
+    expect(blocked.shouldRun).toBe(false);
+    expect(blocked.skipReason).toBe('overlap');
 
     const finalized = finalizeScheduledTick(prepared.graph, 120_000);
     expect(finalized.schedule?.tickInProgress).toBe(false);
+    expect(finalized.schedule?.currentConcurrency).toBe(0);
     expect(finalized.schedule?.runCount).toBe(1);
   });
 });

@@ -137,6 +137,7 @@ export function initializeAutomationRuntimeState(
       ? { consecutiveFailures: existing.consecutiveFailures }
       : {}),
     ...(existing?.tickInProgress !== undefined ? { tickInProgress: existing.tickInProgress } : {}),
+    ...(existing?.currentConcurrency !== undefined ? { currentConcurrency: existing.currentConcurrency } : {}),
     ...(existing?.archivedAt !== undefined ? { archivedAt: existing.archivedAt } : {}),
   };
 }
@@ -167,7 +168,9 @@ export function isAutomationDue(
     return false;
   }
 
-  if (runtimeState.tickInProgress) {
+  const maxConcurrency = definition.maxConcurrency ?? 5;
+  const currentConcurrency = runtimeState.currentConcurrency ?? 0;
+  if (currentConcurrency >= maxConcurrency) {
     return false;
   }
 

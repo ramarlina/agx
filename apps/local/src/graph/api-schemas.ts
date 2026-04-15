@@ -302,6 +302,8 @@ export const GraphScheduleSchema = z.object({
   runCount: z.number().int().nonnegative(),
   lastTickAt: z.number().optional(),
   tickInProgress: z.boolean(),
+  maxConcurrency: z.number().int().optional(),
+  currentConcurrency: z.number().int().optional(),
   createdAt: isoTimestampSchema,
   activeUntil: isoTimestampSchema.optional(),
   rootMessageId: nonEmptyStringSchema.optional(),
