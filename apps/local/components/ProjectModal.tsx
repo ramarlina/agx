@@ -275,34 +275,32 @@ function ProjectFormFields({
                   />
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                    <input
-                      value={repo.path}
-                      onChange={(e) => onRepoChange(index, "path", e.target.value)}
-                      placeholder="Local path to folder"
-                      className={`input text-sm flex-1${repo.name.trim() && !repo.path.trim() ? " border-[var(--destructive)]/50 ring-1 ring-[var(--destructive)]/20" : ""}`}
-                      disabled={isSubmitting}
-                    />
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          const res = await fetch("/api/filesystem/pick-folder", { method: "POST" });
-                          const data = await res.json();
-                          if (data.path) {
-                            onRepoChange(index, "path", data.path);
+                      <input
+                        value={repo.path}
+                        onChange={(e) => onRepoChange(index, "path", e.target.value)}
+                        placeholder="Local path to folder"
+                        className={`input text-sm flex-1${repo.name.trim() && !repo.path.trim() ? " border-[var(--destructive)]/50 ring-1 ring-[var(--destructive)]/20" : ""}`}
+                        disabled={isSubmitting}
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const res = await fetch("/api/filesystem/pick-folder", { method: "POST" });
+                            const data = await res.json();
+                            if (data.path) {
+                              onRepoChange(index, "path", data.path);
+                            }
+                          } catch {
+                            setBrowsingRepoIndex(browsingRepoIndex === index ? null : index);
                           }
-                          // If cancelled, do nothing
-                        } catch {
-                          // Fallback to inline browser if native picker fails
-                          setBrowsingRepoIndex(browsingRepoIndex === index ? null : index);
-                        }
-                      }}
-                      className="px-3 py-2 rounded-xl border border-[var(--card-border)] bg-[var(--muted)]/30 hover:bg-[var(--muted)]/60 transition-colors text-xs font-semibold text-[var(--muted-foreground)] whitespace-nowrap"
-                      disabled={isSubmitting}
-                    >
-                      Browse
-                    </button>
-                  </div>
+                        }}
+                        className="px-3 py-2 rounded-xl border border-[var(--card-border)] bg-[var(--muted)]/30 hover:bg-[var(--muted)]/60 transition-colors text-xs font-semibold text-[var(--muted-foreground)] whitespace-nowrap"
+                        disabled={isSubmitting}
+                      >
+                        Browse
+                      </button>
+                    </div>
                     {repo.name.trim() && !repo.path.trim() && (
                       <p className="text-[11px] text-[var(--destructive)]">Local path is required</p>
                     )}
