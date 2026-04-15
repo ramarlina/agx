@@ -485,17 +485,17 @@ export async function getIssueActiveAgents(
     const sql = hasProject
       ? `SELECT DISTINCT lr.issue_id, lr.agent_id, lr.agent_name
          FROM linear_runs lr
-         LEFT JOIN chat_runs cr ON cr.id = (
+         INNER JOIN chat_runs cr ON cr.id = (
            SELECT id FROM chat_runs WHERE thread_id = lr.thread_id ORDER BY updated_at DESC LIMIT 1
          )
-         WHERE (lr.status IN ('queued', 'running') OR cr.status IN ('queued', 'running'))
+         WHERE cr.status IN ('queued', 'running')
            AND lr.project_id = ?`
       : `SELECT DISTINCT lr.issue_id, lr.agent_id, lr.agent_name
          FROM linear_runs lr
-         LEFT JOIN chat_runs cr ON cr.id = (
+         INNER JOIN chat_runs cr ON cr.id = (
            SELECT id FROM chat_runs WHERE thread_id = lr.thread_id ORDER BY updated_at DESC LIMIT 1
          )
-         WHERE (lr.status IN ('queued', 'running') OR cr.status IN ('queued', 'running'))`;
+         WHERE cr.status IN ('queued', 'running')`;
 
     const rows = hasProject
       ? (db.prepare(sql).all(projectId!.trim()) as unknown as Array<{ issue_id: string; agent_id: string; agent_name: string }>)
