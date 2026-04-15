@@ -10,6 +10,7 @@ import { WorkspaceSidebar } from "@/components/thread/WorkspaceSidebar";
 import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { useProjectsWithAgents } from "@/hooks/useProjects";
 import { useThreadState } from "@/hooks/useThreadState";
+import { useSidebarStage } from "@/hooks/useSidebarStage";
 import type { Participant } from "@/lib/types";
 import {
   loadWorkspaceSidebarVisible,
@@ -106,6 +107,26 @@ function ProjectLayoutContent({
     },
     [pathname]
   );
+
+  // Progressive sidebar stage gating.
+  const { show: stageShow, loading: stageLoading } = useSidebarStage(currentProject);
+
+  // Redirect if the user is on a route hidden by the current stage.
+  useEffect(() => {
+    if (stageLoading || !currentProject) return;
+    const hiddenRouteMap: Record<string, keyof typeof stageShow> = {
+      objectives: "objectives",
+      linear: "linear",
+      automations: "scheduledTasks",
+      teams: "teams",
+      folders: "folders",
+      "env-vars": "envVars",
+    };
+    const requiredFlag = hiddenRouteMap[activeProjectView];
+    if (requiredFlag && !stageShow[requiredFlag]) {
+      router.replace(`/projects/${slug}`);
+    }
+  }, [stageLoading, stageShow, activeProjectView, slug, currentProject, router]);
 
   const toggleSidebar = () => {
     const next = !sidebarVisible;

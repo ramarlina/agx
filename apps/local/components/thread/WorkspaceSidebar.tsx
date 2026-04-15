@@ -29,6 +29,7 @@ import type { Participant } from "@/lib/types";
 import type { ProjectRepo, ProjectWithAgents, ProjectWithRepos, UpdateProjectPayload } from "@/hooks/useProjects";
 import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { useFocusManagement } from "@/hooks/useFocusManagement";
+import { useSidebarStage } from "@/hooks/useSidebarStage";
 import { agentAvatarUrl, AgentForm, type AgentFormData } from "@/components/chat-ui/ParticipantBar";
 import ProjectModal, { createProjectPayload, useProjectFormState } from "@/components/ProjectModal";
 import { readProjectObjectivesWorkspace } from "@/lib/project-objectives";
@@ -565,6 +566,8 @@ export function WorkspaceSidebar({
   const sortedWorkspaces = [...threads].sort((a, b) => (a.title ?? "").localeCompare(b.title ?? ""));
   const threadById = new Map(threads.map((thread) => [thread.id, thread]));
   const nonDefaultProjects = projectsProp.filter((project) => !project.is_default);
+  const selectedProject = nonDefaultProjects.find((p) => p.id === activeProjectId) ?? nonDefaultProjects[0] ?? null;
+  const { show: stageShow } = useSidebarStage(selectedProject);
 
   useEffect(() => {
     if (nonDefaultProjects.length === 0) {
@@ -724,8 +727,7 @@ export function WorkspaceSidebar({
       return null;
     }
 
-    const collapsedProject = nonDefaultProjects.find((p) => p.id === activeProjectId) ?? nonDefaultProjects[0];
-    const collapsedSlug = collapsedProject?.slug;
+    const collapsedSlug = selectedProject?.slug;
 
     return (
       <aside
@@ -753,23 +755,31 @@ export function WorkspaceSidebar({
               </Link>
             </RailTooltip>
 
-            <div className="workspace-sidebar__rail-separator" />
+            {(stageShow.objectives || stageShow.linear || stageShow.scheduledTasks) && (
+              <div className="workspace-sidebar__rail-separator" />
+            )}
 
-            <RailTooltip label="Objectives">
-              <Link href={`/projects/${collapsedSlug}/objectives`} className={`workspace-sidebar__rail-icon${activeProjectView === "objectives" ? " workspace-sidebar__rail-icon--active" : ""}`}>
-                <Target size={16} />
-              </Link>
-            </RailTooltip>
-            <RailTooltip label="Linear">
-              <Link href={`/projects/${collapsedSlug}/linear`} className={`workspace-sidebar__rail-icon${activeProjectView === "linear" ? " workspace-sidebar__rail-icon--active" : ""}`}>
-                <LinearIcon size={16} />
-              </Link>
-            </RailTooltip>
-            <RailTooltip label="Scheduled Tasks">
-              <Link href={`/projects/${collapsedSlug}/automations`} className={`workspace-sidebar__rail-icon${activeProjectView === "automations" ? " workspace-sidebar__rail-icon--active" : ""}`}>
-                <Zap size={16} />
-              </Link>
-            </RailTooltip>
+            {stageShow.objectives && (
+              <RailTooltip label="Objectives">
+                <Link href={`/projects/${collapsedSlug}/objectives`} className={`workspace-sidebar__rail-icon${activeProjectView === "objectives" ? " workspace-sidebar__rail-icon--active" : ""}`}>
+                  <Target size={16} />
+                </Link>
+              </RailTooltip>
+            )}
+            {stageShow.linear && (
+              <RailTooltip label="Linear">
+                <Link href={`/projects/${collapsedSlug}/linear`} className={`workspace-sidebar__rail-icon${activeProjectView === "linear" ? " workspace-sidebar__rail-icon--active" : ""}`}>
+                  <LinearIcon size={16} />
+                </Link>
+              </RailTooltip>
+            )}
+            {stageShow.scheduledTasks && (
+              <RailTooltip label="Scheduled Tasks">
+                <Link href={`/projects/${collapsedSlug}/automations`} className={`workspace-sidebar__rail-icon${activeProjectView === "automations" ? " workspace-sidebar__rail-icon--active" : ""}`}>
+                  <Zap size={16} />
+                </Link>
+              </RailTooltip>
+            )}
 
             <div className="workspace-sidebar__rail-separator" />
 
@@ -784,23 +794,31 @@ export function WorkspaceSidebar({
               </Link>
             </RailTooltip>
 
-            <div className="workspace-sidebar__rail-separator" />
+            {(stageShow.teams || stageShow.folders || stageShow.envVars) && (
+              <div className="workspace-sidebar__rail-separator" />
+            )}
 
-            <RailTooltip label="Teams">
-              <Link href={`/projects/${collapsedSlug}/teams`} className={`workspace-sidebar__rail-icon${activeProjectView === "teams" ? " workspace-sidebar__rail-icon--active" : ""}`}>
-                <Users size={16} />
-              </Link>
-            </RailTooltip>
-            <RailTooltip label="Folders">
-              <Link href={`/projects/${collapsedSlug}/folders`} className={`workspace-sidebar__rail-icon${activeProjectView === "folders" ? " workspace-sidebar__rail-icon--active" : ""}`}>
-                <FolderGit2 size={16} />
-              </Link>
-            </RailTooltip>
-            <RailTooltip label="Env Variables">
-              <Link href={`/projects/${collapsedSlug}/env-vars`} className={`workspace-sidebar__rail-icon${activeProjectView === "env-vars" ? " workspace-sidebar__rail-icon--active" : ""}`}>
-                <KeyRound size={16} />
-              </Link>
-            </RailTooltip>
+            {stageShow.teams && (
+              <RailTooltip label="Teams">
+                <Link href={`/projects/${collapsedSlug}/teams`} className={`workspace-sidebar__rail-icon${activeProjectView === "teams" ? " workspace-sidebar__rail-icon--active" : ""}`}>
+                  <Users size={16} />
+                </Link>
+              </RailTooltip>
+            )}
+            {stageShow.folders && (
+              <RailTooltip label="Folders">
+                <Link href={`/projects/${collapsedSlug}/folders`} className={`workspace-sidebar__rail-icon${activeProjectView === "folders" ? " workspace-sidebar__rail-icon--active" : ""}`}>
+                  <FolderGit2 size={16} />
+                </Link>
+              </RailTooltip>
+            )}
+            {stageShow.envVars && (
+              <RailTooltip label="Env Variables">
+                <Link href={`/projects/${collapsedSlug}/env-vars`} className={`workspace-sidebar__rail-icon${activeProjectView === "env-vars" ? " workspace-sidebar__rail-icon--active" : ""}`}>
+                  <KeyRound size={16} />
+                </Link>
+              </RailTooltip>
+            )}
           </nav>
         )}
 
@@ -876,7 +894,6 @@ export function WorkspaceSidebar({
         />
 
         {(() => {
-          const selectedProject = nonDefaultProjects.find((p) => p.id === activeProjectId) ?? nonDefaultProjects[0];
           if (!selectedProject) return null;
 
           const projectThreads = sortedWorkspaces.filter((thread) => selectedProject.thread_ids?.includes(thread.id));
@@ -892,11 +909,13 @@ export function WorkspaceSidebar({
           const isActiveProjectAutomations = isActiveProject && activeProjectView === "automations";
           const isActiveProjectTerminal = isActiveProject && activeProjectView === "terminal";
           const isActiveProjectThreads = isActiveProject && (activeProjectView === "threads" || activeProjectView === "thread");
-          const isActiveProjectThread = isActiveProject && activeProjectView === "thread" && primaryProjectThreadId === activeThreadId;
           const isActiveProjectTeams = isActiveProject && activeProjectView === "teams";
           const isActiveProjectFolders = isActiveProject && activeProjectView === "folders";
           const isActiveProjectEnvVars = isActiveProject && activeProjectView === "env-vars";
           const navActivity = navActivityByProject[selectedProject.id];
+
+          const showWorkGroup = stageShow.objectives || stageShow.linear || stageShow.scheduledTasks;
+          const showSettingsGroup = stageShow.teams || stageShow.folders || stageShow.envVars;
 
           return (
             <nav className="workspace-sidebar__section">
@@ -915,83 +934,96 @@ export function WorkspaceSidebar({
                 </div>
               </div>
 
-              {/* Work group */}
-              <div className="mb-3">
-                <div className="workspace-sidebar__section-header">
-                  <p className="workspace-sidebar__section-label">Work</p>
+              {/* Work group — visible from stage 2+ */}
+              {showWorkGroup && (
+                <div className="mb-3">
+                  <div className="workspace-sidebar__section-header">
+                    <p className="workspace-sidebar__section-label">Work</p>
+                  </div>
+                  <div className="px-2 flex flex-col gap-0.5">
+                    {stageShow.objectives && (
+                      <div className="workspace-sidebar__workspace-item">
+                        <Link
+                          href={`/projects/${selectedProject.slug}/objectives`}
+                          onClick={closeTouchDrawer}
+                          className={`workspace-sidebar__nav-item ${isActiveProjectObjectives ? "workspace-sidebar__nav-item--active" : ""}`}
+                          aria-current={isActiveProjectObjectives ? "page" : undefined}
+                        >
+                          <Target size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                          <span className="workspace-sidebar__workspace-title text-sm">Objectives</span>
+                          {stageShow.objectivesIsNew && (
+                            <span className="ml-auto inline-flex items-center rounded-full bg-indigo-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-indigo-500 animate-pulse">
+                              NEW
+                            </span>
+                          )}
+                          {!stageShow.objectivesIsNew && navActivity?.objectives.length > 0 && (
+                            <span className="inline-flex items-center -space-x-1 ml-auto shrink-0">
+                              {navActivity.objectives.slice(0, 3).map((dot) => {
+                                const agent = participants.find((p) => p.id === dot.agentId);
+                                return (
+                                  <span key={dot.agentId} className="relative inline-block" title={agent?.name}>
+                                    <img src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} className="h-3.5 w-3.5 rounded-full ring-[1.5px] ring-[var(--app-shell-pane)]" />
+                                    <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--app-shell-pane)]" />
+                                  </span>
+                                );
+                              })}
+                            </span>
+                          )}
+                        </Link>
+                      </div>
+                    )}
+                    {stageShow.linear && (
+                      <div className="workspace-sidebar__workspace-item group/linear flex items-center">
+                        <Link
+                          href={`/projects/${selectedProject.slug}/linear`}
+                          onClick={closeTouchDrawer}
+                          className={`workspace-sidebar__nav-item flex-1 ${isActiveProjectLinear ? "workspace-sidebar__nav-item--active" : ""}`}
+                          aria-current={isActiveProjectLinear ? "page" : undefined}
+                        >
+                          <LinearIcon size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                          <span className="workspace-sidebar__workspace-title text-sm">Linear</span>
+                          {navActivity?.linear.length > 0 && (
+                            <span className="inline-flex items-center -space-x-1 ml-auto shrink-0">
+                              {navActivity.linear.slice(0, 3).map((dot) => {
+                                const agent = participants.find((p) => p.id === dot.agentId);
+                                return (
+                                  <span key={dot.agentId} className="relative inline-block" title={agent?.name}>
+                                    <img src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} className="h-3.5 w-3.5 rounded-full ring-[1.5px] ring-[var(--app-shell-pane)]" />
+                                    <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--app-shell-pane)]" />
+                                  </span>
+                                );
+                              })}
+                            </span>
+                          )}
+                        </Link>
+                        <Link
+                          href={`/projects/${selectedProject.slug}/linear?settings=true`}
+                          onClick={closeTouchDrawer}
+                          className="flex h-5 w-5 items-center justify-center rounded opacity-0 group-hover/linear:opacity-100 hover:bg-[var(--sidebar-hover)] transition-opacity"
+                          title="Linear settings"
+                        >
+                          <Settings size={11} className="text-[var(--muted-foreground)]" />
+                        </Link>
+                      </div>
+                    )}
+                    {stageShow.scheduledTasks && (
+                      <div className="workspace-sidebar__workspace-item">
+                        <Link
+                          href={`/projects/${selectedProject.slug}/automations`}
+                          onClick={closeTouchDrawer}
+                          className={`workspace-sidebar__nav-item ${isActiveProjectAutomations ? "workspace-sidebar__nav-item--active" : ""}`}
+                          aria-current={isActiveProjectAutomations ? "page" : undefined}
+                        >
+                          <Zap size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                          <span className="workspace-sidebar__workspace-title text-sm">Scheduled Tasks</span>
+                        </Link>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="px-2 flex flex-col gap-0.5">
-                  <div className="workspace-sidebar__workspace-item">
-                    <Link
-                      href={`/projects/${selectedProject.slug}/objectives`}
-                      onClick={closeTouchDrawer}
-                      className={`workspace-sidebar__nav-item ${isActiveProjectObjectives ? "workspace-sidebar__nav-item--active" : ""}`}
-                      aria-current={isActiveProjectObjectives ? "page" : undefined}
-                    >
-                      <Target size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                      <span className="workspace-sidebar__workspace-title text-sm">Objectives</span>
-                      {navActivity?.objectives.length > 0 && (
-                        <span className="inline-flex items-center -space-x-1 ml-auto shrink-0">
-                          {navActivity.objectives.slice(0, 3).map((dot) => {
-                            const agent = participants.find((p) => p.id === dot.agentId);
-                            return (
-                              <span key={dot.agentId} className="relative inline-block" title={agent?.name}>
-                                <img src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} className="h-3.5 w-3.5 rounded-full ring-[1.5px] ring-[var(--app-shell-pane)]" />
-                                <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--app-shell-pane)]" />
-                              </span>
-                            );
-                          })}
-                        </span>
-                      )}
-                    </Link>
-                  </div>
-                  <div className="workspace-sidebar__workspace-item group/linear flex items-center">
-                    <Link
-                      href={`/projects/${selectedProject.slug}/linear`}
-                      onClick={closeTouchDrawer}
-                      className={`workspace-sidebar__nav-item flex-1 ${isActiveProjectLinear ? "workspace-sidebar__nav-item--active" : ""}`}
-                      aria-current={isActiveProjectLinear ? "page" : undefined}
-                    >
-                      <LinearIcon size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                      <span className="workspace-sidebar__workspace-title text-sm">Linear</span>
-                      {navActivity?.linear.length > 0 && (
-                        <span className="inline-flex items-center -space-x-1 ml-auto shrink-0">
-                          {navActivity.linear.slice(0, 3).map((dot) => {
-                            const agent = participants.find((p) => p.id === dot.agentId);
-                            return (
-                              <span key={dot.agentId} className="relative inline-block" title={agent?.name}>
-                                <img src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} className="h-3.5 w-3.5 rounded-full ring-[1.5px] ring-[var(--app-shell-pane)]" />
-                                <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--app-shell-pane)]" />
-                              </span>
-                            );
-                          })}
-                        </span>
-                      )}
-                    </Link>
-                    <Link
-                      href={`/projects/${selectedProject.slug}/linear?settings=true`}
-                      onClick={closeTouchDrawer}
-                      className="flex h-5 w-5 items-center justify-center rounded opacity-0 group-hover/linear:opacity-100 hover:bg-[var(--sidebar-hover)] transition-opacity"
-                      title="Linear settings"
-                    >
-                      <Settings size={11} className="text-[var(--muted-foreground)]" />
-                    </Link>
-                  </div>
-                  <div className="workspace-sidebar__workspace-item">
-                    <Link
-                      href={`/projects/${selectedProject.slug}/automations`}
-                      onClick={closeTouchDrawer}
-                      className={`workspace-sidebar__nav-item ${isActiveProjectAutomations ? "workspace-sidebar__nav-item--active" : ""}`}
-                      aria-current={isActiveProjectAutomations ? "page" : undefined}
-                    >
-                      <Zap size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                      <span className="workspace-sidebar__workspace-title text-sm">Scheduled Tasks</span>
-                    </Link>
-                  </div>
-                </div>
-              </div>
+              )}
 
-              {/* Tools group */}
+              {/* Tools group — always visible */}
               <div className="mb-3">
                 <div className="workspace-sidebar__section-header">
                   <p className="workspace-sidebar__section-label">Tools</p>
@@ -1035,47 +1067,55 @@ export function WorkspaceSidebar({
                 </div>
               </div>
 
-              {/* Settings group */}
-              <div className="mb-3">
-                <div className="workspace-sidebar__section-header">
-                  <p className="workspace-sidebar__section-label">Settings</p>
+              {/* Settings group — visible from stage 3+ */}
+              {showSettingsGroup && (
+                <div className="mb-3">
+                  <div className="workspace-sidebar__section-header">
+                    <p className="workspace-sidebar__section-label">Settings</p>
+                  </div>
+                  <div className="px-2 flex flex-col gap-0.5">
+                    {stageShow.teams && (
+                      <div className="workspace-sidebar__workspace-item">
+                        <Link
+                          href={`/projects/${selectedProject.slug}/teams`}
+                          onClick={closeTouchDrawer}
+                          className={`workspace-sidebar__nav-item ${isActiveProjectTeams ? "workspace-sidebar__nav-item--active" : ""}`}
+                          aria-current={isActiveProjectTeams ? "page" : undefined}
+                        >
+                          <Users size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                          <span className="workspace-sidebar__workspace-title text-sm">Teams</span>
+                        </Link>
+                      </div>
+                    )}
+                    {stageShow.folders && (
+                      <div className="workspace-sidebar__workspace-item">
+                        <Link
+                          href={`/projects/${selectedProject.slug}/folders`}
+                          onClick={closeTouchDrawer}
+                          className={`workspace-sidebar__nav-item ${isActiveProjectFolders ? "workspace-sidebar__nav-item--active" : ""}`}
+                          aria-current={isActiveProjectFolders ? "page" : undefined}
+                        >
+                          <FolderGit2 size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                          <span className="workspace-sidebar__workspace-title text-sm">Folders</span>
+                        </Link>
+                      </div>
+                    )}
+                    {stageShow.envVars && (
+                      <div className="workspace-sidebar__workspace-item">
+                        <Link
+                          href={`/projects/${selectedProject.slug}/env-vars`}
+                          onClick={closeTouchDrawer}
+                          className={`workspace-sidebar__nav-item ${isActiveProjectEnvVars ? "workspace-sidebar__nav-item--active" : ""}`}
+                          aria-current={isActiveProjectEnvVars ? "page" : undefined}
+                        >
+                          <KeyRound size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                          <span className="workspace-sidebar__workspace-title text-sm">Environment Variables</span>
+                        </Link>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="px-2 flex flex-col gap-0.5">
-                  <div className="workspace-sidebar__workspace-item">
-                    <Link
-                      href={`/projects/${selectedProject.slug}/teams`}
-                      onClick={closeTouchDrawer}
-                      className={`workspace-sidebar__nav-item ${isActiveProjectTeams ? "workspace-sidebar__nav-item--active" : ""}`}
-                      aria-current={isActiveProjectTeams ? "page" : undefined}
-                    >
-                      <Users size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                      <span className="workspace-sidebar__workspace-title text-sm">Teams</span>
-                    </Link>
-                  </div>
-                  <div className="workspace-sidebar__workspace-item">
-                    <Link
-                      href={`/projects/${selectedProject.slug}/folders`}
-                      onClick={closeTouchDrawer}
-                      className={`workspace-sidebar__nav-item ${isActiveProjectFolders ? "workspace-sidebar__nav-item--active" : ""}`}
-                      aria-current={isActiveProjectFolders ? "page" : undefined}
-                    >
-                      <FolderGit2 size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                      <span className="workspace-sidebar__workspace-title text-sm">Folders</span>
-                    </Link>
-                  </div>
-                  <div className="workspace-sidebar__workspace-item">
-                    <Link
-                      href={`/projects/${selectedProject.slug}/env-vars`}
-                      onClick={closeTouchDrawer}
-                      className={`workspace-sidebar__nav-item ${isActiveProjectEnvVars ? "workspace-sidebar__nav-item--active" : ""}`}
-                      aria-current={isActiveProjectEnvVars ? "page" : undefined}
-                    >
-                      <KeyRound size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                      <span className="workspace-sidebar__workspace-title text-sm">Environment Variables</span>
-                    </Link>
-                  </div>
-                </div>
-              </div>
+              )}
             </nav>
           );
         })()}
