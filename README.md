@@ -1,6 +1,6 @@
 <p align="center">
   <br>
-  <img src="agx_icon.png" width="160" alt="AGX Icon">
+  <img src="agx_icon.png" width="128" alt="AGX Icon">
 </p>
 
 <h3 align="center">AI coding agents forget everything between sessions.<br>AGX fixes that.</h3>
@@ -24,7 +24,7 @@ agx init
 
 <p align="center">
   <a href="https://github.com/ramarlina/agx">
-    <img src="agx_chat.jpg" alt="AGX — chat with agents, approve before they act" width="100%">
+    <img src="agx-chat-to-tasks.gif" alt="AGX — chat with agents, create tasks, approve before they act" width="100%">
   </a>
 </p>
 
@@ -34,8 +34,7 @@ agx init
   <a href="#get-agx">Install</a> •
   <a href="#what-you-get">Features</a> •
   <a href="#how-it-works">How It Works</a> •
-  <a href="#cli">CLI</a> •
-  <a href="#development">Development</a>
+  <a href="#cli-quick-reference">CLI</a>
 </p>
 
 ---
@@ -67,13 +66,16 @@ agx board start            # Open the local dashboard
 
 Download from [Releases](https://github.com/ramarlina/agx/releases). Bundles the UI, CLI, and Node runtime — install and go.
 
-### From Source
+<details>
+<summary>Build from source</summary>
 
 ```bash
 git clone https://github.com/ramarlina/agx.git
 cd agx && npm install
 npm run local:dev          # Run the dashboard in dev mode
 ```
+
+</details>
 
 ---
 
@@ -86,75 +88,6 @@ npm run local:dev          # Run the dashboard in dev mode
 - **Agent teams** — Group agents by role (engineering, research, ops). Tasks route automatically by tag.
 - **Live presence** — See which agents are active in the sidebar, on projects, and on Linear issues in real time.
 - **Fully local** — Runs on your machine. Your code never leaves. Full execution logs, task signing, destructive-command safeguards.
-
----
-
-## CLI
-
-The CLI manages tasks, runs agents, and controls the dashboard.
-
-### Setup
-
-```bash
-agx init                       # First-time setup wizard
-agx config                     # Reconfigure providers, models, backend URL
-```
-
-### Tasks
-
-```bash
-agx new "<goal>"                                 # Create a new task
-agx run <task_id>                               # Run a specific task
-agx status [task-id-or-slug]                    # Show status
-agx retry <task_id-or-slug> [--from <stage>]    # Reset + retry
-agx approve <task> [--node <node-id>] [-m "feedback"]  # Approve a gate
-agx reject <task> [--node <node-id>] [-m "feedback"]   # Reject a gate
-agx deps <task> [--depends-on <task> ... | --clear]    # Manage dependencies
-```
-
-### Projects & Repos
-
-```bash
-agx project list                           # List projects
-agx repo add . --project my-project        # Analyze current repo and attach it
-agx repo add ../service --project my-project --name API
-```
-
-### Environment Variables
-
-```bash
-agx vars set API_URL https://example.com    # Set a variable
-agx vars get API_URL                        # Get a variable
-agx vars list                               # List all variables
-```
-
-### One-Shot Mode
-
-```bash
-agx -p "Explain this error"
-agx claude -p "Refactor this function"
-agx codex -p "Propose a migration plan"
-```
-
-### Providers
-
-| Provider | Alias | Command      |
-| -------- | ----- | ------------ |
-| Claude   | `c`   | `agx claude` |
-| Codex    | `x`   | `agx codex`  |
-| Gemini   | `g`   | `agx gemini` |
-| Ollama   | `o`   | `agx ollama` |
-
-### Key Flags
-
-```bash
--p, --prompt        # Task goal
--P, --provider      # c | x | g | o
--m, --model         # Explicit model for provider commands
--a, --autonomous    # Create task + start daemon + run until done
--y, --yolo          # Skip confirmations during execution (implied by -a)
---swarm             # Multi-agent swarm execution mode
-```
 
 ---
 
@@ -190,20 +123,86 @@ Resuming is constant-cost. A task that ran for a week resumes as fast as one tha
 
 ---
 
+## CLI Quick Reference
+
+```bash
+agx new "build login page"       # Create a task
+agx run <id>                     # Run it
+agx status                       # Check progress
+agx approve <id>                 # Approve a human gate
+```
+
+| Provider | Alias | Command |
+|----------|-------|---------|
+| Claude | `c` | `agx claude -p "..."` |
+| Codex | `x` | `agx codex -p "..."` |
+| Gemini | `g` | `agx gemini -p "..."` |
+| Ollama | `o` | `agx ollama -p "..."` |
+
+| Flag | Purpose |
+|------|---------|
+| `-p` | Task goal / prompt |
+| `-a` | Autonomous mode (create + run until done) |
+| `-y` | Skip confirmations |
+| `--swarm` | Multi-agent execution |
+
+<details>
+<summary>Full CLI reference</summary>
+
+### Tasks
+
+```bash
+agx new "<goal>"                                 # Create a new task
+agx run <task_id>                               # Run a specific task
+agx status [task-id-or-slug]                    # Show status
+agx retry <task_id-or-slug> [--from <stage>]    # Reset + retry
+agx approve <task> [--node <node-id>] [-m "feedback"]  # Approve a gate
+agx reject <task> [--node <node-id>] [-m "feedback"]   # Reject a gate
+agx deps <task> [--depends-on <task> ... | --clear]    # Manage dependencies
+```
+
+### Projects & Repos
+
+```bash
+agx project list                           # List projects
+agx repo add . --project my-project        # Analyze current repo and attach it
+agx repo add ../service --project my-project --name API
+```
+
+### Environment Variables
+
+```bash
+agx vars set API_URL https://example.com    # Set a variable
+agx vars get API_URL                        # Get a variable
+agx vars list                               # List all variables
+```
+
+### Setup
+
+```bash
+agx init                       # First-time setup wizard
+agx config                     # Reconfigure providers, models, backend URL
+```
+
+</details>
+
+---
+
 ## Prerequisites
 
 - **Node.js** >= 22.16.0 (CLI install only; desktop app bundles its own runtime)
 - **At least one AI provider CLI:**
-  - [Claude Code](https://docs.anthropic.com/claude/docs/claude-cli)
-  - [OpenAI Codex CLI](https://www.npmjs.com/package/@openai/codex)
-  - [Gemini CLI](https://ai.google.dev/gemini-api/docs/cli)
-  - [Ollama](https://ollama.ai/)
+  [Claude Code](https://docs.anthropic.com/claude/docs/claude-cli) ·
+  [Codex CLI](https://www.npmjs.com/package/@openai/codex) ·
+  [Gemini CLI](https://ai.google.dev/gemini-api/docs/cli) ·
+  [Ollama](https://ollama.ai/)
 
 No external database required. AGX uses SQLite locally.
 
 ---
 
-## Development
+<details>
+<summary><strong>Development</strong></summary>
 
 This repo is an npm workspace. CLI, dashboard, and desktop app all live here — clone once, run everything.
 
@@ -247,9 +246,10 @@ npm run build:mac        # Build the macOS .app + .dmg
 * **Runtime:** Node.js (TypeScript / `tsx`)
 * **Streaming:** EventSource (CLI → board)
 
----
+</details>
 
-## Contributing
+<details>
+<summary><strong>Contributing</strong></summary>
 
 Contributions welcome.
 
@@ -257,9 +257,10 @@ Contributions welcome.
 * **Bugs & features:** GitHub Issues
 * **PRs:** Fork `main`, add tests, submit
 
----
+</details>
 
-## Telemetry
+<details>
+<summary><strong>Telemetry</strong></summary>
 
 **Telemetry is enabled by default.**
 
@@ -284,6 +285,8 @@ agx telemetry off
 # or: export AGX_TELEMETRY=0
 # or: ~/.agx/config.json → { "telemetry": { "enabled": false } }
 ```
+
+</details>
 
 ---
 
