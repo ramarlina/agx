@@ -1,10 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import type { TerminalStatus } from "@/lib/terminal-types";
 import "@xterm/xterm/css/xterm.css";
+
+export interface TerminalPaneHandle {
+  /** Send raw input bytes to the PTY (e.g. "\x03" for Ctrl+C) */
+  sendInput: (data: string) => void;
+  /** Clear the xterm screen */
+  clear: () => void;
+  /** Ctrl+C ×2 → wait 400 ms → clear → send command\r  (same pattern as EmbeddedTerminal) */
+  sendCommand: (command: string) => void;
+}
 
 interface TerminalPaneProps {
   sessionId?: string;
@@ -14,12 +23,12 @@ interface TerminalPaneProps {
   onStatusChange?: (status: TerminalStatus) => void;
 }
 
-export default function TerminalPane({
+const TerminalPane = forwardRef<TerminalPaneHandle, TerminalPaneProps>(function TerminalPane({
   tabId,
   onTitleChange,
   onSessionReady,
   onStatusChange,
-}: TerminalPaneProps) {
+}: TerminalPaneProps, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -41,6 +50,31 @@ export default function TerminalPane({
     },
     [],
   );
+
+  const hasRunCommandRef = useRef(false);
+
+  const sendInputImperative = useCallback((data: string) => {
+    sendMessage({ type: "data", data });
+  }, [sendMessage]);
+
+  useImperativeHandle(ref, () => ({
+    sendInput: sendInputImperative,
+    clear: () => terminalRef.current?.clear(),
+    sendCommand: (command: string) => {
+      if (!hasRunCommandRef.current) {
+        terminalRef.current?.clear();
+        sendInputImperative(command + "\r");
+        hasRunCommandRef.current = true;
+      } else {
+        sendInputImperative("\x03");
+        setTimeout(() => sendInputImperative("\x03"), 100);
+        setTimeout(() => {
+          terminalRef.current?.clear();
+          sendInputImperative(command + "\r");
+        }, 400);
+      }
+    },
+  }), [sendInputImperative]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -282,4 +316,6 @@ export default function TerminalPane({
       />
     </div>
   );
-}
+});
+
+export default TerminalPane;

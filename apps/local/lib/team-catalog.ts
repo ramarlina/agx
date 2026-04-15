@@ -70,7 +70,7 @@ export interface SkillProfile {
 export interface AgentPreset {
   id: AgentPresetId;
   name: string;
-  title: string;
+  role: string;
   style: AgentStyle;
   skillProfileId: SkillProfileId;
   identity: string;
@@ -200,8 +200,8 @@ const NEXT_JS_UI: SkillReference[] = [
 const agentPresetsData: Record<AgentPresetId, Omit<AgentPreset, "id">> = {
   // Leadership & strategy
   "team-lead": {
-    name: "Team Lead",
-    title: "Team Lead",
+    name: "Ada",
+    role: "Team Lead",
     style: "balanced",
     skillProfileId: "strategist-lead",
     identity: "Own technical direction, break ambiguous work into executable plans, and keep the squad aligned on delivery.",
@@ -209,59 +209,59 @@ const agentPresetsData: Record<AgentPresetId, Omit<AgentPreset, "id">> = {
 
   // Builders
   "fullstack-engineer": {
-    name: "Fullstack Engineer",
-    title: "Senior Fullstack Engineer",
+    name: "Kai",
+    role: "Senior Fullstack Engineer",
     style: "balanced",
     skillProfileId: "senior-builder",
     identity: "Ship features end-to-end across frontend and backend with pragmatic tradeoffs and clean boundaries.",
     extraSkills: NEXT_JS_FULL,
   },
   "backend-engineer": {
-    name: "Backend Engineer",
-    title: "Senior Backend Engineer",
+    name: "Ravi",
+    role: "Senior Backend Engineer",
     style: "specialist",
     skillProfileId: "senior-builder",
     identity: "Own backend contracts, data integrity, and safe delivery under real production constraints.",
   },
   "frontend-engineer": {
-    name: "Frontend Engineer",
-    title: "Senior Frontend Engineer",
+    name: "Mira",
+    role: "Senior Frontend Engineer",
     style: "balanced",
     skillProfileId: "senior-builder",
     identity: "Own product-facing UI quality, interaction design fidelity, and maintainable front-end architecture.",
     extraSkills: NEXT_JS_FULL,
   },
   "data-engineer": {
-    name: "Data Engineer",
-    title: "Data Engineer",
+    name: "Nia",
+    role: "Data Engineer",
     style: "specialist",
     skillProfileId: "senior-builder",
     identity: "Build reliable data pipelines, schemas, and transformations with a bias toward traceability.",
   },
   "ml-engineer": {
-    name: "ML Engineer",
-    title: "ML Engineer",
+    name: "Luca",
+    role: "ML Engineer",
     style: "specialist",
     skillProfileId: "senior-builder",
     identity: "Ship model-backed systems pragmatically, with evaluation, rollback paths, and tight production feedback.",
   },
   "devops-engineer": {
-    name: "DevOps Engineer",
-    title: "DevOps Engineer",
+    name: "Juno",
+    role: "DevOps Engineer",
     style: "specialist",
     skillProfileId: "senior-builder",
     identity: "Own delivery automation, deployment safety, and infrastructure changes that must fail predictably.",
   },
   "security-engineer": {
-    name: "Security Engineer",
-    title: "Security Engineer",
+    name: "Iris",
+    role: "Security Engineer",
     style: "conservative",
     skillProfileId: "senior-builder",
     identity: "Harden trust boundaries, implement secure defaults, and turn vague risk into concrete engineering requirements.",
   },
   "ui-designer": {
-    name: "UI Designer",
-    title: "UI Designer",
+    name: "Theo",
+    role: "UI Designer",
     style: "specialist",
     skillProfileId: "builder",
     identity: "Refine interfaces into consistent, high-signal UI systems that are practical to build and maintain.",
@@ -270,22 +270,22 @@ const agentPresetsData: Record<AgentPresetId, Omit<AgentPreset, "id">> = {
 
   // Quality & review
   "qa-engineer": {
-    name: "QA Engineer",
-    title: "QA Engineer",
+    name: "Sana",
+    role: "QA Engineer",
     style: "conservative",
     skillProfileId: "reviewer",
     identity: "Find regressions early, tighten acceptance boundaries, and force evidence before release claims.",
   },
   sre: {
-    name: "SRE",
-    title: "Site Reliability Engineer",
+    name: "Dax",
+    role: "Site Reliability Engineer",
     style: "conservative",
     skillProfileId: "reviewer",
     identity: "Guard uptime, incident readiness, and operational correctness by challenging risky assumptions early.",
   },
   "pen-tester": {
-    name: "Pen Tester",
-    title: "Penetration Tester",
+    name: "Vega",
+    role: "Penetration Tester",
     style: "specialist",
     skillProfileId: "reviewer",
     identity: "Probe the system as an adversary, find exploit paths, and make the attack surface legible to builders.",
@@ -293,50 +293,50 @@ const agentPresetsData: Record<AgentPresetId, Omit<AgentPreset, "id">> = {
 
   // Planning & research
   "product-manager": {
-    name: "Product Manager",
-    title: "Product Manager",
+    name: "Sage",
+    role: "Product Manager",
     style: "balanced",
     skillProfileId: "planner",
     identity: "Turn ambiguous requests into scoped bets, crisp plans, and explicit tradeoffs the team can execute.",
   },
   "ux-designer": {
-    name: "UX Designer",
-    title: "UX Designer",
+    name: "Yara",
+    role: "UX Designer",
     style: "balanced",
     skillProfileId: "planner",
     identity: "Clarify user intent, reduce friction in flows, and turn product goals into coherent interaction design.",
   },
   "technical-writer": {
-    name: "Technical Writer",
-    title: "Technical Writer",
+    name: "Orin",
+    role: "Technical Writer",
     style: "balanced",
     skillProfileId: "planner",
     identity: "Turn complex implementation detail into clear docs, rollout notes, and operational guidance.",
   },
   "growth-marketer": {
-    name: "Growth Marketer",
-    title: "Growth Marketer",
+    name: "Zed",
+    role: "Growth Marketer",
     style: "balanced",
     skillProfileId: "strategist-lead",
     identity: "Design growth experiments with clear hypotheses, sequencing, and measurable outcomes.",
   },
   analyst: {
-    name: "Analyst",
-    title: "Product Analyst",
+    name: "Piper",
+    role: "Product Analyst",
     style: "specialist",
     skillProfileId: "researcher",
     identity: "Ground decisions in evidence, identify gaps in the brief, and surface the signal behind user behavior.",
   },
   "content-writer": {
-    name: "Content Writer",
-    title: "Content Strategist",
+    name: "Wren",
+    role: "Content Strategist",
     style: "balanced",
     skillProfileId: "researcher",
     identity: "Translate product and audience insight into clear narratives, launch copy, and feedback loops.",
   },
   researcher: {
-    name: "Researcher",
-    title: "Researcher",
+    name: "Ezra",
+    role: "Researcher",
     style: "balanced",
     skillProfileId: "researcher",
     identity: "Map fast-changing domains, synthesize evidence, and surface the governing model behind decisions.",
@@ -344,15 +344,15 @@ const agentPresetsData: Record<AgentPresetId, Omit<AgentPreset, "id">> = {
 
   // Marketing & comms
   "marketing-strategist": {
-    name: "Marketing Strategist",
-    title: "Marketing Strategist",
+    name: "Finn",
+    role: "Marketing Strategist",
     style: "balanced",
     skillProfileId: "strategist-lead",
     identity: "Own brand positioning, campaign strategy, and channel mix with measurable conversion targets.",
   },
   copywriter: {
-    name: "Copywriter",
-    title: "Copywriter",
+    name: "Blair",
+    role: "Copywriter",
     style: "balanced",
     skillProfileId: "researcher",
     identity: "Craft clear, persuasive copy that serves both the reader and the business goal.",
@@ -360,15 +360,15 @@ const agentPresetsData: Record<AgentPresetId, Omit<AgentPreset, "id">> = {
 
   // Support
   "support-engineer": {
-    name: "Support Engineer",
-    title: "Support Engineer",
+    name: "Gwen",
+    role: "Support Engineer",
     style: "balanced",
     skillProfileId: "builder",
     identity: "Diagnose customer issues fast, escalate with precision, and turn patterns into preventive fixes.",
   },
   "support-lead": {
-    name: "Support Lead",
-    title: "Support Lead",
+    name: "Eli",
+    role: "Support Lead",
     style: "balanced",
     skillProfileId: "planner",
     identity: "Triage incoming issues, route to the right responder, and track resolution quality.",
@@ -376,15 +376,15 @@ const agentPresetsData: Record<AgentPresetId, Omit<AgentPreset, "id">> = {
 
   // DevRel
   "devrel-engineer": {
-    name: "DevRel Engineer",
-    title: "Developer Relations Engineer",
+    name: "Milo",
+    role: "Developer Relations Engineer",
     style: "balanced",
     skillProfileId: "senior-builder",
     identity: "Build sample apps, integrations, and tooling that make the platform easy to adopt.",
   },
   "community-manager": {
-    name: "Community Manager",
-    title: "Community Manager",
+    name: "Uma",
+    role: "Community Manager",
     style: "balanced",
     skillProfileId: "planner",
     identity: "Grow and engage the developer community through events, content, and feedback loops.",
@@ -392,15 +392,15 @@ const agentPresetsData: Record<AgentPresetId, Omit<AgentPreset, "id">> = {
 
   // Operations
   "ops-engineer": {
-    name: "Ops Engineer",
-    title: "Operations Engineer",
+    name: "Nate",
+    role: "Operations Engineer",
     style: "specialist",
     skillProfileId: "senior-builder",
     identity: "Automate operational workflows, reduce toil, and keep internal tooling reliable.",
   },
   "project-manager": {
-    name: "Project Manager",
-    title: "Project Manager",
+    name: "Quinn",
+    role: "Project Manager",
     style: "balanced",
     skillProfileId: "planner",
     identity: "Track milestones, remove blockers, and keep cross-team delivery on schedule.",
@@ -408,15 +408,15 @@ const agentPresetsData: Record<AgentPresetId, Omit<AgentPreset, "id">> = {
 
   // Additional engineering presets
   "solutions-architect": {
-    name: "Solutions Architect",
-    title: "Solutions Architect",
+    name: "Cass",
+    role: "Solutions Architect",
     style: "balanced",
     skillProfileId: "strategist-lead",
     identity: "Design system-level architectures, evaluate tradeoffs, and guide teams through technical decisions.",
   },
   "mobile-engineer": {
-    name: "Mobile Engineer",
-    title: "Senior Mobile Engineer",
+    name: "Rio",
+    role: "Senior Mobile Engineer",
     style: "balanced",
     skillProfileId: "senior-builder",
     identity: "Ship native and cross-platform mobile experiences with attention to performance and platform conventions.",
@@ -505,7 +505,7 @@ const teamTemplatesData: TeamTemplate[] = [
     id: "growth",
     name: "Growth",
     description: "Experiment and content team for acquisition, activation, and learning loops.",
-    icon: "megaphone",
+    icon: "trending-up",
     agents: [preset("team-lead"), preset("growth-marketer"), preset("content-writer")],
   },
   {

@@ -26,7 +26,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 type RequestedAgent = {
   preset: AgentPreset;
   name?: string;
-  title?: string;
+  role?: string;
   identity?: string;
   provider?: string;
   model?: string;
@@ -125,7 +125,7 @@ function resolveRequestedAgents(value: unknown): { agents?: RequestedAgent[]; er
     resolved.push({
       preset,
       name: toOptionalString(obj.name),
-      title: toOptionalString(obj.title),
+      role: toOptionalString(obj.role),
       identity: toOptionalString(obj.identity),
       provider: toOptionalString(obj.provider),
       model: toOptionalString(obj.model),
@@ -143,7 +143,7 @@ async function provisionAgent(requested: RequestedAgent, projectId: string, team
   const identity = requested.identity ?? preset.identity;
   const agent = await createAgent(LOCAL_USER.id, {
     name: requested.name ?? preset.name,
-    title: requested.title ?? preset.title,
+    role: requested.role ?? preset.role,
     style: preset.style,
     description: identity,
     voice: identity,

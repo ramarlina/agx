@@ -89,7 +89,7 @@ function scoreAgentMatch(
   agent: {
     id?: string | null;
     name: string;
-    title?: string | null;
+    role?: string | null;
     teamName?: string | null;
   },
 ): number {
@@ -113,7 +113,7 @@ function scoreAgentMatch(
     query,
     agent.id,
     agent.name,
-    agent.title,
+    agent.role,
     agent.teamName,
   );
 }
@@ -271,7 +271,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
     .filter((agent) => projectAgentIds.has(agent.id))
     .filter((agent) => {
       const primaryTeam = primaryTeamByAgentId.get(agent.id);
-      return matchesQuery(query, agent.id, agent.name, agent.title, primaryTeam?.teamName);
+      return matchesQuery(query, agent.id, agent.name, agent.role, primaryTeam?.teamName);
     })
     .sort(
       (left, right) => {
@@ -281,13 +281,13 @@ export async function GET(request: NextRequest, context: RouteContext) {
           scoreAgentMatch(query, {
             id: left.id,
             name: left.name,
-            title: left.title,
+            role: left.role,
             teamName: leftPrimaryTeam?.teamName,
           }) -
           scoreAgentMatch(query, {
             id: right.id,
             name: right.name,
-            title: right.title,
+            role: right.role,
             teamName: rightPrimaryTeam?.teamName,
           })
         );
@@ -301,7 +301,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
       title: agent.name,
       context:
         primaryTeamByAgentId.get(agent.id)?.teamName ??
-        agent.title ??
+        agent.role ??
         agent.provider ??
         undefined,
       description: shorten(cleanText(agent.identity || agent.model || ""), 120) || undefined,

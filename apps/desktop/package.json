@@ -1,6 +1,6 @@
 {
   "name": "@mndrk/agx-desktop",
-  "version": "2.2.3",
+  "version": "2.3.1",
   "private": true,
   "description": "Desktop app for agx — bundles the dashboard, server, and CLI",
   "author": "Mendrika Ramarlina",
@@ -12,7 +12,7 @@
     "build:cli": "node scripts/bundle-cli.js",
     "build:node": "node scripts/bundle-node.js",
     "build": "npm run build:icon && npm run build:next && npm run build:cli && npm run build:node && electron-builder && node scripts/post-pack.js",
-    "build:mac": "npm run build:icon && npm run build:next && npm run build:cli && npm run build:node && node -e \"require('dotenv').config();const{execSync}=require('child_process');execSync('electron-builder --mac',{stdio:'inherit',env:{...process.env}})\" && node scripts/post-pack.js",
+    "build:mac": "npm run build:icon && npm run build:next && npm run build:cli && npm run build:node && node -e \"require('dotenv').config();const{execSync}=require('child_process');execSync('electron-builder --mac --publish never',{stdio:'inherit',env:{...process.env}})\" && node scripts/post-pack.js",
     "notarize:mac:submit": "node scripts/notarize-mac.js submit",
     "notarize:mac:wait": "node scripts/notarize-mac.js wait",
     "notarize:mac": "npm run notarize:mac:submit && npm run notarize:mac:wait",

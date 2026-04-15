@@ -897,7 +897,7 @@ export default function AgentLibraryPage() {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 id, name: data.name, provider: data.provider, model: data.model, color: data.color ?? color,
-                ...(data.title ? { title: data.title } : {}),
+                ...(data.role ? { role: data.role } : {}),
                 ...(data.identity ? { identity: data.identity } : {}),
                 skills: data.skills ?? [],
                 skillBindings: data.skillBindings ?? [],
@@ -928,7 +928,7 @@ export default function AgentLibraryPage() {
           title="Edit agent"
           initial={{
             name: editAgent.name,
-            title: editAgent.title || "",
+            role: editAgent.role || "",
             provider: editAgent.provider,
             model: editAgent.model || "",
             identity: editAgent.identity || "",
@@ -955,7 +955,7 @@ export default function AgentLibraryPage() {
               body: JSON.stringify({
                 id: editAgent.id,
                 name: data.name,
-                title: data.title || null,
+                role: data.role || null,
                 provider: data.provider,
                 model: data.model,
                 color: data.color,

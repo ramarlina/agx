@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { useTerminalTabsStore } from "@/state/terminalTabs";
@@ -11,13 +11,9 @@ import {
   type TerminalInstance,
   type TerminalStatus,
 } from "@/lib/terminal-types";
-import { MoveDiagonal, Pencil, Plus, Terminal, X } from "lucide-react";
+import { Pencil, Plus, Terminal, X } from "lucide-react";
 
-const GRID_GAP_PX = 12;
-const GRID_DESKTOP_BREAKPOINT_PX = 960;
-const GRID_MAX_ROW_SPAN = 4;
-const GRID_MIN_ROW_HEIGHT_PX = 320;
-const GRID_MAX_ROW_HEIGHT_PX = 520;
+const GRID_MIN_TERMINAL_WIDTH_PX = 480;
 
 const DEFAULT_PROJECT_KEY = "__global__";
 
@@ -25,20 +21,6 @@ type EditingTerminal = {
   sessionId: string;
   terminalId: string;
 };
-
-type ResizeState = {
-  sessionId: string;
-  terminalId: string;
-  startX: number;
-  startY: number;
-  startColSpan: number;
-  startRowSpan: number;
-  containerWidth: number;
-  columns: number;
-  rowHeight: number;
-};
-
-type TerminalLayoutMode = "single" | "split" | "grid";
 
 export default function ProjectTerminal() {
   const params = useParams<{ slug?: string }>();
@@ -52,34 +34,16 @@ export default function ProjectTerminal() {
   const addTerminal = useTerminalTabsStore((s) => s.addTerminal);
   const closeTerminal = useTerminalTabsStore((s) => s.closeTerminal);
   const renameTerminal = useTerminalTabsStore((s) => s.renameTerminal);
-  const updateTerminalLayout = useTerminalTabsStore((s) => s.updateTerminalLayout);
   const setTerminalSessionId = useTerminalTabsStore((s) => s.setTerminalSessionId);
   const updateTerminalStatus = useTerminalTabsStore((s) => s.updateTerminalStatus);
 
   const { getSelection, replaceSelection } = useUrlSelection();
   const selectedId = getSelection("session");
   const gridRef = useRef<HTMLDivElement>(null);
-  const [gridColumns, setGridColumns] = useState(2);
-  const [gridRowHeight, setGridRowHeight] = useState(420);
   const [editingTerminal, setEditingTerminal] = useState<EditingTerminal | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
-  const [resizeState, setResizeState] = useState<ResizeState | null>(null);
   const [touchSessionListOpen, setTouchSessionListOpen] = useState(false);
   const [touchActiveTerminalId, setTouchActiveTerminalId] = useState<string | null>(null);
-
-  function clamp(value: number, min: number, max: number): number {
-    return Math.max(min, Math.min(max, value));
-  }
-
-  function getGridMetrics(width: number) {
-    const columns = width >= GRID_DESKTOP_BREAKPOINT_PX ? 2 : 1;
-    const columnWidth = (width - GRID_GAP_PX * (columns - 1)) / columns;
-    const rowHeight = Math.round(
-      clamp(columnWidth, GRID_MIN_ROW_HEIGHT_PX, GRID_MAX_ROW_HEIGHT_PX),
-    );
-
-    return { columns, rowHeight };
-  }
 
   // Auto-create first session if none exist
   useEffect(() => {
@@ -121,82 +85,6 @@ export default function ProjectTerminal() {
       return nextTerminalId;
     });
   }, [isTouchLayout, selectedSession]);
-
-  useEffect(() => {
-    const grid = gridRef.current;
-    if (!grid) return;
-
-    const observer = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width ?? grid.clientWidth;
-      const { columns, rowHeight } = getGridMetrics(width);
-      setGridColumns(columns);
-      setGridRowHeight(rowHeight);
-    });
-
-    observer.observe(grid);
-    return () => observer.disconnect();
-  }, [selectedSession?.id]);
-
-  useEffect(() => {
-    if (!resizeState) {
-      return;
-    }
-
-    const previousCursor = document.body.style.cursor;
-    const previousUserSelect = document.body.style.userSelect;
-    document.body.style.cursor = "nwse-resize";
-    document.body.style.userSelect = "none";
-
-    const onPointerMove = (event: PointerEvent) => {
-      const deltaX = event.clientX - resizeState.startX;
-      const deltaY = event.clientY - resizeState.startY;
-      const columns = Math.max(resizeState.columns, 1);
-      const columnWidth =
-        (resizeState.containerWidth - GRID_GAP_PX * (columns - 1)) / columns;
-      const startWidth =
-        columnWidth * resizeState.startColSpan +
-        GRID_GAP_PX * (resizeState.startColSpan - 1);
-      const startHeight =
-        resizeState.rowHeight * resizeState.startRowSpan +
-        GRID_GAP_PX * (resizeState.startRowSpan - 1);
-      const nextColSpan =
-        columns === 1
-          ? 1
-          : Math.max(
-              1,
-              Math.min(
-                columns,
-                Math.round((startWidth + deltaX + GRID_GAP_PX) / (columnWidth + GRID_GAP_PX)),
-              ),
-            );
-      const nextRowSpan = Math.max(
-        1,
-        Math.min(
-          GRID_MAX_ROW_SPAN,
-          Math.round((startHeight + deltaY + GRID_GAP_PX) / (resizeState.rowHeight + GRID_GAP_PX)),
-        ),
-      );
-
-      updateTerminalLayout(projectId, resizeState.sessionId, resizeState.terminalId, {
-        colSpan: nextColSpan,
-        rowSpan: nextRowSpan,
-      });
-    };
-
-    const onPointerUp = () => {
-      setResizeState(null);
-    };
-
-    window.addEventListener("pointermove", onPointerMove);
-    window.addEventListener("pointerup", onPointerUp, { once: true });
-
-    return () => {
-      document.body.style.cursor = previousCursor;
-      document.body.style.userSelect = previousUserSelect;
-      window.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
-    };
-  }, [resizeState, updateTerminalLayout, projectId]);
 
   function handleCreate() {
     const id = createSession(projectId);
@@ -271,56 +159,21 @@ export default function ProjectTerminal() {
     return "bg-zinc-500";
   }
 
-  function handleResizeStart(
-    sessionId: string,
-    terminal: TerminalInstance,
-    event: ReactPointerEvent<HTMLButtonElement>,
-  ) {
-    event.preventDefault();
-    event.stopPropagation();
-
-    const containerWidth = gridRef.current?.getBoundingClientRect().width;
-    if (!containerWidth) return;
-    const { columns, rowHeight } = getGridMetrics(containerWidth);
-
-    setResizeState({
-      sessionId,
-      terminalId: terminal.id,
-      startX: event.clientX,
-      startY: event.clientY,
-      startColSpan: Math.min(terminal.colSpan, columns),
-      startRowSpan: terminal.rowSpan,
-      containerWidth,
-      columns,
-      rowHeight,
-    });
-  }
-
   function renderTerminalCard(
     sessionId: string,
     terminal: TerminalInstance,
-    total: number,
-    layoutMode: TerminalLayoutMode,
+    isSingle: boolean,
   ) {
     const isEditing =
       editingTerminal?.sessionId === sessionId &&
       editingTerminal.terminalId === terminal.id;
-    const effectiveColSpan = Math.min(terminal.colSpan, gridColumns);
 
     return (
       <div
         key={terminal.id}
         className={`relative flex min-h-0 flex-col overflow-hidden rounded-xl border border-[var(--app-shell-border)] bg-[var(--app-shell-pane)] ${
-          layoutMode === "grid" ? "min-h-[280px]" : "h-full"
+          isSingle ? "h-full" : "min-h-[320px]"
         }`}
-        style={
-          layoutMode === "grid"
-            ? {
-                gridColumn: `span ${effectiveColSpan} / span ${effectiveColSpan}`,
-                gridRow: `span ${terminal.rowSpan} / span ${terminal.rowSpan}`,
-              }
-            : undefined
-        }
       >
         <div className="flex items-center justify-between border-b border-[var(--app-shell-border)] px-3 py-2">
           <div className="flex min-w-0 items-center gap-2">
@@ -344,7 +197,10 @@ export default function ProjectTerminal() {
                   autoFocus
                 />
               ) : (
-                <div className="truncate text-sm font-medium text-[var(--foreground)]">
+                <div
+                  className="truncate text-sm font-medium text-[var(--foreground)] cursor-text"
+                  onDoubleClick={() => handleStartRenameTerminal(sessionId, terminal)}
+                >
                   {terminal.title}
                 </div>
               )}
@@ -364,7 +220,7 @@ export default function ProjectTerminal() {
               <Pencil size={13} />
             </button>
 
-            {total > 1 ? (
+            {!isSingle ? (
               <button
                 type="button"
                 onClick={() => handleCloseTerminal(sessionId, terminal.id)}
@@ -390,16 +246,6 @@ export default function ProjectTerminal() {
           />
         </div>
 
-        {layoutMode === "grid" ? (
-          <button
-            type="button"
-            onPointerDown={(event) => handleResizeStart(sessionId, terminal, event)}
-            className="absolute bottom-2 right-2 rounded p-1 text-[var(--muted-foreground)]/80 transition-colors hover:bg-[var(--muted)]/20 hover:text-[var(--foreground)]"
-            aria-label={`Resize ${terminal.title}`}
-          >
-            <MoveDiagonal size={14} />
-          </button>
-        ) : null}
       </div>
     );
   }
@@ -500,8 +346,7 @@ export default function ProjectTerminal() {
                   return renderTerminalCard(
                     selectedSession.id,
                     terminal,
-                    selectedSession.terminals.length,
-                    "single",
+                    true,
                   );
                 })()}
               </div>
@@ -553,44 +398,24 @@ export default function ProjectTerminal() {
                 </div>
 
                 {(() => {
-                  const terminalCount = selectedSession.terminals.length;
-                  const layoutMode: TerminalLayoutMode =
-                    terminalCount === 1
-                      ? "single"
-                      : terminalCount === 2
-                        ? "split"
-                        : "grid";
+                  const isSingle = selectedSession.terminals.length === 1;
 
                   return (
-                    <div
-                      className={`min-h-0 flex-1 p-3 ${
-                        layoutMode === "grid" ? "overflow-auto" : "overflow-hidden"
-                      }`}
-                    >
+                    <div className={`min-h-0 flex-1 p-3 ${isSingle ? "overflow-hidden" : "overflow-auto"}`}>
                       <div
                         ref={gridRef}
-                        className={`grid gap-3 ${
-                          layoutMode === "single" ? "h-full grid-cols-1" : ""
-                        } ${
-                          layoutMode === "split" ? "h-full grid-cols-2" : ""
-                        }`}
+                        className="grid gap-3"
                         style={
-                          layoutMode === "grid"
-                            ? {
-                                gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))`,
-                                gridAutoRows: `${gridRowHeight}px`,
-                              }
-                            : {
-                                gridTemplateRows: "minmax(0, 1fr)",
-                              }
+                          isSingle
+                            ? { gridTemplateColumns: "1fr", gridTemplateRows: "minmax(0, 1fr)", height: "100%" }
+                            : { gridTemplateColumns: `repeat(auto-fit, minmax(${GRID_MIN_TERMINAL_WIDTH_PX}px, 1fr))` }
                         }
                       >
                         {selectedSession.terminals.map((terminal) =>
                           renderTerminalCard(
                             selectedSession.id,
                             terminal,
-                            selectedSession.terminals.length,
-                            layoutMode,
+                            isSingle,
                           ),
                         )}
                       </div>
