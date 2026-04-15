@@ -10,6 +10,17 @@ import { buildScheduledTaskSkillPromptContext } from "./scheduled-task-skill";
 const isNonEmptyString = (value: unknown): value is string =>
   typeof value === "string" && value.trim().length > 0;
 
+export class CliRunError extends Error {
+  exitCode: number | null;
+  logs: string;
+  constructor(message: string, exitCode: number | null, logs: string) {
+    super(message);
+    this.name = "CliRunError";
+    this.exitCode = exitCode;
+    this.logs = logs;
+  }
+}
+
 // Stream parsers
 
 type StreamParser = {
@@ -621,6 +632,8 @@ async function runCommandStreamed({
       pid: child.pid ?? null,
     });
 
+    let lastActivityAt = Date.now();
+
     const timer = setTimeout(() => {
       timedOut = true;
       writeDebugLog("cli-runner.timeout", {
@@ -630,12 +643,19 @@ async function runCommandStreamed({
         timeoutMs,
       });
       child.kill("SIGKILL");
-      finalize(new Error(`CLI request timed out after ${timeoutMs}ms.`));
+      const tailLines = combinedOutput.split("\n").slice(-50).join("\n");
+      const idleSec = Math.round((Date.now() - lastActivityAt) / 1000);
+      finalize(new CliRunError(
+        `CLI request timed out after ${timeoutMs}ms. Last output ${idleSec}s ago. Signal: SIGKILL.`,
+        null,
+        tailLines,
+      ));
     }, timeoutMs);
 
     child.stdout.on("data", (data) => {
       const chunk = data.toString();
       combinedOutput += chunk;
+      lastActivityAt = Date.now();
       onDelta(chunk);
       if (onLog) onLog("stdout", chunk);
     });
@@ -643,6 +663,7 @@ async function runCommandStreamed({
     child.stderr.on("data", (data) => {
       const str = data.toString();
       combinedOutput += str;
+      lastActivityAt = Date.now();
       if (onLog) onLog("stderr", str);
     });
 
@@ -669,9 +690,12 @@ async function runCommandStreamed({
         finalize();
         return;
       }
+      const tailLines = combinedOutput.split("\n").slice(-50).join("\n");
       finalize(
-        new Error(
-          `CLI command failed (exit=${code ?? "unknown"} signal=${childSignal ?? "none"}).${combinedOutput.trim() ? ` ${combinedOutput.trim()}` : ""}`
+        new CliRunError(
+          `CLI command failed (exit=${code ?? "unknown"} signal=${childSignal ?? "none"}).`,
+          code ?? null,
+          tailLines,
         )
       );
     });
