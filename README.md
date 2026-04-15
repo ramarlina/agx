@@ -3,11 +3,11 @@
   <img src="agx_icon.png" width="160" alt="AGX Icon">
 </p>
 
-<h3 align="center">AI coding agents forget everything between sessions.<br>AGX fixes that.</h3>
+<h3 align="center">Persistent memory for AI coding agents.</h3>
 
 <p align="center">
-  AGX saves your agents' progress as durable checkpoints — not chat history.<br>
-  Resume any task instantly, no matter how long it ran. Runs locally, bring your own API keys.
+  Your agents lose context every session. AGX checkpoints their state so they resume instantly — <br>
+  no replaying history, no burning tokens. Works with Claude, Codex, Gemini, and Ollama.
 </p>
 
 <p align="center">
@@ -15,13 +15,14 @@
   <a href="https://www.npmjs.com/package/@mndrk/agx"><img src="https://img.shields.io/npm/v/@mndrk/agx?color=orange&style=flat-square" alt="NPM Version"></a>
   <a href="https://github.com/ramarlina/agx/stargazers"><img src="https://img.shields.io/github/stars/ramarlina/agx?color=blue&style=flat-square" alt="GitHub Stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License"></a>
+  <a href="https://github.com/ramarlina/agx/pulls?q=is%3Apr+is%3Amerged"><img src="https://img.shields.io/badge/PRs_merged_by_agents-133-blueviolet?style=flat-square" alt="Agent PRs"></a>
 </p>
 
 ```bash
-npm install -g @mndrk/agx
-agx init
+npm install -g @mndrk/agx && agx init
 ```
 
+<!-- 🎬 Terminal demo — drop a GIF or mp4 here showing: agx new → agent runs → checkpoint → resume -->
 <p align="center">
   <a href="https://github.com/ramarlina/agx">
     <img src="agx-chat-to-tasks.gif" alt="AGX — chat with agents, approve before they act" width="100%">
@@ -40,17 +41,31 @@ agx init
 
 ---
 
-## Why AGX?
+## The Problem
 
 Every AI coding agent — Claude, Codex, Gemini — starts from scratch each session. Long tasks get expensive to re-explain. Context gets lost. Work gets repeated.
 
-AGX checkpoints agent state after every step. When you resume, the agent picks up exactly where it left off. No replaying history, no burning tokens on context windows. Resuming is constant-cost whether the task ran for 5 minutes or 5 days.
+## The Fix
 
-It ships as a CLI, a local web dashboard, and a macOS desktop app — all from one repo.
+AGX checkpoints agent state after every step. When you resume, the agent picks up exactly where it left off. No replaying history, no burning tokens on context windows. **Resuming is constant-cost** whether the task ran for 5 minutes or 5 days.
 
-We've been using AGX to build AGX — over 125 PRs merged by autonomous agents. Read more on the [blog](https://runagx.com/blog).
+Ships as a CLI, a local web dashboard, and a macOS desktop app — all from one repo.
+
+> **Dogfooded hard:** 133 PRs and 500+ commits merged by AGX agents building AGX itself. [Read more →](https://runagx.com/blog)
 
 ---
+
+## Quickstart (2 minutes)
+
+```bash
+npm install -g @mndrk/agx
+cd my-project
+agx init                   # Picks up your API keys automatically
+agx new "Add rate limiting to the API"   # Create your first task
+agx run 1                  # Watch the agent work
+# ...close your laptop, come back tomorrow...
+agx run 1                  # Resumes instantly from the last checkpoint
+```
 
 ## Get AGX
 
@@ -294,5 +309,6 @@ MIT
 ---
 
 <p align="center">
-  <strong>Stop re-explaining context. Let your agents remember.</strong>
+  <strong>Stop re-explaining context. Let your agents remember.</strong><br><br>
+  <a href="https://github.com/ramarlina/agx/stargazers">⭐ Star this repo</a> if AGX saves you time · <a href="https://github.com/ramarlina/agx/issues">Report a bug</a> · <a href="https://runagx.com">runagx.com</a>
 </p>
