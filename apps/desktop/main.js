@@ -12,7 +12,7 @@ const REPO_ROOT = path.join(__dirname, "..", "..");
 const LOCAL_APP_ROOT = path.join(REPO_ROOT, "apps", "local");
 const CLI_ROOT = REPO_ROOT;
 
-const SERVER_PORT = isDev ? 41741 : 41781;
+const SERVER_PORT = isDev ? 41741 : 41841;
 const LOG_PATH = path.join(app.getPath("logs"), "agx.log");
 const DESKTOP_CHAT_DEBUG_LOG_PATH = path.join(app.getPath("home"), ".agx", "logs", "desktop-chat-debug.log");
 
