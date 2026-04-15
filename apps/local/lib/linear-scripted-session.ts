@@ -78,7 +78,7 @@ export async function startScriptedLinearSession(
       },
       project: input.projectSlug ? { slug: input.projectSlug } : null,
       runtime: {
-        recapFilePath: run.recapFilePath ?? null,
+        recapContent: latestRecap?.content ?? null,
       },
     };
     const { prompt: defaultPrompt, promptPrefix } = buildLinearExecutionPrompt(promptInput);

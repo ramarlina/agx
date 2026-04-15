@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
       recapFilePath,
     });
 
-    return NextResponse.json({ run }, { status: 201 });
+    return NextResponse.json({ run, recapContent: latestRecap?.content ?? null }, { status: 201 });
   } catch (error) {
     console.error("Failed to create Linear run:", error);
     return NextResponse.json(

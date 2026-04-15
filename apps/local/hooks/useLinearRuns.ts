@@ -111,8 +111,9 @@ export function useLinearRuns(issueId?: string | null, projectId?: string | null
     }
     const data = await response.json();
     const run = data.run as LinearRun;
+    const recapContent: string | null = data.recapContent ?? null;
     setRuns((previous) => [run, ...previous.filter((entry) => entry.id !== run.id)]);
-    return run;
+    return { run, recapContent };
   }, []);
 
   const updateRun = useCallback(async (id: string, input: UpdateLinearRunInput) => {
