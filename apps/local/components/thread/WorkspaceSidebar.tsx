@@ -67,7 +67,7 @@ interface WorkspaceSidebarProps {
   onUpdateParticipant?: (participant: Participant) => Promise<unknown>;
   onSelectProject?: (projectId: string) => void;
   activeProjectId?: string | null;
-  activeProjectView?: "home" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "terminal" | "settings" | "env-vars" | "folders" | null;
+  activeProjectView?: "home" | "objectives" | "teams" | "thread" | "automations" | "linear" | "terminal" | "env-vars" | "folders" | null;
   onAddTeam?: (projectId: string) => void;
   stageShow?: SidebarStageResult["show"];
 }
