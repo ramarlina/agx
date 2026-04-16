@@ -2,7 +2,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Check, ExternalLink, Link2, Pin } from "lucide-react";
-import { useDraggable } from "@dnd-kit/core";
+import { useDraggable, useDroppable } from "@dnd-kit/core";
 import type { LinearIssue } from "@/hooks/useLinearIssues";
 import type { Participant } from "@/lib/types";
 import { STATUS_LABELS } from "@/lib/linear-run-status";
@@ -18,6 +18,7 @@ export function TicketRow({
   participants,
   multiSelected,
   draggable = false,
+  treeConnector,
 }: {
   issue: LinearIssue;
   selected: boolean;
@@ -28,6 +29,7 @@ export function TicketRow({
   participants?: Participant[];
   multiSelected?: boolean;
   draggable?: boolean;
+  treeConnector?: "mid" | "last";
 }) {
   const [copied, setCopied] = useState(false);
   const copyResetTimeoutRef = useRef<number | null>(null);
@@ -69,29 +71,31 @@ export function TicketRow({
     openLinearIssueTab(issue.url);
   }, [issue.url]);
 
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } = useDraggable({
     id: issue.id,
     disabled: !draggable,
   });
-  const dragStyle = transform ? {
-    transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
-    opacity: isDragging ? 0.5 : 1,
-    zIndex: isDragging ? 50 : undefined,
-    position: "relative" as const,
-  } : undefined;
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: issue.id,
+    disabled: !draggable,
+  });
+  const setNodeRef = useCallback((node: HTMLElement | null) => {
+    setDragRef(node);
+    setDropRef(node);
+  }, [setDragRef, setDropRef]);
 
   const shortStatus = STATUS_LABELS[issue.status] ?? issue.status.slice(0, 6);
   return (
     <div
       ref={draggable ? setNodeRef : undefined}
-      style={dragStyle}
+      style={isDragging ? { opacity: 0.3 } : undefined}
       {...(draggable ? attributes : {})}
       {...(draggable ? listeners : {})}
-      className={`group relative flex cursor-pointer items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+      className={`group ${treeConnector ? "pl-7" : ""} relative flex cursor-pointer items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
         selected
           ? "bg-[var(--card-bg)]"
           : "hover:bg-[var(--card-bg)]/50"
-      } ${multiSelected ? "ring-1 ring-[var(--primary)]/40 bg-[var(--primary)]/5" : ""} ${isDragging ? "touch-none" : ""}`}
+      } ${multiSelected ? "ring-1 ring-[var(--primary)]/40 bg-[var(--primary)]/5" : ""} ${isOver && !isDragging ? "bg-[var(--primary)]/10 border-l-2 border-l-[var(--primary)]" : ""}`}
       onClick={(e) => onSelect(e)}
       role="button"
       tabIndex={0}
@@ -102,10 +106,34 @@ export function TicketRow({
         }
       }}
     >
-      {selected && (
+      {selected && !isOver && (
         <div className="absolute left-0 top-0 bottom-0 w-[3px] rounded-r-full bg-blue-500" />
       )}
-      <span className="w-24 shrink-0 whitespace-nowrap font-mono text-xs text-[var(--muted-foreground)]">
+      {draggable && (
+        <span
+          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-all ${
+            multiSelected
+              ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)]"
+              : "border-[var(--muted-foreground)]/30 opacity-0 group-hover:opacity-100"
+          }`}
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            // Synthesize a meta-click to toggle multi-select
+            const synth = new MouseEvent("click", { metaKey: true, ctrlKey: true }) as unknown as React.MouseEvent;
+            onSelect(synth);
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          {multiSelected && <Check size={10} />}
+        </span>
+      )}
+      {treeConnector && (
+        <span className="shrink-0 font-mono text-[11px] leading-none text-[var(--muted-foreground)]/40 select-none">
+          {treeConnector === "last" ? "└──" : "├──"}
+        </span>
+      )}
+      <span className={`shrink-0 whitespace-nowrap font-mono text-xs text-[var(--muted-foreground)] ${treeConnector ? "" : "w-24"}`}>
         {issue.identifier}
       </span>
       <span className={`min-w-0 flex-1 truncate text-xs ${selected ? "font-medium text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}`}>
