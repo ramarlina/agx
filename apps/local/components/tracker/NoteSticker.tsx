@@ -112,18 +112,6 @@ export function NoteSticker({ anchorRef, value, onChange, onClose, onSave }: Not
             type="button"
             onMouseDown={(e) => {
               e.preventDefault();
-              onSave("");
-              onClose();
-            }}
-            className="flex h-4 w-4 items-center justify-center rounded text-[var(--foreground)]/60 hover:text-red-400 transition-colors mr-auto"
-            title="Delete note"
-          >
-            <Trash2 size={11} />
-          </button>
-          <button
-            type="button"
-            onMouseDown={(e) => {
-              e.preventDefault();
               const md = editor
                 ? (editor.storage as { markdown: { getMarkdown: () => string } }).markdown.getMarkdown()
                 : value;
@@ -148,6 +136,20 @@ export function NoteSticker({ anchorRef, value, onChange, onClose, onSave }: Not
           </button>
         </div>
         <EditorContent editor={editor} />
+        <div className="flex justify-end px-1.5 pb-1.5">
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onSave("");
+              onClose();
+            }}
+            className="flex h-4 w-4 items-center justify-center rounded text-[var(--foreground)]/40 hover:text-red-400 transition-colors"
+            title="Delete note"
+          >
+            <Trash2 size={11} />
+          </button>
+        </div>
       </div>
       <style>{`
         .ProseMirror { outline: none !important; }
