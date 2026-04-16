@@ -13,6 +13,7 @@ import { useProcessPolling } from "@/hooks/useProcessPolling";
 import { Markdown } from "@/components/chat-ui/Markdown";
 import RunScriptManager from "@/components/linear/RunScriptManager";
 import { stripMarkers } from "@/lib/chat-utils";
+import { STATUS_LABELS } from "@/lib/linear-run-status";
 import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import {
   loadLinearBoardFilters,
@@ -56,7 +57,7 @@ import { agentAvatarUrl } from "@/lib/linear-board-utils";
 import { useTaskGroups, type TaskGroup } from "@/hooks/useTaskGroups";
 import { FolderRow } from "@/components/linear/FolderRow";
 import { GroupPanel } from "@/components/linear/GroupPanel";
-import { GroupNamePrompt } from "@/components/linear/GroupNamePrompt";
+import { GroupNamePrompt, PENDING_GROUP_DROP_ID } from "@/components/linear/GroupNamePrompt";
 import { SelectionBar } from "@/components/linear/SelectionBar";
 import {
   DndContext,
@@ -440,6 +441,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
   const [multiSelectedIssueIds, setMultiSelectedIssueIds] = useState<Set<string>>(new Set());
   const [showGroupNamePrompt, setShowGroupNamePrompt] = useState(false);
   const [pendingGroupTaskIds, setPendingGroupTaskIds] = useState<string[]>([]);
+  const [pendingGroupTargetId, setPendingGroupTargetId] = useState<string | null>(null);
 
   // Drag state
   const dndSensors = useSensors(
@@ -466,6 +468,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
       if (pendingGroupTaskIds.length < 2) return;
       await createGroup(name, pendingGroupTaskIds);
       setPendingGroupTaskIds([]);
+      setPendingGroupTargetId(null);
       setShowGroupNamePrompt(false);
       setMultiSelectedIssueIds(new Set());
     },
@@ -492,9 +495,50 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
     async (event: DragEndEvent) => {
       setDragActiveId(null);
       const { active, over } = event;
-      if (!over || active.id === over.id) return;
-
       const activeIssueId = active.id as string;
+
+      // While the pending group prompt is open, handle adds/removes
+      if (showGroupNamePrompt) {
+        const activeInPending = pendingGroupTaskIds.includes(activeIssueId);
+
+        if (!over || active.id === over.id) {
+          // Dropped on nothing or self — if it was a pending item, remove it
+          if (activeInPending) {
+            setPendingGroupTaskIds((prev) => {
+              const next = prev.filter((id) => id !== activeIssueId);
+              if (next.length < 2) {
+                setShowGroupNamePrompt(false);
+                setPendingGroupTargetId(null);
+                return [];
+              }
+              return next;
+            });
+          }
+          return;
+        }
+
+        const overId = over.id as string;
+        const droppedOnPending = overId === PENDING_GROUP_DROP_ID || pendingGroupTaskIds.includes(overId);
+
+        if (activeInPending && !droppedOnPending) {
+          // Dragged out of pending group — remove it
+          setPendingGroupTaskIds((prev) => {
+            const next = prev.filter((id) => id !== activeIssueId);
+            if (next.length < 2) {
+              setShowGroupNamePrompt(false);
+              setPendingGroupTargetId(null);
+              return [];
+            }
+            return next;
+          });
+        } else if (!activeInPending) {
+          // Dragged into pending group — add it
+          setPendingGroupTaskIds((prev) => [...prev, activeIssueId]);
+        }
+        return;
+      }
+
+      if (!over || active.id === over.id) return;
       const overId = over.id as string;
 
       // Check if dropping on a folder
@@ -504,11 +548,12 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
         return;
       }
 
-      // Check if dropping on another loose ticket (create folder)
+      // Check if dropping on another loose ticket
       const overIsLoose = !groupedIssueIds.has(overId);
       const activeIsLoose = !groupedIssueIds.has(activeIssueId);
       if (activeIsLoose && overIsLoose) {
         setPendingGroupTaskIds([activeIssueId, overId]);
+        setPendingGroupTargetId(overId);
         setShowGroupNamePrompt(true);
         return;
       }
@@ -519,7 +564,7 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
         await removeTaskFromGroupApi(activeGroup.id, activeIssueId);
       }
     },
-    [groups, groupedIssueIds, addTasksToGroup, removeTaskFromGroupApi],
+    [groups, groupedIssueIds, addTasksToGroup, removeTaskFromGroupApi, showGroupNamePrompt, pendingGroupTaskIds],
   );
 
   const handleSearchChange = useCallback((value: string) => {
@@ -1494,97 +1539,141 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
             </div>
           ) : (
             <>
-              {showGroupNamePrompt && (
-                <GroupNamePrompt
-                  onConfirm={handleCreateGroup}
-                  onCancel={() => {
-                    setShowGroupNamePrompt(false);
-                    setPendingGroupTaskIds([]);
-                  }}
-                />
-              )}
-              {/* Render folders */}
-              {groups.map((group) => {
-                const groupIssues = group.task_ids
-                  .map((id) => sortedIssues.find((i) => i.id === id))
-                  .filter(Boolean) as LinearIssue[];
-                return (
-                  <React.Fragment key={`group-${group.id}`}>
-                    <FolderRow
-                      groupId={group.id}
-                      name={group.name}
-                      count={groupIssues.length}
-                      collapsed={!!group.collapsed}
-                      selected={selectedGroupId === group.id}
-                      onToggleCollapse={() =>
-                        updateGroup(group.id, { collapsed: !group.collapsed })
-                      }
-                      onSelect={() =>
-                        pushSelection({ group: group.id, issue: null, run: null })
-                      }
-                    />
-                    {!group.collapsed &&
-                      groupIssues.map((issue) => (
-                        <div key={issue.id} className="pl-6 border-l border-[var(--card-border)] ml-4">
-                          <TicketRow
-                            issue={issue}
-                            selected={selectedIssue?.id === issue.id}
-                            pinned={pinnedIssueIds.has(issue.id)}
-                            activeAgents={issueActiveAgents.get(issue.id)}
-                            participants={participants}
-                            draggable
-                            multiSelected={multiSelectedIssueIds.has(issue.id)}
-                            onSelect={(event) => {
-                              if (event && (event.metaKey || event.ctrlKey)) {
-                                toggleIssueMultiSelect(issue.id);
-                              } else {
-                                pushSelection({
-                                  issue: issue.id,
-                                  run: null,
-                                  group: null,
-                                });
-                              }
-                            }}
-                            onTogglePin={() => togglePin(issue.id)}
-                          />
-                        </div>
-                      ))}
-                  </React.Fragment>
-                );
-              })}
-              {/* Render loose (ungrouped) tickets */}
+              {/* Unified list: groups rendered inline at first-member position */}
               {(() => {
-                const looseIssues = sortedIssues.filter((issue) => !groupedIssueIds.has(issue.id));
-                return looseIssues.map((issue, idx) => (
-                  <React.Fragment key={issue.id}>
-                    {pinnedIssueIds.size > 0 &&
-                      !pinnedIssueIds.has(issue.id) &&
-                      (idx === 0 || pinnedIssueIds.has(looseIssues[idx - 1].id)) && (
-                        <div className="mx-4 border-t border-amber-500/20" />
-                      )}
-                    <TicketRow
-                      issue={issue}
-                      selected={selectedIssue?.id === issue.id}
-                      pinned={pinnedIssueIds.has(issue.id)}
-                      activeAgents={issueActiveAgents.get(issue.id)}
-                      participants={participants}
-                      draggable
-                      multiSelected={multiSelectedIssueIds.has(issue.id)}
-                      onSelect={(event) => {
-                        if (event && (event.metaKey || event.ctrlKey)) {
-                          toggleIssueMultiSelect(issue.id);
-                        } else {
-                          pushSelection({
-                            issue: issue.id,
-                            run: null,
-                            group: null,
-                          });
-                        }
-                      }}
-                      onTogglePin={() => togglePin(issue.id)}
-                    />
-                  </React.Fragment>
-                ));
+                const pendingSet = showGroupNamePrompt ? new Set(pendingGroupTaskIds) : null;
+
+                // Build a map: issueId → group (for the first member of each group)
+                const firstMemberToGroup = new Map<string, typeof groups[number]>();
+                for (const group of groups) {
+                  const firstInSort = sortedIssues.find((i) => group.task_ids.includes(i.id));
+                  if (firstInSort) firstMemberToGroup.set(firstInSort.id, group);
+                }
+
+                // Pending group prompt: find insert position
+                const pendingTickets = showGroupNamePrompt
+                  ? pendingGroupTaskIds
+                      .map((id) => sortedIssues.find((i) => i.id === id))
+                      .filter(Boolean)
+                      .map((i) => ({ id: i!.id, identifier: i!.identifier, title: i!.title, status: STATUS_LABELS[i!.status] ?? i!.status }))
+                  : [];
+
+                // Track which groups we've rendered
+                const renderedGroups = new Set<string>();
+                let looseIdx = 0;
+
+                return sortedIssues.map((issue) => {
+                  // Skip pending tickets
+                  if (pendingSet?.has(issue.id)) {
+                    // Render prompt at target position
+                    if (issue.id === pendingGroupTargetId && showGroupNamePrompt) {
+                      return (
+                        <GroupNamePrompt
+                          key="__pending-group__"
+                          tickets={pendingTickets}
+                          onConfirm={handleCreateGroup}
+                          onCancel={() => {
+                            setShowGroupNamePrompt(false);
+                            setPendingGroupTaskIds([]);
+                            setPendingGroupTargetId(null);
+                          }}
+                        />
+                      );
+                    }
+                    return null;
+                  }
+
+                  // If this issue is the first member of a group, render the group here
+                  const group = firstMemberToGroup.get(issue.id);
+                  if (group && !renderedGroups.has(group.id)) {
+                    renderedGroups.add(group.id);
+                    const groupIssues = group.task_ids
+                      .map((id) => sortedIssues.find((i) => i.id === id))
+                      .filter(Boolean) as LinearIssue[];
+                    return (
+                      <React.Fragment key={`group-${group.id}`}>
+                        <FolderRow
+                          groupId={group.id}
+                          name={group.name}
+                          count={groupIssues.length}
+                          collapsed={!!group.collapsed}
+                          selected={selectedGroupId === group.id}
+                          onToggleCollapse={() =>
+                            updateGroup(group.id, { collapsed: !group.collapsed })
+                          }
+                          onSelect={() =>
+                            pushSelection({ group: group.id, issue: null, run: null })
+                          }
+                        />
+                        {!group.collapsed &&
+                          groupIssues.map((gi, giIdx) => (
+                            <TicketRow
+                              key={gi.id}
+                              issue={gi}
+                              selected={selectedIssue?.id === gi.id}
+                              pinned={pinnedIssueIds.has(gi.id)}
+                              activeAgents={issueActiveAgents.get(gi.id)}
+                              participants={participants}
+                              draggable
+                              multiSelected={multiSelectedIssueIds.has(gi.id)}
+                              treeConnector={giIdx === groupIssues.length - 1 ? "last" : "mid"}
+                              onSelect={(event) => {
+                                if (event && (event.metaKey || event.ctrlKey)) {
+                                  toggleIssueMultiSelect(gi.id);
+                                } else {
+                                  pushSelection({
+                                    issue: gi.id,
+                                    run: null,
+                                    group: null,
+                                  });
+                                }
+                              }}
+                              onTogglePin={() => togglePin(gi.id)}
+                            />
+                          ))}
+                      </React.Fragment>
+                    );
+                  }
+
+                  // Skip grouped issues (already rendered with their group)
+                  if (groupedIssueIds.has(issue.id)) return null;
+
+                  // Loose ticket
+                  const currentLooseIdx = looseIdx++;
+                  const prevLoose = currentLooseIdx > 0
+                    ? sortedIssues.filter((i) => !groupedIssueIds.has(i.id) && (!pendingSet || !pendingSet.has(i.id)))[currentLooseIdx - 1]
+                    : null;
+                  return (
+                    <React.Fragment key={issue.id}>
+                      {pinnedIssueIds.size > 0 &&
+                        !pinnedIssueIds.has(issue.id) &&
+                        (currentLooseIdx === 0 || (prevLoose && pinnedIssueIds.has(prevLoose.id))) && (
+                          <div className="mx-4 border-t border-amber-500/20" />
+                        )}
+                      <TicketRow
+                        issue={issue}
+                        selected={selectedIssue?.id === issue.id}
+                        pinned={pinnedIssueIds.has(issue.id)}
+                        activeAgents={issueActiveAgents.get(issue.id)}
+                        participants={participants}
+                        draggable
+                        multiSelected={multiSelectedIssueIds.has(issue.id)}
+                        onSelect={(event) => {
+                          if (event && (event.metaKey || event.ctrlKey)) {
+                            toggleIssueMultiSelect(issue.id);
+                          } else {
+                            pushSelection({
+                              issue: issue.id,
+                              run: null,
+                              group: null,
+                            });
+                          }
+                        }}
+                        onTogglePin={() => togglePin(issue.id)}
+                      />
+                    </React.Fragment>
+                  );
+                });
               })()}
               {hasMore ? (
                 <div
@@ -1602,6 +1691,22 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
             onClear={() => setMultiSelectedIssueIds(new Set())}
           />
         </div>
+        <DragOverlay dropAnimation={null}>
+          {dragActiveId && (() => {
+            const dragIssue = sortedIssues.find((i) => i.id === dragActiveId);
+            if (!dragIssue) return null;
+            return (
+              <div className="flex items-center gap-3 rounded-lg border border-[var(--primary)]/30 bg-[var(--card-bg)] px-4 py-2.5 text-sm shadow-xl backdrop-blur-sm">
+                <span className="w-24 shrink-0 whitespace-nowrap font-mono text-xs text-[var(--muted-foreground)]">
+                  {dragIssue.identifier}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--foreground)]">
+                  {dragIssue.title}
+                </span>
+              </div>
+            );
+          })()}
+        </DragOverlay>
         </DndContext>
       </div>
 

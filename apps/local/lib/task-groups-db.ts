@@ -17,7 +17,7 @@ export interface TaskGroupWithTaskIds extends TaskGroup {
 export function createTaskGroup(
   db: DatabaseSync,
   opts: { projectId: string; name: string; taskIds?: string[] },
-): TaskGroup {
+): TaskGroupWithTaskIds {
   const id = generateId();
   const { projectId, name, taskIds = [] } = opts;
 
@@ -31,14 +31,15 @@ export function createTaskGroup(
 
   if (taskIds.length > 0) {
     const stmt = db.prepare(
-      "UPDATE tasks SET group_id = ?, group_position = ? WHERE id = ?",
+      "INSERT OR IGNORE INTO task_group_items (group_id, item_id, position) VALUES (?, ?, ?)",
     );
     taskIds.forEach((taskId, idx) => {
-      stmt.run(id, idx, taskId);
+      stmt.run(id, taskId, idx);
     });
   }
 
-  return db.prepare("SELECT * FROM task_groups WHERE id = ?").get(id) as unknown as TaskGroup;
+  const group = db.prepare("SELECT * FROM task_groups WHERE id = ?").get(id) as unknown as TaskGroup;
+  return { ...group, task_ids: taskIds };
 }
 
 export function listTaskGroups(
@@ -50,10 +51,10 @@ export function listTaskGroups(
     .all(projectId) as unknown as TaskGroup[];
 
   return groups.map((group) => {
-    const tasks = db
-      .prepare("SELECT id FROM tasks WHERE group_id = ? ORDER BY group_position ASC")
-      .all(group.id) as unknown as { id: string }[];
-    return { ...group, task_ids: tasks.map((t) => t.id) };
+    const items = db
+      .prepare("SELECT item_id FROM task_group_items WHERE group_id = ? ORDER BY position ASC")
+      .all(group.id) as unknown as { item_id: string }[];
+    return { ...group, task_ids: items.map((t) => t.item_id) };
   });
 }
 
@@ -89,7 +90,7 @@ export function updateTaskGroup(
 }
 
 export function deleteTaskGroup(db: DatabaseSync, groupId: string): void {
-  db.prepare("UPDATE tasks SET group_position = 0 WHERE group_id = ?").run(groupId);
+  db.prepare("DELETE FROM task_group_items WHERE group_id = ?").run(groupId);
   db.prepare("DELETE FROM task_groups WHERE id = ?").run(groupId);
 }
 
@@ -100,15 +101,15 @@ export function assignTasksToGroup(
 ): void {
   const maxPos = db
     .prepare(
-      "SELECT COALESCE(MAX(group_position), -1) AS max_pos FROM tasks WHERE group_id = ?",
+      "SELECT COALESCE(MAX(position), -1) AS max_pos FROM task_group_items WHERE group_id = ?",
     )
     .get(groupId) as { max_pos: number };
 
   const stmt = db.prepare(
-    "UPDATE tasks SET group_id = ?, group_position = ? WHERE id = ?",
+    "INSERT OR IGNORE INTO task_group_items (group_id, item_id, position) VALUES (?, ?, ?)",
   );
   taskIds.forEach((taskId, idx) => {
-    stmt.run(groupId, maxPos.max_pos + 1 + idx, taskId);
+    stmt.run(groupId, taskId, maxPos.max_pos + 1 + idx);
   });
 }
 
@@ -118,8 +119,8 @@ export function removeTaskFromGroup(
   taskId: string,
 ): void {
   db.prepare(
-    "UPDATE tasks SET group_id = NULL, group_position = 0 WHERE id = ? AND group_id = ?",
-  ).run(taskId, groupId);
+    "DELETE FROM task_group_items WHERE group_id = ? AND item_id = ?",
+  ).run(groupId, taskId);
 }
 
 function generateId(): string {

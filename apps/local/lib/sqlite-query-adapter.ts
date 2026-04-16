@@ -483,21 +483,16 @@ function runMigrations(db: DatabaseSync): void {
       END;
   `);
 
-  // Add group_id and group_position columns to tasks (if missing)
-  const tasksTables = db
-    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")
-    .all();
-  if (tasksTables.length > 0) {
-    const taskCols = pragmaAll(db, "table_info(tasks)") as { name: string }[];
-    const taskColNames = new Set(taskCols.map((c) => c.name));
-    if (!taskColNames.has("group_id")) {
-      db.exec("ALTER TABLE tasks ADD COLUMN group_id TEXT REFERENCES task_groups(id) ON DELETE SET NULL");
-    }
-    if (!taskColNames.has("group_position")) {
-      db.exec("ALTER TABLE tasks ADD COLUMN group_position INTEGER NOT NULL DEFAULT 0");
-    }
-    db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_group_id ON tasks (group_id)");
-  }
+  // Join table for group ↔ item membership (works with any external ID, e.g. Linear issues)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS task_group_items (
+      group_id TEXT NOT NULL REFERENCES task_groups(id) ON DELETE CASCADE,
+      item_id  TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (group_id, item_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_group_items_item ON task_group_items (item_id);
+  `);
 
   backfillAgentsFromFilesystem(db);
   backfillAgentSkillsFromLegacyParticipants(db);

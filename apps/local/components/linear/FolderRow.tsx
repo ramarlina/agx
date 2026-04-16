@@ -28,11 +28,11 @@ export function FolderRow({
   return (
     <div
       ref={setNodeRef}
-      className={`group relative flex cursor-pointer items-center gap-2 px-4 py-2 text-sm transition-colors ${
+      className={`group relative flex cursor-pointer items-center gap-2 pl-[24px] pr-4 py-2 text-sm transition-colors ${
         selected
           ? "bg-[var(--card-bg)]"
           : "hover:bg-[var(--card-bg)]/50"
-      } ${isOver ? "ring-2 ring-[var(--primary)]/50 bg-[var(--primary)]/5" : ""}`}
+      } ${isOver ? "bg-[var(--primary)]/10 border-l-2 border-l-[var(--primary)]" : ""}`}
       onClick={onSelect}
       role="button"
       tabIndex={0}
