@@ -3,10 +3,14 @@
 
 import { registerAdapter } from "./registry";
 import { LinearAdapter } from "./adapters/linear";
+import { JiraAdapter } from "./adapters/jira";
 
 // Register all built-in adapters
 const linearAdapter = new LinearAdapter();
 registerAdapter(linearAdapter);
+
+const jiraAdapter = new JiraAdapter();
+registerAdapter(jiraAdapter);
 
 // Re-export public API
 export { getAdapter, getAdapterOrNull, listAdapterTypes, listAdapters } from "./registry";

@@ -1,11 +1,8 @@
 // Task worker — tracker-agnostic replacement for linear-worker.
-// Phase 1: Delegates to the linear-worker logic since Linear is the only
-// tracker adapter. When additional trackers are added (Phase 2), this module
-// will read `job.trackerType` and dispatch to the appropriate adapter.
-//
-// The key difference from linear-worker:
-// - executionMode is 'task_worker' instead of 'linear_worker'
-// - job.trackerType determines which adapter to use (defaults to 'linear')
+// Dispatches to the appropriate tracker adapter based on job.trackerType.
+// Both 'linear' and 'jira' use the same worker pipeline (linear-worker)
+// since the pipeline is tracker-agnostic — it reads items from the
+// tracker-item-store which is shared across all adapters.
 
 import { executeLinearWorker, buildLinearWorkerObservation } from './linear-worker';
 import type { ChatProvider } from '@/lib/types';
@@ -40,8 +37,10 @@ export async function executeTaskWorker(opts: {
 }): Promise<{ output: string; error: string; durationMs: number; status: 'success' | 'failed' }> {
   const trackerType = resolveTrackerType(opts.job);
 
-  // Phase 1: All trackers use the Linear worker pipeline.
-  // Phase 2 will add tracker-specific observation/action builders.
+  // All registered tracker types use the same worker pipeline.
+  // The pipeline is tracker-agnostic — it fetches items from
+  // tracker-item-store (shared across all adapters) and injects
+  // context into the agent prompt.
   if (trackerType === 'linear' || trackerType === 'jira') {
     return executeLinearWorker(opts);
   }
