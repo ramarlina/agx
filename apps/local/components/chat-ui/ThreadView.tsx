@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useMemo, useState } from "react";
 import NextLink from "next/link";
 import type { GroupMessage, Participant } from "@/lib/types";
 import type { StreamingEntry } from "@/hooks/useGroupChat";
-import type { TaskDraftMessage } from "@/types/tasks";
 import type { AgentProcessEntry } from "@/lib/agent-process-registry";
 import { Markdown } from "./Markdown";
 import { Copy, Trash2, User, Link, MessageSquareText, Sparkles } from "lucide-react";
@@ -25,8 +24,6 @@ interface Props {
     onCopyThread?: (rootMessageId: string) => void;
     onSummarize?: (rootMessageId: string) => void;
     onAddToChat?: (rootMessageId: string) => void;
-    onCreateTasks?: (rootMessageId: string) => void;
-    onUpdateTaskDraft?: (rootMessageId: string, draft: TaskDraftMessage) => void;
     onDeleteThreadRoot?: (messageId: string) => void;
     onDeleteMessage?: (messageId: string) => void;
     highlightedMessageId?: string;

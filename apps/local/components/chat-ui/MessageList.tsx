@@ -5,16 +5,13 @@ import NextLink from "next/link";
 import type { GroupMessage, Participant, ThreadInfo } from "@/lib/types";
 import type { ThreadStatus } from "@/lib/storage/thread-adapter";
 import type { StreamingEntry } from "@/hooks/useGroupChat";
-import type { TaskDraftMessage } from "@/types/tasks";
 import { MessageBubble } from "./MessageBubble";
 import { TypingIndicator } from "./TypingIndicator";
 import { Markdown } from "./Markdown";
 import { MessageAttachments } from "./MessageAttachments";
-import { TaskDraftCard } from "./TaskDraftCard";
-import { TaskStatusCard } from "./TaskStatusCard";
 import { ActionToolbar, ActionToolbarDivider } from "../ActionToolbar";
 import { IconButton } from "../IconButton";
-import { MessageSquare, Copy, Hash, Loader2, Trash2, User, Clock, Zap, ListTodo, CheckCircle2, Circle, Link, AtSign, Rocket } from "lucide-react";
+import { MessageSquare, Copy, Hash, Loader2, Trash2, User, Clock, Zap, CheckCircle2, Circle, Link, AtSign, Rocket } from "lucide-react";
 import { agentAvatarUrl } from "./ParticipantBar";
 import { stripMarkers } from "@/lib/chat-utils";
 
@@ -38,13 +35,7 @@ interface Props {
   onDeleteThreadRoot?: (rootMessageId: string) => void;
   onSummarize?: (rootMessageId: string) => void;
   onAddToChat?: (rootMessageId: string) => void;
-  onCreateTasks?: (rootMessageId: string) => void;
-  onUpdateTaskDraft?: (rootMessageId: string, draft: TaskDraftMessage) => void;
-  onBuildTasks?: (rootMessageId: string, draft: TaskDraftMessage, projectId: string, projectName: string) => void;
   summarizingThreads?: Set<string>;
-  extractingTasks?: Set<string>;
-  buildingDrafts?: Set<string>;
-  taskDrafts?: Record<string, TaskDraftMessage>;
   deletingThreadRootId?: string | null;
   highlightedMessageId?: string | null;
   onUpdateMessageThreadStatus?: (messageId: string, status: ThreadStatus) => void;
@@ -100,13 +91,7 @@ export function MessageList({
   onAddToChat,
   onDeleteThreadRoot,
   onSummarize,
-  onCreateTasks,
-  onUpdateTaskDraft,
-  onBuildTasks,
   summarizingThreads,
-  extractingTasks,
-  buildingDrafts,
-  taskDrafts,
   deletingThreadRootId,
   highlightedMessageId,
   onUpdateMessageThreadStatus,
@@ -312,19 +297,11 @@ export function MessageList({
                     <span className="text-[10px] text-[var(--app-shell-muted)] shrink-0">{threadData.replyCount} replies</span>
                   )}
                   </div>
-                  {(summaryText || taskDrafts?.[msg.id]) && (
+                  {summaryText && (
                     <div className="mt-1.5 pl-6 flex flex-col gap-1">
-                      {summaryText && (
-                        <div className="text-sm text-[var(--muted-foreground)] leading-relaxed prose prose-sm prose-neutralmax-w-none">
-                          <Markdown content={summaryText} isUser={false} />
-                        </div>
-                      )}
-                      {taskDrafts?.[msg.id] && taskDrafts[msg.id].tasks.length > 0 && (
-                        <span className="text-[10px] text-[var(--app-shell-muted)] flex items-center gap-1">
-                          <ListTodo className="w-3 h-3" />
-                          {taskDrafts[msg.id].tasks.length} {taskDrafts[msg.id].tasks.length === 1 ? "task" : "tasks"}
-                        </span>
-                      )}
+                      <div className="text-sm text-[var(--muted-foreground)] leading-relaxed prose prose-sm prose-neutralmax-w-none">
+                        <Markdown content={summaryText} isUser={false} />
+                      </div>
                     </div>
                   )}
                 </div>
@@ -519,22 +496,6 @@ export function MessageList({
                         </button>
                       )}
 
-                      {onCreateTasks && threadData && threadData.replyCount > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => onCreateTasks(msg.id)}
-                          disabled={extractingTasks?.has(msg.id)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--app-shell-subtle)] hover:bg-[var(--item-hover-bg)] text-[var(--foreground)] border border-[var(--card-border)] text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
-                        >
-                          {extractingTasks?.has(msg.id) ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-[var(--muted-foreground)]" />
-                          ) : (
-                            <ListTodo className="w-3.5 h-3.5 text-[var(--muted-foreground)]" />
-                          )}
-                          {extractingTasks?.has(msg.id) ? "Extracting…" : taskDrafts?.[msg.id] ? "Re-extract tasks" : "Create tasks"}
-                        </button>
-                      )}
-
                       {threadData && threadData.replyCount > 0 && onOpenThread && (
                         <div className="ml-auto flex items-center gap-2 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => onOpenThread(msg.id)}>
                           <span className="text-xs text-[var(--muted-foreground)] font-medium">{threadData.replyCount} replies</span>
@@ -564,35 +525,6 @@ export function MessageList({
                       )}
                     </div>
 
-                    {/* Tasks: draft card before push, status card after push */}
-                    {taskDrafts?.[msg.id] && (
-                      taskDrafts[msg.id].builtTaskIds && Object.keys(taskDrafts[msg.id].builtTaskIds!).length > 0 ? (
-                        <TaskStatusCard
-                          draft={taskDrafts[msg.id]}
-                          onPush={(draft, projectId, projectName) =>
-                            onBuildTasks?.(msg.id, draft, projectId, projectName)
-                          }
-                          pushing={buildingDrafts?.has(taskDrafts[msg.id].draftId)}
-                        />
-                      ) : (
-                        <TaskDraftCard
-                          draft={taskDrafts[msg.id]}
-                          onUpdate={(updated) => onUpdateTaskDraft?.(msg.id, updated)}
-                          onBuild={(draft, projectId, projectName) =>
-                            onBuildTasks?.(msg.id, draft, projectId, projectName)
-                          }
-                          building={buildingDrafts?.has(taskDrafts[msg.id].draftId)}
-                        />
-                      )
-                    )}
-
-                    {/* Extracting tasks spinner */}
-                    {extractingTasks?.has(msg.id) && (
-                      <div className="mt-4 flex items-center gap-2 text-xs text-[var(--app-shell-muted)]">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>Extracting tasks…</span>
-                      </div>
-                    )}
                   </div>
                 </div>
 

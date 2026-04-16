@@ -33,8 +33,6 @@ import {
   type ComposerRoutingMetadata,
 } from "@/lib/chat/composer-routing";
 import type { ThreadStatus } from "@/lib/storage/thread-adapter";
-import type { TaskDraftMessage } from "@/types/tasks";
-import { buildTasks } from "@/services/agxService";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { useProjectsWithAgents, useProjects } from "@/hooks/useProjects";
 import { Search, ChevronLeft, SquareTerminal, PanelLeftOpen, Moon, Sun, BookOpen, LoaderCircle } from "lucide-react";
@@ -43,7 +41,6 @@ import { StatusIndicator } from "./StatusIndicator";
 
 const LEGACY_THREAD_ID = "global";
 const SUMMARY_MARKER = "<!-- thread-summary -->";
-const TASK_DRAFT_MARKER = "<!-- task-draft -->";
 const THEME_STORAGE_KEY = "agx-theme";
 
 interface ThreadKnowledgeRun {
@@ -64,7 +61,6 @@ function stripThoughts(text: string): string {
 function stripInternalMarkers(text: string): string {
   return text
     .replaceAll(SUMMARY_MARKER, "")
-    .replaceAll(TASK_DRAFT_MARKER, "")
     .trim();
 }
 
@@ -74,46 +70,6 @@ function cleanMarkdownBlock(text: string, removeThoughts = false): string {
     .replace(/\r\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-}
-
-function taskDraftToMarkdown(draft: TaskDraftMessage): string {
-  if (draft.tasks.length === 0) return "";
-
-  const titleById = new Map(draft.tasks.map((task) => [task.id, task.title.trim()]));
-  const lines: string[] = ["## Draft Tasks", ""];
-
-  if (draft.projectName) {
-    lines.push(`Project: ${draft.projectName}`);
-  }
-  if (draft.buildStatus) {
-    lines.push(`Build status: ${draft.buildStatus.replaceAll("_", " ")}`);
-  }
-  if (draft.projectName || draft.buildStatus) {
-    lines.push("");
-  }
-
-  draft.tasks.forEach((task, index) => {
-    const title = cleanMarkdownBlock(task.title) || `Task ${index + 1}`;
-    const description = cleanMarkdownBlock(task.description);
-    const deps = (task.dependsOn || [])
-      .map((id) => titleById.get(id)?.trim())
-      .filter((value): value is string => Boolean(value));
-    const remoteTaskId = draft.builtTaskIds?.[task.id];
-
-    lines.push(`${index + 1}. [ ] **${title}**`);
-    if (description) {
-      lines.push(description);
-    }
-    if (deps.length > 0) {
-      lines.push(`Depends on: ${deps.join(", ")}`);
-    }
-    if (remoteTaskId) {
-      lines.push(`agx task id: \`${remoteTaskId}\``);
-    }
-    lines.push("");
-  });
-
-  return lines.join("\n").trim();
 }
 
 function getTimeAgo(ts: number) {
@@ -177,7 +133,6 @@ function reconcileActiveParticipantIds(
 function toMarkdown(
   messages: GroupMessage[],
   participants: Participant[],
-  taskDraft?: TaskDraftMessage
 ): string {
   const pMap = Object.fromEntries(participants.map((p) => [p.id, p]));
   const lines: string[] = [];
@@ -197,13 +152,6 @@ function toMarkdown(
     lines.push("");
     lines.push(clean);
     lines.push("");
-  }
-
-  if (taskDraft) {
-    const taskMd = taskDraftToMarkdown(taskDraft);
-    if (taskMd) {
-      lines.push(taskMd);
-    }
   }
 
   return lines.join("\n").trim();
@@ -504,27 +452,6 @@ export function ChatContainer({
   const [summarizingThreads, setSummarizingThreads] = useState<Set<string>>(new Set());
   const [deletingThreadRootId, setDeletingThreadRootId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{ type: "thread" | "message"; id: string; preview?: string } | null>(null);
-  const [taskDrafts, setTaskDraftsRaw] = useState<Record<string, TaskDraftMessage>>({});
-  const setTaskDrafts: typeof setTaskDraftsRaw = useCallback((update) => {
-    setTaskDraftsRaw((prev) => {
-      const next = typeof update === "function" ? update(prev) : update;
-      // persist each changed draft
-      if (activeThreadId) {
-        for (const [msgId, draft] of Object.entries(next)) {
-          if (prev[msgId] !== draft) {
-            fetch("/api/task-drafts", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ threadId: activeThreadId, messageId: msgId, draft }),
-            }).catch((err) => console.warn('[ChatContainer] persist task draft failed:', err));
-          }
-        }
-      }
-      return next;
-    });
-  }, [activeThreadId]);
-  const [extractingTasks, setExtractingTasks] = useState<Set<string>>(new Set());
-  const [buildingDrafts, setBuildingDrafts] = useState<Set<string>>(new Set());
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const lastUnknownParticipantSignatureRef = useRef<string>("");
 
@@ -698,9 +625,9 @@ export function ChatContainer({
       ...messages.filter((m) => m.rootMessageId === rootMessageId).sort((a, b) => a.timestamp - b.timestamp)
     ].filter(Boolean) as GroupMessage[];
 
-    const md = toMarkdown(threadMsgs, participants, taskDrafts[rootMessageId]);
+    const md = toMarkdown(threadMsgs, participants);
     navigator.clipboard.writeText(md).catch(err => console.error("Failed to copy thread", err));
-  }, [messages, participants, taskDrafts]);
+  }, [messages, participants]);
 
   const handleLearnFromDiscussion = useCallback(async () => {
     if (!openThreadId) return;
@@ -988,17 +915,6 @@ export function ChatContainer({
     prevActiveThreadIdRef.current = activeThreadId;
     if (!activeThreadId) return;
     void loadHistory(activeThreadId);
-    // Load persisted task drafts
-    fetch(`/api/task-drafts?threadId=${encodeURIComponent(activeThreadId)}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.drafts && Object.keys(data.drafts).length > 0) {
-          setTaskDraftsRaw(data.drafts as Record<string, TaskDraftMessage>);
-        } else {
-          setTaskDraftsRaw({});
-        }
-      })
-      .catch((err) => { console.warn('[ChatContainer] load task drafts failed:', err); setTaskDraftsRaw({}); });
   }, [activeThreadId, loadHistory]);
 
   useEffect(() => {
@@ -1071,122 +987,6 @@ export function ChatContainer({
     }
   }, [activeThreadId, loadHistory, activeParticipants]);
 
-  const handleExtractTasks = useCallback(async (rootMessageId: string) => {
-    if (!activeThreadId) return;
-    if (activeParticipants.length === 0) {
-      window.alert("Enable at least one agent in this project.");
-      return;
-    }
-    setExtractingTasks((prev) => new Set(prev).add(rootMessageId));
-    try {
-      const res = await fetch("/api/tasks/extract", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          threadId: activeThreadId,
-          rootMessageId,
-          activeParticipantIds: activeParticipants.map((participant) => participant.id),
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const draft: TaskDraftMessage = {
-          draftId: crypto.randomUUID(),
-          revision: 0,
-          tasks: data.tasks,
-          buildStatus: "idle",
-        };
-        setTaskDrafts((prev) => ({ ...prev, [rootMessageId]: draft }));
-      } else {
-        console.error("Task extraction failed:", await res.text());
-      }
-    } catch (err) {
-      console.error("Task extraction error:", err);
-    } finally {
-      setExtractingTasks((prev) => {
-        const next = new Set(prev);
-        next.delete(rootMessageId);
-        return next;
-      });
-    }
-  }, [activeThreadId, activeParticipants]);
-
-  const handleUpdateTaskDraft = useCallback((rootMessageId: string, draft: TaskDraftMessage) => {
-    setTaskDrafts((prev) => ({ ...prev, [rootMessageId]: draft }));
-  }, []);
-
-  const handleBuildTasks = useCallback(async (rootMessageId: string, draft: TaskDraftMessage, projectId: string, projectName: string) => {
-    if (!activeThreadId) return;
-    setBuildingDrafts((prev) => new Set(prev).add(draft.draftId));
-    setTaskDrafts((prev) => ({
-      ...prev,
-      [rootMessageId]: { ...draft, buildStatus: "building", projectId, projectName },
-    }));
-    try {
-      const buildId = crypto.randomUUID();
-      const result = await buildTasks(
-        draft.tasks,
-        projectId,
-        buildId,
-        draft.builtTaskIds,
-      );
-      const builtTaskIds: Record<string, string> = { ...draft.builtTaskIds };
-      let hasFailure = false;
-      for (const r of result.results) {
-        if (r.status === "created" && r.remoteTaskId) {
-          builtTaskIds[r.clientTaskId] = r.remoteTaskId;
-        } else {
-          hasFailure = true;
-        }
-      }
-      setTaskDrafts((prev) => ({
-        ...prev,
-        [rootMessageId]: {
-          ...prev[rootMessageId],
-          buildId,
-          buildStatus: hasFailure ? "partial_failure" : "done",
-          builtTaskIds,
-        },
-      }));
-    } catch (err) {
-      console.error("Build error:", err);
-      setTaskDrafts((prev) => ({
-        ...prev,
-        [rootMessageId]: { ...prev[rootMessageId], buildStatus: "partial_failure" },
-      }));
-    } finally {
-      setBuildingDrafts((prev) => {
-        const next = new Set(prev);
-        next.delete(draft.draftId);
-        return next;
-      });
-    }
-  }, [activeThreadId]);
-
-  const handleCreateTasksCommand = useCallback(() => {
-    if (!activeThreadId) return;
-    const targetRootId = (() => {
-      if (openThreadId) return openThreadId;
-      const replyRoots = new Set(
-        messages
-          .map((message) => message.rootMessageId)
-          .filter((rootId): rootId is string => Boolean(rootId))
-      );
-      for (let i = messages.length - 1; i >= 0; i -= 1) {
-        const message = messages[i];
-        if (!message.rootMessageId && replyRoots.has(message.id)) {
-          return message.id;
-        }
-      }
-      return null;
-    })();
-    if (!targetRootId) {
-      console.warn("No thread with replies available to extract tasks from");
-      return;
-    }
-    void handleExtractTasks(targetRootId);
-  }, [activeThreadId, handleExtractTasks, messages, openThreadId]);
-
   const handleReplyToMessage = useCallback((messageId: string) => {
     navigateToThread(messageId);
   }, [navigateToThread]);
@@ -1252,11 +1052,6 @@ export function ChatContainer({
 
       if (/^\/summarize(?:\s+[\s\S]+)?$/i.test(prompt)) {
         handleSummarizeCommand();
-        return;
-      }
-
-      if (/^\/tasks(?:\s+[\s\S]+)?$/i.test(prompt) || /^\/create(?:\s+[\s\S]+)?$/i.test(prompt)) {
-        handleCreateTasksCommand();
         return;
       }
 
@@ -1511,14 +1306,8 @@ export function ChatContainer({
         aliases: ["sum"],
         execute: () => handleSummarizeCommand(),
       },
-      {
-        name: "/tasks",
-        description: "Extract tasks from current thread discussion",
-        aliases: ["create"],
-        execute: () => handleCreateTasksCommand(),
-      },
     ],
-    [handleSearchCommand, handleSummarizeCommand, handleCreateTasksCommand]
+    [handleSearchCommand, handleSummarizeCommand]
   );
 
   // Projects scoped to the current thread
@@ -1992,13 +1781,7 @@ export function ChatContainer({
                     onAddToChat={handleAddToChat}
                     onDeleteThreadRoot={handleDeleteThreadRoot}
                     onSummarize={handleSummarize}
-                    onCreateTasks={handleExtractTasks}
-                    onUpdateTaskDraft={handleUpdateTaskDraft}
-                    onBuildTasks={handleBuildTasks}
                     summarizingThreads={summarizingThreads}
-                    extractingTasks={extractingTasks}
-                    buildingDrafts={buildingDrafts}
-                    taskDrafts={taskDrafts}
                     deletingThreadRootId={deletingThreadRootId}
                     highlightedMessageId={routeMessageId}
                     shipModeThreads={autoModeThreads}
