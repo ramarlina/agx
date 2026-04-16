@@ -6,7 +6,7 @@
  *
  * For backups, use the module-level `backup()` from "node:sqlite" directly.
  */
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
 
 /**
  * Read a PRAGMA value, returning the value directly (like better-sqlite3's simple mode).

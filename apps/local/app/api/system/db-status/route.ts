@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+const { DatabaseSync: DatabaseSyncCtor } =
+  process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 import { pragmaSet, pragmaGet } from "@/lib/sqlite-compat";
 import fs from "fs";
 import os from "os";
@@ -94,7 +96,7 @@ export async function GET() {
     // Open the queue DB — create if missing (in-memory can't use WAL/DELETE)
     const dbDir = SQLITE_QUEUE_PATH.replace(/\/[^/]+$/, "");
     if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
-    db = new DatabaseSync(SQLITE_QUEUE_PATH);
+    db = new DatabaseSyncCtor(SQLITE_QUEUE_PATH);
 
     // Apply journal_mode: try WAL first, fall back to DELETE
     pragmaSet(db, "journal_mode = WAL");

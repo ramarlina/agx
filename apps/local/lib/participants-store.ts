@@ -1,4 +1,6 @@
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+const { DatabaseSync: DatabaseSyncCtor } =
+  process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 import { pragmaAll, pragmaSet, transaction, transactionFn } from "./sqlite-compat";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "fs";
 import path from "path";
@@ -161,7 +163,7 @@ function migrateLegacyParticipantIds(db: DatabaseSync): void {
 
 function getDb(): DatabaseSync {
   mkdirSync(STORE_DIR, { recursive: true });
-  const db = new DatabaseSync(DB_PATH);
+  const db = new DatabaseSyncCtor(DB_PATH);
   pragmaSet(db, "journal_mode = WAL");
   db.exec(`
     CREATE TABLE IF NOT EXISTS participants (
