@@ -113,12 +113,15 @@ export class LinearAdapter implements TrackerAdapter {
     const result = await listCachedTrackerItems({
       trackerType: "linear",
       search: filters.search,
+      statuses: filters.statuses,
       statusCategories: filters.statusCategories,
       assigneeIds: filters.assigneeIds,
       groupIds: filters.groupIds, // cycles for Linear
       cursor: filters.cursor,
       limit: filters.limit,
-      sortBy: "activity",
+      sortBy: filters.sortBy ?? "activity",
+      sortDir: filters.sortDir,
+      hasActivity: filters.hasActivity,
       activityMap,
     });
 
@@ -234,14 +237,31 @@ export class LinearAdapter implements TrackerAdapter {
   }
 
   async listStatuses(projectId: string): Promise<TrackerStatusOption[]> {
-    // Return common Linear statuses — a full implementation would
-    // fetch team-specific statuses from the GraphQL API
-    return [
-      { id: "todo", name: "Todo", category: "todo" },
-      { id: "in_progress", name: "In Progress", category: "in_progress" },
-      { id: "done", name: "Done", category: "done" },
-      { id: "cancelled", name: "Cancelled", category: "cancelled" },
-    ];
+    const client = getLinearClient(projectId);
+    if (!client) return [];
+
+    try {
+      const states = await client.workflowStates();
+      const seen = new Set<string>();
+      return states
+        .map((s) => ({
+          id: s.id,
+          name: s.name,
+          category: linearStatusToCategory(s.name),
+        }))
+        .filter((s) => {
+          if (seen.has(s.name)) return false;
+          seen.add(s.name);
+          return true;
+        });
+    } catch {
+      return [
+        { id: "todo", name: "Todo", category: "todo" },
+        { id: "in_progress", name: "In Progress", category: "in_progress" },
+        { id: "done", name: "Done", category: "done" },
+        { id: "cancelled", name: "Cancelled", category: "cancelled" },
+      ];
+    }
   }
 
   async listAssignees(projectId: string): Promise<TrackerAssignee[]> {

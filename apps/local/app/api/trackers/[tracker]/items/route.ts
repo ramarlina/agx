@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import "@/lib/tracker"; // Ensure adapters are registered
 import { resolveAdapter, badRequest } from "@/lib/tracker/route-helpers";
-import type { TrackerStatusCategory } from "@/lib/tracker/types";
+import type { TrackerStatusCategory, TrackerFilters } from "@/lib/tracker/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +16,11 @@ export async function GET(
 
   const adapter = resolveAdapter(tracker);
 
-  const filters = {
+  const sortByRaw = req.nextUrl.searchParams.get("sortBy");
+  const sortDirRaw = req.nextUrl.searchParams.get("sortDir");
+
+  const filters: TrackerFilters = {
+    statuses: req.nextUrl.searchParams.getAll("status"),
     statusCategories: req.nextUrl.searchParams.getAll("statusCategory") as TrackerStatusCategory[],
     assigneeIds: req.nextUrl.searchParams.getAll("assigneeId"),
     groupIds: req.nextUrl.searchParams.getAll("groupId"),
@@ -25,6 +29,9 @@ export async function GET(
     limit: req.nextUrl.searchParams.get("limit")
       ? Number(req.nextUrl.searchParams.get("limit"))
       : undefined,
+    sortBy: sortByRaw as TrackerFilters["sortBy"] ?? undefined,
+    sortDir: sortDirRaw === "asc" || sortDirRaw === "desc" ? sortDirRaw : undefined,
+    hasActivity: req.nextUrl.searchParams.get("hasActivity") === "true" || undefined,
   };
 
   try {
