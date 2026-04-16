@@ -73,7 +73,7 @@ function cycleToGroup(cycle: LinearCycle): TrackerGroup {
 }
 
 // LinearIcon component
-function LinearIcon({ className }: { className?: string }) {
+export function LinearIcon({ className }: { className?: string }) {
   return (
     <svg
       className={className}

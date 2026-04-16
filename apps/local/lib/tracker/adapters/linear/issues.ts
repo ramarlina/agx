@@ -21,7 +21,7 @@ import {
   type CachedTrackerItemRecord as CachedLinearIssueRecord,
   type ListCachedTrackerItemsInput as ListCachedLinearIssuesInput,
 } from "../../tracker-item-store";
-import { vaultStore } from "../../vault-store";
+import { vaultStore } from "@/lib/vault-store";
 
 const GLOBAL_SCOPE_KEY = "global";
 const MAX_PULL_ISSUES = 500;
@@ -261,6 +261,8 @@ export async function pullLinearIssues(input: {
 
         return {
           id: issue.id,
+          trackerType: "linear",
+          trackerId: issue.id,
           identifier: issue.identifier,
           title: issue.title,
           description: issue.description ?? null,
@@ -298,6 +300,7 @@ export async function pullLinearIssues(input: {
   }
 
   await replaceCachedLinearIssues({
+    trackerType: "linear",
     issues,
     complete,
     pulledAtMs,

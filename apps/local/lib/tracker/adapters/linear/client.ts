@@ -17,7 +17,7 @@ import path from "node:path";
 const AGX_DIR = path.join(homedir(), ".agx");
 const LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql";
 
-export type TicketProvider = "linear";
+export type TicketProvider = "linear" | (string & {});
 
 export interface LinearToken {
   accessToken: string;

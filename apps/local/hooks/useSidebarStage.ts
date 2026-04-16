@@ -11,7 +11,7 @@ export interface SidebarStageResult {
     terminal: boolean;
     objectives: boolean;
     objectivesIsNew: boolean;
-    linear: boolean;
+    tracking: boolean;
     teams: boolean;
     folders: boolean;
     scheduledTasks: boolean;
@@ -28,7 +28,7 @@ const ALL_VISIBLE: SidebarStageResult = {
     terminal: true,
     objectives: true,
     objectivesIsNew: false,
-    linear: true,
+    tracking: true,
     teams: true,
     folders: true,
     scheduledTasks: true,

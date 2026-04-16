@@ -471,7 +471,7 @@ export async function replaceCachedTrackerItems(input: {
 
       if (input.complete !== false) {
         if (input.issues.length === 0) {
-          db.exec(`DELETE FROM tracker_items WHERE tracker_type = ?`, trackerType);
+          db.prepare(`DELETE FROM tracker_items WHERE tracker_type = ?`).run(trackerType);
         } else {
           const placeholders = input.issues.map(() => "?").join(", ");
           db.prepare(
