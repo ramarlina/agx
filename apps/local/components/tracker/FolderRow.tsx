@@ -115,19 +115,29 @@ export function FolderRow({
         {count}
       </span>
       {projectSlug && (
-        <button
-          type="button"
-          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-all hover:bg-zinc-700 ${
-            hasNote
-              ? "text-amber-400 opacity-100"
-              : "text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100"
-          }`}
-          onClick={handleNoteClick}
-          title={hasNote ? "Edit group note" : "Add group note"}
-          aria-label={hasNote ? "Edit group note" : "Add group note"}
-        >
-          <StickyNote size={12} className={hasNote ? "fill-current" : ""} />
-        </button>
+        <div className="relative">
+          <button
+            type="button"
+            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-all hover:bg-zinc-700 ${
+              hasNote
+                ? "text-amber-400 opacity-100"
+                : "text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100"
+            }`}
+            onClick={handleNoteClick}
+            title={hasNote ? "Edit group note" : "Add group note"}
+            aria-label={hasNote ? "Edit group note" : "Add group note"}
+          >
+            <StickyNote size={12} className={hasNote ? "fill-current" : ""} />
+          </button>
+          {noteOpen && (
+            <NoteSticker
+              value={noteContent}
+              onChange={setNoteContent}
+              onClose={() => setNoteOpen(false)}
+              onSave={saveNote}
+            />
+          )}
+        </div>
       )}
       {onUngroup && (
         <button
@@ -142,14 +152,6 @@ export function FolderRow({
         >
           <X size={12} />
         </button>
-      )}
-      {noteOpen && projectSlug && (
-        <NoteSticker
-          value={noteContent}
-          onChange={setNoteContent}
-          onClose={() => setNoteOpen(false)}
-          onSave={saveNote}
-        />
       )}
     </div>
   );

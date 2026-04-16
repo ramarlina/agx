@@ -1,6 +1,6 @@
-"use client";
+'use client';
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef } from 'react';
 
 interface NoteStickerProps {
   value: string;
@@ -25,27 +25,26 @@ export function NoteSticker({ value, onChange, onClose, onSave }: NoteStickerPro
       }
     }
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
+      if (e.key === 'Escape') {
         onSave(value);
         onClose();
       }
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
     };
   }, [value, onClose, onSave]);
 
   return (
     <div
       ref={containerRef}
-      className="absolute left-4 z-50 mt-0.5 w-72 rounded-lg border border-amber-400/30 bg-amber-50/95 shadow-lg backdrop-blur-sm dark:bg-amber-950/90 dark:border-amber-500/30"
-      style={{ top: "100%" }}
+      className='absolute right-0 top-full z-50 mt-1 w-72 rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] shadow-xl backdrop-blur-md'
       onClick={(e) => e.stopPropagation()}
     >
-      <div className="h-2 w-full rounded-t-lg bg-amber-400/60 dark:bg-amber-600/60" />
+      <div className='h-1.5 w-full rounded-t-lg bg-[var(--primary)]/40' />
       <textarea
         ref={textareaRef}
         value={value}
@@ -54,9 +53,9 @@ export function NoteSticker({ value, onChange, onClose, onSave }: NoteStickerPro
           onSave(value);
           onClose();
         }}
-        placeholder="Add a note…"
-        rows={4}
-        className="w-full resize-none rounded-b-lg bg-transparent px-3 py-2 text-xs text-amber-900 placeholder-amber-400 outline-none dark:text-amber-100 dark:placeholder-amber-600"
+        placeholder='Add a note…'
+        rows={5}
+        className='w-full resize-none rounded-b-lg bg-transparent px-3 py-2.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]/50 outline-none'
       />
     </div>
   );

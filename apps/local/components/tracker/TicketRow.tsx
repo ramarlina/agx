@@ -202,19 +202,29 @@ export function TicketRow({
       )}
       <div className="flex shrink-0 items-center gap-1">
         {projectSlug && (
-          <button
-            type="button"
-            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded transition-all hover:bg-zinc-700 ${
-              hasNote
-                ? "text-amber-400 opacity-100"
-                : "text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100"
-            }`}
-            onClick={handleNoteClick}
-            title={hasNote ? "Edit note" : "Add note"}
-            aria-label={hasNote ? "Edit note" : "Add note"}
-          >
-            <StickyNote size={10} className={hasNote ? "fill-current" : ""} />
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded transition-all hover:bg-zinc-700 ${
+                hasNote
+                  ? "text-amber-400 opacity-100"
+                  : "text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100"
+              }`}
+              onClick={handleNoteClick}
+              title={hasNote ? "Edit note" : "Add note"}
+              aria-label={hasNote ? "Edit note" : "Add note"}
+            >
+              <StickyNote size={10} className={hasNote ? "fill-current" : ""} />
+            </button>
+            {noteOpen && (
+              <NoteSticker
+                value={noteContent}
+                onChange={setNoteContent}
+                onClose={() => setNoteOpen(false)}
+                onSave={saveNote}
+              />
+            )}
+          </div>
         )}
         {onTogglePin && (
           <button
@@ -261,14 +271,6 @@ export function TicketRow({
           <ExternalLink size={10} />
         </button>
       </div>
-      {noteOpen && projectSlug && (
-        <NoteSticker
-          value={noteContent}
-          onChange={setNoteContent}
-          onClose={() => setNoteOpen(false)}
-          onSave={saveNote}
-        />
-      )}
     </div>
   );
 }
