@@ -456,7 +456,7 @@ async function executeJobAction(
     });
   }
 
-  if (job.executionMode === 'linear_worker') {
+  if (job.executionMode === 'linear_worker' || job.executionMode === 'task_worker') {
     const { executeLinearWorker } = await import('./linear-worker');
     const sessionAgent = await resolveLinearWorkerAgent(job);
     const controllerContext = await resolveJobContextForAgent(job, sessionAgent.id);
