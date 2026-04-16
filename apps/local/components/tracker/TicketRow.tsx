@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { Check, ExternalLink, Link2, Pin } from "lucide-react";
+import { Check, ExternalLink, Link2, Pin, StickyNote } from "lucide-react";
+import { NoteSticker } from "@/components/tracker/NoteSticker";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import type { TrackerItem } from "@/lib/tracker/types";
 import type { Participant } from "@/lib/types";
@@ -19,6 +20,7 @@ export function TicketRow({
   multiSelected,
   draggable = false,
   treeConnector,
+  projectSlug,
 }: {
   item: TrackerItem;
   selected: boolean;
@@ -30,9 +32,53 @@ export function TicketRow({
   multiSelected?: boolean;
   draggable?: boolean;
   treeConnector?: "mid" | "last";
+  projectSlug?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const copyResetTimeoutRef = useRef<number | null>(null);
+  const noteButtonRef = useRef<HTMLButtonElement>(null);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [noteContent, setNoteContent] = useState("");
+  const [noteLoaded, setNoteLoaded] = useState(false);
+  const [hasNote, setHasNote] = useState(false);
+
+  const loadNote = useCallback(async () => {
+    if (!projectSlug || noteLoaded) return;
+    try {
+      const res = await fetch(
+        `/api/tracker/notes?projectSlug=${encodeURIComponent(projectSlug)}&id=${encodeURIComponent(item.identifier)}&type=issue`
+      );
+      const data = await res.json() as { content: string | null };
+      const content = data.content ?? "";
+      setNoteContent(content);
+      setHasNote(content.trim() !== "");
+      setNoteLoaded(true);
+    } catch {
+      setNoteLoaded(true);
+    }
+  }, [projectSlug, item.identifier, noteLoaded]);
+
+  const saveNote = useCallback(async (content: string) => {
+    if (!projectSlug) return;
+    setHasNote(content.trim() !== "");
+    try {
+      await fetch("/api/tracker/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectSlug, id: item.identifier, type: "issue", content }),
+      });
+    } catch {
+      // Silent fail — note stays in UI state
+    }
+  }, [projectSlug, item.identifier]);
+
+  const handleNoteClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!noteOpen) {
+      void loadNote();
+    }
+    setNoteOpen((prev) => !prev);
+  }, [noteOpen, loadNote]);
 
   useEffect(() => {
     return () => {
@@ -156,6 +202,33 @@ export function TicketRow({
         </span>
       )}
       <div className="flex shrink-0 items-center gap-1">
+        {projectSlug && (
+          <>
+            <button
+              ref={noteButtonRef}
+              type="button"
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded transition-all hover:bg-zinc-700 ${
+                hasNote
+                  ? "text-amber-400 opacity-100"
+                  : "text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100"
+              }`}
+              onClick={handleNoteClick}
+              title={hasNote ? "Edit note" : "Add note"}
+              aria-label={hasNote ? "Edit note" : "Add note"}
+            >
+              <StickyNote size={10} className={hasNote ? "fill-current" : ""} />
+            </button>
+            {noteOpen && (
+              <NoteSticker
+                anchorRef={noteButtonRef}
+                value={noteContent}
+                onChange={setNoteContent}
+                onClose={() => setNoteOpen(false)}
+                onSave={saveNote}
+              />
+            )}
+          </>
+        )}
         {onTogglePin && (
           <button
             type="button"

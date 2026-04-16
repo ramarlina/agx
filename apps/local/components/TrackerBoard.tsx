@@ -399,7 +399,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filterOptionsLoaded, setFilterOptionsLoaded] = useState(false);
   const [assignees, setAssignees] = useState<TrackerEntityOption[]>([]);
-  const [statusCategories, setStatusCategories] = useState<string[]>([]);
+  const [statusCategories, setStatusCategories] = useState<{ value: string; label: string }[]>([]);
   const [workspaces, setWorkspaces] = useState<TrackerEntityOption[]>([]);
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
   const [selectedStatusCategories, setSelectedStatusCategories] = useState<string[]>([]);
@@ -654,7 +654,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
           return;
         }
         setAssignees(Array.isArray(data.assignees) ? data.assignees : []);
-        setStatusCategories(Array.isArray(data.statuses) ? data.statuses.map((s: { name: string }) => s.name) : []);
+        setStatusCategories(Array.isArray(data.statuses) ? data.statuses.map((s: { name: string; category: string }) => ({ value: s.category, label: s.name })) : []);
         setWorkspaces(Array.isArray(data.teams) ? data.teams : []);
         setGroups(Array.isArray(data.cycles) ? data.cycles : []);
         setFilterOptionsLoaded(true);
@@ -689,7 +689,8 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     if (!filterOptionsLoaded) {
       return;
     }
-    const validStatuses = selectedStatusCategories.filter((status) => statusCategories.includes(status));
+    const validValues = statusCategories.map((s) => s.value);
+    const validStatuses = selectedStatusCategories.filter((status) => validValues.includes(status));
     if (validStatuses.length !== selectedStatusCategories.length) {
       setSelectedStatusCategories(validStatuses);
     }
@@ -790,18 +791,19 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     [assignees]
   );
   const statusOptions = useMemo<FilterOption[]>(
-    () => statusCategories.map((status) => ({ value: status, label: status })),
+    () => statusCategories.map((s) => ({ value: s.value, label: s.label })),
     [statusCategories]
   );
   const itemStatusOptions = useMemo<FilterOption[]>(
-    () =>
-      Array.from(
-        new Set(
-          [selectedItem?.status ?? "", ...statusCategories]
-            .map((status) => status.trim())
-            .filter(Boolean)
-        )
-      ).map((status) => ({ value: status, label: status })),
+    () => {
+      const opts = statusCategories.map((s) => ({ value: s.label, label: s.label }));
+      const existing = new Set(opts.map((o) => o.value));
+      const current = selectedItem?.status?.trim();
+      if (current && !existing.has(current)) {
+        opts.unshift({ value: current, label: current });
+      }
+      return opts;
+    },
     [selectedItem?.status, statusCategories]
   );
   const workspaceOptions = useMemo<FilterOption[]>(
@@ -1227,6 +1229,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                         pinned={pinnedItemIds.has(item.id)}
                         activeAgents={issueActiveAgents.get(item.id)}
                         participants={participants}
+                        projectSlug={projectSlug}
                         onSelect={() => {
                           setTouchPanelTab("runs");
                           pushSelection({
@@ -1610,6 +1613,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                           count={groupItems.length}
                           collapsed={!!group.collapsed}
                           selected={selectedGroupTaskGroupId === group.id}
+                          projectSlug={projectSlug}
                           onToggleCollapse={() =>
                             updateGroup(group.id, { collapsed: !group.collapsed })
                           }
@@ -1635,6 +1639,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                               draggable
                               multiSelected={multiSelectedItemIds.has(gi.id)}
                               treeConnector={giIdx === groupItems.length - 1 ? "last" : "mid"}
+                              projectSlug={projectSlug}
                               onSelect={(event) => {
                                 if (event && (event.metaKey || event.ctrlKey)) {
                                   toggleItemMultiSelect(gi.id);
@@ -1676,6 +1681,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                         participants={participants}
                         draggable
                         multiSelected={multiSelectedItemIds.has(item.id)}
+                        projectSlug={projectSlug}
                         onSelect={(event) => {
                           if (event && (event.metaKey || event.ctrlKey)) {
                             toggleItemMultiSelect(item.id);
