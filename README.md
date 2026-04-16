@@ -3,11 +3,12 @@
   <img src="agx_icon.png" width="128" alt="AGX Icon">
 </p>
 
-<h3 align="center">Persistent memory for AI coding agents.</h3>
+<h3 align="center">Use agents for real work. Stay in control.</h3>
 
 <p align="center">
-  Your agents lose context every session. AGX checkpoints their state so they resume instantly — <br>
-  no replaying history, no burning tokens. Works with Claude, Codex, Gemini, and Ollama.
+  Getting agents to do things isn't the hard part anymore. Keeping track of everything they do —<br>
+  without losing context, missing changes, or creating messes you can't untangle — is.<br>
+  AGX is how I use agents seriously. Works with Claude, Codex, Gemini, and Ollama.
 </p>
 
 <p align="center">
@@ -40,27 +41,29 @@ npm install -g @mndrk/agx && agx init
 
 ---
 
-## The Problem
+## Why I built this
 
-Every AI coding agent — Claude, Codex, Gemini — starts from scratch each session. Long tasks get expensive to re-explain. Context gets lost. Work gets repeated.
+Hi, I'm Mendrika.
 
-## The Fix
+I built AGX because I kept wanting to use agents for more and more real work. Feature builds. Bug fixes. Research. Follow-up tasks. The problem was never getting them to do things. The problem was keeping track of everything without getting lost.
 
-AGX checkpoints agent state after every step. When you resume, the agent picks up exactly where it left off. No replaying history, no burning tokens on context windows. **Resuming is constant-cost** whether the task ran for 5 minutes or 5 days.
+That started to feel like the real bottleneck. The better the agents got, the more parallel work I wanted to run. And the more parallel work I ran, the easier it was to lose context, miss changes, and create messes I couldn't reliably untangle.
+
+AGX is my attempt to solve that. It's an exploration of what it would take to use agents seriously, while still staying in control.
 
 Ships as a CLI, a local web dashboard, and a macOS desktop app — all from one repo.
 
 > **Dogfooded hard:** 133 PRs and 500+ commits merged by AGX agents building AGX itself. [Read more →](https://runagx.com/blog)
 
-### AGX vs. Stateless Agents
+### What staying in control looks like
 
-| | Stateless Agent (Claude, Codex, etc.) | AGX |
+| | Ad-hoc agent usage | AGX |
 |---|---|---|
-| **Resume a task** | Re-explain everything from scratch | Instant — loads last checkpoint |
-| **Cost to resume** | Grows with history (O(n) tokens) | Constant (O(1) tokens) |
-| **Multi-session tasks** | Manual context stitching | Automatic — wake/work/sleep loop |
-| **Crash recovery** | Lost work | Checkpoint survives restarts |
-| **Human gates** | Ad-hoc | Built-in approve/reject flow |
+| **Parallel work** | Tabs, scrollback, mental bookkeeping | Every task has a home; see what's running at a glance |
+| **Resuming a task** | Re-explain everything from scratch | Instant — loads last checkpoint, constant cost |
+| **Multi-session tasks** | Manual context stitching | Wake / work / sleep loop, picks up where it left off |
+| **Crash recovery** | Lost work | Checkpointed state survives restarts |
+| **Human gates** | Whatever you remember to check | Built-in approve/reject before anything irreversible |
 | **Provider lock-in** | One provider per session | Switch Claude ↔ Codex ↔ Gemini ↔ Ollama freely |
 | **Observability** | Terminal scrollback | Dashboard, live presence, execution logs |
 
@@ -108,12 +111,12 @@ npm run local:dev          # Run the dashboard in dev mode
 
 ## What You Get
 
-- **Chat with any provider** — Claude, Codex, Gemini, Ollama. Switch freely.
+- **A home for every task** — Objectives, scheduled jobs, chat threads, and terminal sessions all live under their project. Nothing is free-floating.
+- **Chat with any provider** — Claude, Codex, Gemini, Ollama. Switch freely mid-task.
 - **Durable tasks** — Survive restarts, crashes, and reboots. State is checkpointed, not rebuilt from conversation history.
 - **Human-in-the-loop** — Agents pause at gates for your explicit approve/reject before touching anything dangerous.
-- **Local dashboard** — Project home, agent chat, built-in terminal, Linear integration. See what's running at a glance.
 - **Agent teams** — Group agents by role (engineering, research, ops). Tasks route automatically by tag.
-- **Live presence** — See which agents are active in the sidebar, on projects, and on Linear issues in real time.
+- **Live presence** — See which agents are active on which projects and tasks in real time.
 - **Fully local** — Runs on your machine. Your code never leaves. Full execution logs, task signing, destructive-command safeguards.
 
 ---
@@ -236,7 +239,7 @@ This repo is an npm workspace. CLI, dashboard, and desktop app all live here —
 ```text
 agx/
   apps/
-    local/          # Next.js dashboard (Home, chat, terminal, teams, objectives, Linear)
+    local/          # Next.js dashboard (project home, chat, terminal, teams, objectives, tasks)
     desktop/        # Electron macOS app (bundles dashboard, CLI, and Node runtime)
   lib/              # CLI and runtime source
   commands/         # CLI command implementations

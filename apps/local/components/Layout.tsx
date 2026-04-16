@@ -45,31 +45,12 @@ function LayoutContent({
               </Link>
             </div>
 
-            {/* Top-right actions (always visible) */}
             <div className="flex items-center gap-3">
               <Link
                 href="/"
                 className="text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
               >
-                Open Chat
-              </Link>
-              <Link
-                href="/automations"
-                className="text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
-              >
-                Automations
-              </Link>
-              <Link
-                href="/skills"
-                className="text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
-              >
-                Skills
-              </Link>
-              <Link
-                href="/settings"
-                className="text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition-colors"
-              >
-                Settings
+                Home
               </Link>
             </div>
           </div>
@@ -85,7 +66,7 @@ function LayoutContent({
       {!noFooter && (
         <footer className="flex-shrink-0 border-t border-[var(--card-border)] bg-[var(--card-bg)]/50 py-4">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between text-xs text-[var(--muted-foreground)]">
-            <span>AGX Board • Autonomous Agent Orchestration</span>
+            <span>AGX</span>
             <span className="hidden sm:inline-flex items-center gap-3">
               <DbStatus />
               <span>Built with Next.js + Db</span>
