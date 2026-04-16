@@ -191,11 +191,11 @@ describe("WorkspaceSidebar", () => {
   });
 
   describe("progressive stage gating", () => {
-    test("stage 1 shows only Home, Threads, and Terminal", () => {
+    test("stage 1 shows only Home, Chat, and Terminal", () => {
       renderSidebar({ stageShow: stageShow(1) });
 
       expect(screen.getByRole("link", { name: "Home" })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Threads" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Chat" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Terminal" })).toBeInTheDocument();
 
       expect(screen.queryByRole("link", { name: "Objectives" })).not.toBeInTheDocument();
