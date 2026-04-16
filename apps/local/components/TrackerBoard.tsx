@@ -41,6 +41,7 @@ import {
   getRunTitle,
   STATUS_BADGE_STYLES,
   STATUS_DOT_COLORS,
+  STATUS_LABELS,
   STATUS_TEXT_COLORS,
 } from "@/lib/tracker-run-status";
 import { ResizeHandle } from "@/components/ui/ResizeHandle";
@@ -58,7 +59,7 @@ import { agentAvatarUrl } from "@/lib/tracker-board-utils";
 import { useTaskGroups, type TaskGroup } from "@/hooks/useTaskGroups";
 import { FolderRow } from "@/components/tracker/FolderRow";
 import { GroupPanel } from "@/components/tracker/GroupPanel";
-import { GroupNamePrompt } from "@/components/tracker/GroupNamePrompt";
+import { GroupNamePrompt, PENDING_GROUP_DROP_ID } from "@/components/tracker/GroupNamePrompt";
 import { SelectionBar } from "@/components/tracker/SelectionBar";
 import {
   DndContext,
@@ -440,6 +441,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   const [multiSelectedItemIds, setMultiSelectedItemIds] = useState<Set<string>>(new Set());
   const [showGroupNamePrompt, setShowGroupNamePrompt] = useState(false);
   const [pendingGroupTaskIds, setPendingGroupTaskIds] = useState<string[]>([]);
+  const [pendingGroupTargetId, setPendingGroupTargetId] = useState<string | null>(null);
 
   // Drag state
   const dndSensors = useSensors(
@@ -467,6 +469,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
       await createGroup(name, pendingGroupTaskIds);
       setPendingGroupTaskIds([]);
       setShowGroupNamePrompt(false);
+      setPendingGroupTargetId(null);
       setMultiSelectedItemIds(new Set());
     },
     [pendingGroupTaskIds, createGroup],
@@ -492,9 +495,51 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     async (event: DragEndEvent) => {
       setDragActiveId(null);
       const { active, over } = event;
-      if (!over || active.id === over.id) return;
 
       const activeItemId = active.id as string;
+
+      // While the pending group prompt is open, handle adds/removes
+      if (showGroupNamePrompt) {
+        const activeInPending = pendingGroupTaskIds.includes(activeItemId);
+
+        if (!over || active.id === over.id) {
+          // Dropped on nothing or self — if it was a pending item, remove it
+          if (activeInPending) {
+            setPendingGroupTaskIds((prev) => {
+              const next = prev.filter((id) => id !== activeItemId);
+              if (next.length < 2) {
+                setShowGroupNamePrompt(false);
+                setPendingGroupTargetId(null);
+                return [];
+              }
+              return next;
+            });
+          }
+          return;
+        }
+
+        const overId = over.id as string;
+        const droppedOnPending = overId === PENDING_GROUP_DROP_ID || pendingGroupTaskIds.includes(overId);
+
+        if (activeInPending && !droppedOnPending) {
+          // Dragged out of pending group — remove it
+          setPendingGroupTaskIds((prev) => {
+            const next = prev.filter((id) => id !== activeItemId);
+            if (next.length < 2) {
+              setShowGroupNamePrompt(false);
+              setPendingGroupTargetId(null);
+              return [];
+            }
+            return next;
+          });
+        } else if (!activeInPending) {
+          // Dragged into pending group — add it
+          setPendingGroupTaskIds((prev) => [...prev, activeItemId]);
+        }
+        return;
+      }
+
+      if (!over || active.id === over.id) return;
       const overId = over.id as string;
 
       // Check if dropping on a folder
@@ -509,6 +554,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
       const activeIsLoose = !groupedItemIds.has(activeItemId);
       if (activeIsLoose && overIsLoose) {
         setPendingGroupTaskIds([activeItemId, overId]);
+        setPendingGroupTargetId(overId);
         setShowGroupNamePrompt(true);
         return;
       }
@@ -519,7 +565,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
         await removeTaskFromGroupApi(activeGroup.id, activeItemId);
       }
     },
-    [taskGroups, groupedItemIds, addTasksToGroup, removeTaskFromGroupApi],
+    [taskGroups, groupedItemIds, addTasksToGroup, removeTaskFromGroupApi, showGroupNamePrompt, pendingGroupTaskIds],
   );
 
   const handleSearchChange = useCallback((value: string) => {
@@ -601,7 +647,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
           return;
         }
         setAssignees(Array.isArray(data.assignees) ? data.assignees : []);
-        setStatusCategories(Array.isArray(data.statuses) ? data.statuses : []);
+        setStatusCategories(Array.isArray(data.statuses) ? data.statuses.map((s: { name: string }) => s.name) : []);
         setWorkspaces(Array.isArray(data.teams) ? data.teams : []);
         setGroups(Array.isArray(data.cycles) ? data.cycles : []);
         setFilterOptionsLoaded(true);
@@ -1497,97 +1543,141 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
             </div>
           ) : (
             <>
-              {showGroupNamePrompt && (
-                <GroupNamePrompt
-                  onConfirm={handleCreateGroup}
-                  onCancel={() => {
-                    setShowGroupNamePrompt(false);
-                    setPendingGroupTaskIds([]);
-                  }}
-                />
-              )}
-              {/* Render folders */}
-              {taskGroups.map((group) => {
-                const groupItems = group.task_ids
-                  .map((id) => sortedItems.find((i) => i.id === id))
-                  .filter(Boolean) as TrackerItem[];
-                return (
-                  <React.Fragment key={`group-${group.id}`}>
-                    <FolderRow
-                      groupId={group.id}
-                      name={group.name}
-                      count={groupItems.length}
-                      collapsed={!!group.collapsed}
-                      selected={selectedGroupTaskGroupId === group.id}
-                      onToggleCollapse={() =>
-                        updateGroup(group.id, { collapsed: !group.collapsed })
-                      }
-                      onSelect={() =>
-                        pushSelection({ group: group.id, issue: null, run: null })
-                      }
-                    />
-                    {!group.collapsed &&
-                      groupItems.map((item) => (
-                        <div key={item.id} className="pl-6 border-l border-[var(--card-border)] ml-4">
-                          <TicketRow
-                            item={item}
-                            selected={selectedItem?.id === item.id}
-                            pinned={pinnedItemIds.has(item.id)}
-                            activeAgents={issueActiveAgents.get(item.id)}
-                            participants={participants}
-                            draggable
-                            multiSelected={multiSelectedItemIds.has(item.id)}
-                            onSelect={(event) => {
-                              if (event && (event.metaKey || event.ctrlKey)) {
-                                toggleItemMultiSelect(item.id);
-                              } else {
-                                pushSelection({
-                                  issue: item.id,
-                                  run: null,
-                                  group: null,
-                                });
-                              }
-                            }}
-                            onTogglePin={() => togglePin(item.id)}
-                          />
-                        </div>
-                      ))}
-                  </React.Fragment>
-                );
-              })}
-              {/* Render loose (ungrouped) tickets */}
+              {/* Unified list: groups rendered inline at first-member position */}
               {(() => {
-                const looseItems = sortedItems.filter((item) => !groupedItemIds.has(item.id));
-                return looseItems.map((item, idx) => (
-                  <React.Fragment key={item.id}>
-                    {pinnedItemIds.size > 0 &&
-                      !pinnedItemIds.has(item.id) &&
-                      (idx === 0 || pinnedItemIds.has(looseItems[idx - 1].id)) && (
-                        <div className="mx-4 border-t border-amber-500/20" />
-                      )}
-                    <TicketRow
-                      item={item}
-                      selected={selectedItem?.id === item.id}
-                      pinned={pinnedItemIds.has(item.id)}
-                      activeAgents={issueActiveAgents.get(item.id)}
-                      participants={participants}
-                      draggable
-                      multiSelected={multiSelectedItemIds.has(item.id)}
-                      onSelect={(event) => {
-                        if (event && (event.metaKey || event.ctrlKey)) {
-                          toggleItemMultiSelect(item.id);
-                        } else {
-                          pushSelection({
-                            issue: item.id,
-                            run: null,
-                            group: null,
-                          });
-                        }
-                      }}
-                      onTogglePin={() => togglePin(item.id)}
-                    />
-                  </React.Fragment>
-                ));
+                const pendingSet = showGroupNamePrompt ? new Set(pendingGroupTaskIds) : null;
+
+                // Build a map: itemId → group (for the first member of each group)
+                const firstMemberToGroup = new Map<string, typeof taskGroups[number]>();
+                for (const group of taskGroups) {
+                  const firstInSort = sortedItems.find((i) => group.task_ids.includes(i.id));
+                  if (firstInSort) firstMemberToGroup.set(firstInSort.id, group);
+                }
+
+                // Pending group prompt: find insert position
+                const pendingTickets = showGroupNamePrompt
+                  ? pendingGroupTaskIds
+                      .map((id) => sortedItems.find((i) => i.id === id))
+                      .filter(Boolean)
+                      .map((i) => ({ id: i!.id, identifier: i!.identifier, title: i!.title, status: STATUS_LABELS[i!.status] ?? i!.status }))
+                  : [];
+
+                // Track which groups we've rendered
+                const renderedGroups = new Set<string>();
+                let looseIdx = 0;
+
+                return sortedItems.map((item) => {
+                  // Skip pending tickets
+                  if (pendingSet?.has(item.id)) {
+                    // Render prompt at target position
+                    if (item.id === pendingGroupTargetId && showGroupNamePrompt) {
+                      return (
+                        <GroupNamePrompt
+                          key="__pending-group__"
+                          tickets={pendingTickets}
+                          onConfirm={handleCreateGroup}
+                          onCancel={() => {
+                            setShowGroupNamePrompt(false);
+                            setPendingGroupTaskIds([]);
+                            setPendingGroupTargetId(null);
+                          }}
+                        />
+                      );
+                    }
+                    return null;
+                  }
+
+                  // If this item is the first member of a group, render the group here
+                  const group = firstMemberToGroup.get(item.id);
+                  if (group && !renderedGroups.has(group.id)) {
+                    renderedGroups.add(group.id);
+                    const groupItems = group.task_ids
+                      .map((id) => sortedItems.find((i) => i.id === id))
+                      .filter(Boolean) as TrackerItem[];
+                    return (
+                      <React.Fragment key={`group-${group.id}`}>
+                        <FolderRow
+                          groupId={group.id}
+                          name={group.name}
+                          count={groupItems.length}
+                          collapsed={!!group.collapsed}
+                          selected={selectedGroupTaskGroupId === group.id}
+                          onToggleCollapse={() =>
+                            updateGroup(group.id, { collapsed: !group.collapsed })
+                          }
+                          onSelect={() =>
+                            pushSelection({ group: group.id, issue: null, run: null })
+                          }
+                        />
+                        {!group.collapsed &&
+                          groupItems.map((gi, giIdx) => (
+                            <TicketRow
+                              key={gi.id}
+                              item={gi}
+                              selected={selectedItem?.id === gi.id}
+                              pinned={pinnedItemIds.has(gi.id)}
+                              activeAgents={issueActiveAgents.get(gi.id)}
+                              participants={participants}
+                              draggable
+                              multiSelected={multiSelectedItemIds.has(gi.id)}
+                              treeConnector={giIdx === groupItems.length - 1 ? "last" : "mid"}
+                              onSelect={(event) => {
+                                if (event && (event.metaKey || event.ctrlKey)) {
+                                  toggleItemMultiSelect(gi.id);
+                                } else {
+                                  pushSelection({
+                                    issue: gi.id,
+                                    run: null,
+                                    group: null,
+                                  });
+                                }
+                              }}
+                              onTogglePin={() => togglePin(gi.id)}
+                            />
+                          ))}
+                      </React.Fragment>
+                    );
+                  }
+
+                  // Skip grouped items (already rendered with their group)
+                  if (groupedItemIds.has(item.id)) return null;
+
+                  // Loose ticket
+                  const currentLooseIdx = looseIdx++;
+                  const prevLoose = currentLooseIdx > 0
+                    ? sortedItems.filter((i) => !groupedItemIds.has(i.id) && (!pendingSet || !pendingSet.has(i.id)))[currentLooseIdx - 1]
+                    : null;
+                  return (
+                    <React.Fragment key={item.id}>
+                      {pinnedItemIds.size > 0 &&
+                        !pinnedItemIds.has(item.id) &&
+                        (currentLooseIdx === 0 || (prevLoose && pinnedItemIds.has(prevLoose.id))) && (
+                          <div className="mx-4 border-t border-amber-500/20" />
+                        )}
+                      <TicketRow
+                        item={item}
+                        selected={selectedItem?.id === item.id}
+                        pinned={pinnedItemIds.has(item.id)}
+                        activeAgents={issueActiveAgents.get(item.id)}
+                        participants={participants}
+                        draggable
+                        multiSelected={multiSelectedItemIds.has(item.id)}
+                        onSelect={(event) => {
+                          if (event && (event.metaKey || event.ctrlKey)) {
+                            toggleItemMultiSelect(item.id);
+                          } else {
+                            pushSelection({
+                              issue: item.id,
+                              run: null,
+                              group: null,
+                            });
+                          }
+                        }}
+                        onTogglePin={() => togglePin(item.id)}
+                      />
+                    </React.Fragment>
+                  );
+                });
               })()}
               {hasMore ? (
                 <div
@@ -1605,6 +1695,22 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
             onClear={() => setMultiSelectedItemIds(new Set())}
           />
         </div>
+        <DragOverlay dropAnimation={null}>
+          {dragActiveId && (() => {
+            const dragItem = sortedItems.find((i) => i.id === dragActiveId);
+            if (!dragItem) return null;
+            return (
+              <div className="flex items-center gap-3 rounded-lg border border-[var(--primary)]/30 bg-[var(--card-bg)] px-4 py-2.5 text-sm shadow-xl backdrop-blur-sm">
+                <span className="w-24 shrink-0 whitespace-nowrap font-mono text-xs text-[var(--muted-foreground)]">
+                  {dragItem.identifier}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--foreground)]">
+                  {dragItem.title}
+                </span>
+              </div>
+            );
+          })()}
+        </DragOverlay>
         </DndContext>
       </div>
 
