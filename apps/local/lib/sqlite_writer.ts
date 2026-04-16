@@ -4,7 +4,9 @@
  * Handles type coercion from PG types to SQLite types and
  * writes batches inside transactions for performance.
  */
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+const { DatabaseSync: DatabaseSyncCtor } =
+  process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 import { pragmaSet, pragmaAll, transactionFn } from "./sqlite-compat";
 import * as fs from "fs";
 import * as path from "path";
@@ -18,7 +20,7 @@ export class SqliteWriter {
   db: DatabaseSync;
 
   constructor(opts: SqliteWriterOptions) {
-    this.db = new DatabaseSync(opts.dbPath);
+    this.db = new DatabaseSyncCtor(opts.dbPath);
     pragmaSet(this.db, "journal_mode = WAL");
     pragmaSet(this.db, "foreign_keys = OFF"); // off during migration, checked after
     pragmaSet(this.db, "synchronous = NORMAL");

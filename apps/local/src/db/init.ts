@@ -1,4 +1,6 @@
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+const { DatabaseSync: DatabaseSyncCtor } =
+  process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 import { pragmaGet, pragmaSet } from "@/lib/sqlite-compat";
 import { checkVersion, checkExtensions, checkFilesystem } from "./checks";
 import { DB_BUSY_TIMEOUT_MS } from "@/lib/constants/timing";
@@ -58,7 +60,7 @@ export function initDatabase(
   // Filesystem check before opening
   checkFilesystem(dbPath, { strict: opts?.strictFsCheck });
 
-  const db = new DatabaseSync(dbPath);
+  const db = new DatabaseSyncCtor(dbPath);
 
   try {
     // Version & extension checks

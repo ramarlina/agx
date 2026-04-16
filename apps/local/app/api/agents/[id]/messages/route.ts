@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+const { DatabaseSync: DatabaseSyncCtor } =
+  process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 import { pragmaSet } from "@/lib/sqlite-compat";
 import path from "path";
 import os from "os";
@@ -24,7 +26,7 @@ export async function GET(
   }
 
   try {
-    const db = new DatabaseSync(DB_PATH, { readOnly: true });
+    const db = new DatabaseSyncCtor(DB_PATH, { readOnly: true });
     pragmaSet(db, "journal_mode = WAL");
 
     // Get agent's messages with root content (thread title) and the preceding message in the thread

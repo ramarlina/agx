@@ -14,7 +14,12 @@
  *  - RETURNING          → supported in SQLite ≥ 3.35
  */
 
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+// Use process.getBuiltinModule() to retrieve node:sqlite at runtime. Avoids Turbopack's
+// ESM e.x() thunk (broken after HMR re-eval) and its CJS external resolver (can't handle
+// node: URL scheme). The function call is invisible to the bundler's module graph.
+const { DatabaseSync: DatabaseSyncCtor } =
+  process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 import { pragmaAll } from "./sqlite-compat";
 import fs from "fs";
 import path from "path";
@@ -55,7 +60,7 @@ export function getSQLiteDb(): DatabaseSync {
     process.env.SQLITE_DB_PATH ||
     path.join(AGX_DATA_DIR, "agx-board.db");
 
-  _db = new DatabaseSync(dbPath);
+  _db = new DatabaseSyncCtor(dbPath);
 
   // Validate environment (applies PRAGMAs, checks version/extensions)
   const errors = validateSQLiteEnvironment(_db, dbPath);

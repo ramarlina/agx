@@ -1,4 +1,6 @@
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+const { DatabaseSync: DatabaseSyncCtor } =
+  process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
 import { pragmaSet } from "./sqlite-compat";
 import { promises as fs } from "fs";
 import path from "path";
@@ -12,7 +14,7 @@ const DB_PATH = path.join(HISTORY_DIR, "history.sqlite");
 const UPLOADS_DIR = path.join(HISTORY_DIR, "uploads");
 
 function getDb(): DatabaseSync {
-  const db = new DatabaseSync(DB_PATH);
+  const db = new DatabaseSyncCtor(DB_PATH);
   pragmaSet(db, "journal_mode = WAL");
   return db;
 }
