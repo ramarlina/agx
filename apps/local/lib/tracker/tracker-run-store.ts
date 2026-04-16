@@ -183,7 +183,7 @@ function migrateFromLinearRuns(db: DatabaseSync): void {
         thread_id, root_message_id, chat_run_id,
         agent_id, agent_name, mode, status, error, recap_file_path,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         tracker_type = excluded.tracker_type
     `);
