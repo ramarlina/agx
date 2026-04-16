@@ -27,6 +27,7 @@ import {
   loadLinearTicketPanelWidth,
   persistLinearTicketPanelWidth,
 } from "@/state/windowState";
+import { loadLastRunForIssue, persistLastRunForIssue } from "@/state/lastSession";
 import {
   orderParticipantIds,
   type ComposerRoutingMetadata,
@@ -929,6 +930,22 @@ export default function LinearBoard({ projectId, projectSlug, initialShowSetting
       replaceSelection({ run: null });
     }
   }, [replaceSelection, runs, runsLoading, selectedIssue, selectedRunId]);
+
+  useEffect(() => {
+    if (selectedIssueId && selectedRunId) {
+      persistLastRunForIssue(selectedIssueId, selectedRunId);
+    }
+  }, [selectedIssueId, selectedRunId]);
+
+  useEffect(() => {
+    if (!selectedIssueId || selectedRunId || runsLoading || runs.length === 0) return;
+    const storedRunId = loadLastRunForIssue(selectedIssueId);
+    if (!storedRunId) return;
+    if (runs.some((run) => run.id === storedRunId)) {
+      replaceSelection({ run: storedRunId });
+    }
+  }, [selectedIssueId, selectedRunId, runs, runsLoading, replaceSelection]);
+
 
   useEffect(() => {
     if (!isTouchLayout) {

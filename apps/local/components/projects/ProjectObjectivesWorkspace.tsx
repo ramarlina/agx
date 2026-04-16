@@ -41,6 +41,7 @@ import {
   persistObjectiveChatPanelWidth,
   persistObjectiveListPanelWidth,
 } from "@/state/windowState";
+import { loadLastSessionForEntity, persistLastSessionForEntity } from "@/state/lastSession";
 import type { GroupMessage, Participant } from "@/lib/types";
 import {
   CURRENT_OBJECTIVE_CHAT_SESSION_VERSION,
@@ -898,6 +899,21 @@ function ObjectiveChatPanel({
     }
     wasWorkingRef.current = hasWorkspaceWork;
   }, [hasWorkspaceWork, onObjectiveUpdated]);
+
+  useEffect(() => {
+    if (selectedSessionId) {
+      persistLastSessionForEntity(objective.id, selectedSessionId);
+    }
+  }, [objective.id, selectedSessionId]);
+
+  useEffect(() => {
+    if (selectedSessionId || sessions.length === 0) return;
+    const storedId = loadLastSessionForEntity(objective.id);
+    if (!storedId) return;
+    if (sessions.some((s) => s.rootMessageId === storedId)) {
+      setSelectedSessionId(storedId);
+    }
+  }, [objective.id, selectedSessionId, sessions, setSelectedSessionId]);
 
   const cancelChatRun = useCallback(async (chatRunId: string) => {
     await fetch(`/api/chat-runs/${encodeURIComponent(chatRunId)}/signal`, {
