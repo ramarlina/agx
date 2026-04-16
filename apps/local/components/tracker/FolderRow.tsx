@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ChevronDown, ChevronRight, FolderOpen, Folder } from "lucide-react";
+import { ChevronDown, ChevronRight, FolderOpen, Folder, X } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 
 interface FolderRowProps {
@@ -12,6 +12,7 @@ interface FolderRowProps {
   selected: boolean;
   onToggleCollapse: () => void;
   onSelect: () => void;
+  onUngroup?: () => void;
 }
 
 export function FolderRow({
@@ -22,17 +23,18 @@ export function FolderRow({
   selected,
   onToggleCollapse,
   onSelect,
+  onUngroup,
 }: FolderRowProps) {
   const { setNodeRef, isOver } = useDroppable({ id: groupId });
 
   return (
     <div
       ref={setNodeRef}
-      className={`group relative flex cursor-pointer items-center gap-2 px-4 py-2 text-sm transition-colors ${
+      className={`group relative flex cursor-pointer items-center gap-2 pl-[24px] pr-4 py-2 text-sm transition-colors ${
         selected
           ? "bg-[var(--card-bg)]"
           : "hover:bg-[var(--card-bg)]/50"
-      } ${isOver ? "ring-2 ring-[var(--primary)]/50 bg-[var(--primary)]/5" : ""}`}
+      } ${isOver ? "bg-[var(--primary)]/10 border-l-2 border-l-[var(--primary)]" : ""}`}
       onClick={onSelect}
       role="button"
       tabIndex={0}
@@ -66,6 +68,20 @@ export function FolderRow({
       <span className="shrink-0 rounded-full bg-[var(--secondary)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)]">
         {count}
       </span>
+      {onUngroup && (
+        <button
+          type="button"
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
+          onClick={(e) => {
+            e.stopPropagation();
+            onUngroup();
+          }}
+          title="Ungroup tickets"
+          aria-label="Ungroup tickets"
+        >
+          <X size={12} />
+        </button>
+      )}
     </div>
   );
 }
