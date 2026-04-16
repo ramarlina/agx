@@ -16,7 +16,7 @@
   <a href="https://www.npmjs.com/package/@mndrk/agx"><img src="https://img.shields.io/npm/v/@mndrk/agx?color=orange&style=flat-square" alt="NPM Version"></a>
   <a href="https://github.com/ramarlina/agx/stargazers"><img src="https://img.shields.io/github/stars/ramarlina/agx?color=blue&style=flat-square" alt="GitHub Stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License"></a>
-  <a href="https://github.com/ramarlina/agx/pulls?q=is%3Apr+is%3Amerged"><img src="https://img.shields.io/badge/PRs_merged_by_agents-133-blueviolet?style=flat-square" alt="Agent PRs"></a>
+  <a href="https://github.com/ramarlina/agx/pulls?q=is%3Apr+is%3Amerged"><img src="https://img.shields.io/badge/PRs_merged_by_agents-167-blueviolet?style=flat-square" alt="Agent PRs"></a>
 </p>
 
 ```bash
