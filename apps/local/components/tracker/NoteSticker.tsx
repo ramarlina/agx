@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, X } from "lucide-react";
+import { Check, Trash2, X } from "lucide-react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -108,6 +108,18 @@ export function NoteSticker({ anchorRef, value, onChange, onClose, onSave }: Not
     >
       <div className="rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] shadow-xl">
         <div className="flex h-6 w-full items-center justify-end gap-0.5 rounded-t-lg bg-[var(--primary)]/40 px-1.5">
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onSave("");
+              onClose();
+            }}
+            className="flex h-4 w-4 items-center justify-center rounded text-[var(--foreground)]/60 hover:text-red-400 transition-colors mr-auto"
+            title="Delete note"
+          >
+            <Trash2 size={11} />
+          </button>
           <button
             type="button"
             onMouseDown={(e) => {
