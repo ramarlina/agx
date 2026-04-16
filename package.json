@@ -1,6 +1,6 @@
 {
   "name": "@mndrk/agx",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "Autonomous AI Agent Orchestrator for Claude, Gemini, and Ollama",
   "engines": {
     "node": ">=22.16.0"
