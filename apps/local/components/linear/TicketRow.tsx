@@ -2,6 +2,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Check, ExternalLink, Link2, Pin } from "lucide-react";
+import { useDraggable } from "@dnd-kit/core";
 import type { LinearIssue } from "@/hooks/useLinearIssues";
 import type { Participant } from "@/lib/types";
 import { STATUS_LABELS } from "@/lib/linear-run-status";
@@ -15,14 +16,18 @@ export function TicketRow({
   onTogglePin,
   activeAgents,
   participants,
+  multiSelected,
+  draggable = false,
 }: {
   issue: LinearIssue;
   selected: boolean;
   pinned?: boolean;
-  onSelect: () => void;
+  onSelect: (event?: React.MouseEvent) => void;
   onTogglePin?: () => void;
   activeAgents?: Array<{ agentId: string; agentName: string }>;
   participants?: Participant[];
+  multiSelected?: boolean;
+  draggable?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const copyResetTimeoutRef = useRef<number | null>(null);
@@ -64,15 +69,30 @@ export function TicketRow({
     openLinearIssueTab(issue.url);
   }, [issue.url]);
 
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: issue.id,
+    disabled: !draggable,
+  });
+  const dragStyle = transform ? {
+    transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 50 : undefined,
+    position: "relative" as const,
+  } : undefined;
+
   const shortStatus = STATUS_LABELS[issue.status] ?? issue.status.slice(0, 6);
   return (
     <div
+      ref={draggable ? setNodeRef : undefined}
+      style={dragStyle}
+      {...(draggable ? attributes : {})}
+      {...(draggable ? listeners : {})}
       className={`group relative flex cursor-pointer items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
         selected
           ? "bg-[var(--card-bg)]"
           : "hover:bg-[var(--card-bg)]/50"
-      }`}
-      onClick={onSelect}
+      } ${multiSelected ? "ring-1 ring-[var(--primary)]/40 bg-[var(--primary)]/5" : ""} ${isDragging ? "touch-none" : ""}`}
+      onClick={(e) => onSelect(e)}
       role="button"
       tabIndex={0}
       onKeyDown={(event) => {

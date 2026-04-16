@@ -58,6 +58,25 @@ function applySelectionResetRules(
     }
   }
 
+  // Selecting a group clears issue and run selections
+  if (hasOwn("group") && !hasOwn("issue")) {
+    const currentGroup = readUrlSelectionValue(searchParams, "group");
+    const nextGroup = normalizeSelectionValue(updates.group);
+    if (nextGroup !== currentGroup) {
+      nextUpdates.issue = null;
+      nextUpdates.run = null;
+    }
+  }
+
+  // Selecting an issue clears group selection
+  if (hasOwn("issue") && !hasOwn("group")) {
+    const currentIssue = readUrlSelectionValue(searchParams, "issue");
+    const nextIssue = normalizeSelectionValue(updates.issue);
+    if (nextIssue !== currentIssue) {
+      nextUpdates.group = null;
+    }
+  }
+
   return nextUpdates;
 }
 
