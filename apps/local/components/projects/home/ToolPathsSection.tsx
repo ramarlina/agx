@@ -3,8 +3,8 @@
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { MessageSquare, TerminalSquare } from "lucide-react";
-import { useLinearConnection } from "@/hooks/useLinearConnection";
-import { LinearIcon } from "@/components/linear/LinearIcon";
+import { useTrackerConnection } from "@/hooks/useTrackerConnection";
+import { TrackerIcon } from "@/components/tracking/TrackerIcon";
 import { ToolPathCard } from "./ToolPathCard";
 
 interface ThreadEntry {
@@ -27,7 +27,7 @@ interface ToolPathsSectionProps {
 
 export function ToolPathsSection({ projectId, projectSlug, primaryThreadId }: ToolPathsSectionProps) {
   const router = useRouter();
-  const { connected, loading: linearLoading } = useLinearConnection(projectId);
+  const { connected, loading: trackerLoading } = useTrackerConnection("linear", projectId);
   const [threads, setThreads] = useState<ThreadEntry[] | null>(null);
   const [threadCount, setThreadCount] = useState(0);
 
@@ -102,12 +102,12 @@ export function ToolPathsSection({ projectId, projectSlug, primaryThreadId }: To
 
       {/* Linear */}
       <ToolPathCard
-        icon={<LinearIcon className="w-4 h-4" />}
+        icon={<TrackerIcon trackerType="linear" className="w-4 h-4" />}
         title="Tasks"
         accentClass="text-blue-400"
-        onClick={() => router.push(`/projects/${projectSlug}/linear`)}
+        onClick={() => router.push(`/projects/${projectSlug}/tracking`)}
         badge={
-          !linearLoading ? (
+          !trackerLoading ? (
             connected ? (
               <span className="rounded-full border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-2 py-0.5 text-[11px] text-[var(--status-completed-text)]">
                 Connected
@@ -120,7 +120,7 @@ export function ToolPathsSection({ projectId, projectSlug, primaryThreadId }: To
           ) : undefined
         }
       >
-        {!linearLoading && !connected && (
+        {!trackerLoading && !connected && (
           <p className="text-[var(--muted-foreground)]">Connect to see issues</p>
         )}
       </ToolPathCard>

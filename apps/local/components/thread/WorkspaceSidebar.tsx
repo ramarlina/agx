@@ -33,8 +33,8 @@ import type { SidebarStageResult } from "@/hooks/useSidebarStage";
 import { agentAvatarUrl, AgentForm, type AgentFormData } from "@/components/chat-ui/ParticipantBar";
 import ProjectModal, { createProjectPayload, useProjectFormState } from "@/components/ProjectModal";
 import { readProjectObjectivesWorkspace } from "@/lib/project-objectives";
-import { LinearIcon } from "@/components/linear/LinearIcon";
 import { TrackerIcon } from "@/components/tracking/TrackerIcon";
+import { useTrackerConnections } from "@/hooks/useTrackerConnections";
 
 interface WorkspaceSidebarProps {
   threads: Thread[];
@@ -570,6 +570,8 @@ export function WorkspaceSidebar({
   const threadById = new Map(threads.map((thread) => [thread.id, thread]));
   const nonDefaultProjects = projectsProp.filter((project) => !project.is_default);
   const selectedProject = nonDefaultProjects.find((p) => p.id === activeProjectId) ?? nonDefaultProjects[0] ?? null;
+  const { connections: trackerConnections } = useTrackerConnections(selectedProject?.id ?? null);
+  const primaryTrackerType = trackerConnections.find((c) => c.connected)?.type ?? "linear";
   const stageShow = stageShowProp ?? {
     home: true, threads: true, terminal: true, objectives: false,
     objectivesIsNew: false, tracking: false, teams: false, folders: false,
@@ -776,7 +778,7 @@ export function WorkspaceSidebar({
             {stageShow.tracking && (
               <RailTooltip label="Tasks">
                 <Link href={`/projects/${collapsedSlug}/tracking`} className={`workspace-sidebar__rail-icon${(activeProjectView === "linear" || activeProjectView === "tracking") ? " workspace-sidebar__rail-icon--active" : ""}`}>
-                  <TrackerIcon trackerType="linear" className="h-4 w-4" />
+                  <TrackerIcon trackerType={primaryTrackerType} className="h-4 w-4" />
                 </Link>
               </RailTooltip>
             )}
@@ -995,7 +997,7 @@ export function WorkspaceSidebar({
                           className={`workspace-sidebar__nav-item flex-1 ${(isActiveProjectLinear || activeProjectView === "tracking") ? "workspace-sidebar__nav-item--active" : ""}`}
                           aria-current={(isActiveProjectLinear || activeProjectView === "tracking") ? "page" : undefined}
                         >
-                          <TrackerIcon trackerType="linear" className="flex-shrink-0 h-3.5 w-3.5 text-[var(--muted-foreground)]" />
+                          <TrackerIcon trackerType={primaryTrackerType} className="flex-shrink-0 h-3.5 w-3.5 text-[var(--muted-foreground)]" />
                           <span className="workspace-sidebar__workspace-title text-sm">Tasks</span>
                           {navActivity?.linear.length > 0 && (
                             <span className="inline-flex items-center -space-x-1 ml-auto shrink-0">

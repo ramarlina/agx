@@ -34,7 +34,10 @@ export async function startScriptedTrackerSession(
 ): Promise<StartedScriptedLinearSession> {
   switch (input.trackerType) {
     case "linear":
+    case "jira":
     default:
+      // Both Linear and Jira use the same scripted session pipeline
+      // since the pipeline is tracker-agnostic (operates on canonical item fields)
       return startScriptedLinearSession({
         projectId: input.projectId,
         projectSlug: input.projectSlug,

@@ -31,7 +31,7 @@ import SearchCombo, { type ComboOption } from "@/components/SearchCombo";
 import { ObjectiveScheduledTasksPanel } from "@/components/projects/ObjectiveScheduledTasksPanel";
 import { ObjectiveActivityTimeline } from "@/components/projects/ObjectiveActivityTimeline";
 import { ObjectiveHealthTrend } from "@/components/projects/ObjectiveHealthTrend";
-import { LinearIcon } from "@/components/linear/LinearIcon";
+import { TrackerIcon } from "@/components/tracking/TrackerIcon";
 import { usePromptJobs } from "@/hooks/usePromptJobs";
 import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { threadService } from "@/services/threadService";
@@ -2163,7 +2163,7 @@ export function ProjectObjectiveDetail({
                   {([
                     { id: "activity" as const, label: "Activity", icon: Clock },
                     { id: "notes" as const, label: "Notes", icon: FileText },
-                    { id: "linear" as const, label: "Tasks", icon: LinearIcon },
+                    { id: "linear" as const, label: "Tasks", icon: (props: { size?: number; className?: string }) => <TrackerIcon trackerType="linear" className="h-3.5 w-3.5" /> },
                     { id: "scheduled-tasks" as const, label: "Scheduled Jobs", icon: CalendarClock },
                   ]).map((tab) => (
                     <button
