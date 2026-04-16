@@ -35,7 +35,7 @@ import {
 import { buildTrackerExecutionPrompt } from "@/lib/tracker/tracker-execution-prompt";
 import type { Participant } from "@/lib/types";
 import LinearSetup from "@/components/LinearSetup";
-import LinearSettingsModal from "@/components/linear/LinearSettingsModal";
+import TrackerSettingsModal from "@/components/tracker/TrackerSettingsModal";
 import {
   getRunDisplayState,
   getRunTitle,
@@ -52,15 +52,14 @@ import {
 } from "@/components/tracker/TrackerBoardFilters";
 import { TicketRow } from "@/components/tracker/TicketRow";
 import { TicketPanel } from "@/components/tracker/TicketPanel";
-import { useLinearParticipants } from "@/hooks/useLinearParticipants";
+import { useTrackerParticipants } from "@/hooks/useTrackerParticipants";
 import { useTrackerActiveAgents } from "@/hooks/useTrackerActiveAgents";
-import { agentAvatarUrl } from "@/lib/linear-board-utils";
+import { agentAvatarUrl } from "@/lib/tracker-board-utils";
 import { useTaskGroups, type TaskGroup } from "@/hooks/useTaskGroups";
-import { FolderRow } from "@/components/linear/FolderRow";
-import { GroupPanel } from "@/components/linear/GroupPanel";
-import { GroupNamePrompt } from "@/components/linear/GroupNamePrompt";
-import { SelectionBar } from "@/components/linear/SelectionBar";
-import type { LinearIssue } from "@/hooks/useLinearIssues";
+import { FolderRow } from "@/components/tracker/FolderRow";
+import { GroupPanel } from "@/components/tracker/GroupPanel";
+import { GroupNamePrompt } from "@/components/tracker/GroupNamePrompt";
+import { SelectionBar } from "@/components/tracker/SelectionBar";
 import {
   DndContext,
   DragOverlay,
@@ -412,7 +411,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   const [pinnedItemIds, setPinnedItemIds] = useState<Set<string>>(() => loadPinnedTrackerItemIds(trackerType, projectSlug));
   const [selectedItemFallback, setSelectedItemFallback] = useState<TrackerItem | null>(null);
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
-  const { participants } = useLinearParticipants(projectId);
+  const { participants } = useTrackerParticipants(trackerType, projectId);
   const { issueActiveAgents } = useTrackerActiveAgents(trackerType, projectId);
   const [pickerItem, setPickerItem] = useState<TrackerItem | null>(null);
   const [pickerAnchor, setPickerAnchor] = useState<{ top: number; left: number } | null>(null);
@@ -1655,14 +1654,14 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
         ) : selectedGroup && !selectedItem ? (
           <GroupPanel
             group={selectedGroup}
-            issues={items as unknown as LinearIssue[]}
+            items={items}
             onUpdateName={(name) => updateGroup(selectedGroup.id, { name })}
             onDelete={async () => {
               await deleteGroup(selectedGroup.id);
               replaceSelection({ group: null });
             }}
-            onSelectIssue={(issueId) =>
-              pushSelection({ issue: issueId, group: null, run: null })
+            onSelectItem={(itemId) =>
+              pushSelection({ issue: itemId, group: null, run: null })
             }
           />
         ) : !selectedItem ? (
@@ -1700,7 +1699,8 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
 
       {/* Settings overlay */}
       {showSettings && (
-        <LinearSettingsModal
+        <TrackerSettingsModal
+          trackerType={trackerType}
           connected={connected}
           user={user}
           clis={clis}

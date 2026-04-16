@@ -6,7 +6,7 @@ import { useDraggable } from "@dnd-kit/core";
 import type { TrackerItem } from "@/lib/tracker/types";
 import type { Participant } from "@/lib/types";
 import { STATUS_LABELS } from "@/lib/tracker-run-status";
-import { agentAvatarUrl } from "@/lib/linear-board-utils";
+import { agentAvatarUrl } from "@/lib/tracker-board-utils";
 
 export function TicketRow({
   item,
