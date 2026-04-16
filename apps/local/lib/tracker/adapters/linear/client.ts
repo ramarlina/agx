@@ -618,6 +618,29 @@ export class LinearClient {
     };
   }
 
+  async workflowStates(): Promise<{ id: string; name: string; type: string; position: number }[]> {
+    const data = await this.request<{
+      workflowStates: {
+        nodes: { id: string; name: string; type: string; position: number }[];
+      };
+    }>(
+      `query {
+        workflowStates(first: 200) {
+          nodes {
+            id
+            name
+            type
+            position
+          }
+        }
+      }`
+    );
+
+    return (data.workflowStates?.nodes ?? [])
+      .slice()
+      .sort((a, b) => a.position - b.position);
+  }
+
   async cycles(): Promise<LinearCycle[]> {
     const data = await this.request<{
       teams: {

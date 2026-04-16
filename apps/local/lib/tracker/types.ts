@@ -53,6 +53,7 @@ export interface TrackerActivity {
 }
 
 export interface TrackerFilters {
+  statuses?: string[];
   statusCategories?: TrackerStatusCategory[];
   assigneeIds?: string[];
   labels?: string[];
@@ -60,6 +61,8 @@ export interface TrackerFilters {
   search?: string;
   cursor?: string;
   limit?: number;
+  sortBy?: "activity" | "identifier" | "status" | "created";
+  sortDir?: "asc" | "desc";
   /** When true, only return items with recent activity */
   hasActivity?: boolean;
   /** Map of item_id -> ISO timestamp for activity-based sorting */

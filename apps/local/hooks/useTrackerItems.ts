@@ -4,10 +4,14 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import type { TrackerItem, TrackerStatusCategory, TrackerFilters } from "@/lib/tracker/types";
 
 interface UseTrackerItemsFilters {
+  statuses?: string[];
   statusCategories?: TrackerStatusCategory[];
   assigneeIds?: string[];
   groupIds?: string[];
   search?: string;
+  sortBy?: string;
+  sortDir?: "asc" | "desc";
+  hasActivity?: boolean;
 }
 
 interface UseTrackerItemsOptions {
@@ -51,6 +55,11 @@ export function useTrackerItems(
       try {
         const params = new URLSearchParams();
         params.set("projectId", options.projectId);
+        if (filters.statuses?.length) {
+          for (const s of filters.statuses) {
+            params.append("status", s);
+          }
+        }
         if (filters.statusCategories?.length) {
           for (const cat of filters.statusCategories) {
             params.append("statusCategory", cat);
@@ -67,6 +76,9 @@ export function useTrackerItems(
             params.append("groupId", groupId);
           }
         }
+        if (filters.sortBy) params.set("sortBy", filters.sortBy);
+        if (filters.sortDir) params.set("sortDir", filters.sortDir);
+        if (filters.hasActivity) params.set("hasActivity", "true");
         if (append && cursorRef.current) params.set("cursor", cursorRef.current);
         if (options.limit) params.set("limit", String(options.limit));
 

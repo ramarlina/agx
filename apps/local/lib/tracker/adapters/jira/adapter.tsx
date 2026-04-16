@@ -119,11 +119,15 @@ export class JiraAdapter implements TrackerAdapter {
     const result = await listCachedTrackerItems({
       trackerType: "jira",
       search: filters.search,
+      statuses: filters.statuses,
       statusCategories: filters.statusCategories,
       assigneeIds: filters.assigneeIds,
       groupIds: filters.groupIds, // sprints for Jira
       cursor: filters.cursor,
       limit: filters.limit,
+      sortBy: filters.sortBy ?? "activity",
+      sortDir: filters.sortDir,
+      hasActivity: filters.hasActivity,
     });
 
     const siteUrl = token?.siteUrl ?? "https://example.atlassian.net";

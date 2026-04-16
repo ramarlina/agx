@@ -654,7 +654,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
           return;
         }
         setAssignees(Array.isArray(data.assignees) ? data.assignees : []);
-        setStatusCategories(Array.isArray(data.statuses) ? data.statuses.map((s: { name: string; category: string }) => ({ value: s.category, label: s.name })) : []);
+        setStatusCategories(Array.isArray(data.statuses) ? data.statuses.map((s: { name: string; category: string }) => ({ value: s.name, label: s.name })) : []);
         setWorkspaces(Array.isArray(data.teams) ? data.teams : []);
         setGroups(Array.isArray(data.cycles) ? data.cycles : []);
         setFilterOptionsLoaded(true);
@@ -722,9 +722,9 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   const filters = useMemo(
     () => ({
       search: debouncedSearch || undefined,
-      statusCategories:
+      statuses:
         selectedStatusCategories.length > 0 && selectedStatusCategories.length < statusCategories.length
-          ? selectedStatusCategories as TrackerStatusCategory[]
+          ? selectedStatusCategories
           : undefined,
       assigneeIds: selectedAssigneeIds.length > 0 ? selectedAssigneeIds : undefined,
       groupIds: selectedGroupId ? [selectedGroupId] : undefined,
