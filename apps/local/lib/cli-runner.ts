@@ -228,11 +228,13 @@ const createCodexJsonParser = (
 };
 
 const createThoughtFilterParser = (
-  inner: StreamParser
+  inner: StreamParser,
+  onThought?: (content: string) => void
 ): StreamParser => {
   let buffer = "";
   let inThought = false;
   let thoughtStarted = false;
+  let thoughtContent = "";
 
   const THINK_START_PATTERNS = [
     /^Thinking\.\.\./,
@@ -260,6 +262,12 @@ const createThoughtFilterParser = (
           }
         }
         if (endIdx !== -1) {
+          // Capture thought content before the end marker
+          thoughtContent += buffer.slice(0, endIdx);
+          if (onThought && thoughtContent.trim()) {
+            onThought(thoughtContent.trim());
+          }
+          thoughtContent = "";
           // Skip everything up to and including the end marker
           buffer = buffer.slice(endIdx + endLen);
           inThought = false;
@@ -267,7 +275,9 @@ const createThoughtFilterParser = (
           buffer = buffer.replace(/^\s*\n*/, "");
           continue;
         }
-        // Haven't found end yet — keep buffering (don't emit)
+        // Haven't found end yet — accumulate thought content, keep buffering
+        thoughtContent += buffer;
+        buffer = "";
         return;
       }
 
@@ -281,6 +291,7 @@ const createThoughtFilterParser = (
           buffer = buffer.slice(match.index + match[0].length);
           inThought = true;
           thoughtStarted = true;
+          thoughtContent = "";
           break;
         }
       }
@@ -713,6 +724,7 @@ export async function runCliResponse({
   passthroughArgs,
   signal,
   onDelta,
+  onThought,
   onLog,
   onSpawn,
 }: {
@@ -726,6 +738,7 @@ export async function runCliResponse({
   passthroughArgs?: string[];
   signal?: AbortSignal;
   onDelta: (chunk: string) => void;
+  onThought?: (content: string) => void;
   onLog?: (stream: "stdout" | "stderr", line: string) => void;
   onSpawn?: (pid: number) => void;
 }): Promise<void> {
@@ -780,7 +793,7 @@ export async function runCliResponse({
             ? createGeminiStreamJsonParser(wrappedOnDelta)
             : createRawParser(wrappedOnDelta);
     const parser = attempt.filterThoughts
-      ? createThoughtFilterParser(baseParser)
+      ? createThoughtFilterParser(baseParser, onThought)
       : baseParser;
 
     try {

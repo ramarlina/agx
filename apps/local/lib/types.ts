@@ -103,6 +103,7 @@ export type ChatEvent =
   | { type: "participant-thinking"; participantId: string }
   | { type: "participant-start"; participantId: string }
   | { type: "text-delta"; participantId: string; delta: string }
+  | { type: "participant-thought"; participantId: string; content: string }
   | { type: "participant-error"; participantId: string; error: string }
   | { type: "message-reactions"; messageId: string; reactions: MessageReaction[] }
   | { type: "participant-end"; participantId: string; messageId?: string; content?: string }

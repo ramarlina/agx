@@ -1207,6 +1207,20 @@ export async function sweepStaleChatRuns(input?: {
       params.push(normalizedThreadId);
     }
 
+    // Skip runs that still have live agent process heartbeats.
+    // If any agent_processes row has recent last_activity and is in an
+    // active state, the run is still alive even though chat_runs.updated_at
+    // hasn't been bumped (streaming deltas update agent_processes, not chat_runs).
+    clauses.push(`id NOT IN (
+      SELECT cr.id FROM chat_runs cr
+      JOIN agent_processes ap ON ap.workspace_id = cr.thread_id
+      WHERE cr.status = 'running'
+        AND cr.updated_at <= ?
+        AND ap.state IN ('running', 'spawning')
+        AND ap.last_activity > ?
+    )`);
+    params.push(cutoff, cutoff);
+
     const result = db
       .prepare(
         `UPDATE chat_runs
