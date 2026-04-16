@@ -105,6 +105,7 @@ export function NoteSticker({ anchorRef, value, onChange, onClose, onSave }: Not
         width: 288,
       }}
       onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
     >
       <div className="rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] shadow-xl">
         <div className="flex h-6 w-full items-center justify-end gap-0.5 rounded-t-lg bg-[var(--primary)]/40 px-1.5">
