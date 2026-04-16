@@ -90,12 +90,11 @@ function ProjectLayoutContent({
     const match = pathname.match(/\/projects\/[^/]+\/thread\/([^/]+)/);
     return match?.[1] ? decodeURIComponent(match[1]) : currentProject?.thread_ids[0] ?? null;
   }, [currentProject?.thread_ids, pathname]);
-  const activeProjectView = useMemo<"home" | "objectives" | "teams" | "thread" | "threads" | "knowledge" | "automations" | "linear" | "terminal" | "settings" | "env-vars" | "folders">(
+  const activeProjectView = useMemo<"home" | "objectives" | "teams" | "thread" | "knowledge" | "automations" | "linear" | "terminal" | "settings" | "env-vars" | "folders">(
     () => {
       if (pathname.includes("/linear")) return "linear";
       if (pathname.includes("/automations")) return "automations";
       if (pathname.includes("/thread/")) return "thread";
-      if (pathname.endsWith("/threads")) return "threads";
       if (pathname.includes("/knowledge")) return "knowledge";
       if (pathname.includes("/objectives")) return "objectives";
       if (pathname.includes("/teams")) return "teams";
@@ -250,7 +249,7 @@ function ProjectLayoutContent({
                   onClick={() => router.push(`/projects/${slug}/${activeProjectView === "thread" ? "" : activeProjectView}`)}
                   className="text-xs text-[var(--foreground)] hover:text-[var(--muted-foreground)] transition-colors"
                 >
-                  {{ objectives: "Objectives", teams: "Teams", folders: "Folders", "env-vars": "Environment Variables", linear: "Tasks", automations: "Scheduled Jobs", thread: "Chat", threads: "Threads", knowledge: "Knowledge", terminal: "Terminal", settings: "Settings" }[activeProjectView] ?? activeProjectView}
+                  {{ objectives: "Objectives", teams: "Teams", folders: "Folders", "env-vars": "Environment Variables", linear: "Tasks", automations: "Scheduled Jobs", thread: "Chat", knowledge: "Knowledge", terminal: "Terminal", settings: "Settings" }[activeProjectView] ?? activeProjectView}
                 </button>
                 <span id="topbar-breadcrumb" className="contents" />
               </>
