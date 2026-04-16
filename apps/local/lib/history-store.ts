@@ -511,13 +511,6 @@ const withDatabase = async <T>(run: (db: DatabaseSync) => T): Promise<T> => {
         line TEXT NOT NULL,
         timestamp INTEGER NOT NULL
       );
-      CREATE TABLE IF NOT EXISTS task_drafts (
-        thread_id TEXT NOT NULL,
-        message_id TEXT NOT NULL,
-        data TEXT NOT NULL,
-        updated_at INTEGER NOT NULL,
-        PRIMARY KEY (thread_id, message_id)
-      );
       CREATE TABLE IF NOT EXISTS chat_runs (
         id TEXT PRIMARY KEY,
         thread_id TEXT NOT NULL,
@@ -1898,51 +1891,6 @@ export async function sweepStaleWorkingReactions(
       .run(now, normalizedThreadId, cutoff);
 
     return { updated: Number(result.changes) };
-  });
-}
-
-// --- Task Drafts ---
-
-export async function saveTaskDraft(
-  threadId: string,
-  messageId: string,
-  data: unknown,
-): Promise<void> {
-  const normalizedThreadId = threadId.trim() || LEGACY_THREAD_ID;
-  return withDatabase((db) => {
-    db.prepare(
-      `INSERT INTO task_drafts (thread_id, message_id, data, updated_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT(thread_id, message_id)
-       DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`
-    ).run(normalizedThreadId, messageId, JSON.stringify(data), Date.now());
-  });
-}
-
-export async function loadTaskDrafts(
-  threadId: string,
-): Promise<Record<string, unknown>> {
-  const normalizedThreadId = threadId.trim() || LEGACY_THREAD_ID;
-  return withDatabase((db) => {
-    const rows = db
-      .prepare("SELECT message_id, data FROM task_drafts WHERE thread_id = ?")
-      .all(normalizedThreadId) as Array<{ message_id: string; data: string }>;
-    const result: Record<string, unknown> = {};
-    for (const row of rows) {
-      result[row.message_id] = JSON.parse(row.data);
-    }
-    return result;
-  });
-}
-
-export async function deleteTaskDraft(
-  threadId: string,
-  messageId: string,
-): Promise<void> {
-  const normalizedThreadId = threadId.trim() || LEGACY_THREAD_ID;
-  return withDatabase((db) => {
-    db.prepare("DELETE FROM task_drafts WHERE thread_id = ? AND message_id = ?")
-      .run(normalizedThreadId, messageId);
   });
 }
 
