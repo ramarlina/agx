@@ -462,6 +462,43 @@ function runMigrations(db: DatabaseSync): void {
     }
   }
 
+  // ── Task Groups ────────────────────────────────────────────────────────────
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS task_groups (
+      id TEXT NOT NULL PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      name TEXT NOT NULL DEFAULT 'Untitled',
+      position INTEGER NOT NULL DEFAULT 0,
+      collapsed INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_task_groups_project_id ON task_groups (project_id);
+
+    CREATE TRIGGER IF NOT EXISTS task_groups_updated_at
+      AFTER UPDATE ON task_groups
+      FOR EACH ROW
+      BEGIN
+        UPDATE task_groups SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE rowid = NEW.rowid;
+      END;
+  `);
+
+  // Add group_id and group_position columns to tasks (if missing)
+  const tasksTables = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'")
+    .all();
+  if (tasksTables.length > 0) {
+    const taskCols = pragmaAll(db, "table_info(tasks)") as { name: string }[];
+    const taskColNames = new Set(taskCols.map((c) => c.name));
+    if (!taskColNames.has("group_id")) {
+      db.exec("ALTER TABLE tasks ADD COLUMN group_id TEXT REFERENCES task_groups(id) ON DELETE SET NULL");
+    }
+    if (!taskColNames.has("group_position")) {
+      db.exec("ALTER TABLE tasks ADD COLUMN group_position INTEGER NOT NULL DEFAULT 0");
+    }
+    db.exec("CREATE INDEX IF NOT EXISTS idx_tasks_group_id ON tasks (group_id)");
+  }
+
   backfillAgentsFromFilesystem(db);
   backfillAgentSkillsFromLegacyParticipants(db);
   ensureRuntimeArtifactsForDbAgents(db);
