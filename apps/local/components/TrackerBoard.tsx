@@ -1761,6 +1761,10 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
           <GroupPanel
             group={selectedGroup}
             items={items}
+            trackerType={trackerType}
+            participants={participants}
+            projectId={projectId}
+            projectSlug={projectSlug}
             onUpdateName={(name) => updateGroup(selectedGroup.id, { name })}
             onDelete={async () => {
               await deleteGroup(selectedGroup.id);
@@ -1769,6 +1773,8 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
             onSelectItem={(itemId) =>
               pushSelection({ issue: itemId, group: null, run: null })
             }
+            onRunCreated={(runId) => pushSelection({ run: runId })}
+            onSelectRun={(runId) => pushSelection({ run: runId })}
           />
         ) : !selectedItem ? (
           <div className="flex h-full items-center justify-center text-xs text-[var(--muted-foreground)]">
