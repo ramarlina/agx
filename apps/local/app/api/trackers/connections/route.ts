@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listTrackerConnections, addTrackerConnection, removeTrackerConnection } from "@/lib/tracker/connections";
-import { getAdapterOrNull } from "@/lib/tracker/registry";
+import { getAdapterOrNull, listAdapters } from "@/lib/tracker/registry";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +12,28 @@ export async function GET(req: NextRequest) {
   }
 
   const connections = listTrackerConnections(projectId);
+  const registeredTypes = new Set(connections.map((c) => c.type));
+
+  // Auto-register any adapter that has a valid token but no registry entry (migration path)
+  const allAdapters = listAdapters();
+  await Promise.all(
+    allAdapters
+      .filter((adapter) => !registeredTypes.has(adapter.type))
+      .map(async (adapter) => {
+        try {
+          const status = await adapter.getStatus(projectId);
+          if (status.connected) {
+            addTrackerConnection(projectId, {
+              type: adapter.type,
+              connectedAt: new Date().toISOString(),
+            });
+            connections.push({ type: adapter.type, connectedAt: new Date().toISOString() });
+          }
+        } catch {
+          // ignore — token absent or invalid
+        }
+      })
+  );
 
   // Enrich with live status
   const enriched = await Promise.all(
