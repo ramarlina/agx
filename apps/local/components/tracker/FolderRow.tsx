@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ChevronDown, ChevronRight, FolderOpen, Folder } from "lucide-react";
+import { ChevronDown, ChevronRight, FolderOpen, Folder, X } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 
 interface FolderRowProps {
@@ -12,6 +12,7 @@ interface FolderRowProps {
   selected: boolean;
   onToggleCollapse: () => void;
   onSelect: () => void;
+  onUngroup?: () => void;
 }
 
 export function FolderRow({
@@ -22,6 +23,7 @@ export function FolderRow({
   selected,
   onToggleCollapse,
   onSelect,
+  onUngroup,
 }: FolderRowProps) {
   const { setNodeRef, isOver } = useDroppable({ id: groupId });
 
@@ -66,6 +68,20 @@ export function FolderRow({
       <span className="shrink-0 rounded-full bg-[var(--secondary)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted-foreground)]">
         {count}
       </span>
+      {onUngroup && (
+        <button
+          type="button"
+          className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
+          onClick={(e) => {
+            e.stopPropagation();
+            onUngroup();
+          }}
+          title="Ungroup tickets"
+          aria-label="Ungroup tickets"
+        >
+          <X size={12} />
+        </button>
+      )}
     </div>
   );
 }

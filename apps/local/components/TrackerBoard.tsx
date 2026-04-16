@@ -1608,6 +1608,12 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                           onSelect={() =>
                             pushSelection({ group: group.id, issue: null, run: null })
                           }
+                          onUngroup={() => {
+                            void deleteGroup(group.id);
+                            if (selectedGroupTaskGroupId === group.id) {
+                              replaceSelection({ group: null });
+                            }
+                          }}
                         />
                         {!group.collapsed &&
                           groupItems.map((gi, giIdx) => (
