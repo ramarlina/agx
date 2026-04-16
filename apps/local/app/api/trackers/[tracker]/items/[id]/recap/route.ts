@@ -19,7 +19,6 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   const runId = req.nextUrl.searchParams.get("runId")?.trim();
 
   try {
-    // Check for recap stored on a specific run
     if (runId) {
       const run = await getTrackerRun(runId);
       if (run?.recapFilePath) {
@@ -35,11 +34,9 @@ export async function GET(req: NextRequest, { params }: Ctx) {
       }
     }
 
-    // Check the standalone recap file
     const latest = await readLatestRecap(tracker, id);
     const job = getRecapJob(tracker, id);
 
-    // Fall back to the most recent run's recap if no standalone file
     if (!latest) {
       const runs = await listTrackerRuns({
         issueId: id,
@@ -96,8 +93,11 @@ export async function POST(req: NextRequest, { params }: Ctx) {
         description: item.description,
       };
     } catch {
-      // Not a regular item — likely a group (cycle/sprint). Build context
-      // from the most recent tracker run so the recap still has a title.
+      // Not an item — likely a group (cycle/sprint). Fetch its tickets.
+      const { items } = await adapter.listItems(projectId ?? "", {
+        groupIds: [id],
+        limit: 50,
+      });
       const runs = await listTrackerRuns({
         issueId: id,
         trackerType: tracker,
@@ -109,6 +109,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
         identifier: run?.issueIdentifier ?? id,
         title: run?.issueTitle ?? "Group",
         status: run?.issueStatus ?? "unknown",
+        tickets: items,
       };
     }
 

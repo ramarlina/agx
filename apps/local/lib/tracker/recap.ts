@@ -3,6 +3,7 @@ import os from "os";
 import path from "path";
 import { runCliResponse } from "@/lib/cli-runner";
 import { listTrackerRuns } from "./tracker-run-store";
+import type { TrackerItem } from "./types";
 
 // ---------------------------------------------------------------------------
 // Storage
@@ -49,7 +50,6 @@ async function writeRecap(
   }
   await fs.symlink(filename, latestPath);
 
-  // prune old files
   const entries = await fs.readdir(dir);
   const old = entries
     .filter((n) => n.endsWith(".md") && n !== LATEST_FILENAME)
@@ -86,7 +86,7 @@ export async function readLatestRecap(
 // Generator
 // ---------------------------------------------------------------------------
 
-const RECAP_SYSTEM = [
+const ITEM_RECAP_SYSTEM = [
   "You are writing a short recap of a tracker ticket.",
   "Output raw markdown only — no JSON, no fences around the whole response.",
   "Keep it 100–250 words.",
@@ -94,12 +94,22 @@ const RECAP_SYSTEM = [
   "Write in plain prose. No headings above h3.",
 ].join("\n");
 
-interface ItemContext {
+const GROUP_RECAP_SYSTEM = [
+  "You are writing a short recap of a group of tracker tickets (e.g. a cycle or sprint).",
+  "Output raw markdown only — no JSON, no fences around the whole response.",
+  "Keep it 150–350 words.",
+  "Cover: overall progress, what's done, what's in progress, and what's remaining.",
+  "Mention individual tickets by identifier when relevant.",
+  "Write in plain prose. No headings above h3.",
+].join("\n");
+
+export interface ItemContext {
   identifier: string;
   title: string;
   status: string;
   assignee?: string;
   description?: string;
+  tickets?: TrackerItem[];
 }
 
 export async function generateRecap(
@@ -107,6 +117,8 @@ export async function generateRecap(
   itemId: string,
   item: ItemContext
 ): Promise<void> {
+  const isGroup = !!item.tickets;
+
   const priorRuns = await listTrackerRuns({
     issueId: itemId,
     trackerType,
@@ -119,25 +131,47 @@ export async function generateRecap(
     )
     .join("\n");
 
-  const prompt = [
-    `Ticket: ${item.identifier} — ${item.title}`,
-    `Status: ${item.status}`,
-    item.assignee ? `Assignee: ${item.assignee}` : null,
-    item.description ? `\nDescription:\n${item.description}` : null,
-    "",
-    priorRunLines ? `Prior sessions:\n${priorRunLines}` : "No prior sessions.",
-    "",
-    "Write the recap now.",
-  ]
-    .filter(Boolean)
-    .join("\n");
+  let prompt: string;
+
+  if (isGroup && item.tickets) {
+    const ticketLines = item.tickets
+      .map(
+        (t) =>
+          `- ${t.identifier}: ${t.title} [${t.status}]${t.assignee ? ` (${t.assignee.name})` : ""}`
+      )
+      .join("\n");
+
+    prompt = [
+      `Group: ${item.title}`,
+      "",
+      `Tickets (${item.tickets.length}):`,
+      ticketLines,
+      "",
+      priorRunLines ? `Prior sessions:\n${priorRunLines}` : "No prior sessions.",
+      "",
+      "Write the recap now.",
+    ].join("\n");
+  } else {
+    prompt = [
+      `Ticket: ${item.identifier} — ${item.title}`,
+      `Status: ${item.status}`,
+      item.assignee ? `Assignee: ${item.assignee}` : null,
+      item.description ? `\nDescription:\n${item.description}` : null,
+      "",
+      priorRunLines ? `Prior sessions:\n${priorRunLines}` : "No prior sessions.",
+      "",
+      "Write the recap now.",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
 
   let output = "";
   await runCliResponse({
     provider: "claude",
     model: null,
     prompt,
-    systemContext: RECAP_SYSTEM,
+    systemContext: isGroup ? GROUP_RECAP_SYSTEM : ITEM_RECAP_SYSTEM,
     onDelta: (chunk) => {
       output += chunk;
     },
