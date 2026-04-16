@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import { ChevronDown, ChevronRight, FolderOpen, Folder, X, StickyNote } from "lucide-react";
 import { useDroppable } from "@dnd-kit/core";
 import { NoteSticker } from "@/components/tracker/NoteSticker";
@@ -30,6 +30,7 @@ export function FolderRow({
 }: FolderRowProps) {
   const { setNodeRef, isOver } = useDroppable({ id: groupId });
 
+  const noteButtonRef = useRef<HTMLButtonElement>(null);
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteContent, setNoteContent] = useState("");
   const [noteLoaded, setNoteLoaded] = useState(false);
@@ -115,8 +116,9 @@ export function FolderRow({
         {count}
       </span>
       {projectSlug && (
-        <div className="relative">
+        <>
           <button
+            ref={noteButtonRef}
             type="button"
             className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-all hover:bg-zinc-700 ${
               hasNote
@@ -131,13 +133,14 @@ export function FolderRow({
           </button>
           {noteOpen && (
             <NoteSticker
+              anchorRef={noteButtonRef}
               value={noteContent}
               onChange={setNoteContent}
               onClose={() => setNoteOpen(false)}
               onSave={saveNote}
             />
           )}
-        </div>
+        </>
       )}
       {onUngroup && (
         <button

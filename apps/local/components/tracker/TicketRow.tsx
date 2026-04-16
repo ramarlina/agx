@@ -36,6 +36,7 @@ export function TicketRow({
 }) {
   const [copied, setCopied] = useState(false);
   const copyResetTimeoutRef = useRef<number | null>(null);
+  const noteButtonRef = useRef<HTMLButtonElement>(null);
   const [noteOpen, setNoteOpen] = useState(false);
   const [noteContent, setNoteContent] = useState("");
   const [noteLoaded, setNoteLoaded] = useState(false);
@@ -202,8 +203,9 @@ export function TicketRow({
       )}
       <div className="flex shrink-0 items-center gap-1">
         {projectSlug && (
-          <div className="relative">
+          <>
             <button
+              ref={noteButtonRef}
               type="button"
               className={`flex h-6 w-6 shrink-0 items-center justify-center rounded transition-all hover:bg-zinc-700 ${
                 hasNote
@@ -218,13 +220,14 @@ export function TicketRow({
             </button>
             {noteOpen && (
               <NoteSticker
+                anchorRef={noteButtonRef}
                 value={noteContent}
                 onChange={setNoteContent}
                 onClose={() => setNoteOpen(false)}
                 onSave={saveNote}
               />
             )}
-          </div>
+          </>
         )}
         {onTogglePin && (
           <button

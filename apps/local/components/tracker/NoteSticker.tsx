@@ -1,62 +1,118 @@
-'use client';
+"use client";
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Placeholder from "@tiptap/extension-placeholder";
+import { Markdown } from "tiptap-markdown";
 
 interface NoteStickerProps {
+  anchorRef: React.RefObject<HTMLElement | null>;
   value: string;
   onChange: (value: string) => void;
   onClose: () => void;
   onSave: (value: string) => void;
 }
 
-export function NoteSticker({ value, onChange, onClose, onSave }: NoteStickerProps) {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+export function NoteSticker({ anchorRef, value, onChange, onClose, onSave }: NoteStickerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
 
+  // Compute position centered below the anchor button
   useEffect(() => {
-    textareaRef.current?.focus();
-  }, []);
+    if (!anchorRef.current) return;
+    const rect = anchorRef.current.getBoundingClientRect();
+    setPos({
+      top: rect.bottom + window.scrollY + 6,
+      left: rect.left + window.scrollX + rect.width / 2,
+    });
+  }, [anchorRef]);
 
+  const editor = useEditor({
+    extensions: [
+      StarterKit,
+      Placeholder.configure({
+        placeholder: "Add a note…",
+        emptyEditorClass:
+          "is-editor-empty before:content-[attr(data-placeholder)] before:text-[var(--muted-foreground)]/50 before:float-left before:pointer-events-none before:h-0",
+      }),
+      Markdown.configure({ html: false, transformPastedText: true }),
+    ],
+    immediatelyRender: false,
+    content: value,
+    editorProps: {
+      attributes: {
+        class: "outline-none min-h-[80px] px-3 py-2 text-xs text-[var(--foreground)] prose prose-sm max-w-none",
+      },
+    },
+    onUpdate: ({ editor }) => {
+      onChange((editor.storage as { markdown: { getMarkdown: () => string } }).markdown.getMarkdown());
+    },
+  });
+
+  // Focus on mount
+  useEffect(() => {
+    if (editor) {
+      setTimeout(() => editor.commands.focus("end"), 0);
+    }
+  }, [editor]);
+
+  // Close + save on outside click or Escape
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        onSave(value);
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node) &&
+        !anchorRef.current?.contains(e.target as Node)
+      ) {
+        const md = editor
+          ? (editor.storage as { markdown: { getMarkdown: () => string } }).markdown.getMarkdown()
+          : value;
+        onSave(md);
         onClose();
       }
     }
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        onSave(value);
+      if (e.key === "Escape") {
+        const md = editor
+          ? (editor.storage as { markdown: { getMarkdown: () => string } }).markdown.getMarkdown()
+          : value;
+        onSave(md);
         onClose();
       }
     }
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [value, onClose, onSave]);
+  }, [editor, value, anchorRef, onSave, onClose]);
 
-  return (
+  if (!pos) return null;
+
+  return createPortal(
     <div
       ref={containerRef}
-      className='absolute left-1/2 top-full z-50 mt-1 w-72 -translate-x-1/2 rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] shadow-xl backdrop-blur-md'
+      style={{
+        position: "absolute",
+        top: pos.top,
+        left: pos.left,
+        transform: "translateX(-50%)",
+        zIndex: 9999,
+        width: 288,
+      }}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className='h-1.5 w-full rounded-t-lg bg-[var(--primary)]/40' />
-      <textarea
-        ref={textareaRef}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onBlur={() => {
-          onSave(value);
-          onClose();
-        }}
-        placeholder='Add a note…'
-        rows={5}
-        className='w-full resize-none rounded-b-lg bg-transparent px-3 py-2.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)]/50 outline-none'
-      />
-    </div>
+      <div className="rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] shadow-xl">
+        <div className="h-1.5 w-full rounded-t-lg bg-[var(--primary)]/40" />
+        <EditorContent editor={editor} />
+      </div>
+      <style>{`
+        .ProseMirror { outline: none !important; }
+      `}</style>
+    </div>,
+    document.body
   );
 }
