@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Check, X } from "lucide-react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
@@ -106,7 +107,34 @@ export function NoteSticker({ anchorRef, value, onChange, onClose, onSave }: Not
       onClick={(e) => e.stopPropagation()}
     >
       <div className="rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] shadow-xl">
-        <div className="h-1.5 w-full rounded-t-lg bg-[var(--primary)]/40" />
+        <div className="flex h-6 w-full items-center justify-end gap-0.5 rounded-t-lg bg-[var(--primary)]/40 px-1.5">
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              const md = editor
+                ? (editor.storage as { markdown: { getMarkdown: () => string } }).markdown.getMarkdown()
+                : value;
+              onSave(md);
+              onClose();
+            }}
+            className="flex h-4 w-4 items-center justify-center rounded text-[var(--foreground)]/60 hover:text-emerald-400 transition-colors"
+            title="Save"
+          >
+            <Check size={11} />
+          </button>
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onClose();
+            }}
+            className="flex h-4 w-4 items-center justify-center rounded text-[var(--foreground)]/60 hover:text-red-400 transition-colors"
+            title="Discard"
+          >
+            <X size={11} />
+          </button>
+        </div>
         <EditorContent editor={editor} />
       </div>
       <style>{`
