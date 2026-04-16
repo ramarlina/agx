@@ -3,12 +3,11 @@
 import { use } from "react";
 import { useSearchParams } from "next/navigation";
 import { useProjects } from "@/hooks/useProjects";
-import LinearBoard from "@/components/LinearBoard";
+import TrackerBoard from "@/components/TrackerBoard";
 
 /**
  * Tracker-specific board page.
- * Phase 1: Only 'linear' is supported; all tracker types delegate to LinearBoard.
- * Phase 2: Will dispatch based on tracker param (linear, jira, etc.).
+ * Renders the tracker-agnostic TrackerBoard for any connected tracker type.
  */
 export default function ProjectTrackerPage({
   params,
@@ -21,9 +20,9 @@ export default function ProjectTrackerPage({
   const project = projects.find((p) => p.slug === slug);
   const showSettings = searchParams.get("settings") === "true";
 
-  // Phase 1: All tracker types use the Linear board
   return (
-    <LinearBoard
+    <TrackerBoard
+      trackerType={tracker}
       projectId={project?.id}
       projectSlug={project?.slug ?? slug}
       initialShowSettings={showSettings}
