@@ -3,7 +3,7 @@ export type OverlapPolicy = 'skip' | 'queue' | 'allow';
 export type CatchUpPolicy = 'fire_once' | 'replay_all' | 'skip';
 export type RunStatus = 'queued' | 'running' | 'success' | 'failed' | 'cancelled';
 export type TriggerType = 'scheduled' | 'condition';
-export type PromptJobExecutionMode = 'prompt' | 'objective_worker' | 'linear_worker';
+export type PromptJobExecutionMode = 'prompt' | 'objective_worker' | 'linear_worker' | 'task_worker';
 
 export type ObjectiveActionType = 'work_ticket' | 'run_prompt' | 'stop';
 
@@ -43,10 +43,12 @@ export interface PromptJob {
   catchUpPolicy: CatchUpPolicy;
   cancelCheckSec: number;
   executionMode: PromptJobExecutionMode;
-  /** For linear_worker: the prompt injected into the agent chat session when working a ticket. */
+  /** For linear_worker/task_worker: the prompt injected into the agent chat session when working a ticket. */
   scriptPrompt: string;
-  /** For linear_worker: the team whose agents participate in the linear chat session. */
+  /** For linear_worker/task_worker: the team whose agents participate in the chat session. */
   teamId: string;
+  /** For task_worker: which tracker adapter to use (e.g. 'linear', 'jira'). Defaults to 'linear'. */
+  trackerType?: string;
   /** True for system-managed jobs that cannot be deleted by users */
   builtIn?: boolean;
   condition: string;

@@ -31,7 +31,7 @@ function stageShow(stage: 1 | 2 | 3 | 4): SidebarStageResult["show"] {
     terminal: true,
     objectives: stage >= 2,
     objectivesIsNew: stage === 2,
-    linear: stage >= 3,
+    tracking: stage >= 3,
     teams: stage >= 3,
     folders: stage >= 3,
     scheduledTasks: true,
