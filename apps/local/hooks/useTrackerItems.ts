@@ -96,7 +96,7 @@ export function useTrackerItems(
         setLoading(false);
       }
     },
-    [basePath, filters.statusCategories, filters.search, filters.assigneeIds, filters.groupIds, enabled, options.projectId, options.limit]
+    [basePath, filters.statuses, filters.statusCategories, filters.search, filters.assigneeIds, filters.groupIds, filters.sortBy, filters.sortDir, filters.hasActivity, enabled, options.projectId, options.limit]
   );
 
   useEffect(() => {
