@@ -2,7 +2,7 @@
 
 import type { ComponentType } from "react";
 import { getAdapterOrNull } from "@/lib/tracker/registry";
-import { LinearIcon } from "@/lib/tracker/adapters/linear/adapter";
+import { LinearIcon } from "@/lib/tracker/adapters/linear/linear-icon";
 
 interface TrackerIconProps {
   trackerType: string;
