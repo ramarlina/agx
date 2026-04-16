@@ -475,9 +475,16 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     [pendingGroupTaskIds, createGroup],
   );
 
+  // Ref to sortedItems so handleMultiSelectGroup can access it without
+  // hoisting issues (sortedItems is declared further down).
+  const sortedItemsRef = useRef<TrackerItem[]>([]);
+
   const handleMultiSelectGroup = useCallback(() => {
     const ids = Array.from(multiSelectedItemIds);
+    // Find the topmost selected item in the sorted list to position the prompt
+    const topmost = sortedItemsRef.current.find((i) => multiSelectedItemIds.has(i.id));
     setPendingGroupTaskIds(ids);
+    setPendingGroupTargetId(topmost?.id ?? ids[0] ?? null);
     setShowGroupNamePrompt(true);
   }, [multiSelectedItemIds]);
 
@@ -758,6 +765,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     }
     return [...pinned, ...unpinned];
   }, [items, pinnedItemIds]);
+  sortedItemsRef.current = sortedItems;
 
   const {
     runs,
