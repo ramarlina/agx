@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import type { ProjectWithAgents } from "@/hooks/useProjects";
 import { useTrackerConnections } from "./useTrackerConnections";
 
@@ -47,19 +47,18 @@ export function useSidebarStage(
   const { connections, loading } = useTrackerConnections(project?.id ?? null);
   const hasTracker = connections.some((c) => c.connected);
 
-  return useMemo(() => {
-    if (loading) {
-      return {
-        stage: "stage1",
-        loading: true,
-        show: { ...ALL_VISIBLE_BASE, tracking: false },
-      };
-    }
+  // Retain last confirmed value so the link doesn't flicker off during re-fetches
+  const lastHasTracker = useRef(false);
+  if (!loading) {
+    lastHasTracker.current = hasTracker;
+  }
 
+  return useMemo(() => {
+    const tracking = loading ? lastHasTracker.current : hasTracker;
     return {
       stage: "stage4",
-      loading: false,
-      show: { ...ALL_VISIBLE_BASE, tracking: hasTracker },
+      loading,
+      show: { ...ALL_VISIBLE_BASE, tracking },
     };
   }, [loading, hasTracker]);
 }
