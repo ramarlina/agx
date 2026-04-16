@@ -4,12 +4,11 @@ import { use } from "react";
 import { useSearchParams } from "next/navigation";
 import { useProjects } from "@/hooks/useProjects";
 import { useTrackerConnections } from "@/hooks/useTrackerConnections";
-import LinearBoard from "@/components/LinearBoard";
+import TrackerBoard from "@/components/TrackerBoard";
 
 /**
  * Tracker-agnostic board page.
- * Phase 1: If the project has a Linear connection, renders the Linear board.
- * Phase 2: Will show a multi-tracker dashboard when multiple trackers are connected.
+ * Detects the first connected tracker and renders the TrackerBoard.
  */
 export default function ProjectTrackingPage({
   params,
@@ -21,10 +20,14 @@ export default function ProjectTrackingPage({
   const { projects } = useProjects();
   const project = projects.find((p) => p.slug === slug);
   const showSettings = searchParams.get("settings") === "true";
+  const { connections } = useTrackerConnections(project?.id ?? null);
 
-  // Phase 1: Default to Linear board
+  // Use the first connected tracker, default to "linear"
+  const trackerType = connections.length > 0 ? connections[0].type : "linear";
+
   return (
-    <LinearBoard
+    <TrackerBoard
+      trackerType={trackerType}
       projectId={project?.id}
       projectSlug={project?.slug ?? slug}
       initialShowSettings={showSettings}
