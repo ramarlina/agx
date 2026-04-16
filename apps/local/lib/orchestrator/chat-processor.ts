@@ -139,7 +139,9 @@ async function handleStart(job: Job<ChatRunJobData>): Promise<void> {
           if (!trimmed.startsWith("data: ")) continue;
           try {
             const event: ChatEvent = JSON.parse(trimmed.slice(6));
-            eventBus.publish(chatRun.id, event);
+            if (event.type !== "log") {
+              eventBus.publish(chatRun.id, event);
+            }
           } catch {
             // malformed SSE line — ignore
           }
@@ -150,7 +152,9 @@ async function handleStart(job: Job<ChatRunJobData>): Promise<void> {
     if (sseBuffer.trim().startsWith("data: ")) {
       try {
         const event: ChatEvent = JSON.parse(sseBuffer.trim().slice(6));
-        eventBus.publish(chatRun.id, event);
+        if (event.type !== "log") {
+          eventBus.publish(chatRun.id, event);
+        }
       } catch { /* ignore */ }
     }
     eventBus.complete(chatRun.id);

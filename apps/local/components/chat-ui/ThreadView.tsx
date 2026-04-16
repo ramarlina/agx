@@ -13,6 +13,7 @@ import { MessageAttachments } from "./MessageAttachments";
 import { agentAvatarUrl } from "./ParticipantBar";
 import { MessageReactionsBar } from "./MessageReactionsBar";
 import { stripMarkers } from "@/lib/chat-utils";
+import { StreamingSegments } from "./StreamingSegments";
 
 interface Props {
     messages: GroupMessage[];
@@ -309,9 +310,7 @@ export function ThreadView({
                                             )}
                                         </div>
                                         {hasContent && (
-                                            <div className="surface-card rounded-2xl p-5 text-[15px] leading-relaxed">
-                                                <Markdown content={stripMarkers(entry.content)} isUser={false} />
-                                            </div>
+                                            <StreamingSegments content={entry.content} />
                                         )}
                                     </div>
                                 </div>

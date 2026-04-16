@@ -164,15 +164,7 @@ export function useProcessPolling(
         );
         setActiveAgents(activeIds);
 
-        // Build streaming indicators from active processes
-        const newStreaming: Record<string, StreamingEntry> = {};
-        for (const proc of entries) {
-          if (!ACTIVE_STATES.has(proc.state)) continue;
-          const triggerMsg = messagesRef.current.find((m) => m.id === proc.sinceMessageId);
-          const rootId = triggerMsg?.rootMessageId ?? proc.sinceMessageId;
-          newStreaming[proc.agentId] = { content: "", rootMessageId: rootId };
-        }
-        setStreaming(newStreaming);
+        // Streaming state is owned by SSE event handlers — don't reset it here.
       }
 
       if (chatRunsRes?.ok) {
@@ -251,6 +243,9 @@ export function useProcessPolling(
             break;
 
           case "text-delta": {
+            if (!agentContent.has(event.participantId)) {
+              agentContent.set(event.participantId, { text: "", thoughts: [] });
+            }
             const entry = agentContent.get(event.participantId);
             if (entry) {
               entry.text += event.delta;

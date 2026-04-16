@@ -74,11 +74,11 @@ class ChatEventBus {
   }
 }
 
-let instance: ChatEventBus | null = null;
+const GLOBAL_KEY = Symbol.for("agx:ChatEventBus");
 
 export function getChatEventBus(): ChatEventBus {
-  if (!instance) {
-    instance = new ChatEventBus();
+  if (!(globalThis as any)[GLOBAL_KEY]) {
+    (globalThis as any)[GLOBAL_KEY] = new ChatEventBus();
   }
-  return instance;
+  return (globalThis as any)[GLOBAL_KEY];
 }

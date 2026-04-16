@@ -420,6 +420,22 @@ function providerNativeCommand({
   }
 }
 
+function agxStreamingPassthrough(provider: ChatProvider): {
+  args: string[];
+  parser: CliAttempt["parser"];
+} {
+  switch (provider) {
+    case "claude":
+      return { args: ["--output-format", "stream-json", "--include-partial-messages"], parser: "claude-stream-json" };
+    case "gemini":
+      return { args: ["-o", "stream-json"], parser: "gemini-stream-json" };
+    case "codex":
+      return { args: ["--json"], parser: "codex-json" };
+    default:
+      return { args: [], parser: "raw" };
+  }
+}
+
 function agxCommandForProvider({
   provider,
   model,
@@ -430,17 +446,15 @@ function agxCommandForProvider({
   model: string | null;
   prompt: string;
   passthroughArgs?: string[];
-}): {
-  command: string;
-  args: string[];
-  parser: "raw";
-} {
+}): CliAttempt {
   const args = [provider, "-y", "--print", "--prompt", prompt];
   if (model) args.push("--model", model);
-  if (passthroughArgs && passthroughArgs.length > 0) {
-    args.push("--", ...passthroughArgs);
+  const streaming = agxStreamingPassthrough(provider);
+  const allPassthrough = [...(passthroughArgs || []), ...streaming.args];
+  if (allPassthrough.length > 0) {
+    args.push("--", ...allPassthrough);
   }
-  return { command: "agx", args, parser: "raw" };
+  return { command: "agx", args, parser: streaming.parser };
 }
 
 function resolveBundledCliPath(): string | null {
@@ -560,20 +574,18 @@ function bundledAgxCommandForProvider({
   prompt: string;
   cliPath?: string | null;
   passthroughArgs?: string[];
-}): {
-  command: string;
-  args: string[];
-  parser: "raw";
-} | null {
+}): CliAttempt | null {
   const resolvedCliPath = cliPath === undefined ? resolveBundledCliPath() : cliPath;
   if (!resolvedCliPath) return null;
 
   const args = [resolvedCliPath, provider, "-y", "--print", "--prompt", prompt];
   if (model) args.push("--model", model);
-  if (passthroughArgs && passthroughArgs.length > 0) {
-    args.push("--", ...passthroughArgs);
+  const streaming = agxStreamingPassthrough(provider);
+  const allPassthrough = [...(passthroughArgs || []), ...streaming.args];
+  if (allPassthrough.length > 0) {
+    args.push("--", ...allPassthrough);
   }
-  return { command: process.execPath, args, parser: "raw" };
+  return { command: process.execPath, args, parser: streaming.parser };
 }
 
 // Core runner
