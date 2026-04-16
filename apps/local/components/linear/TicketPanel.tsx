@@ -45,7 +45,7 @@ interface Props {
     agentId: string;
     agentName: string;
     mode: LinearRun["mode"];
-  }) => Promise<LinearRun>;
+  }) => Promise<{ run: LinearRun; recapContent: string | null }>;
   updateRun: (
     id: string,
     input: {
