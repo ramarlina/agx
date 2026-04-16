@@ -842,6 +842,10 @@ Resolved memory entries: ${executionProvenance.memory.map((entry) => `${entry.so
       onDelta: (delta) => {
         fullResponse += delta;
         updateProcess(workspaceId, p.id, { lastActivity: Date.now() });
+        write({ type: "text-delta", participantId: p.id, delta });
+      },
+      onThought: (content) => {
+        write({ type: "participant-thought", participantId: p.id, content });
       },
     });
     updateProcess(workspaceId, p.id, { state: "done", lastActivity: Date.now() });

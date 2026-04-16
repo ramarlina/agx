@@ -3,12 +3,14 @@ import { createMultiplexedStream } from "@/lib/stream-multiplexer";
 import { loadDbParticipants } from "@/lib/agent-participants";
 import { killByThread, killByWorkspace } from "@/lib/agent-process-registry";
 import type { ChatRunPayload, ChatRunJobData } from "@/lib/orchestrator/chat-types";
+import type { ChatEvent } from "@/lib/types";
 import {
   appendChatRunStepActivity,
   completeChatRunStepActivity,
   loadChatRunActivity,
   updateChatRunActivity,
 } from "@/lib/orchestrator/chat-activities";
+import { getChatEventBus } from "@/lib/chat-event-bus";
 import { writeDebugLog } from "@/lib/debug-log";
 
 function isChatRunPayload(value: unknown): value is ChatRunPayload {
@@ -75,6 +77,8 @@ async function handleStart(job: Job<ChatRunJobData>): Promise<void> {
     lastError: null,
   });
 
+  const eventBus = getChatEventBus();
+
   try {
     writeDebugLog("chat-processor.start.running", {
       chatRunId: chatRun.id,
@@ -121,10 +125,35 @@ async function handleStart(job: Job<ChatRunJobData>): Promise<void> {
       chatRunId: chatRun.id,
       participantCount: participants.length,
     });
+    let sseBuffer = "";
     while (true) {
-      const { done } = await reader.read();
+      const { done, value } = await reader.read();
       if (done) break;
+      if (value) {
+        sseBuffer += new TextDecoder().decode(value);
+        const lines = sseBuffer.split("\n");
+        // Keep the last incomplete line in the buffer
+        sseBuffer = lines.pop() || "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data: ")) continue;
+          try {
+            const event: ChatEvent = JSON.parse(trimmed.slice(6));
+            eventBus.publish(chatRun.id, event);
+          } catch {
+            // malformed SSE line — ignore
+          }
+        }
+      }
     }
+    // Process any remaining buffer
+    if (sseBuffer.trim().startsWith("data: ")) {
+      try {
+        const event: ChatEvent = JSON.parse(sseBuffer.trim().slice(6));
+        eventBus.publish(chatRun.id, event);
+      } catch { /* ignore */ }
+    }
+    eventBus.complete(chatRun.id);
     writeDebugLog("chat-processor.stream.complete", {
       chatRunId: chatRun.id,
     });
@@ -152,6 +181,7 @@ async function handleStart(job: Job<ChatRunJobData>): Promise<void> {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    eventBus.complete(chatRun.id);
     writeDebugLog("chat-processor.error", {
       chatRunId: chatRun.id,
       error,

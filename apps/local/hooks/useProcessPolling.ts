@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { AgentProcessEntry } from "@/lib/agent-process-registry";
-import type { GroupMessage } from "@/lib/types";
+import type { GroupMessage, ChatEvent } from "@/lib/types";
 import type { ChatRunInfo, StreamingEntry } from "./useGroupChat";
 
 /** Active process states that should show a typing indicator. */
@@ -55,7 +55,10 @@ function normalizeChatRuns(value: unknown): ChatRunInfo[] {
 
 /**
  * Polls `/api/processes` and `/api/history?since=` to drive both the
- * "who's working" indicator and message delivery (replacing SSE).
+ * "who's working" indicator and message delivery.
+ *
+ * When a chat run is active (queued/running), also opens an SSE
+ * connection to `/api/chat-runs/[id]/events` for token-by-token streaming.
  */
 export function useProcessPolling(
   scope: { workspaceId?: string | null; threadId?: string | null } | null,
@@ -80,6 +83,10 @@ export function useProcessPolling(
   setMessagesRef.current = options?.setMessages;
   // Track the latest timestamp we've seen so far for delta fetching
   const lastTimestampRef = useRef<number>(0);
+  // Track active SSE connections by chatRunId
+  const eventSourcesRef = useRef<Map<string, EventSource>>(new Map());
+  // Track per-agent streaming content by chatRunId
+  const streamContentRef = useRef<Map<string, Map<string, { text: string; thoughts: string[] }>>>(new Map());
 
   // Reset lastTimestamp when messages change externally (e.g. full reload)
   useEffect(() => {
@@ -91,6 +98,16 @@ export function useProcessPolling(
       }
     }
   }, [options?.messages]);
+
+  // Clean up SSE connections on unmount
+  useEffect(() => {
+    return () => {
+      for (const es of eventSourcesRef.current.values()) {
+        es.close();
+      }
+      eventSourcesRef.current.clear();
+    };
+  }, []);
 
   const poll = useCallback(async () => {
     const s = scopeRef.current;
@@ -188,6 +205,112 @@ export function useProcessPolling(
       // network error — keep previous state
     }
   }, []);
+
+  // Subscribe to SSE for active chat runs
+  useEffect(() => {
+    const activeRuns = chatRuns.filter(
+      (run) => run.status === "queued" || run.status === "running"
+    );
+    const activeRunIds = new Set(activeRuns.map((r) => r.chatRunId));
+
+    // Close EventSources for completed/absent runs
+    for (const [chatRunId, es] of eventSourcesRef.current.entries()) {
+      if (!activeRunIds.has(chatRunId)) {
+        es.close();
+        eventSourcesRef.current.delete(chatRunId);
+        streamContentRef.current.delete(chatRunId);
+      }
+    }
+
+    // Open EventSources for new active runs
+    for (const run of activeRuns) {
+      if (eventSourcesRef.current.has(run.chatRunId)) continue;
+
+      const es = new EventSource(`/api/chat-runs/${encodeURIComponent(run.chatRunId)}/events`);
+      eventSourcesRef.current.set(run.chatRunId, es);
+      const agentContent = new Map<string, { text: string; thoughts: string[] }>();
+      streamContentRef.current.set(run.chatRunId, agentContent);
+
+      // Track which agents are actively streaming in this run
+      const activeStreamAgents = new Set<string>();
+
+      es.addEventListener("chat", (e) => {
+        let event: ChatEvent;
+        try {
+          event = JSON.parse(e.data);
+        } catch {
+          return;
+        }
+
+        switch (event.type) {
+          case "participant-start":
+            activeStreamAgents.add(event.participantId);
+            if (!agentContent.has(event.participantId)) {
+              agentContent.set(event.participantId, { text: "", thoughts: [] });
+            }
+            break;
+
+          case "text-delta": {
+            const entry = agentContent.get(event.participantId);
+            if (entry) {
+              entry.text += event.delta;
+              // Update streaming state with the partial content
+              setStreaming((prev) => {
+                const updated = { ...prev };
+                // Find rootMessageId for this participant
+                const rootMessageId = run.rootMessageId ?? null;
+                updated[event.participantId] = {
+                  content: entry.text,
+                  rootMessageId,
+                };
+                return updated;
+              });
+            }
+            break;
+          }
+
+          case "participant-thought": {
+            const entry = agentContent.get(event.participantId);
+            if (entry) {
+              entry.thoughts.push(event.content);
+            }
+            break;
+          }
+
+          case "participant-end":
+            activeStreamAgents.delete(event.participantId);
+            // When a participant ends, clear their streaming indicator
+            setStreaming((prev) => {
+              const updated = { ...prev };
+              delete updated[event.participantId];
+              return updated;
+            });
+            break;
+
+          case "participant-error":
+            activeStreamAgents.delete(event.participantId);
+            setStreaming((prev) => {
+              const updated = { ...prev };
+              delete updated[event.participantId];
+              return updated;
+            });
+            break;
+
+          case "done":
+            es.close();
+            eventSourcesRef.current.delete(run.chatRunId);
+            streamContentRef.current.delete(run.chatRunId);
+            break;
+        }
+      });
+
+      es.onerror = () => {
+        es.close();
+        eventSourcesRef.current.delete(run.chatRunId);
+        streamContentRef.current.delete(run.chatRunId);
+      };
+    }
+  }, [chatRuns]);
 
   const key = scope?.threadId || scope?.workspaceId || null;
   const hasActiveChatRuns = chatRuns.some((run) => run.status === "queued" || run.status === "running");
