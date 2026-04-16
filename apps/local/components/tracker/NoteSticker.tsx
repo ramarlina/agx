@@ -41,7 +41,7 @@ export function NoteSticker({ value, onChange, onClose, onSave }: NoteStickerPro
   return (
     <div
       ref={containerRef}
-      className='absolute right-0 top-full z-50 mt-1 w-72 rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] shadow-xl backdrop-blur-md'
+      className='absolute left-1/2 top-full z-50 mt-1 w-72 -translate-x-1/2 rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] shadow-xl backdrop-blur-md'
       onClick={(e) => e.stopPropagation()}
     >
       <div className='h-1.5 w-full rounded-t-lg bg-[var(--primary)]/40' />
