@@ -497,7 +497,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
 
   // Ref to handleItemStatusChange so handleDragEnd can access it without
   // hoisting issues (handleItemStatusChange is declared further down).
-  const handleItemStatusChangeRef = useRef<((item: TrackerItem, status: string) => Promise<void>) | null>(null);
+  const handleItemStatusChangeRef = useRef<((item: TrackerItem, status: string, statusCategory?: TrackerStatusCategory) => Promise<void>) | null>(null);
 
   const handleMultiSelectGroup = useCallback(() => {
     const ids = Array.from(multiSelectedItemIds);
@@ -566,7 +566,6 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
         return;
       }
 
-      console.log("[dragEnd]", { active: active.id, over: over?.id });
       if (!over || active.id === over.id) return;
       const overId = over.id as string;
 
@@ -574,9 +573,9 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
       if (overId.startsWith(STATUS_GROUP_PREFIX)) {
         const targetStatus = overId.slice(STATUS_GROUP_PREFIX.length);
         const activeItem = sortedItemsRef.current.find((i) => i.id === activeItemId);
-        console.log("[dragEnd] status-group drop", { targetStatus, activeStatus: activeItem?.status, hasRef: !!handleItemStatusChangeRef.current });
+        const targetCategory = sortedItemsRef.current.find((i) => i.status === targetStatus)?.statusCategory;
         if (activeItem && activeItem.status !== targetStatus) {
-          await handleItemStatusChangeRef.current?.(activeItem, targetStatus);
+          await handleItemStatusChangeRef.current?.(activeItem, targetStatus, targetCategory);
         }
         return;
       }
@@ -584,15 +583,13 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
       // Dropped on a ticket in a different status group → change status
       const activeItem = sortedItemsRef.current.find((i) => i.id === activeItemId);
       const overItem = sortedItemsRef.current.find((i) => i.id === overId);
-      console.log("[dragEnd] ticket drop", { activeStatus: activeItem?.status, overStatus: overItem?.status });
       if (activeItem && overItem && activeItem.status !== overItem.status) {
-        await handleItemStatusChangeRef.current?.(activeItem, overItem.status);
+        await handleItemStatusChangeRef.current?.(activeItem, overItem.status, overItem.statusCategory);
         return;
       }
 
       // Check if dropping on a folder
       const targetGroup = taskGroups.find((g) => g.id === overId);
-      console.log("[dragEnd] folder check", { targetGroupFound: !!targetGroup, taskGroupsCount: taskGroups.length });
       if (targetGroup) {
         await addTasksToGroup(targetGroup.id, [activeItemId]);
         return;
@@ -601,15 +598,12 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
       // Check if dropping on another loose ticket (create folder)
       const overIsLoose = !groupedItemIds.has(overId);
       const activeIsLoose = !groupedItemIds.has(activeItemId);
-      console.log("[dragEnd] loose check", { overIsLoose, activeIsLoose, groupedCount: groupedItemIds.size });
       if (activeIsLoose && overIsLoose) {
-        console.log("[dragEnd] → setShowGroupNamePrompt(true)");
         setPendingGroupTaskIds([activeItemId, overId]);
         setPendingGroupTargetId(overId);
         setShowGroupNamePrompt(true);
         return;
       }
-      console.log("[dragEnd] no branch matched");
 
       // Ticket dragged out of a folder
       const activeGroup = taskGroups.find((g) => g.task_ids.includes(activeItemId));
@@ -952,10 +946,22 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   }, [projectId, createLabelDefinition]);
 
   const handleItemStatusChange = useCallback(
-    async (item: TrackerItem, status: string) => {
+    async (item: TrackerItem, status: string, statusCategory?: TrackerStatusCategory) => {
       const nextStatus = status.trim();
       if (!nextStatus || nextStatus === item.status || !projectId) {
         return;
+      }
+
+      // Optimistic update — move the ticket to the new status immediately so
+      // the UI reflects the drop before the PATCH round-trip completes.
+      const optimisticItem: TrackerItem = {
+        ...item,
+        status: nextStatus,
+        statusCategory: statusCategory ?? item.statusCategory,
+      };
+      updateItem(optimisticItem);
+      if (selectedItemId === item.id) {
+        setSelectedItemFallback(optimisticItem);
       }
 
       setUpdatingItemId(item.id);
@@ -984,6 +990,11 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
         }
         await refreshItems();
       } catch (error) {
+        // Revert optimistic update on failure.
+        updateItem(item);
+        if (selectedItemId === item.id) {
+          setSelectedItemFallback(item);
+        }
         if (error instanceof Error) {
           window.alert(error.message);
         }
