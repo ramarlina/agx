@@ -48,7 +48,7 @@ export function NoteSticker({ anchorRef, value, onChange, onClose, onSave }: Not
       },
     },
     onUpdate: ({ editor }) => {
-      onChange(editor.storage.markdown?.getMarkdown() ?? value);
+      onChange((editor.storage as Record<string, any>).markdown?.getMarkdown() ?? value);
     },
   });
 
@@ -68,7 +68,7 @@ export function NoteSticker({ anchorRef, value, onChange, onClose, onSave }: Not
         !anchorRef.current?.contains(e.target as Node)
       ) {
         const md = editor
-          ? editor.storage.markdown?.getMarkdown() ?? value
+          ? (editor.storage as Record<string, any>).markdown?.getMarkdown() ?? value
           : value;
         onSave(md);
         onClose();
@@ -77,7 +77,7 @@ export function NoteSticker({ anchorRef, value, onChange, onClose, onSave }: Not
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
         const md = editor
-          ? editor.storage.markdown?.getMarkdown() ?? value
+          ? (editor.storage as Record<string, any>).markdown?.getMarkdown() ?? value
           : value;
         onSave(md);
         onClose();
@@ -114,7 +114,7 @@ export function NoteSticker({ anchorRef, value, onChange, onClose, onSave }: Not
             onMouseDown={(e) => {
               e.preventDefault();
               const md = editor
-                ? editor.storage.markdown?.getMarkdown() ?? value
+                ? (editor.storage as Record<string, any>).markdown?.getMarkdown() ?? value
                 : value;
               onSave(md);
               onClose();
