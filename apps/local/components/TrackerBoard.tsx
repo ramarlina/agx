@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Clock, FileText, Play, Plus, RefreshCw, Search, Settings, User, X } from "lucide-react";
 import { useUrlSelection } from "@/hooks/useUrlSelection";
@@ -566,6 +566,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
         return;
       }
 
+      console.log("[dragEnd]", { active: active.id, over: over?.id });
       if (!over || active.id === over.id) return;
       const overId = over.id as string;
 
@@ -573,6 +574,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
       if (overId.startsWith(STATUS_GROUP_PREFIX)) {
         const targetStatus = overId.slice(STATUS_GROUP_PREFIX.length);
         const activeItem = sortedItemsRef.current.find((i) => i.id === activeItemId);
+        console.log("[dragEnd] status-group drop", { targetStatus, activeStatus: activeItem?.status, hasRef: !!handleItemStatusChangeRef.current });
         if (activeItem && activeItem.status !== targetStatus) {
           await handleItemStatusChangeRef.current?.(activeItem, targetStatus);
         }
@@ -582,6 +584,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
       // Dropped on a ticket in a different status group → change status
       const activeItem = sortedItemsRef.current.find((i) => i.id === activeItemId);
       const overItem = sortedItemsRef.current.find((i) => i.id === overId);
+      console.log("[dragEnd] ticket drop", { activeStatus: activeItem?.status, overStatus: overItem?.status });
       if (activeItem && overItem && activeItem.status !== overItem.status) {
         await handleItemStatusChangeRef.current?.(activeItem, overItem.status);
         return;
@@ -589,6 +592,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
 
       // Check if dropping on a folder
       const targetGroup = taskGroups.find((g) => g.id === overId);
+      console.log("[dragEnd] folder check", { targetGroupFound: !!targetGroup, taskGroupsCount: taskGroups.length });
       if (targetGroup) {
         await addTasksToGroup(targetGroup.id, [activeItemId]);
         return;
@@ -597,12 +601,15 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
       // Check if dropping on another loose ticket (create folder)
       const overIsLoose = !groupedItemIds.has(overId);
       const activeIsLoose = !groupedItemIds.has(activeItemId);
+      console.log("[dragEnd] loose check", { overIsLoose, activeIsLoose, groupedCount: groupedItemIds.size });
       if (activeIsLoose && overIsLoose) {
+        console.log("[dragEnd] → setShowGroupNamePrompt(true)");
         setPendingGroupTaskIds([activeItemId, overId]);
         setPendingGroupTargetId(overId);
         setShowGroupNamePrompt(true);
         return;
       }
+      console.log("[dragEnd] no branch matched");
 
       // Ticket dragged out of a folder
       const activeGroup = taskGroups.find((g) => g.task_ids.includes(activeItemId));
@@ -823,14 +830,23 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   }, [items, pinnedItemIds]);
   sortedItemsRef.current = sortedItems;
 
+  const deferredLabelNames = useDeferredValue(selectedLabelNames);
   const labelFilteredItems = useMemo(() => {
-    if (selectedLabelNames.length === 0) return sortedItems;
-    const filterSet = new Set(selectedLabelNames);
-    return sortedItems.filter((item) => {
+    if (deferredLabelNames.length === 0) return sortedItems;
+    const filterSet = new Set(deferredLabelNames);
+    const result: TrackerItem[] = [];
+    for (const item of sortedItems) {
       const labels = metadataMap.get(item.id)?.labels;
-      return labels?.some((l) => filterSet.has(l));
-    });
-  }, [sortedItems, selectedLabelNames, metadataMap]);
+      if (!labels) continue;
+      for (const l of labels) {
+        if (filterSet.has(l)) {
+          result.push(item);
+          break;
+        }
+      }
+    }
+    return result;
+  }, [sortedItems, deferredLabelNames, metadataMap]);
 
   const statusGroups = useMemo(() => {
     if (!groupByStatus) return [];
@@ -847,7 +863,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     return [...map.values()].sort(
       (a, b) => (categoryOrder[a.category] ?? 1) - (categoryOrder[b.category] ?? 1)
     );
-  }, [groupByStatus, sortedItems]);
+  }, [groupByStatus, labelFilteredItems]);
 
   const {
     runs,
@@ -1896,34 +1912,142 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                           })
                         }
                       />
-                      {!collapsed &&
-                        sg.items.map((item) => (
-                          <TicketRow
-                            key={item.id}
-                            item={item}
-                            selected={selectedItem?.id === item.id}
-                            pinned={pinnedItemIds.has(item.id)}
-                            activeAgents={issueActiveAgents.get(item.id)}
-                            participants={participants}
-                            draggable
-                            multiSelected={multiSelectedItemIds.has(item.id)}
-                            projectSlug={projectSlug}
-                            stats={issueStats.get(item.id)}
-                            hideStatus
-                            onSelect={(event) => {
-                              if (event && (event.metaKey || event.ctrlKey)) {
-                                toggleItemMultiSelect(item.id);
-                              } else {
-                                pushSelection({
-                                  issue: item.id,
-                                  run: null,
-                                  group: null,
-                                });
-                              }
-                            }}
-                            onTogglePin={() => togglePin(item.id)}
-                          />
-                        ))}
+                      {!collapsed && (() => {
+                        const pendingSet = showGroupNamePrompt ? new Set(pendingGroupTaskIds) : null;
+                        const firstMemberToGroup = new Map<string, typeof taskGroups[number]>();
+                        for (const group of taskGroups) {
+                          const firstInStatus = sg.items.find((i) => group.task_ids.includes(i.id));
+                          if (firstInStatus) firstMemberToGroup.set(firstInStatus.id, group);
+                        }
+                        const pendingTickets = showGroupNamePrompt
+                          ? pendingGroupTaskIds
+                              .map((id) => sg.items.find((i) => i.id === id))
+                              .filter(Boolean)
+                              .map((i) => ({ id: i!.id, identifier: i!.identifier, title: i!.title, status: STATUS_LABELS[i!.status] ?? i!.status }))
+                          : [];
+                        const renderedGroups = new Set<string>();
+
+                        return sg.items.map((item) => {
+                          if (pendingSet?.has(item.id)) {
+                            if (item.id === pendingGroupTargetId && showGroupNamePrompt) {
+                              return (
+                                <GroupNamePrompt
+                                  key="__pending-group__"
+                                  tickets={pendingTickets}
+                                  onConfirm={handleCreateGroup}
+                                  onCancel={() => {
+                                    setShowGroupNamePrompt(false);
+                                    setPendingGroupTaskIds([]);
+                                    setPendingGroupTargetId(null);
+                                  }}
+                                />
+                              );
+                            }
+                            return null;
+                          }
+
+                          const group = firstMemberToGroup.get(item.id);
+                          if (group && !renderedGroups.has(group.id)) {
+                            renderedGroups.add(group.id);
+                            const groupItems = group.task_ids
+                              .map((id) => sg.items.find((i) => i.id === id))
+                              .filter(Boolean) as TrackerItem[];
+                            return (
+                              <React.Fragment key={`group-${group.id}`}>
+                                <FolderRow
+                                  groupId={group.id}
+                                  name={group.name}
+                                  count={groupItems.length}
+                                  collapsed={!!group.collapsed}
+                                  selected={selectedGroupTaskGroupId === group.id}
+                                  projectSlug={projectSlug}
+                                  onToggleCollapse={() => updateGroup(group.id, { collapsed: !group.collapsed })}
+                                  onSelect={() => pushSelection({ group: group.id, issue: null, run: null })}
+                                  onUngroup={() => {
+                                    void deleteGroup(group.id);
+                                    if (selectedGroupTaskGroupId === group.id) {
+                                      replaceSelection({ group: null });
+                                    }
+                                  }}
+                                />
+                                {!group.collapsed &&
+                                  groupItems.map((gi, giIdx) => (
+                                    <TicketRow
+                                      key={gi.id}
+                                      item={gi}
+                                      selected={selectedItem?.id === gi.id}
+                                      pinned={pinnedItemIds.has(gi.id)}
+                                      activeAgents={issueActiveAgents.get(gi.id)}
+                                      participants={participants}
+                                      draggable
+                                      multiSelected={multiSelectedItemIds.has(gi.id)}
+                                      treeConnector={giIdx === groupItems.length - 1 ? "last" : "mid"}
+                                      projectSlug={projectSlug}
+                                      stats={issueStats.get(gi.id)}
+                                      hideStatus
+                                      estimate={metadataMap.get(gi.id)?.estimate}
+                                      localLabels={metadataMap.get(gi.id)?.labels}
+                                      labelDefinitions={labelDefinitions}
+                                      allLabels={allLabels}
+                                      onToggleLabel={(label) => handleItemToggleLabel(gi.id, label)}
+                                      onAddLabel={handleItemAddLabel}
+                                      onSelect={(event) => {
+                                        if (event && (event.metaKey || event.ctrlKey)) {
+                                          toggleItemMultiSelect(gi.id);
+                                        } else {
+                                          pushSelection({
+                                            issue: gi.id,
+                                            run: null,
+                                            group: null,
+                                          });
+                                        }
+                                      }}
+                                      onTogglePin={() => togglePin(gi.id)}
+                                    />
+                                  ))}
+                              </React.Fragment>
+                            );
+                          }
+
+                          if (groupedItemIds.has(item.id)) {
+                            return null;
+                          }
+
+                          return (
+                            <TicketRow
+                              key={item.id}
+                              item={item}
+                              selected={selectedItem?.id === item.id}
+                              pinned={pinnedItemIds.has(item.id)}
+                              activeAgents={issueActiveAgents.get(item.id)}
+                              participants={participants}
+                              draggable
+                              multiSelected={multiSelectedItemIds.has(item.id)}
+                              projectSlug={projectSlug}
+                              stats={issueStats.get(item.id)}
+                              hideStatus
+                              estimate={metadataMap.get(item.id)?.estimate}
+                              localLabels={metadataMap.get(item.id)?.labels}
+                              labelDefinitions={labelDefinitions}
+                              allLabels={allLabels}
+                              onToggleLabel={(label) => handleItemToggleLabel(item.id, label)}
+                              onAddLabel={handleItemAddLabel}
+                              onSelect={(event) => {
+                                if (event && (event.metaKey || event.ctrlKey)) {
+                                  toggleItemMultiSelect(item.id);
+                                } else {
+                                  pushSelection({
+                                    issue: item.id,
+                                    run: null,
+                                    group: null,
+                                  });
+                                }
+                              }}
+                              onTogglePin={() => togglePin(item.id)}
+                            />
+                          );
+                        });
+                      })()}
                     </React.Fragment>
                   );
                 })

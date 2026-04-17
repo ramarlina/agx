@@ -12,7 +12,6 @@ import type { TrackerRunRecord } from "@/lib/tracker/tracker-run-store";
 import type { Participant } from "@/lib/types";
 import type { ComposerRoutingMetadata } from "@/lib/chat/composer-routing";
 import { buildTrackerExecutionPrompt } from "@/lib/tracker/tracker-execution-prompt";
-import { FibonacciPicker } from "./FibonacciPicker";
 import { useTrackerItemMetadata } from "@/hooks/useTrackerItemMetadata";
 
 const Composer = dynamic(
@@ -81,9 +80,7 @@ export function TicketPanel({
   onSelectRun,
 }: Props) {
   const defaultAgent = participants[0];
-  const { metadata, update: updateMetadata } = useTrackerItemMetadata(trackerType, projectId, item.id);
-  const [estimateOpen, setEstimateOpen] = useState(false);
-  const estimateRef = useRef<HTMLButtonElement>(null);
+  const { metadata } = useTrackerItemMetadata(trackerType, projectId, item.id);
   const sessionScriptButtonLabel =
     activeSessionScriptLabel === "AGX default" ? "Session script" : activeSessionScriptLabel;
 
@@ -112,22 +109,6 @@ export function TicketPanel({
 
   const creatingRef = useRef(false);
 
-  useEffect(() => {
-    if (!estimateOpen) return;
-    const handlePointerDown = (e: PointerEvent) => {
-      if (estimateRef.current?.contains(e.target as Node)) return;
-      setEstimateOpen(false);
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setEstimateOpen(false);
-    };
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [estimateOpen]);
 
   const handleSend = useCallback(
     async (
@@ -238,33 +219,15 @@ export function TicketPanel({
             updating={itemStatusUpdating}
             onChange={(status) => onItemStatusChange(item, status)}
           />
-          <div className="relative">
-            <button
-              ref={estimateRef}
-              type="button"
-              className={`flex items-center gap-1 rounded-md border border-[var(--card-border)] px-2 py-1 text-xs font-medium transition-colors hover:bg-[var(--card-bg)] ${
-                metadata.estimate != null
-                  ? "text-[var(--foreground)]"
-                  : "text-[var(--muted-foreground)]"
-              }`}
-              onClick={() => setEstimateOpen((v) => !v)}
-              title="Set estimate"
+          {metadata.estimate != null && (
+            <span
+              className="flex items-center gap-1 rounded-md border border-[var(--card-border)] px-2 py-1 text-xs font-medium text-[var(--foreground)]"
+              title="Estimate"
             >
               <Hash size={12} />
-              {metadata.estimate != null ? metadata.estimate : "\u2014"}
-            </button>
-            {estimateOpen && (
-              <div className="absolute right-0 top-full z-50 mt-1 rounded-xl border border-[var(--card-border)] bg-[var(--card-bg)] p-2 shadow-lg backdrop-blur-sm">
-                <FibonacciPicker
-                  value={metadata.estimate}
-                  onSelect={(value) => {
-                    void updateMetadata({ estimate: value });
-                    setEstimateOpen(false);
-                  }}
-                />
-              </div>
-            )}
-          </div>
+              {metadata.estimate}
+            </span>
+          )}
           <button
             type="button"
             className="flex items-center gap-1 rounded-md border border-[var(--card-border)] px-2 py-1 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card-bg)] hover:text-[var(--foreground)]"
