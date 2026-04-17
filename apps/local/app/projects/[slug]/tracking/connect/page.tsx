@@ -2,7 +2,7 @@
 
 import { use, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, CheckCircle2, LogOut } from "lucide-react";
+import { ArrowLeft, CheckCircle2, LogOut, Star } from "lucide-react";
 import TrackerSetup from "@/components/tracking/TrackerSetup";
 import { TrackerIcon } from "@/components/tracking/TrackerIcon";
 import { useProjects } from "@/hooks/useProjects";
@@ -63,8 +63,15 @@ export default function TrackingConnectPage({
   const project = projects.find((p) => p.slug === slug);
   const projectId = project?.id ?? "";
 
-  const { connections, loading: connectionsLoading, removeConnection } = useTrackerConnections(projectId);
+  const {
+    connections,
+    defaultTracker,
+    loading: connectionsLoading,
+    removeConnection,
+    setDefaultTracker,
+  } = useTrackerConnections(projectId);
   const connectedTypes = new Set(connections.filter((c) => c.connected).map((c) => c.type));
+  const connectedCount = connectedTypes.size;
 
   const [selected, setSelected] = useState<string | null>(null);
 
@@ -132,13 +139,17 @@ export default function TrackingConnectPage({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-lg">
               {TRACKER_TYPES.map((tracker) => {
                 const isAlreadyConnected = connectedTypes.has(tracker.type);
+                const isDefault = defaultTracker === tracker.type;
+                const canMakeDefault = isAlreadyConnected && connectedCount > 1 && !isDefault;
                 return (
                   <div
                     key={tracker.type}
                     className={
                       "relative flex flex-col items-center gap-4 p-8 rounded-xl border transition-all duration-200 group " +
                       (isAlreadyConnected
-                        ? "border-green-500/20 bg-green-500/5"
+                        ? (isDefault
+                            ? "border-yellow-500/40 bg-yellow-500/5"
+                            : "border-green-500/20 bg-green-500/5")
                         : "border-border hover:border-primary/50 hover:bg-accent/50 hover:shadow-md cursor-pointer active:scale-[0.98]")
                     }
                     onClick={() => !isAlreadyConnected && setSelected(tracker.type)}
@@ -154,19 +165,38 @@ export default function TrackingConnectPage({
                     <div className="flex flex-col items-center gap-1">
                       <span className="text-base font-semibold">{tracker.label}</span>
                       {isAlreadyConnected ? (
-                        <span className="text-xs font-medium text-green-600">Connected</span>
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-green-600">
+                          Connected
+                          {isDefault && (
+                            <span className="inline-flex items-center gap-0.5 rounded-full bg-yellow-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-yellow-700">
+                              <Star className="h-3 w-3 fill-yellow-500 text-yellow-500" />
+                              Default
+                            </span>
+                          )}
+                        </span>
                       ) : (
                         <span className="text-xs text-muted-foreground">Click to connect</span>
                       )}
                     </div>
                     {isAlreadyConnected && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); removeConnection(tracker.type); }}
-                        className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive transition-colors"
-                      >
-                        <LogOut className="h-3.5 w-3.5" />
-                        Disconnect
-                      </button>
+                      <div className="flex flex-col items-center gap-1.5">
+                        {canMakeDefault && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); void setDefaultTracker(tracker.type); }}
+                            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            <Star className="h-3.5 w-3.5" />
+                            Set as default
+                          </button>
+                        )}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); removeConnection(tracker.type); }}
+                          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive transition-colors"
+                        >
+                          <LogOut className="h-3.5 w-3.5" />
+                          Disconnect
+                        </button>
+                      </div>
                     )}
                   </div>
                 );

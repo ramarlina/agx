@@ -97,12 +97,18 @@ function getDb(): DatabaseSync {
       PRIMARY KEY (thread_id, id)
     )
   `);
-  // Migrate: rename linear_runs → tracker_runs if old table exists
+  // Migrate: rename linear_runs → tracker_runs if old table exists and new one doesn't
   const hasOldTable = (db.prepare(
     "SELECT name FROM sqlite_master WHERE type='table' AND name='linear_runs'"
   ).get() as { name: string } | undefined);
-  if (hasOldTable) {
+  const hasNewTable = (db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='tracker_runs'"
+  ).get() as { name: string } | undefined);
+  if (hasOldTable && !hasNewTable) {
     db.exec("ALTER TABLE linear_runs RENAME TO tracker_runs");
+  } else if (hasOldTable && hasNewTable) {
+    // Both exist (likely a partial prior migration) — drop the stale old table
+    db.exec("DROP TABLE linear_runs");
   }
   db.exec(`
     CREATE TABLE IF NOT EXISTS tracker_runs (

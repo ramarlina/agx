@@ -336,6 +336,13 @@ export async function executeTaskWorker(opts: {
         ? (parsed.decision as string).trim().toLowerCase()
         : '';
     const action = rawAction === 'work' ? 'work_ticket' : rawAction;
+    if (!action) {
+      const raw = controllerResult.output ?? '';
+      console.warn(
+        `[task-worker] empty action from controller (job=${opts.job.id}, outputLen=${raw.length}, parsed=${parsed ? 'object' : 'null'}):`,
+        raw.slice(0, 500),
+      );
+    }
     const reason = typeof parsed?.reason === 'string' ? parsed.reason.trim() : '';
 
     // Phase 4: Act - dispatch action
