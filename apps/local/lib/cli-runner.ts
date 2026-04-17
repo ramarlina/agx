@@ -1,5 +1,6 @@
 import { spawn } from "child_process";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import type { ChatProvider } from "./types";
 import { createCliChunkSanitizer } from "./sanitize";
@@ -355,11 +356,15 @@ function providerNativeCommand({
   filterThoughts?: boolean;
   env?: Record<string, string>;
 } | null {
+  const homeDir = os.homedir();
   switch (provider) {
     case "claude": {
       const args = [
         "-p",
         prompt,
+        "--dangerously-skip-permissions",
+        "--add-dir",
+        homeDir,
         "--verbose",
         "--output-format",
         "stream-json",
@@ -372,7 +377,15 @@ function providerNativeCommand({
     case "gemini":
       return {
         command: "gemini",
-        args: ["--yolo", "-p", systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt, "-o", "stream-json"],
+        args: [
+          "--yolo",
+          "--include-directories",
+          homeDir,
+          "-p",
+          systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt,
+          "-o",
+          "stream-json",
+        ],
         parser: "gemini-stream-json",
       };
     case "ollama":
@@ -382,7 +395,13 @@ function providerNativeCommand({
         parser: "raw",
       };
     case "codex": {
-      const codexArgs = ["exec", "--json"];
+      const codexArgs = [
+        "exec",
+        "--json",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--add-dir",
+        homeDir,
+      ];
       if (model) codexArgs.push("--model", model);
       codexArgs.push(systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt);
       return {
@@ -398,6 +417,9 @@ function providerNativeCommand({
       const zaiArgs = [
         "-p",
         prompt,
+        "--dangerously-skip-permissions",
+        "--add-dir",
+        homeDir,
         "--verbose",
         "--output-format",
         "stream-json",
@@ -420,13 +442,30 @@ function providerNativeCommand({
   }
 }
 
+function providerAccessPassthrough(provider: ChatProvider): string[] {
+  const homeDir = os.homedir();
+  switch (provider) {
+    case "claude":
+    case "zai":
+    case "codex":
+      return ["--add-dir", homeDir];
+    case "gemini":
+      return ["--include-directories", homeDir];
+    default:
+      return [];
+  }
+}
+
 function agxStreamingPassthrough(provider: ChatProvider): {
   args: string[];
   parser: CliAttempt["parser"];
 } {
   switch (provider) {
     case "claude":
-      return { args: ["--output-format", "stream-json", "--include-partial-messages"], parser: "claude-stream-json" };
+      return {
+        args: ["--verbose", "--output-format", "stream-json", "--include-partial-messages"],
+        parser: "claude-stream-json",
+      };
     case "gemini":
       return { args: ["-o", "stream-json"], parser: "gemini-stream-json" };
     case "codex":
@@ -450,7 +489,7 @@ function agxCommandForProvider({
   const args = [provider, "-y", "--print", "--prompt", prompt];
   if (model) args.push("--model", model);
   const streaming = agxStreamingPassthrough(provider);
-  const allPassthrough = [...(passthroughArgs || []), ...streaming.args];
+  const allPassthrough = [...providerAccessPassthrough(provider), ...(passthroughArgs || []), ...streaming.args];
   if (allPassthrough.length > 0) {
     args.push("--", ...allPassthrough);
   }
@@ -581,7 +620,7 @@ function bundledAgxCommandForProvider({
   const args = [resolvedCliPath, provider, "-y", "--print", "--prompt", prompt];
   if (model) args.push("--model", model);
   const streaming = agxStreamingPassthrough(provider);
-  const allPassthrough = [...(passthroughArgs || []), ...streaming.args];
+  const allPassthrough = [...providerAccessPassthrough(provider), ...(passthroughArgs || []), ...streaming.args];
   if (allPassthrough.length > 0) {
     args.push("--", ...allPassthrough);
   }
