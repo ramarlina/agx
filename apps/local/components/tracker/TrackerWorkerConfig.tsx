@@ -5,9 +5,9 @@ import dynamic from "next/dynamic";
 import { ChevronDown, ChevronRight, Play, RefreshCw } from "lucide-react";
 import { ScheduleConditionPicker, SimpleDropdown } from "@/components/scheduling/ScheduleConditionPicker";
 import {
-  LINEAR_WORKER_DEFAULT_PROMPT,
-  LINEAR_WORKER_DEFAULT_SCRIPT_PROMPT,
-} from "@/src/prompt-scheduler/linear-worker-constants";
+  TASK_WORKER_DEFAULT_PROMPT,
+  TASK_WORKER_DEFAULT_SCRIPT_PROMPT,
+} from "@/src/prompt-scheduler/task-worker-constants";
 import type { PromptJob } from "@/src/prompt-scheduler/types";
 
 const RichTextEditor = dynamic(() => import("@/components/RichTextEditor"), {
@@ -19,7 +19,7 @@ interface TeamOption {
   name: string;
 }
 
-interface LinearWorkerConfigProps {
+interface TrackerWorkerConfigProps {
   projectId?: string;
   onJobLoaded?: (jobId: string | null) => void;
 }
@@ -86,18 +86,18 @@ function CollapsibleSection({
   );
 }
 
-export default function LinearWorkerConfig({
+export default function TrackerWorkerConfig({
   projectId,
   onJobLoaded,
-}: LinearWorkerConfigProps) {
+}: TrackerWorkerConfigProps) {
   const [job, setJob] = useState<PromptJob | null>(null);
   const [teams, setTeams] = useState<TeamOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   // Form state
-  const [prompt, setPrompt] = useState(LINEAR_WORKER_DEFAULT_PROMPT);
-  const [scriptPrompt, setScriptPrompt] = useState(LINEAR_WORKER_DEFAULT_SCRIPT_PROMPT);
+  const [prompt, setPrompt] = useState(TASK_WORKER_DEFAULT_PROMPT);
+  const [scriptPrompt, setScriptPrompt] = useState(TASK_WORKER_DEFAULT_SCRIPT_PROMPT);
   const [cadence, setCadence] = useState("*/30 * * * *");
   const [condition, setCondition] = useState("");
   const [teamId, setTeamId] = useState("");
@@ -117,8 +117,8 @@ export default function LinearWorkerConfig({
       const data = await res.json();
       if (data.job) {
         setJob(data.job);
-        setPrompt(data.job.prompt || LINEAR_WORKER_DEFAULT_PROMPT);
-        setScriptPrompt(data.job.scriptPrompt || LINEAR_WORKER_DEFAULT_SCRIPT_PROMPT);
+        setPrompt(data.job.prompt || TASK_WORKER_DEFAULT_PROMPT);
+        setScriptPrompt(data.job.scriptPrompt || TASK_WORKER_DEFAULT_SCRIPT_PROMPT);
         setCadence(data.job.cronExpr || data.job.cadence || "*/30 * * * *");
         setCondition(data.job.condition || "");
         setTeamId(data.job.teamId || "");
@@ -245,7 +245,7 @@ export default function LinearWorkerConfig({
     return (
       <div className="flex items-center gap-2 py-12 justify-center text-sm text-[var(--muted-foreground)]">
         <RefreshCw size={14} className="animate-spin" />
-        Loading Linear Worker...
+        Loading Worker...
       </div>
     );
   }
@@ -368,7 +368,7 @@ export default function LinearWorkerConfig({
                 ariaLabel="Select team"
               />
               <p className="mt-1.5 text-[10px] text-[var(--muted-foreground)]">
-                Agents in this team become default participants of the linear chat.
+                Agents in this team become default participants of the tracker chat.
               </p>
             </div>
           )}

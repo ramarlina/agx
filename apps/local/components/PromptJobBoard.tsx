@@ -37,9 +37,9 @@ import type {
 import { cronToHuman } from "@/src/graph/nl-schedule";
 import { ScheduleConditionPicker } from "@/components/scheduling/ScheduleConditionPicker";
 import {
-  LINEAR_WORKER_DEFAULT_PROMPT,
-  LINEAR_WORKER_JOB_NAME,
-} from "@/src/prompt-scheduler/linear-worker-constants";
+  TASK_WORKER_DEFAULT_PROMPT as LINEAR_WORKER_DEFAULT_PROMPT,
+  TASK_WORKER_JOB_NAME as LINEAR_WORKER_JOB_NAME,
+} from "@/src/prompt-scheduler/task-worker-constants";
 
 const EXECUTION_MODE_OPTIONS: Array<{
   value: PromptJobExecutionMode;

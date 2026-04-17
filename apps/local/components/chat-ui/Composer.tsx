@@ -16,7 +16,7 @@ import { useFileMention } from "@/hooks/useFileMention";
 import { useThreadMention, type Discussion } from "@/hooks/useThreadMention";
 import { useComposerAttachments } from "@/hooks/useComposerAttachments";
 import { useComposerHistory } from "@/hooks/useComposerHistory";
-import { useLinearIssueMentions } from "@/hooks/useLinearIssueMentions";
+import { useTrackerItemMentions } from "@/hooks/useTrackerItemMentions";
 import { buildAgentContext } from "@/lib/chat/agentContextBuilder";
 import {
   buildTrackerItemContextPrefix,
@@ -189,12 +189,12 @@ export function Composer({
   }, []);
 
   const [threadRefs, setThreadRefs] = useState<ThreadRef[]>([]);
-  const { issues: cachedLinearIssues } = useLinearIssueMentions({
+  const { issues: cachedTrackerItems } = useTrackerItemMentions({
     projectId: projectId ?? "",
     projectSlug,
     enabled: Boolean(projectId),
   });
-  const linearIssues = cachedLinearIssues as MentionLinearIssue[];
+  const linearIssues = cachedTrackerItems as MentionLinearIssue[];
 
   const mention = useMentionAutocomplete({
     participants,

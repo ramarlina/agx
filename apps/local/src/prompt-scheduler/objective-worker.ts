@@ -1,9 +1,9 @@
 import { getPromptJobStore } from './get-store';
 import {
-  listObjectiveLinearIssues,
-  filterObjectiveLinearIssuesForAction,
-  isObjectiveLinearTerminalStatus,
-} from '@/lib/objective-linear-issues';
+  listObjectiveTrackerIssues as listObjectiveLinearIssues,
+  filterObjectiveTrackerIssuesForAction as filterObjectiveLinearIssuesForAction,
+  isObjectiveTrackerTerminalStatus as isObjectiveLinearTerminalStatus,
+} from '@/lib/objective-tracker-issues';
 import { getIssueActiveAgents, type IssueActiveAgent } from '@/lib/linear-run-store';
 import { getActivityRepository } from '@/src/objectives/activities/repository';
 import { getNoteRepository } from '@/src/objectives/notes';
