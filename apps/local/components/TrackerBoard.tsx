@@ -62,6 +62,7 @@ import { useTaskGroups, type TaskGroup } from "@/hooks/useTaskGroups";
 import { FolderRow } from "@/components/tracker/FolderRow";
 import { GroupPanel } from "@/components/tracker/GroupPanel";
 import { GroupNamePrompt, PENDING_GROUP_DROP_ID } from "@/components/tracker/GroupNamePrompt";
+import { StatusGroupRow, STATUS_GROUP_PREFIX } from "@/components/tracker/StatusGroupRow";
 import { SelectionBar } from "@/components/tracker/SelectionBar";
 import { useTrackerItemsMetadata } from "@/hooks/useTrackerItemsMetadata";
 import { useTrackerLabels } from "@/hooks/useTrackerLabels";
@@ -563,6 +564,24 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
       if (!over || active.id === over.id) return;
       const overId = over.id as string;
 
+      // Dropped on a status group header → change status upstream
+      if (overId.startsWith(STATUS_GROUP_PREFIX)) {
+        const targetStatus = overId.slice(STATUS_GROUP_PREFIX.length);
+        const activeItem = sortedItems.find((i) => i.id === activeItemId);
+        if (activeItem && activeItem.status !== targetStatus) {
+          await handleItemStatusChange(activeItem, targetStatus);
+        }
+        return;
+      }
+
+      // Dropped on a ticket in a different status group → change status
+      const activeItem = sortedItems.find((i) => i.id === activeItemId);
+      const overItem = sortedItems.find((i) => i.id === overId);
+      if (activeItem && overItem && activeItem.status !== overItem.status) {
+        await handleItemStatusChange(activeItem, overItem.status);
+        return;
+      }
+
       // Check if dropping on a folder
       const targetGroup = taskGroups.find((g) => g.id === overId);
       if (targetGroup) {
@@ -586,7 +605,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
         await removeTaskFromGroupApi(activeGroup.id, activeItemId);
       }
     },
-    [taskGroups, groupedItemIds, addTasksToGroup, removeTaskFromGroupApi, showGroupNamePrompt, pendingGroupTaskIds],
+    [taskGroups, groupedItemIds, addTasksToGroup, removeTaskFromGroupApi, showGroupNamePrompt, pendingGroupTaskIds, sortedItems, handleItemStatusChange],
   );
 
   const handleSearchChange = useCallback((value: string) => {
@@ -1411,9 +1430,12 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                       const collapsed = collapsedStatusGroups.has(sg.status);
                       return (
                         <React.Fragment key={`sg-${sg.status}`}>
-                          <div
-                            className="sticky top-0 z-[5] flex cursor-pointer items-center gap-2 border-b border-[var(--card-border)] bg-[var(--app-shell-pane)] px-3 py-2"
-                            onClick={() =>
+                          <StatusGroupRow
+                            status={sg.status}
+                            categoryColor={STATUS_CATEGORY_COLORS[sg.category] ?? "bg-zinc-400"}
+                            count={sg.items.length}
+                            collapsed={collapsed}
+                            onToggle={() =>
                               setCollapsedStatusGroups((prev) => {
                                 const next = new Set(prev);
                                 if (next.has(sg.status)) next.delete(sg.status);
@@ -1421,12 +1443,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                                 return next;
                               })
                             }
-                          >
-                            {collapsed ? <ChevronRight size={14} className="shrink-0 text-[var(--muted-foreground)]" /> : <ChevronDown size={14} className="shrink-0 text-[var(--muted-foreground)]" />}
-                            <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_CATEGORY_COLORS[sg.category] ?? "bg-zinc-400"}`} />
-                            <span className="text-xs font-medium text-[var(--foreground)]">{sg.status}</span>
-                            <span className="text-[10px] tabular-nums text-[var(--muted-foreground)]">{sg.items.length}</span>
-                          </div>
+                          />
                           {!collapsed &&
                             sg.items.map((item) => (
                               <TicketRow
@@ -1794,9 +1811,12 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                   const collapsed = collapsedStatusGroups.has(sg.status);
                   return (
                     <React.Fragment key={`sg-${sg.status}`}>
-                      <div
-                        className="sticky top-0 z-[5] flex cursor-pointer items-center gap-2 border-b border-[var(--card-border)] bg-[var(--app-shell-pane)] px-4 py-2"
-                        onClick={() =>
+                      <StatusGroupRow
+                        status={sg.status}
+                        categoryColor={STATUS_CATEGORY_COLORS[sg.category] ?? "bg-zinc-400"}
+                        count={sg.items.length}
+                        collapsed={collapsed}
+                        onToggle={() =>
                           setCollapsedStatusGroups((prev) => {
                             const next = new Set(prev);
                             if (next.has(sg.status)) next.delete(sg.status);
@@ -1804,25 +1824,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                             return next;
                           })
                         }
-                        role="button"
-                        tabIndex={0}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            setCollapsedStatusGroups((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(sg.status)) next.delete(sg.status);
-                              else next.add(sg.status);
-                              return next;
-                            });
-                          }
-                        }}
-                      >
-                        {collapsed ? <ChevronRight size={14} className="shrink-0 text-[var(--muted-foreground)]" /> : <ChevronDown size={14} className="shrink-0 text-[var(--muted-foreground)]" />}
-                        <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_CATEGORY_COLORS[sg.category] ?? "bg-zinc-400"}`} />
-                        <span className="text-xs font-medium text-[var(--foreground)]">{sg.status}</span>
-                        <span className="text-[10px] tabular-nums text-[var(--muted-foreground)]">{sg.items.length}</span>
-                      </div>
+                      />
                       {!collapsed &&
                         sg.items.map((item) => (
                           <TicketRow
