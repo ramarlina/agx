@@ -1,6 +1,6 @@
 {
   "name": "@mndrk/agx-desktop",
-  "version": "2.3.1",
+  "version": "2.4.1",
   "private": true,
   "description": "Desktop app for agx — bundles the dashboard, server, and CLI",
   "author": "Mendrika Ramarlina",
