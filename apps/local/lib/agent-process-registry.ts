@@ -127,6 +127,11 @@ function getDb(): DatabaseSync {
       updated_at INTEGER NOT NULL
     )
   `);
+  // Ensure tracker_type exists on renamed tables that predate the column
+  const cols = db.prepare("PRAGMA table_info(tracker_runs)").all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "tracker_type")) {
+    db.exec("ALTER TABLE tracker_runs ADD COLUMN tracker_type TEXT NOT NULL DEFAULT 'linear'");
+  }
   return db;
 }
 
@@ -261,7 +266,7 @@ export function getAllEnriched(): EnrichedProcessEntry[] {
              tr.tracker_type AS tracker_type
       FROM agent_processes ap
       LEFT JOIN messages m ON m.id = ap.thread_id AND m.thread_id = ap.workspace_id
-      LEFT JOIN tracker_runs tr ON tr.thread_id = ap.workspace_id
+      LEFT JOIN tracker_runs tr ON tr.chat_run_id = ap.id
     `).all() as unknown as (Row & { thread_title: string | null; tracker_item_id: string | null; tracker_run_id: string | null; tracker_type: string | null })[];
     return rows.map((r) => ({
       ...toEntry(r),
