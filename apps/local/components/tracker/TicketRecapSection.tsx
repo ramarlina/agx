@@ -14,6 +14,7 @@ interface RecapResponse {
 interface Props {
   issueId: string;
   trackerType: string;
+  projectId?: string;
 }
 
 function formatRelative(iso: string | null): string {
@@ -28,14 +29,15 @@ function formatRelative(iso: string | null): string {
   return `${days}d ago`;
 }
 
-export function TicketRecapSection({ issueId, trackerType }: Props) {
+export function TicketRecapSection({ issueId, trackerType, projectId }: Props) {
   const [recap, setRecap] = useState<RecapResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchRecap = useCallback(async () => {
     try {
-      const res = await fetch(`/api/trackers/${encodeURIComponent(trackerType)}/items/${encodeURIComponent(issueId)}/recap`);
+      const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+      const res = await fetch(`/api/trackers/${encodeURIComponent(trackerType)}/items/${encodeURIComponent(issueId)}/recap${qs}`);
       if (!res.ok) return null;
       const data = (await res.json()) as RecapResponse;
       setRecap(data);
@@ -43,7 +45,7 @@ export function TicketRecapSection({ issueId, trackerType }: Props) {
     } catch {
       return null;
     }
-  }, [issueId, trackerType]);
+  }, [issueId, trackerType, projectId]);
 
   const scheduleIfBusy = useCallback(
     (data: RecapResponse | null | undefined) => {
@@ -75,7 +77,8 @@ export function TicketRecapSection({ issueId, trackerType }: Props) {
   const regenerate = useCallback(async () => {
     setLoading(true);
     try {
-      await fetch(`/api/trackers/${encodeURIComponent(trackerType)}/items/${encodeURIComponent(issueId)}/recap`, {
+      const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+      await fetch(`/api/trackers/${encodeURIComponent(trackerType)}/items/${encodeURIComponent(issueId)}/recap${qs}`, {
         method: "POST",
       });
       const data = await fetchRecap();
@@ -83,7 +86,7 @@ export function TicketRecapSection({ issueId, trackerType }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [issueId, trackerType, fetchRecap, scheduleIfBusy]);
+  }, [issueId, trackerType, projectId, fetchRecap, scheduleIfBusy]);
 
   const busy = recap?.status === "queued" || recap?.status === "running" || loading;
 

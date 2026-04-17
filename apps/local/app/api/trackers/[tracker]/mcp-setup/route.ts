@@ -174,12 +174,26 @@ export async function POST(
     const config = info.read();
     const serverKey = mcpConfig.name;
 
-    // Build the server value based on CLI format
     let serverValue: unknown;
-    if (cli === "codex") {
-      serverValue = { url: mcpConfig.args?.[0] ?? `https://mcp.${mcpConfig.name}.com/mcp` };
+    if (mcpConfig.url) {
+      if (cli === "codex") {
+        serverValue = {
+          url: mcpConfig.url,
+          ...(mcpConfig.headers && Object.keys(mcpConfig.headers).length > 0 ? { headers: mcpConfig.headers } : {}),
+        };
+      } else {
+        serverValue = {
+          type: "url",
+          url: mcpConfig.url,
+          ...(mcpConfig.headers && Object.keys(mcpConfig.headers).length > 0 ? { headers: mcpConfig.headers } : {}),
+        };
+      }
     } else {
-      serverValue = { type: "url", url: mcpConfig.args?.[0] ?? `https://mcp.${mcpConfig.name}.com/sse` };
+      serverValue = {
+        command: mcpConfig.command,
+        ...(mcpConfig.args ? { args: mcpConfig.args } : {}),
+        ...(mcpConfig.env && Object.keys(mcpConfig.env).length > 0 ? { env: mcpConfig.env } : {}),
+      };
     }
 
     const updated = info.addMcpServer(config, serverKey, serverValue);

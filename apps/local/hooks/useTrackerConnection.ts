@@ -23,9 +23,39 @@ interface TrackerConnectionState {
   refresh: () => Promise<boolean>;
 }
 
+// Module-level cache shared across all hook instances — 5-minute TTL.
+const STATUS_TTL = 5 * 60 * 1000;
+type CacheEntry = {
+  connected: boolean;
+  user: { name: string; email: string } | null;
+  clis: CliStatus;
+  mcpConfigured: McpStatus;
+  ts: number;
+};
+const statusCache = new Map<string, CacheEntry>();
+
+function getCached(key: string): CacheEntry | null {
+  const entry = statusCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > STATUS_TTL) {
+    statusCache.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+function setCached(key: string, entry: Omit<CacheEntry, "ts">) {
+  statusCache.set(key, { ...entry, ts: Date.now() });
+}
+
+function bustCache(key: string) {
+  statusCache.delete(key);
+}
+
 /**
  * Tracker-agnostic connection hook.
  * Replaces useLinearConnection by hitting /api/trackers/[tracker]/status instead of /api/linear/status.
+ * Connection status is cached for 5 minutes to avoid re-fetching on every navigation.
  */
 export function useTrackerConnection(
   trackerType: string,
@@ -39,6 +69,7 @@ export function useTrackerConnection(
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const basePath = `/api/trackers/${encodeURIComponent(trackerType)}`;
+  const cacheKey = `${trackerType}:${projectId}`;
 
   const refreshMcp = useCallback(async () => {
     try {
@@ -52,10 +83,23 @@ export function useTrackerConnection(
 
   const refresh = useCallback(async () => {
     if (!projectId) {
+      // projectId not yet resolved (useProjects still loading) — hold the
+      // skeleton until the real ID arrives. Don't set loading: false here.
       setConnected(false);
-      setLoading(false);
       return false;
     }
+
+    // Serve from cache if fresh — resolves immediately without a network round-trip.
+    const cached = getCached(cacheKey);
+    if (cached) {
+      setConnected(cached.connected);
+      setUser(cached.user);
+      setClis(cached.clis);
+      setMcpConfigured(cached.mcpConfigured);
+      setLoading(false);
+      return cached.connected;
+    }
+
     try {
       const query = `?projectId=${encodeURIComponent(projectId)}`;
       const [statusRes, mcpRes] = await Promise.all([
@@ -64,10 +108,22 @@ export function useTrackerConnection(
       ]);
       const statusData = await statusRes.json();
       const mcpData = await mcpRes.json();
+      const resolvedClis: CliStatus = statusData.clis ?? { claude: false, codex: false, gemini: false };
+      const resolvedMcp: McpStatus = mcpData.configured ?? {};
+      const resolvedUser = statusData.user ?? null;
+
       setConnected(statusData.connected);
-      setUser(statusData.user ?? null);
-      setClis(statusData.clis ?? { claude: false, codex: false, gemini: false });
-      setMcpConfigured(mcpData.configured ?? {});
+      setUser(resolvedUser);
+      setClis(resolvedClis);
+      setMcpConfigured(resolvedMcp);
+
+      setCached(cacheKey, {
+        connected: statusData.connected,
+        user: resolvedUser,
+        clis: resolvedClis,
+        mcpConfigured: resolvedMcp,
+      });
+
       return statusData.connected as boolean;
     } catch {
       setConnected(false);
@@ -75,7 +131,25 @@ export function useTrackerConnection(
     } finally {
       setLoading(false);
     }
-  }, [projectId, basePath]);
+  }, [projectId, basePath, cacheKey]);
+
+  // Reset stale state immediately when tracker type or project changes,
+  // before the new fetch (or cache hit) completes.
+  useEffect(() => {
+    const cached = getCached(cacheKey);
+    if (cached) {
+      // Apply cached values synchronously so there's no loading flash at all.
+      setConnected(cached.connected);
+      setUser(cached.user);
+      setClis(cached.clis);
+      setMcpConfigured(cached.mcpConfigured);
+      setLoading(false);
+    } else {
+      setLoading(true);
+      setConnected(false);
+      setUser(null);
+    }
+  }, [trackerType, projectId, cacheKey]);
 
   useEffect(() => {
     refresh();
@@ -86,23 +160,23 @@ export function useTrackerConnection(
 
   const connect = useCallback(() => {
     if (!projectId) return;
-    // Open OAuth in a new tab
+    bustCache(cacheKey);
     window.open(
       `${basePath}/auth?projectId=${encodeURIComponent(projectId)}`,
       "_blank",
       "noopener"
     );
 
-    // Poll for connection until successful
     if (pollRef.current) clearInterval(pollRef.current);
     pollRef.current = setInterval(async () => {
+      bustCache(cacheKey);
       const isConnected = await refresh();
       if (isConnected && pollRef.current) {
         clearInterval(pollRef.current);
         pollRef.current = null;
       }
     }, 2000);
-  }, [projectId, basePath, refresh]);
+  }, [projectId, basePath, cacheKey, refresh]);
 
   const connectWithKey = useCallback(
     async (apiKey: string): Promise<{ ok: boolean; error?: string }> => {
@@ -119,23 +193,25 @@ export function useTrackerConnection(
           const data = await res.json().catch(() => ({}));
           return { ok: false, error: data.error || "Failed to save token" };
         }
+        bustCache(cacheKey);
         await refresh();
         return { ok: true };
       } catch {
         return { ok: false, error: "Failed to connect" };
       }
     },
-    [projectId, basePath, refresh]
+    [projectId, basePath, cacheKey, refresh]
   );
 
   const disconnect = useCallback(async () => {
     if (!projectId) return;
+    bustCache(cacheKey);
     await fetch(`${basePath}/status?projectId=${encodeURIComponent(projectId)}`, {
       method: "DELETE",
     });
     setConnected(false);
     setUser(null);
-  }, [projectId, basePath]);
+  }, [projectId, basePath, cacheKey]);
 
   const configureMcp = useCallback(async (cli: string): Promise<{ ok: boolean; error?: string }> => {
     try {

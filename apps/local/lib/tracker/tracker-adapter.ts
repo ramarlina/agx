@@ -15,9 +15,13 @@ import type {
 
 export interface McpServerConfig {
   name: string;
-  command: string;
+  // stdio command style
+  command?: string;
   args?: string[];
   env?: Record<string, string>;
+  // remote SSE style
+  url?: string;
+  headers?: Record<string, string>;
 }
 
 export interface TrackerAdapter {
@@ -45,6 +49,12 @@ export interface TrackerAdapter {
   listGroups(projectId: string): Promise<TrackerGroup[]>;
   listStatuses(projectId: string): Promise<TrackerStatusOption[]>;
   listAssignees(projectId: string): Promise<TrackerAssignee[]>;
+
+  // API-key connect (optional — adapters that only support OAuth can throw)
+  handleApiKeyConnect?(projectId: string, apiKey: string): Promise<void>;
+
+  // Token delivery from external OAuth broker (e.g. agx-web)
+  handleTokenDelivery?(projectId: string, params: Record<string, string>): Promise<void>;
 
   // MCP (optional)
   getMcpConfig?(projectId: string): McpServerConfig;

@@ -237,7 +237,7 @@ export function TicketPanel({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-64">
-        <TicketRecapSection issueId={item.id} trackerType={trackerType} />
+        <TicketRecapSection issueId={item.id} trackerType={trackerType} projectId={projectId} />
         <TicketSessionList runs={runs} onSelect={onSelectRun} />
       </div>
 

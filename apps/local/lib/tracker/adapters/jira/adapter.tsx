@@ -84,7 +84,7 @@ export class JiraAdapter implements TrackerAdapter {
     }
 
     try {
-      const client = getJiraClient(projectId);
+      const client = await getJiraClient(projectId);
       if (!client) return { connected: false };
 
       const myself = await client.getMyself();
@@ -111,8 +111,8 @@ export class JiraAdapter implements TrackerAdapter {
     const { ensureJiraIssueCache, mapJiraIssue } = await import("./issues");
     const token = getJiraToken(projectId);
 
-    // Ensure cache is populated
-    await ensureJiraIssueCache({ projectId });
+    const shouldRefresh = !filters.cursor;
+    await ensureJiraIssueCache({ projectId, refresh: shouldRefresh });
 
     // Query the cache with tracker-agnostic filters
     const { listCachedTrackerItems } = await import("../../tracker-item-store");
@@ -160,27 +160,20 @@ export class JiraAdapter implements TrackerAdapter {
   }
 
   async updateItem(projectId: string, itemId: string, update: TrackerItemUpdate): Promise<TrackerItem> {
-    const client = getJiraClient(projectId);
+    const client = await getJiraClient(projectId);
     if (!client) throw new Error("Not connected to Jira");
 
     if (update.status) {
-      // Find the transition that leads to the target status
       const transitions = await client.getTransitions(itemId);
-      const target = transitions.find((t) => t.to.name === update.status || t.name === update.status);
-
-      if (target) {
-        await client.transitionIssue(itemId, target.id);
-      } else {
-        // Fallback: try updating the status field directly
-        await client.updateIssue(itemId, { status: update.status });
+      const target = transitions.find(
+        (t) => t.to.name === update.status || t.name === update.status
+      );
+      if (!target) {
+        throw new Error(
+          `No transition to status "${update.status}" available. Valid transitions: ${transitions.map((t) => t.name).join(", ")}`
+        );
       }
-
-      // Refresh the item after update
-      const token = getJiraToken(projectId);
-      const siteUrl = token?.siteUrl ?? "https://example.atlassian.net";
-      const updatedIssue = await client.getIssue(itemId);
-      const { mapJiraIssue } = await import("./issues");
-      return mapJiraIssue(updatedIssue, siteUrl);
+      await client.transitionIssue(itemId, target.id);
     }
 
     if (update.assigneeId) {
@@ -191,7 +184,6 @@ export class JiraAdapter implements TrackerAdapter {
       await client.updateIssue(itemId, { labels: update.labels });
     }
 
-    // Return the updated item
     const token = getJiraToken(projectId);
     const siteUrl = token?.siteUrl ?? "https://example.atlassian.net";
     const updatedIssue = await client.getIssue(itemId);
@@ -200,13 +192,13 @@ export class JiraAdapter implements TrackerAdapter {
   }
 
   async addComment(projectId: string, itemId: string, body: string): Promise<void> {
-    const client = getJiraClient(projectId);
+    const client = await getJiraClient(projectId);
     if (!client) throw new Error("Not connected to Jira");
     await client.addComment(itemId, body);
   }
 
   async getActivity(projectId: string, itemId: string): Promise<TrackerActivity[]> {
-    const client = getJiraClient(projectId);
+    const client = await getJiraClient(projectId);
     if (!client) return [];
 
     const rawActivity = await client.getActivity(itemId);
@@ -222,7 +214,7 @@ export class JiraAdapter implements TrackerAdapter {
   }
 
   async listGroups(projectId: string): Promise<TrackerGroup[]> {
-    const client = getJiraClient(projectId);
+    const client = await getJiraClient(projectId);
     if (!client) return [];
 
     try {
@@ -249,23 +241,30 @@ export class JiraAdapter implements TrackerAdapter {
   }
 
   async listStatuses(projectId: string): Promise<TrackerStatusOption[]> {
-    const client = getJiraClient(projectId);
+    const client = await getJiraClient(projectId);
     if (!client) return [];
 
     try {
       const statuses = await client.getStatuses();
-      return statuses.map((s) => ({
-        id: s.id,
-        name: s.name,
-        category: jiraStatusCategoryToCanonical(s.statusCategory?.key),
-      }));
+      const seen = new Set<string>();
+      const unique: TrackerStatusOption[] = [];
+      for (const s of statuses) {
+        if (seen.has(s.name)) continue;
+        seen.add(s.name);
+        unique.push({
+          id: s.id,
+          name: s.name,
+          category: jiraStatusCategoryToCanonical(s.statusCategory?.key),
+        });
+      }
+      return unique;
     } catch {
       return [];
     }
   }
 
   async listAssignees(projectId: string): Promise<TrackerAssignee[]> {
-    const client = getJiraClient(projectId);
+    const client = await getJiraClient(projectId);
     if (!client) return [];
 
     const token = getJiraToken(projectId);
@@ -288,13 +287,33 @@ export class JiraAdapter implements TrackerAdapter {
     }
   }
 
-  getMcpConfig(_projectId: string): McpServerConfig {
-    // Atlassian MCP server for Jira
+  async handleApiKeyConnect(_projectId: string, _apiKey: string): Promise<void> {
+    throw new Error("Jira Cloud requires OAuth authentication — use the Connect button instead");
+  }
+
+  async handleTokenDelivery(projectId: string, params: Record<string, string>): Promise<void> {
+    const accessToken = params.access_token;
+    const cloudId = params.cloud_id;
+    const siteUrl = params.site_url;
+    if (!accessToken || !cloudId || !siteUrl) {
+      throw new Error("Missing required Jira token fields (access_token, cloud_id, site_url)");
+    }
+    const expiresIn = params.expires_in ? Number(params.expires_in) : undefined;
+    saveJiraToken(projectId, {
+      accessToken,
+      refreshToken: params.refresh_token,
+      cloudId,
+      siteUrl,
+      ...(expiresIn && { expiresAt: Date.now() + expiresIn * 1000 }),
+    });
+  }
+
+  getMcpConfig(projectId: string): McpServerConfig {
+    const token = getJiraToken(projectId);
     return {
       name: "jira",
-      command: "npx",
-      args: ["-y", "@anthropic-ai/atlassian-mcp"],
-      env: {},
+      url: "https://mcp.atlassian.com/v1/sse",
+      headers: token ? { Authorization: `Bearer ${token.accessToken}` } : {},
     };
   }
 

@@ -280,7 +280,7 @@ export function GroupPanel({
           )}
         </section>
 
-        <TicketRecapSection issueId={group.id} trackerType={trackerType} />
+        <TicketRecapSection issueId={group.id} trackerType={trackerType} projectId={projectId} />
         <TicketSessionList runs={runs} onSelect={onSelectRun} />
       </div>
 

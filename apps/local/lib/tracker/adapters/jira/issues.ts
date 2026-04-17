@@ -107,9 +107,9 @@ function mapJiraIssueToCacheInput(
     teamId: fields.project?.id ?? null,
     teamName: fields.project?.name ?? null,
     teamKey: fields.project?.key ?? null,
-    cycleId: fields.sprint ? String(fields.sprint.id) : null,
-    cycleName: fields.sprint?.name ?? null,
-    cycleNumber: fields.sprint ? fields.sprint.id : null,
+    cycleId: fields.customfield_10020 ? String(fields.customfield_10020.id) : null,
+    cycleName: fields.customfield_10020?.name ?? null,
+    cycleNumber: fields.customfield_10020 ? fields.customfield_10020.id : null,
     priority: fields.priority?.name ?? null,
     labels: fields.labels ?? [],
     url: `${siteUrl}/browse/${issue.key}`,
@@ -125,21 +125,23 @@ export async function pullJiraIssues(input: {
   jql?: string;
   limit?: number;
 }): Promise<{ pulled: number }> {
-  const client = getJiraClient(input.projectId);
+  const client = await getJiraClient(input.projectId);
   if (!client) throw new Error("Not connected to Jira");
 
   const token = getJiraToken(input.projectId);
   if (!token?.siteUrl) throw new Error("Missing Jira site URL");
 
-  const jql = input.jql ?? (input.projectKey ? `project = ${input.projectKey} ORDER BY updated DESC` : "ORDER BY updated DESC");
+  const jql = input.jql ?? (input.projectKey
+    ? `project = ${input.projectKey} ORDER BY updated DESC`
+    : "assignee = currentUser() OR reporter = currentUser() ORDER BY updated DESC");
   const limit = input.limit ?? 100;
   const allIssues: CachedTrackerItemInput[] = [];
-  let startAt = 0;
-  let hasMore = true;
+  let nextPageToken: string | undefined;
+  let isLast = false;
 
-  while (hasMore && allIssues.length < limit) {
+  while (!isLast && allIssues.length < limit) {
     const result = await client.searchIssues(jql, {
-      startAt,
+      nextPageToken,
       maxResults: Math.min(50, limit - allIssues.length),
     });
 
@@ -147,14 +149,14 @@ export async function pullJiraIssues(input: {
       allIssues.push(mapJiraIssueToCacheInput(issue, token.siteUrl));
     }
 
-    startAt += result.issues.length;
-    hasMore = result.issues.length > 0 && startAt < result.total;
+    isLast = result.isLast || result.issues.length === 0;
+    nextPageToken = result.nextPageToken;
   }
 
   await replaceCachedTrackerItems({
     trackerType: "jira",
     issues: allIssues,
-    complete: !hasMore,
+    complete: isLast,
     pulledAtMs: Date.now(),
   });
 
@@ -222,7 +224,7 @@ export async function getJiraIssueDetail(
   projectId: string,
   issueIdOrKey: string,
 ): Promise<TrackerItemDetail> {
-  const client = getJiraClient(projectId);
+  const client = await getJiraClient(projectId);
   if (!client) throw new Error("Not connected to Jira");
 
   const token = getJiraToken(projectId);
@@ -259,8 +261,8 @@ export async function getJiraIssueDetail(
       projectKey: rawIssue.fields.project?.key,
       projectName: rawIssue.fields.project?.name,
       issueType: rawIssue.fields.issuetype?.name,
-      sprintId: rawIssue.fields.sprint?.id,
-      sprintName: rawIssue.fields.sprint?.name,
+      sprintId: rawIssue.fields.customfield_10020?.id,
+      sprintName: rawIssue.fields.customfield_10020?.name,
     },
   };
 }

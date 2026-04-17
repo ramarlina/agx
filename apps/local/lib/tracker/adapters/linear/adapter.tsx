@@ -2,6 +2,7 @@
 // existing Linear GraphQL client and issue cache.
 
 import type { TrackerAdapter, McpServerConfig } from "../../tracker-adapter";
+import { getConfiguredAppBaseUrl } from "@/lib/app-config";
 import type {
   TrackerItem,
   TrackerItemDetail,
@@ -16,7 +17,7 @@ import type {
   PaginatedResult,
   TrackerStatusCategory,
 } from "../../types";
-import { getLinearClient } from "./client";
+import { getLinearClient, getProjectTicketToken } from "./client";
 import type { LinearCycle } from "./client";
 import { LinearIcon } from "./linear-icon";
 export { LinearIcon } from "./linear-icon";
@@ -32,9 +33,8 @@ function linearStatusToCategory(status: string): TrackerStatusCategory {
 
 // Auth helpers
 function getLinearAuthUrl(projectId: string): string {
-  const port = process.env.NEXT_PUBLIC_APP_URL
-    ? new URL(process.env.NEXT_PUBLIC_APP_URL).port || "3000"
-    : "3000";
+  const appUrl = getConfiguredAppBaseUrl();
+  const port = new URL(appUrl).port || "41741";
   return `https://www.runagx.com/integrations/linear/auth?port=${port}`;
 }
 
@@ -275,12 +275,28 @@ export class LinearAdapter implements TrackerAdapter {
     }));
   }
 
-  getMcpConfig(_projectId: string): McpServerConfig {
+  async handleApiKeyConnect(projectId: string, apiKey: string): Promise<void> {
+    const { saveProjectTicketToken } = await import("./client");
+    saveProjectTicketToken(projectId, "linear", { accessToken: apiKey });
+  }
+
+  async handleTokenDelivery(projectId: string, params: Record<string, string>): Promise<void> {
+    const accessToken = params.access_token;
+    if (!accessToken) throw new Error("Missing access_token");
+    const { saveProjectTicketToken } = await import("./client");
+    const expiresIn = params.expires_in ? Number(params.expires_in) : undefined;
+    saveProjectTicketToken(projectId, "linear", {
+      accessToken,
+      ...(expiresIn && { expiresAt: Date.now() + expiresIn * 1000 }),
+    });
+  }
+
+  getMcpConfig(projectId: string): McpServerConfig {
+    const token = getProjectTicketToken(projectId, "linear");
     return {
       name: "linear",
-      command: "npx",
-      args: ["-y", "@anthropic-ai/linear-mcp"],
-      env: {},
+      url: "https://mcp.linear.app/sse",
+      headers: token ? { Authorization: `Bearer ${token.accessToken}` } : {},
     };
   }
 

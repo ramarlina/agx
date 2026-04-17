@@ -393,7 +393,6 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   } = useTrackerConnection(trackerType, projectId ?? "");
 
   const lastRestoredItemRef = useRef<string | null>(null);
-  const [setupDismissed, setSetupDismissed] = useState(false);
   const [showSettings, setShowSettings] = useState(initialShowSettings ?? false);
   const [showRunScripts, setShowRunScripts] = useState(false);
   const [ticketPanelWidth, setTicketPanelWidth] = useState(() => loadLinearTicketPanelWidth() || 576);
@@ -832,7 +831,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   const handleItemStatusChange = useCallback(
     async (item: TrackerItem, status: string) => {
       const nextStatus = status.trim();
-      if (!nextStatus || nextStatus === item.status) {
+      if (!nextStatus || nextStatus === item.status || !projectId) {
         return;
       }
 
@@ -869,11 +868,11 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
         setUpdatingItemId((current) => (current === item.id ? null : current));
       }
     },
-    [refreshItems, selectedItemId, updateItem, trackerType]
+    [refreshItems, selectedItemId, updateItem, trackerType, projectId]
   );
 
   useEffect(() => {
-    if (!selectedItemId) {
+    if (!selectedItemId || !projectId) {
       setSelectedItemFallback(null);
       return;
     }
@@ -892,7 +891,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
 
     void (async () => {
       try {
-        const response = await fetch(`/api/trackers/${trackerType}/items/${encodeURIComponent(selectedItemId)}`);
+        const response = await fetch(`/api/trackers/${trackerType}/items/${encodeURIComponent(selectedItemId)}?projectId=${encodeURIComponent(projectId ?? "")}`);
         if (cancelled) return;
 
         if (response.status === 404) {
@@ -921,7 +920,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     return () => {
       cancelled = true;
     };
-  }, [replaceSelection, selectedItemFromList, selectedItemId, trackerType]);
+  }, [replaceSelection, selectedItemFromList, selectedItemId, trackerType, projectId]);
 
   useEffect(() => {
     if (!selectedItemId) {
@@ -1087,17 +1086,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     return () => observer.disconnect();
   }, [hasMore, loadMore]);
 
-  if (connectionLoading) {
-    return (
-      <div className="flex h-full items-center justify-center text-xs text-[var(--muted-foreground)]">
-        Loading...
-      </div>
-    );
-  }
-
-  const needsMcpSetup = connected && !setupDismissed && !Object.values(mcpConfigured).some(Boolean);
-
-  if (!connected || needsMcpSetup) {
+  if (!connected) {
     return (
       <LinearSetup
         trackerType={trackerType}
