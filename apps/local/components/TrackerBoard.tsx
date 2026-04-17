@@ -63,6 +63,8 @@ import { FolderRow } from "@/components/tracker/FolderRow";
 import { GroupPanel } from "@/components/tracker/GroupPanel";
 import { GroupNamePrompt, PENDING_GROUP_DROP_ID } from "@/components/tracker/GroupNamePrompt";
 import { SelectionBar } from "@/components/tracker/SelectionBar";
+import { useTrackerItemsMetadata } from "@/hooks/useTrackerItemsMetadata";
+import { useTrackerLabels } from "@/hooks/useTrackerLabels";
 import {
   DndContext,
   DragOverlay,
@@ -756,6 +758,22 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   } = useTrackerItems(trackerType, filters, connected && filterOptionsLoaded && Boolean(projectId), {
     projectId: projectId ?? "",
   });
+
+  // Bulk metadata for visible items
+  const visibleIssueIds = useMemo(() => items.map((item) => item.id), [items]);
+  const {
+    metadataMap,
+    refresh: refreshMetadata,
+  } = useTrackerItemsMetadata(trackerType, projectId, visibleIssueIds);
+
+  // Labels
+  const {
+    labels: allLabels,
+    definitions: labelDefinitions,
+    refresh: refreshLabels,
+    createDefinition: createLabelDefinition,
+  } = useTrackerLabels(trackerType, projectId);
+
   const selectedItemFromList = useMemo(
     () => (selectedItemId ? items.find((item) => item.id === selectedItemId) ?? null : null),
     [items, selectedItemId],
@@ -898,6 +916,158 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     },
     [refreshItems, selectedItemId, updateItem, trackerType, projectId]
   );
+
+  const handleBulkRecap = useCallback(async () => {
+    const ids = Array.from(multiSelectedItemIds);
+    const selectedItems = ids
+      .map((id) => items.find((item) => item.id === id))
+      .filter(Boolean) as TrackerItem[];
+
+    if (selectedItems.length === 0 || participants.length === 0) return;
+    const agent = participants[0];
+
+    for (const item of selectedItems) {
+      try {
+        await fetch(`/api/trackers/${trackerType}/runs/scripted`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId: projectId ?? undefined,
+            projectSlug: projectSlug ?? undefined,
+            issueId: item.id,
+            issueIdentifier: item.identifier,
+            issueTitle: item.title,
+            issueStatus: item.status,
+            issueAssignee: item.assignee?.name ?? null,
+            agentId: agent.id,
+            scriptName: "Recap",
+            scriptPrompt: "Summarize recent activity and current state of this ticket. Focus on: what was done, what's outstanding, and any blockers.",
+          }),
+        });
+      } catch (err) {
+        console.error(`Failed to start recap for ${item.identifier}:`, err);
+      }
+    }
+    setMultiSelectedItemIds(new Set());
+  }, [multiSelectedItemIds, items, participants, trackerType, projectId, projectSlug]);
+
+  const handleBulkPrompt = useCallback(async (prompt: string, agentId: string) => {
+    const ids = Array.from(multiSelectedItemIds);
+    const selectedItems = ids
+      .map((id) => items.find((item) => item.id === id))
+      .filter(Boolean) as TrackerItem[];
+
+    for (const item of selectedItems) {
+      try {
+        await fetch(`/api/trackers/${trackerType}/runs/scripted`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId: projectId ?? undefined,
+            projectSlug: projectSlug ?? undefined,
+            issueId: item.id,
+            issueIdentifier: item.identifier,
+            issueTitle: item.title,
+            issueStatus: item.status,
+            issueAssignee: item.assignee?.name ?? null,
+            agentId,
+            scriptPrompt: prompt,
+          }),
+        });
+      } catch (err) {
+        console.error(`Failed to send prompt for ${item.identifier}:`, err);
+      }
+    }
+    setMultiSelectedItemIds(new Set());
+  }, [multiSelectedItemIds, items, trackerType, projectId, projectSlug]);
+
+  const handleBulkEstimate = useCallback(async (estimate: number | null) => {
+    const ids = Array.from(multiSelectedItemIds);
+    if (ids.length === 0 || !projectId) return;
+    try {
+      await fetch(`/api/trackers/${trackerType}/metadata/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          issueIds: ids,
+          action: "set_estimate",
+          payload: { estimate },
+        }),
+      });
+      void refreshMetadata();
+    } catch {}
+    setMultiSelectedItemIds(new Set());
+  }, [multiSelectedItemIds, projectId, trackerType, refreshMetadata]);
+
+  const handleBulkAddLabel = useCallback(async (label: string) => {
+    const ids = Array.from(multiSelectedItemIds);
+    if (ids.length === 0 || !projectId) return;
+    try {
+      await fetch(`/api/trackers/${trackerType}/metadata/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          issueIds: ids,
+          action: "add_labels",
+          payload: { labels: [label] },
+        }),
+      });
+      void refreshMetadata();
+      void refreshLabels();
+    } catch {}
+  }, [multiSelectedItemIds, projectId, trackerType, refreshMetadata, refreshLabels]);
+
+  const handleBulkRemoveLabel = useCallback(async (label: string) => {
+    const ids = Array.from(multiSelectedItemIds);
+    if (ids.length === 0 || !projectId) return;
+    try {
+      await fetch(`/api/trackers/${trackerType}/metadata/bulk`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          issueIds: ids,
+          action: "remove_label",
+          payload: { label },
+        }),
+      });
+      void refreshMetadata();
+      void refreshLabels();
+    } catch {}
+  }, [multiSelectedItemIds, projectId, trackerType, refreshMetadata, refreshLabels]);
+
+  const [bulkStatusUpdating, setBulkStatusUpdating] = useState(false);
+
+  const handleBulkStatus = useCallback(async (status: string) => {
+    const ids = Array.from(multiSelectedItemIds);
+    const selectedItems = ids
+      .map((id) => items.find((item) => item.id === id))
+      .filter(Boolean) as TrackerItem[];
+
+    if (selectedItems.length === 0) return;
+    setBulkStatusUpdating(true);
+    for (const item of selectedItems) {
+      await handleItemStatusChange(item, status);
+    }
+    setBulkStatusUpdating(false);
+    setMultiSelectedItemIds(new Set());
+  }, [multiSelectedItemIds, items, handleItemStatusChange]);
+
+  const handleCreateLabel = useCallback(async (name: string) => {
+    if (!projectId) return;
+    await createLabelDefinition(name);
+  }, [projectId, createLabelDefinition]);
+
+  const selectedMetadata = useMemo(() => {
+    const map = new Map<string, { labels: string[]; estimate: number | null }>();
+    for (const id of multiSelectedItemIds) {
+      const meta = metadataMap.get(id);
+      map.set(id, meta ?? { labels: [], estimate: null });
+    }
+    return map;
+  }, [multiSelectedItemIds, metadataMap]);
 
   useEffect(() => {
     if (!selectedItemId || !projectId) {
@@ -1269,6 +1439,9 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                                 projectSlug={projectSlug}
                                 stats={issueStats.get(item.id)}
                                 hideStatus
+                                estimate={metadataMap.get(item.id)?.estimate}
+                                localLabels={metadataMap.get(item.id)?.labels}
+                                labelDefinitions={labelDefinitions}
                                 onSelect={() => {
                                   setTouchPanelTab("runs");
                                   pushSelection({
@@ -1298,6 +1471,9 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                           participants={participants}
                           projectSlug={projectSlug}
                           stats={issueStats.get(item.id)}
+                          estimate={metadataMap.get(item.id)?.estimate}
+                          localLabels={metadataMap.get(item.id)?.labels}
+                          labelDefinitions={labelDefinitions}
                           onSelect={() => {
                             setTouchPanelTab("runs");
                             pushSelection({
@@ -1760,6 +1936,9 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                               treeConnector={giIdx === groupItems.length - 1 ? "last" : "mid"}
                               projectSlug={projectSlug}
                               stats={issueStats.get(gi.id)}
+                              estimate={metadataMap.get(gi.id)?.estimate}
+                              localLabels={metadataMap.get(gi.id)?.labels}
+                              labelDefinitions={labelDefinitions}
                               onSelect={(event) => {
                                 if (event && (event.metaKey || event.ctrlKey)) {
                                   toggleItemMultiSelect(gi.id);
@@ -1801,6 +1980,9 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                         multiSelected={multiSelectedItemIds.has(item.id)}
                         projectSlug={projectSlug}
                         stats={issueStats.get(item.id)}
+                        estimate={metadataMap.get(item.id)?.estimate}
+                        localLabels={metadataMap.get(item.id)?.labels}
+                        labelDefinitions={labelDefinitions}
                         onSelect={(event) => {
                           if (event && (event.metaKey || event.ctrlKey)) {
                             toggleItemMultiSelect(item.id);
@@ -1832,6 +2014,18 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
             count={multiSelectedItemIds.size}
             onGroup={handleMultiSelectGroup}
             onClear={() => setMultiSelectedItemIds(new Set())}
+            onBulkRecap={handleBulkRecap}
+            onBulkPrompt={handleBulkPrompt}
+            onBulkEstimate={handleBulkEstimate}
+            onBulkAddLabel={handleBulkAddLabel}
+            onBulkRemoveLabel={handleBulkRemoveLabel}
+            onBulkStatus={handleBulkStatus}
+            statusOptions={itemStatusOptions}
+            participants={participants}
+            labels={allLabels}
+            onCreateLabel={handleCreateLabel}
+            selectedMetadata={selectedMetadata}
+            statusUpdating={bulkStatusUpdating}
           />
         </div>
         <DragOverlay dropAnimation={null}>

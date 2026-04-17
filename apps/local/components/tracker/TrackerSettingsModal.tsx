@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, type ComponentProps } from "react";
-import { Bot, Link2, ScrollText, X } from "lucide-react";
+import { Bot, Link2, ScrollText, Tag, X } from "lucide-react";
 import LinearSetup from "@/components/tracking/TrackerSetup";
 import TrackerWorkerConfig from "@/components/tracker/TrackerWorkerConfig";
 import TrackerWorkerRunLog from "@/components/tracker/TrackerWorkerRunLog";
+import { LabelSettings } from "./LabelSettings";
+import { useTrackerLabels } from "@/hooks/useTrackerLabels";
 
 type TrackerSetupProps = ComponentProps<typeof LinearSetup>;
 
@@ -22,7 +24,7 @@ interface TrackerSettingsModalProps {
   projectId?: string;
 }
 
-type SettingsTab = "connection" | "worker" | "run-log";
+type SettingsTab = "connection" | "worker" | "run-log" | "labels";
 
 export default function TrackerSettingsModal({
   trackerType,
@@ -39,6 +41,8 @@ export default function TrackerSettingsModal({
 }: TrackerSettingsModalProps) {
   const [tab, setTab] = useState<SettingsTab>(connected ? "worker" : "connection");
   const [workerJobId, setWorkerJobId] = useState<string | null>(null);
+  const { definitions: labelDefinitions, createDefinition, deleteDefinition } =
+    useTrackerLabels(trackerType, projectId);
 
   const workerLabel = trackerType === "jira" ? "Jira Worker" : "Linear Worker";
 
@@ -46,6 +50,7 @@ export default function TrackerSettingsModal({
     { id: "connection", label: "Connection", icon: <Link2 size={14} /> },
     { id: "worker", label: workerLabel, icon: <Bot size={14} />, disabled: !connected },
     { id: "run-log", label: "Run Log", icon: <ScrollText size={14} />, disabled: !connected },
+    { id: "labels" as const, label: "Labels", icon: <Tag size={14} />, disabled: !connected },
   ];
 
   return (
@@ -107,6 +112,13 @@ export default function TrackerSettingsModal({
           )}
           {tab === "run-log" && connected && (
             <TrackerWorkerRunLog jobId={workerJobId} />
+          )}
+          {tab === "labels" && connected && (
+            <LabelSettings
+              definitions={labelDefinitions}
+              onCreate={createDefinition}
+              onDelete={deleteDefinition}
+            />
           )}
         </div>
       </div>
