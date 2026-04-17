@@ -54,7 +54,7 @@ export function TaskTrackingNav({
   );
   const connectedTrackers = sorted.filter((t) => t.connected);
   const disconnectedTrackers = sorted.filter((t) => !t.connected);
-  const showConnectLink = connectedTrackers.length !== 1;
+  const showConnectLink = true;
 
   return (
     <>

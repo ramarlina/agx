@@ -33,8 +33,8 @@ import type { SidebarStageResult } from "@/hooks/useSidebarStage";
 import { agentAvatarUrl, AgentForm, type AgentFormData } from "@/components/chat-ui/ParticipantBar";
 import ProjectModal, { createProjectPayload, useProjectFormState } from "@/components/ProjectModal";
 import { readProjectObjectivesWorkspace } from "@/lib/project-objectives";
-import { TrackerIcon } from "@/components/tracking/TrackerIcon";
 import { TaskTrackingNav } from "@/components/tracking/TaskTrackingNav";
+import { LinearIcon } from "@/lib/tracker/adapters/linear/linear-icon";
 import { useTrackerConnections } from "@/hooks/useTrackerConnections";
 import type { TrackerConnectionEntry } from "@/hooks/useSidebarStage";
 
@@ -575,7 +575,6 @@ export function WorkspaceSidebar({
   const nonDefaultProjects = projectsProp.filter((project) => !project.is_default);
   const selectedProject = nonDefaultProjects.find((p) => p.id === activeProjectId) ?? nonDefaultProjects[0] ?? null;
   const { connections: trackerConnections } = useTrackerConnections(selectedProject?.id ?? null);
-  const primaryTrackerType = trackerConnections.find((c) => c.connected)?.type ?? "linear";
   const stageShow = stageShowProp ?? {
     home: true, threads: true, terminal: true, objectives: false,
     objectivesIsNew: false, tracking: false, teams: false, folders: false,
@@ -782,7 +781,7 @@ export function WorkspaceSidebar({
             {stageShow.tracking && (
               <RailTooltip label="Task Tracking">
                 <Link href={`/projects/${collapsedSlug}/tracking`} className={`workspace-sidebar__rail-icon${(activeProjectView === "linear" || activeProjectView === "tracking") ? " workspace-sidebar__rail-icon--active" : ""}`}>
-                  <TrackerIcon trackerType={primaryTrackerType} className="h-4 w-4" />
+                  <LinearIcon className="h-4 w-4" />
                 </Link>
               </RailTooltip>
             )}
@@ -938,7 +937,7 @@ export function WorkspaceSidebar({
           const isActiveProjectEnvVars = isActiveProject && activeProjectView === "env-vars";
           const navActivity = navActivityByProject[selectedProject.id];
 
-          const showWorkGroup = stageShow.objectives || stageShow.tracking || stageShow.scheduledTasks;
+          const showWorkGroup = stageShow.objectives || stageShow.scheduledTasks;
           const showSettingsGroup = stageShow.teams || stageShow.folders || stageShow.envVars;
 
           return (
@@ -996,25 +995,6 @@ export function WorkspaceSidebar({
                         </Link>
                       </div>
                     )}
-                    {stageShow.tracking && (
-                      <>
-                        <div className="workspace-sidebar__workspace-item">
-                          <span className="workspace-sidebar__nav-item pointer-events-none">
-                            <TrackerIcon trackerType={primaryTrackerType} className="flex-shrink-0 h-3.5 w-3.5 text-[var(--muted-foreground)]" />
-                            <span className="workspace-sidebar__workspace-title text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">Task Tracking</span>
-                          </span>
-                        </div>
-                        <div className="pl-3">
-                          <TaskTrackingNav
-                            projectSlug={selectedProject.slug}
-                            trackerConnections={trackerConnectionsProp}
-                            activeTrackerType={activeTrackerFromUrl}
-                            isTrackingActive={isActiveProjectTracking}
-                            onLinkClick={closeTouchDrawer}
-                          />
-                        </div>
-                      </>
-                    )}
                     {stageShow.scheduledTasks && (
                       <div className="workspace-sidebar__workspace-item">
                         <Link
@@ -1028,6 +1008,24 @@ export function WorkspaceSidebar({
                         </Link>
                       </div>
                     )}
+                  </div>
+                </div>
+              )}
+
+              {/* Task Tracking — own section */}
+              {stageShow.tracking && (
+                <div className="mb-3">
+                  <div className="workspace-sidebar__section-header">
+                    <p className="workspace-sidebar__section-label">Task Tracking</p>
+                  </div>
+                  <div className="px-2 flex flex-col gap-0.5">
+                    <TaskTrackingNav
+                      projectSlug={selectedProject.slug}
+                      trackerConnections={trackerConnectionsProp}
+                      activeTrackerType={activeTrackerFromUrl}
+                      isTrackingActive={isActiveProjectTracking}
+                      onLinkClick={closeTouchDrawer}
+                    />
                   </div>
                 </div>
               )}
