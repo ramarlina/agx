@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { useTerminalTabsStore } from "@/state/terminalTabs";
 import { useUrlSelection } from "@/hooks/useUrlSelection";
 import TerminalSessionList from "./TerminalSessionList";
 import TerminalPane from "./TerminalPane";
+import type { TerminalPaneHandle } from "./TerminalPane";
 import {
   type TerminalInstance,
   type TerminalStatus,
@@ -38,6 +39,10 @@ export default function ProjectTerminal() {
   const updateTerminalStatus = useTerminalTabsStore((s) => s.updateTerminalStatus);
 
   const { getSelection, replaceSelection } = useUrlSelection();
+  const searchParams = useSearchParams();
+  const initCmdRef = useRef(searchParams.get("cmd"));
+  const initCmdSentRef = useRef(false);
+  const firstTerminalPaneRef = useRef<TerminalPaneHandle>(null);
   const selectedId = getSelection("session");
   const gridRef = useRef<HTMLDivElement>(null);
   const [editingTerminal, setEditingTerminal] = useState<EditingTerminal | null>(null);
@@ -66,6 +71,14 @@ export default function ProjectTerminal() {
       replaceSelection({ session: sessions[0].id });
     }
   }, [selectedId, sessions, replaceSelection]);
+
+  // Clear ?cmd param from URL immediately on mount so refresh won't re-run
+  useEffect(() => {
+    if (!initCmdRef.current) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("cmd");
+    window.history.replaceState({}, "", url.toString());
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedSession = sessions.find((s) => s.id === selectedId);
 
@@ -163,6 +176,7 @@ export default function ProjectTerminal() {
     sessionId: string,
     terminal: TerminalInstance,
     isSingle: boolean,
+    paneRef?: React.RefObject<TerminalPaneHandle | null>,
   ) {
     const isEditing =
       editingTerminal?.sessionId === sessionId &&
@@ -235,11 +249,18 @@ export default function ProjectTerminal() {
 
         <div className="min-h-0 flex-1">
           <TerminalPane
+            ref={paneRef}
             key={terminal.id}
             tabId={terminal.id}
-            onSessionReady={(backendSessionId) =>
-              setTerminalSessionId(projectId, sessionId, terminal.id, backendSessionId)
-            }
+            onSessionReady={(backendSessionId) => {
+              setTerminalSessionId(projectId, sessionId, terminal.id, backendSessionId);
+              if (paneRef && initCmdRef.current && !initCmdSentRef.current) {
+                initCmdSentRef.current = true;
+                setTimeout(() => {
+                  paneRef.current?.sendCommand(initCmdRef.current!);
+                }, 300);
+              }
+            }}
             onStatusChange={(status) =>
               updateTerminalStatus(projectId, sessionId, terminal.id, status)
             }
@@ -347,6 +368,7 @@ export default function ProjectTerminal() {
                     selectedSession.id,
                     terminal,
                     true,
+                    firstTerminalPaneRef,
                   );
                 })()}
               </div>
@@ -411,11 +433,12 @@ export default function ProjectTerminal() {
                             : { gridTemplateColumns: `repeat(auto-fit, minmax(${GRID_MIN_TERMINAL_WIDTH_PX}px, 1fr))` }
                         }
                       >
-                        {selectedSession.terminals.map((terminal) =>
+                        {selectedSession.terminals.map((terminal, idx) =>
                           renderTerminalCard(
                             selectedSession.id,
                             terminal,
                             isSingle,
+                            idx === 0 ? firstTerminalPaneRef : undefined,
                           ),
                         )}
                       </div>

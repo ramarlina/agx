@@ -8,6 +8,7 @@ export const UI_POLL_CHAT_CHECK_MS = 10_000;
 export const UI_POLL_CHAT_ALT_MS = 15_000;
 export const UI_POLL_OFFLINE_CHECK_MS = 30_000;
 export const UI_RECONNECT_DELAY_MS = 2_000;
+export const UI_POLL_UPDATE_CHECK_MS = 30 * 60 * 1000;
 
 // ── Backend / Infrastructure ────────────────────────────
 export const DB_BUSY_TIMEOUT_MS = 5_000;

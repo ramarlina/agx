@@ -22,12 +22,14 @@ import {
   MessageSquare,
   TerminalSquare,
   KeyRound,
+  ArrowUpCircle,
 } from "lucide-react";
 import Link from "next/link";
 import type { Thread } from "@/lib/storage";
 import type { Participant } from "@/lib/types";
 import type { ProjectRepo, ProjectWithAgents, ProjectWithRepos, UpdateProjectPayload } from "@/hooks/useProjects";
 import { useInputCapabilities } from "@/hooks/useInputCapabilities";
+import { useUpdateCheck } from "@/hooks/useUpdateCheck";
 import { useFocusManagement } from "@/hooks/useFocusManagement";
 import type { SidebarStageResult } from "@/hooks/useSidebarStage";
 import { agentAvatarUrl, AgentForm, type AgentFormData } from "@/components/chat-ui/ParticipantBar";
@@ -272,6 +274,7 @@ export function WorkspaceSidebar({
   trackerConnections: trackerConnectionsProp = [],
 }: WorkspaceSidebarProps) {
   const { isTouchLayout, isPhone } = useInputCapabilities();
+  const { updateAvailable } = useUpdateCheck();
   const resizing = useRef(false);
   const lastX = useRef(0);
   const emptyCtaRef = useRef<HTMLButtonElement | null>(null);
@@ -842,7 +845,17 @@ export function WorkspaceSidebar({
           </nav>
         )}
 
-        <div className="mt-auto p-2">
+        <div className="mt-auto p-2 flex flex-col gap-2">
+          {updateAvailable && collapsedSlug && (
+            <RailTooltip label="Update available">
+              <Link
+                href={`/projects/${collapsedSlug}/terminal?cmd=${encodeURIComponent("agx update && agx chat start")}`}
+                className="workspace-sidebar__rail-icon"
+              >
+                <ArrowUpCircle size={16} />
+              </Link>
+            </RailTooltip>
+          )}
           <RailTooltip label="Join Discord">
             <a
               href="https://discord.gg/G9afUYKKY3"
@@ -1134,7 +1147,16 @@ export function WorkspaceSidebar({
 
       </div>
 
-      <div className="mt-auto px-3 pb-3">
+      <div className="mt-auto px-3 pb-3 flex flex-col gap-2">
+        {updateAvailable && selectedProject && (
+          <Link
+            href={`/projects/${selectedProject.slug}/terminal?cmd=${encodeURIComponent("agx update && agx chat start")}`}
+            className="flex items-center justify-center gap-2 w-full py-2 rounded-lg text-sm font-medium transition-colors text-[var(--foreground)] bg-[var(--app-shell-subtle)] hover:bg-[var(--app-shell-border)]"
+          >
+            <ArrowUpCircle size={14} />
+            Update available
+          </Link>
+        )}
         <a
           href="https://discord.gg/G9afUYKKY3"
           target="_blank"
