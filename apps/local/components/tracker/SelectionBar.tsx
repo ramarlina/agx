@@ -10,7 +10,6 @@ import {
   Tag,
   X,
 } from "lucide-react";
-import { FibonacciPicker } from "./FibonacciPicker";
 import { LabelPicker } from "./LabelPicker";
 import { PromptPopover } from "./PromptPopover";
 import type { FilterOption } from "./TrackerBoardFilters";
@@ -33,7 +32,7 @@ interface SelectionBarProps {
   onClear: () => void;
   onBulkRecap: () => void;
   onBulkPrompt: (prompt: string, agentId: string) => void;
-  onBulkEstimate: (estimate: number | null) => void;
+  onBulkEstimate: () => void;
   onBulkAddLabel: (label: string) => void;
   onBulkRemoveLabel: (label: string) => void;
   onBulkStatus: (status: string) => void;
@@ -45,7 +44,7 @@ interface SelectionBarProps {
   statusUpdating?: boolean;
 }
 
-type ActivePopover = "estimate" | "label" | "status" | "prompt" | null;
+type ActivePopover = "label" | "status" | "prompt" | null;
 
 function Popover({
   open,
@@ -108,7 +107,6 @@ export function SelectionBar({
   statusUpdating,
 }: SelectionBarProps) {
   const [activePopover, setActivePopover] = useState<ActivePopover>(null);
-  const estimateRef = useRef<HTMLButtonElement | null>(null);
   const labelRef = useRef<HTMLButtonElement | null>(null);
   const statusRef = useRef<HTMLButtonElement | null>(null);
   const promptRef = useRef<HTMLButtonElement | null>(null);
@@ -180,26 +178,15 @@ export function SelectionBar({
         </div>
 
         {/* Estimate */}
-        <div className="relative">
-          <button
-            ref={estimateRef}
-            type="button"
-            className={`${actionButtonClass} ${activePopover === "estimate" ? "bg-[var(--background)] text-[var(--foreground)]" : ""}`}
-            onClick={() => togglePopover("estimate")}
-            title="Set estimate for all selected"
-          >
-            <Hash size={12} />
-            Estimate
-          </button>
-          <Popover open={activePopover === "estimate"} onClose={() => setActivePopover(null)} anchorRef={estimateRef}>
-            <FibonacciPicker
-              onSelect={(value) => {
-                onBulkEstimate(value);
-                setActivePopover(null);
-              }}
-            />
-          </Popover>
-        </div>
+        <button
+          type="button"
+          className={actionButtonClass}
+          onClick={onBulkEstimate}
+          title="Ask the LLM to size all selected"
+        >
+          <Hash size={12} />
+          Estimate
+        </button>
 
         {/* Label */}
         <div className="relative">

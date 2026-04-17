@@ -14,6 +14,7 @@ interface EnrichedProcessEntry {
   threadTitle: string | null;
   linearIssueId: string | null;
   linearRunId: string | null;
+  trackerType: string | null;
 }
 
 interface Participant {
@@ -58,6 +59,7 @@ interface AgentGroup {
     lastActivity: number;
     linearIssueId: string | null;
     linearRunId: string | null;
+    trackerType: string | null;
   }>;
 }
 
@@ -148,6 +150,7 @@ export function WorkingNowCard({
       lastActivity: process.lastActivity,
       linearIssueId: process.linearIssueId,
       linearRunId: process.linearRunId,
+      trackerType: process.trackerType,
     });
   }
 
@@ -198,7 +201,7 @@ export function WorkingNowCard({
                   onClick={() =>
                     router.push(
                       activity.linearIssueId && activity.linearRunId
-                        ? `/projects/${projectSlug}/linear?issue=${encodeURIComponent(activity.linearIssueId)}&run=${encodeURIComponent(activity.linearRunId)}`
+                        ? `/projects/${projectSlug}/${activity.trackerType ?? "linear"}?issue=${encodeURIComponent(activity.linearIssueId)}&run=${encodeURIComponent(activity.linearRunId)}`
                         : `/projects/${projectSlug}/thread/${encodeURIComponent(activity.workspaceId)}${activity.threadId ? `?open=${encodeURIComponent(activity.threadId)}` : ""}`
                     )
                   }

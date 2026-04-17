@@ -66,12 +66,15 @@ export function FolderRow({
     }
   }, [projectSlug, groupId]);
 
-  const handleNoteClick = useCallback((e: React.MouseEvent) => {
+  const handleNoteClick = useCallback(async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!noteOpen) {
-      void loadNote();
+    if (noteOpen) {
+      setNoteOpen(false);
+      return;
     }
-    setNoteOpen((prev) => !prev);
+
+    await loadNote();
+    setNoteOpen(true);
   }, [noteOpen, loadNote]);
 
   return (

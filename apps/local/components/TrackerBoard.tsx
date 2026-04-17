@@ -2,7 +2,7 @@
 
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Clock, FileText, Play, Plus, RefreshCw, Search, Settings, User, X } from "lucide-react";
+import { ArrowDown, ArrowUp, CheckSquare, ChevronDown, ChevronLeft, ChevronRight, Clock, FileText, Play, Plus, RefreshCw, Search, Settings, Square, User, X } from "lucide-react";
 import { useUrlSelection } from "@/hooks/useUrlSelection";
 import { useTrackerItems } from "@/hooks/useTrackerItems";
 import type { TrackerItem, TrackerStatusCategory } from "@/lib/tracker/types";
@@ -1072,24 +1072,40 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     setMultiSelectedItemIds(new Set());
   }, [multiSelectedItemIds, items, trackerType, projectId, projectSlug]);
 
-  const handleBulkEstimate = useCallback(async (estimate: number | null) => {
+  const handleBulkEstimate = useCallback(async () => {
     const ids = Array.from(multiSelectedItemIds);
-    if (ids.length === 0 || !projectId) return;
-    try {
-      await fetch(`/api/trackers/${trackerType}/metadata/bulk`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          projectId,
-          issueIds: ids,
-          action: "set_estimate",
-          payload: { estimate },
-        }),
-      });
-      void refreshMetadata();
-    } catch {}
+    const selectedItems = ids
+      .map((id) => items.find((item) => item.id === id))
+      .filter(Boolean) as TrackerItem[];
+
+    if (selectedItems.length === 0 || participants.length === 0) return;
+    const agent = participants[0];
+
+    for (const item of selectedItems) {
+      try {
+        await fetch(`/api/trackers/${trackerType}/runs/scripted`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId: projectId ?? undefined,
+            projectSlug: projectSlug ?? undefined,
+            issueId: item.id,
+            issueIdentifier: item.identifier,
+            issueTitle: item.title,
+            issueStatus: item.status,
+            issueAssignee: item.assignee?.name ?? null,
+            agentId: agent.id,
+            scriptName: "Estimate",
+            scriptPrompt:
+              "Assess the complexity and scope of this ticket and assign a Fibonacci story-point estimate (1, 2, 3, 5, 8, 13, or 21). Consider: required investigation, files likely to change, unknowns, and testing effort. Briefly justify the number, then set the estimate using the available tooling.",
+          }),
+        });
+      } catch (err) {
+        console.error(`Failed to start estimate for ${item.identifier}:`, err);
+      }
+    }
     setMultiSelectedItemIds(new Set());
-  }, [multiSelectedItemIds, projectId, trackerType, refreshMetadata]);
+  }, [multiSelectedItemIds, items, participants, trackerType, projectId, projectSlug]);
 
   const handleBulkAddLabel = useCallback(async (label: string) => {
     const ids = Array.from(multiSelectedItemIds);
@@ -1883,6 +1899,32 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
             >
               {sortDir === "desc" ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
             </button>
+            {labelFilteredItems.length > 0 && (() => {
+              const allSelected =
+                labelFilteredItems.length > 0 &&
+                labelFilteredItems.every((i) => multiSelectedItemIds.has(i.id));
+              return (
+                <button
+                  type="button"
+                  className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
+                    allSelected
+                      ? "border-[var(--primary)]/40 bg-[var(--primary)]/10 text-[var(--primary)]"
+                      : "border-[var(--card-border)] text-[var(--muted-foreground)] hover:bg-[var(--card-bg)] hover:text-[var(--foreground)]"
+                  }`}
+                  title={allSelected ? "Clear selection" : "Select all filtered tickets"}
+                  onClick={() => {
+                    if (allSelected) {
+                      setMultiSelectedItemIds(new Set());
+                    } else {
+                      setMultiSelectedItemIds(new Set(labelFilteredItems.map((i) => i.id)));
+                    }
+                  }}
+                >
+                  {allSelected ? <CheckSquare size={12} /> : <Square size={12} />}
+                  {allSelected ? "Clear" : `Select all (${labelFilteredItems.length})`}
+                </button>
+              );
+            })()}
           </div>
         </div>
 

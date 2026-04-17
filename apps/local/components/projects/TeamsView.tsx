@@ -42,6 +42,7 @@ interface EnrichedProcessEntry {
   threadTitle: string | null;
   linearIssueId: string | null;
   linearRunId: string | null;
+  trackerType: string | null;
 }
 
 interface TeamsViewProps {
@@ -188,6 +189,7 @@ export function TeamsView({
         lastActiveLabel: formatLastActive(process.lastActivity),
         linearIssueId: process.linearIssueId,
         linearRunId: process.linearRunId,
+        trackerType: process.trackerType,
       }));
   });
 
@@ -206,6 +208,7 @@ export function TeamsView({
         lastActiveLabel: formatLastActive(process.lastActivity),
         linearIssueId: process.linearIssueId,
         linearRunId: process.linearRunId,
+        trackerType: process.trackerType,
       }));
   });
 
@@ -223,6 +226,7 @@ export function TeamsView({
       lastActiveLabel: formatLastActive(process.lastActivity),
       linearIssueId: process.linearIssueId,
       linearRunId: process.linearRunId,
+      trackerType: process.trackerType,
     }));
 
   const allCompletedRows = [...completedActivityRows, ...unassignedCompletedRows];
@@ -400,7 +404,7 @@ export function TeamsView({
                     onClick={() =>
                       router.push(
                         row.linearIssueId && row.linearRunId
-                          ? `/projects/${projectSlug}/linear?issue=${encodeURIComponent(row.linearIssueId)}&run=${encodeURIComponent(row.linearRunId)}`
+                          ? `/projects/${projectSlug}/${row.trackerType ?? "linear"}?issue=${encodeURIComponent(row.linearIssueId)}&run=${encodeURIComponent(row.linearRunId)}`
                           : `/projects/${projectSlug}/thread/${encodeURIComponent(row.workspaceId)}${row.threadId ? `?open=${encodeURIComponent(row.threadId)}` : ""}`
                       )
                     }
@@ -468,7 +472,7 @@ export function TeamsView({
                     onClick={() =>
                       router.push(
                         row.linearIssueId && row.linearRunId
-                          ? `/projects/${projectSlug}/linear?issue=${encodeURIComponent(row.linearIssueId)}&run=${encodeURIComponent(row.linearRunId)}`
+                          ? `/projects/${projectSlug}/${row.trackerType ?? "linear"}?issue=${encodeURIComponent(row.linearIssueId)}&run=${encodeURIComponent(row.linearRunId)}`
                           : `/projects/${projectSlug}/thread/${encodeURIComponent(row.workspaceId)}${row.threadId ? `?open=${encodeURIComponent(row.threadId)}` : ""}`
                       )
                     }

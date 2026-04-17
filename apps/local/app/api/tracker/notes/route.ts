@@ -1,14 +1,27 @@
 import { NextRequest } from "next/server";
 import { readFile, writeFile, mkdir } from "fs/promises";
-import { join } from "path";
+import { dirname, join } from "path";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function sanitizePathSegment(value: string): string {
+  const sanitized = value.trim().replace(/[<>:"/\\|?*\u0000-\u001F]+/g, "-");
+  return sanitized || "untitled";
+}
+
 function notePath(projectSlug: string, type: "issue" | "group", id: string): string {
   const home = process.env.HOME ?? "~";
   const folder = type === "issue" ? "issues" : "groups";
-  return join(home, ".agx", "projects", projectSlug, folder, id, "note.md");
+  return join(
+    home,
+    ".agx",
+    "projects",
+    sanitizePathSegment(projectSlug),
+    folder,
+    sanitizePathSegment(id),
+    "note.md"
+  );
 }
 
 export async function GET(request: NextRequest) {
@@ -48,7 +61,7 @@ export async function POST(request: NextRequest) {
   }
 
   const filePath = notePath(projectSlug, type as "issue" | "group", id);
-  await mkdir(filePath.replace(/\/[^/]+$/, ""), { recursive: true });
+  await mkdir(dirname(filePath), { recursive: true });
 
   if (content.trim() === "") {
     try {
