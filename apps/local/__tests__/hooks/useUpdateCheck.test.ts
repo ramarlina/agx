@@ -3,6 +3,7 @@
  */
 
 import { renderHook, waitFor, act } from "@testing-library/react";
+import { UI_POLL_UPDATE_CHECK_MS } from "@/lib/constants/timing";
 
 const mockFetch = jest.fn();
 global.fetch = mockFetch as typeof fetch;
@@ -50,7 +51,7 @@ describe("useUpdateCheck", () => {
     });
 
     act(() => {
-      jest.advanceTimersByTime(30 * 60 * 1000);
+      jest.advanceTimersByTime(UI_POLL_UPDATE_CHECK_MS);
     });
 
     await waitFor(() => {

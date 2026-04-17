@@ -19,8 +19,10 @@ export function useUpdateCheck(): UpdateCheckResult {
       try {
         const res = await fetch("/api/update-check");
         if (!res.ok) return;
-        const data = await res.json() as { updateAvailable: boolean; latestVersion: string | null };
-        setState({ updateAvailable: data.updateAvailable, latestVersion: data.latestVersion });
+        const raw = await res.json();
+        const updateAvailable = raw?.updateAvailable === true;
+        const latestVersion = typeof raw?.latestVersion === "string" ? raw.latestVersion : null;
+        setState({ updateAvailable, latestVersion });
       } catch {
         // fail silently
       }
