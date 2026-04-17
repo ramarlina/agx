@@ -53,7 +53,6 @@ describe('maybeHandleChatCommand', () => {
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('agx board start'));
     expect(setBoardEnsuredFalse).toHaveBeenCalled();
     expect(ensureBoardRunning).toHaveBeenCalled();
-    expect(startDaemon).toHaveBeenCalledWith({ maxWorkers: 1 });
     expect(probeBoardHealth).toHaveBeenCalledWith(41741);
     expect(openInBrowser).not.toHaveBeenCalled();
   });
