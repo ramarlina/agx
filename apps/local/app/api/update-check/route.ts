@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { spawnSync } from "child_process";
 import { buildSpawnEnv } from "@/lib/shell-env";
+import { SHELL_COMMAND_TIMEOUT_MS } from "@/lib/constants/timing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +18,7 @@ export async function GET() {
 
   try {
     const res = await fetch("https://registry.npmjs.org/agx/latest", {
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(SHELL_COMMAND_TIMEOUT_MS),
     });
     if (res.ok) {
       const data = (await res.json()) as { version: string };
@@ -30,7 +31,7 @@ export async function GET() {
   try {
     const result = spawnSync("agx", ["--version"], {
       encoding: "utf8",
-      timeout: 5000,
+      timeout: SHELL_COMMAND_TIMEOUT_MS,
       env: buildSpawnEnv(),
     });
     if (result.status === 0) {
