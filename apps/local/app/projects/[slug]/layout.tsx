@@ -105,7 +105,7 @@ function ProjectLayoutContent({
     [pathname]
   );
 
-  const { show: stageShow } = useSidebarStage(currentProject);
+  const { show: stageShow, trackerConnections } = useSidebarStage(currentProject);
 
   const toggleSidebar = () => {
     const next = !sidebarVisible;
@@ -171,6 +171,7 @@ function ProjectLayoutContent({
         activeProjectId={currentProject.id}
         activeProjectView={activeProjectView}
         stageShow={stageShow}
+        trackerConnections={trackerConnections}
         onUpdateParticipant={async (participant) => {
           const response = await fetch("/api/participants", {
             method: "PATCH",
