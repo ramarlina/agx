@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { Check, ExternalLink, Link2, MessageSquare, Pin, Play, StickyNote } from "lucide-react";
+import { Check, ExternalLink, Link2, MessageSquare, Pin, Play, StickyNote, Tag } from "lucide-react";
 import { NoteSticker } from "@/components/tracker/NoteSticker";
+import { LabelPicker } from "@/components/tracker/LabelPicker";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import type { TrackerItem } from "@/lib/tracker/types";
 import type { Participant } from "@/lib/types";
@@ -26,6 +27,9 @@ export function TicketRow({
   estimate,
   localLabels,
   labelDefinitions,
+  allLabels,
+  onToggleLabel,
+  onAddLabel,
 }: {
   item: TrackerItem;
   selected: boolean;
@@ -43,6 +47,9 @@ export function TicketRow({
   estimate?: number | null;
   localLabels?: string[];
   labelDefinitions?: Array<{ name: string; color: string | null }>;
+  allLabels?: Array<{ name: string; color: string | null; defined: boolean }>;
+  onToggleLabel?: (label: string) => void;
+  onAddLabel?: (label: string) => void;
 }) {
   const [copied, setCopied] = useState(false);
   const copyResetTimeoutRef = useRef<number | null>(null);
@@ -51,6 +58,30 @@ export function TicketRow({
   const [noteContent, setNoteContent] = useState("");
   const [noteLoaded, setNoteLoaded] = useState(false);
   const [hasNote, setHasNote] = useState(false);
+  const labelButtonRef = useRef<HTMLButtonElement>(null);
+  const labelPopoverRef = useRef<HTMLDivElement>(null);
+  const [labelOpen, setLabelOpen] = useState(false);
+
+  useEffect(() => {
+    if (!labelOpen) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      if (
+        labelPopoverRef.current && !labelPopoverRef.current.contains(e.target as Node) &&
+        labelButtonRef.current && !labelButtonRef.current.contains(e.target as Node)
+      ) {
+        setLabelOpen(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLabelOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [labelOpen]);
 
   const loadNote = useCallback(async () => {
     if (!projectSlug || noteLoaded) return;
@@ -276,6 +307,41 @@ export function TicketRow({
         </span>
       )}
       <div className="flex shrink-0 items-center gap-1">
+        {onToggleLabel && allLabels && (
+          <div className="relative">
+            <button
+              ref={labelButtonRef}
+              type="button"
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded transition-all hover:bg-zinc-700 ${
+                localLabels && localLabels.length > 0
+                  ? "text-blue-400 opacity-100"
+                  : `text-[var(--muted-foreground)] ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`
+              }`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setLabelOpen((prev) => !prev);
+              }}
+              title={localLabels && localLabels.length > 0 ? "Edit labels" : "Add labels"}
+              aria-label={localLabels && localLabels.length > 0 ? "Edit labels" : "Add labels"}
+            >
+              <Tag size={10} className={localLabels && localLabels.length > 0 ? "fill-current" : ""} />
+            </button>
+            {labelOpen && (
+              <div
+                ref={labelPopoverRef}
+                className="absolute right-0 top-full z-30 mt-1 rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] p-2 shadow-xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <LabelPicker
+                  labels={allLabels}
+                  selectedLabels={localLabels ?? []}
+                  onToggle={onToggleLabel}
+                  onAdd={onAddLabel ?? (() => {})}
+                />
+              </div>
+            )}
+          </div>
+        )}
         {projectSlug && (
           <>
             <button
