@@ -510,6 +510,48 @@ export async function getIssueActivityMap(
   });
 }
 
+export interface IssueStats {
+  issueId: string;
+  sessions: number;
+  messages: number;
+}
+
+export async function getIssueStats(
+  projectId?: string | null
+): Promise<IssueStats[]> {
+  return withTrackerRunDatabase((db) => {
+    const hasProject = projectId?.trim();
+    const sql = hasProject
+      ? `SELECT tr.issue_id,
+                COUNT(DISTINCT tr.id) AS sessions,
+                COALESCE(SUM(mc.cnt), 0) AS messages
+         FROM tracker_runs tr
+         LEFT JOIN (
+           SELECT thread_id, COUNT(*) AS cnt FROM messages GROUP BY thread_id
+         ) mc ON mc.thread_id = tr.thread_id
+         WHERE tr.project_id = ?
+         GROUP BY tr.issue_id`
+      : `SELECT tr.issue_id,
+                COUNT(DISTINCT tr.id) AS sessions,
+                COALESCE(SUM(mc.cnt), 0) AS messages
+         FROM tracker_runs tr
+         LEFT JOIN (
+           SELECT thread_id, COUNT(*) AS cnt FROM messages GROUP BY thread_id
+         ) mc ON mc.thread_id = tr.thread_id
+         GROUP BY tr.issue_id`;
+
+    const rows = hasProject
+      ? (db.prepare(sql).all(projectId!.trim()) as unknown as Array<{ issue_id: string; sessions: number; messages: number }>)
+      : (db.prepare(sql).all() as unknown as Array<{ issue_id: string; sessions: number; messages: number }>);
+
+    return rows.map((row) => ({
+      issueId: row.issue_id,
+      sessions: row.sessions,
+      messages: row.messages,
+    }));
+  });
+}
+
 export interface IssueActiveAgent {
   issueId: string;
   agentId: string;

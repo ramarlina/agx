@@ -98,6 +98,7 @@ interface RawLinearIssueNode {
   title: string;
   description: string | null;
   url: string | null;
+  createdAt: string;
   updatedAt: string;
   state: LinearIssueState | null;
   assignee: LinearIssueAssignee | null;
@@ -184,6 +185,7 @@ export interface LinearIssueNode {
   title: string;
   description: string | null;
   url: string | null;
+  createdAt: string;
   updatedAt: string;
   state: Promise<LinearIssueState | null>;
   assignee: Promise<LinearIssueAssignee | null>;
@@ -490,6 +492,7 @@ export class LinearClient {
             title
             description
             url
+            createdAt
             updatedAt
             state { name }
             assignee { id name email }
@@ -516,6 +519,7 @@ export class LinearClient {
         title: issue.title,
         description: issue.description,
         url: issue.url,
+        createdAt: issue.createdAt,
         updatedAt: issue.updatedAt,
         state: Promise.resolve(issue.state),
         assignee: Promise.resolve(issue.assignee),
@@ -581,6 +585,7 @@ export class LinearClient {
             title
             description
             url
+            createdAt
             updatedAt
             state { name }
             assignee { id name email }

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { Check, ExternalLink, Link2, Pin, StickyNote } from "lucide-react";
+import { Check, ExternalLink, Link2, MessageSquare, Pin, Play, StickyNote } from "lucide-react";
 import { NoteSticker } from "@/components/tracker/NoteSticker";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import type { TrackerItem } from "@/lib/tracker/types";
@@ -21,6 +21,7 @@ export function TicketRow({
   draggable = false,
   treeConnector,
   projectSlug,
+  stats,
 }: {
   item: TrackerItem;
   selected: boolean;
@@ -33,6 +34,7 @@ export function TicketRow({
   draggable?: boolean;
   treeConnector?: "mid" | "last";
   projectSlug?: string;
+  stats?: { sessions: number; messages: number };
 }) {
   const [copied, setCopied] = useState(false);
   const copyResetTimeoutRef = useRef<number | null>(null);
@@ -188,6 +190,18 @@ export function TicketRow({
       <span className="shrink-0 text-xs text-[var(--muted-foreground)]">
         {shortStatus}
       </span>
+      {stats && stats.sessions > 0 && (
+        <span className="inline-flex shrink-0 items-center gap-2 text-[10px] tabular-nums text-[var(--muted-foreground)]" title={`${stats.sessions} session${stats.sessions !== 1 ? "s" : ""}, ${stats.messages} message${stats.messages !== 1 ? "s" : ""}`}>
+          <span className="inline-flex items-center gap-0.5">
+            <Play size={8} className="fill-current" />
+            {stats.sessions}
+          </span>
+          <span className="inline-flex items-center gap-0.5">
+            <MessageSquare size={8} />
+            {stats.messages}
+          </span>
+        </span>
+      )}
       {activeAgents && activeAgents.length > 0 && (
         <span className="inline-flex items-center -space-x-1 shrink-0">
           {activeAgents.slice(0, 3).map((agent) => {

@@ -279,6 +279,7 @@ export async function pullLinearIssues(input: {
           cycleId: cycle?.id ?? null,
           cycleName: cycle?.name ?? null,
           cycleNumber: cycle?.number ?? null,
+          createdAt: issue.createdAt,
           updatedAt: issue.updatedAt,
         } satisfies CachedLinearIssueInput;
       })

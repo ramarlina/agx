@@ -40,6 +40,7 @@ interface TrackerItemRow {
   cycle_number: number | null;
   priority: string | null;
   metadata_json: string | null;
+  created_at: string | null;
   updated_at: string;
   pulled_at: number;
 }
@@ -75,6 +76,7 @@ export interface CachedTrackerItemRecord {
   cycleNumber: number | null;
   priority: string | null;
   metadata: Record<string, unknown>;
+  createdAt: string | null;
   updatedAt: string;
   pulledAt: string;
 }
@@ -102,6 +104,7 @@ export interface CachedTrackerItemInput {
   cycleNumber?: number | null;
   priority?: string | null;
   metadata?: Record<string, unknown>;
+  createdAt?: string | null;
   updatedAt: string;
 }
 
@@ -211,6 +214,7 @@ function mapRow(row: TrackerItemRow): CachedTrackerItemRecord {
     cycleNumber: row.cycle_number,
     priority: row.priority,
     metadata: row.metadata_json ? JSON.parse(row.metadata_json) : {},
+    createdAt: row.created_at,
     updatedAt: row.updated_at,
     pulledAt: toIso(row.pulled_at),
   };
@@ -384,6 +388,7 @@ async function withTrackerItemDatabase<T>(run: (db: DatabaseSync) => T): Promise
     ensureColumn(db, "tracker_items", "status_category", "status_category TEXT NOT NULL DEFAULT 'todo'");
     ensureColumn(db, "tracker_items", "priority", "priority TEXT");
     ensureColumn(db, "tracker_items", "metadata_json", "metadata_json TEXT");
+    ensureColumn(db, "tracker_items", "created_at", "created_at TEXT");
 
     return run(db);
   } finally {
@@ -411,8 +416,8 @@ export async function replaceCachedTrackerItems(input: {
           labels_json, url, status, status_category,
           assignee_id, assignee_name, assignee_email, is_assigned_to_me,
           team_id, team_name, team_key, cycle_id, cycle_name, cycle_number,
-          priority, metadata_json, updated_at, pulled_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          priority, metadata_json, created_at, updated_at, pulled_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(issue_id) DO UPDATE SET
           tracker_type = excluded.tracker_type,
           tracker_id = excluded.tracker_id,
@@ -435,6 +440,7 @@ export async function replaceCachedTrackerItems(input: {
           cycle_number = excluded.cycle_number,
           priority = excluded.priority,
           metadata_json = excluded.metadata_json,
+          created_at = excluded.created_at,
           updated_at = excluded.updated_at,
           pulled_at = excluded.pulled_at
       `);
@@ -464,6 +470,7 @@ export async function replaceCachedTrackerItems(input: {
           toOptionalNumber(issue.cycleNumber ?? null),
           toOptionalString(issue.priority ?? null),
           issue.metadata ? JSON.stringify(issue.metadata) : null,
+          toOptionalString(issue.createdAt ?? null),
           issue.updatedAt.trim(),
           pulledAtMs
         );
@@ -693,7 +700,7 @@ export async function listCachedTrackerItems(
         orderClause = `ORDER BY LOWER(status) ${dirSql}, identifier ASC`;
         break;
       case "created":
-        orderClause = `ORDER BY pulled_at ${dirSql}, identifier ASC`;
+        orderClause = `ORDER BY COALESCE(created_at, updated_at) ${dirSql}, identifier ASC`;
         break;
       default:
         orderClause = `ORDER BY updated_at ${dirSql}, identifier ASC`;

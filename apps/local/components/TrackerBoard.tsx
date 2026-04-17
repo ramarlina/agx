@@ -56,6 +56,7 @@ import { TicketRow } from "@/components/tracker/TicketRow";
 import { TicketPanel } from "@/components/tracker/TicketPanel";
 import { useTrackerParticipants } from "@/hooks/useTrackerParticipants";
 import { useTrackerActiveAgents } from "@/hooks/useTrackerActiveAgents";
+import { useTrackerIssueStats } from "@/hooks/useTrackerIssueStats";
 import { agentAvatarUrl } from "@/lib/tracker-board-utils";
 import { useTaskGroups, type TaskGroup } from "@/hooks/useTaskGroups";
 import { FolderRow } from "@/components/tracker/FolderRow";
@@ -410,12 +411,12 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
   const [sortBy, setSortBy] = useState<"activity" | "identifier" | "status" | "created">("activity");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [hasActivity, setHasActivity] = useState(false);
   const [pinnedItemIds, setPinnedItemIds] = useState<Set<string>>(() => loadPinnedTrackerItemIds(trackerType, projectSlug));
   const [selectedItemFallback, setSelectedItemFallback] = useState<TrackerItem | null>(null);
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
   const { participants } = useTrackerParticipants(trackerType, projectId);
   const { issueActiveAgents } = useTrackerActiveAgents(trackerType, projectId);
+  const { issueStats } = useTrackerIssueStats(trackerType, projectId);
   const [pickerItem, setPickerItem] = useState<TrackerItem | null>(null);
   const [pickerAnchor, setPickerAnchor] = useState<{ top: number; left: number } | null>(null);
   const [touchPanelTab, setTouchPanelTab] = useState<"runs" | "ticket">("runs");
@@ -617,7 +618,6 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     setSelectedGroupId(storedFilters.groupIds?.[0] ?? "");
     setSortBy(storedFilters.sortBy);
     setSortDir(storedFilters.sortDir);
-    setHasActivity(storedFilters.hasActivity);
     setPinnedItemIds(loadPinnedTrackerItemIds(trackerType, projectSlug));
   }, [trackerType, projectSlug]);
 
@@ -634,9 +634,9 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
       groupIds: selectedGroupId ? [selectedGroupId] : [],
       sortBy,
       sortDir,
-      hasActivity,
+      hasActivity: false,
     });
-  }, [trackerType, projectSlug, search, selectedAssigneeIds, selectedStatusCategories, selectedWorkspaceId, selectedGroupId, sortBy, sortDir, hasActivity]);
+  }, [trackerType, projectSlug, search, selectedAssigneeIds, selectedStatusCategories, selectedWorkspaceId, selectedGroupId, sortBy, sortDir]);
 
   // Fetch filter options when connected
   useEffect(() => {
@@ -733,9 +733,8 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
       groupIds: selectedGroupId ? [selectedGroupId] : undefined,
       sortBy,
       sortDir,
-      hasActivity: hasActivity || undefined,
     }),
-    [debouncedSearch, selectedAssigneeIds, selectedGroupId, selectedStatusCategories, statusCategories.length, sortBy, sortDir, hasActivity]
+    [debouncedSearch, selectedAssigneeIds, selectedGroupId, selectedStatusCategories, statusCategories.length, sortBy, sortDir]
   );
 
   const {
@@ -774,6 +773,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   const {
     runs,
     loading: runsLoading,
+    loadedForIssueId: runsLoadedForIssueId,
     createRun,
     updateRun,
   } = useTrackerRuns(trackerType, selectedItem?.id ?? null, projectId ?? null);
@@ -950,12 +950,12 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   }, [selectedItemId, selectedRunId]);
 
   useEffect(() => {
-    if (!isAwaitingRestore || runsLoading || runs.length === 0) return;
+    if (!isAwaitingRestore || runsLoading || runsLoadedForIssueId !== selectedItemId) return;
     lastRestoredItemRef.current = selectedItemId;
     if (storedRunId && runs.some((r) => r.id === storedRunId)) {
       replaceSelection({ run: storedRunId });
     }
-  }, [isAwaitingRestore, storedRunId, selectedItemId, runs, runsLoading, replaceSelection]);
+  }, [isAwaitingRestore, storedRunId, selectedItemId, runs, runsLoading, runsLoadedForIssueId, replaceSelection]);
 
   useEffect(() => {
     if (!isTouchLayout) {
@@ -1180,10 +1180,10 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                   label="Sort"
                   value={sortBy}
                   options={[
-                    { value: "activity", label: "Activity" },
+                    { value: "activity", label: "Updated At" },
                     { value: "identifier", label: "Ticket ID" },
                     { value: "status", label: "Status" },
-                    { value: "created", label: "Created" },
+                    { value: "created", label: "Created At" },
                   ]}
                   activeClasses="border-sky-500/30 bg-sky-500/10 text-sky-400"
                   onChange={(value) => setSortBy(value as typeof sortBy)}
@@ -1195,17 +1195,6 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                   onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
                 >
                   {sortDir === "desc" ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
-                </button>
-                <button
-                  type="button"
-                  className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                    hasActivity
-                      ? "border-orange-500/30 bg-orange-500/10 text-orange-400"
-                      : "border-[var(--card-border)] text-[var(--muted-foreground)] hover:bg-[var(--card-bg)]"
-                  }`}
-                  onClick={() => setHasActivity((v) => !v)}
-                >
-                  My activity
                 </button>
               </div>
             </div>
@@ -1235,6 +1224,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                         activeAgents={issueActiveAgents.get(item.id)}
                         participants={participants}
                         projectSlug={projectSlug}
+                        stats={issueStats.get(item.id)}
                         onSelect={() => {
                           setTouchPanelTab("runs");
                           pushSelection({
@@ -1512,10 +1502,10 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
               label="Sort"
               value={sortBy}
               options={[
-                { value: "activity", label: "Activity" },
+                { value: "activity", label: "Updated At" },
                 { value: "identifier", label: "Ticket ID" },
                 { value: "status", label: "Status" },
-                { value: "created", label: "Created" },
+                { value: "created", label: "Created At" },
               ]}
               activeClasses="border-sky-500/30 bg-sky-500/10 text-sky-400"
               onChange={(value) => setSortBy(value as typeof sortBy)}
@@ -1527,17 +1517,6 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
               onClick={() => setSortDir((d) => (d === "desc" ? "asc" : "desc"))}
             >
               {sortDir === "desc" ? <ArrowDown size={12} /> : <ArrowUp size={12} />}
-            </button>
-            <button
-              type="button"
-              className={`flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
-                hasActivity
-                  ? "border-orange-500/30 bg-orange-500/10 text-orange-400"
-                  : "border-[var(--card-border)] text-[var(--muted-foreground)] hover:bg-[var(--card-bg)]"
-              }`}
-              onClick={() => setHasActivity((v) => !v)}
-            >
-              My activity
             </button>
           </div>
         </div>
@@ -1645,6 +1624,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                               multiSelected={multiSelectedItemIds.has(gi.id)}
                               treeConnector={giIdx === groupItems.length - 1 ? "last" : "mid"}
                               projectSlug={projectSlug}
+                              stats={issueStats.get(gi.id)}
                               onSelect={(event) => {
                                 if (event && (event.metaKey || event.ctrlKey)) {
                                   toggleItemMultiSelect(gi.id);
@@ -1687,6 +1667,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                         draggable
                         multiSelected={multiSelectedItemIds.has(item.id)}
                         projectSlug={projectSlug}
+                        stats={issueStats.get(item.id)}
                         onSelect={(event) => {
                           if (event && (event.metaKey || event.ctrlKey)) {
                             toggleItemMultiSelect(item.id);
