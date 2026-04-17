@@ -14,6 +14,7 @@ interface EnrichedProcessEntry {
   threadTitle: string | null;
   linearIssueId: string | null;
   linearRunId: string | null;
+  trackerType: string | null;
 }
 
 interface Participant {
@@ -171,7 +172,7 @@ export function RecentlyCompletedCard({
                 onClick={() =>
                   router.push(
                     process.linearIssueId && process.linearRunId
-                      ? `/projects/${projectSlug}/linear?issue=${encodeURIComponent(process.linearIssueId)}&run=${encodeURIComponent(process.linearRunId)}`
+                      ? `/projects/${projectSlug}/${process.trackerType ?? "linear"}?issue=${encodeURIComponent(process.linearIssueId)}&run=${encodeURIComponent(process.linearRunId)}`
                       : `/projects/${projectSlug}/thread/${encodeURIComponent(process.workspaceId)}${process.threadId ? `?open=${encodeURIComponent(process.threadId)}` : ""}`
                   )
                 }

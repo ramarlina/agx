@@ -52,6 +52,15 @@ export function NoteSticker({ anchorRef, value, onChange, onClose, onSave }: Not
     },
   });
 
+  useEffect(() => {
+    if (!editor) return;
+
+    const current = (editor.storage as Record<string, any>).markdown?.getMarkdown() ?? "";
+    if (current !== value && !editor.isFocused) {
+      editor.commands.setContent(value);
+    }
+  }, [editor, value]);
+
   // Focus on mount
   useEffect(() => {
     if (editor) {

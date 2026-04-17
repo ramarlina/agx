@@ -620,10 +620,21 @@ export async function listCachedTrackerItems(
       params.push(teamId);
     }
 
-    const cycleId = toOptionalString(input.cycleId ?? null);
-    if (cycleId) {
-      clauses.push("cycle_id = ?");
-      params.push(cycleId);
+    const groupIds = Array.from(
+      new Set(
+        [
+          ...((input.groupIds ?? [])
+            .map((groupId) => toOptionalString(groupId))
+            .filter((groupId): groupId is string => Boolean(groupId))),
+          ...((input.cycleId ? [input.cycleId] : [])
+            .map((cycleId) => toOptionalString(cycleId))
+            .filter((cycleId): cycleId is string => Boolean(cycleId))),
+        ]
+      )
+    );
+    if (groupIds.length > 0) {
+      clauses.push(`cycle_id IN (${groupIds.map(() => "?").join(", ")})`);
+      params.push(...groupIds);
     }
 
     // Activity-based filtering
