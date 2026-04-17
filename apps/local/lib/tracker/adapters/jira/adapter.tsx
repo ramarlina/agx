@@ -43,6 +43,7 @@ export function JiraIcon({ className }: { className?: string }) {
 export class JiraAdapter implements TrackerAdapter {
   type = "jira" as const;
   displayName = "Jira Cloud";
+  groupLabel = "Sprint";
   icon = JiraIcon;
 
   getAuthUrl(projectId: string): string {
