@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { ArrowDown, ArrowUp, ChevronLeft, Clock, FileText, Play, Plus, RefreshCw, Search, Settings, User, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Clock, FileText, Play, Plus, RefreshCw, Search, Settings, User, X } from "lucide-react";
 import { useUrlSelection } from "@/hooks/useUrlSelection";
 import { useTrackerItems } from "@/hooks/useTrackerItems";
 import type { TrackerItem, TrackerStatusCategory } from "@/lib/tracker/types";
@@ -89,6 +89,13 @@ function formatRunTime(iso: string): string {
     minute: "2-digit",
   });
 }
+
+const STATUS_CATEGORY_COLORS: Record<string, string> = {
+  todo: "bg-zinc-400",
+  in_progress: "bg-amber-400",
+  done: "bg-emerald-400",
+  cancelled: "bg-red-400",
+};
 
 interface GroupOption {
   id: string;
@@ -414,6 +421,8 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   const [pinnedItemIds, setPinnedItemIds] = useState<Set<string>>(() => loadPinnedTrackerItemIds(trackerType, projectSlug));
   const [selectedItemFallback, setSelectedItemFallback] = useState<TrackerItem | null>(null);
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
+  const [collapsedStatusGroups, setCollapsedStatusGroups] = useState<Set<string>>(new Set());
+  const groupByStatus = true;
   const { participants } = useTrackerParticipants(trackerType, projectId);
   const { issueActiveAgents } = useTrackerActiveAgents(trackerType, projectId);
   const { issueStats } = useTrackerIssueStats(trackerType, projectId);
@@ -769,6 +778,23 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     return [...pinned, ...unpinned];
   }, [items, pinnedItemIds]);
   sortedItemsRef.current = sortedItems;
+
+  const statusGroups = useMemo(() => {
+    if (!groupByStatus) return [];
+    const map = new Map<string, { status: string; category: TrackerStatusCategory; items: TrackerItem[] }>();
+    for (const item of sortedItems) {
+      let group = map.get(item.status);
+      if (!group) {
+        group = { status: item.status, category: item.statusCategory, items: [] };
+        map.set(item.status, group);
+      }
+      group.items.push(item);
+    }
+    const categoryOrder: Record<string, number> = { in_progress: 0, todo: 1, done: 2, cancelled: 3 };
+    return [...map.values()].sort(
+      (a, b) => (categoryOrder[a.category] ?? 1) - (categoryOrder[b.category] ?? 1)
+    );
+  }, [groupByStatus, sortedItems]);
 
   const {
     runs,
@@ -1210,32 +1236,80 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                 </div>
               ) : (
                 <>
-                  {sortedItems.map((item, idx) => (
-                    <React.Fragment key={item.id}>
-                      {pinnedItemIds.size > 0 &&
-                        !pinnedItemIds.has(item.id) &&
-                        (idx === 0 || pinnedItemIds.has(sortedItems[idx - 1].id)) && (
-                          <div className="mx-4 border-t border-amber-500/20" />
-                        )}
-                      <TicketRow
-                        item={item}
-                        selected={selectedItem?.id === item.id}
-                        pinned={pinnedItemIds.has(item.id)}
-                        activeAgents={issueActiveAgents.get(item.id)}
-                        participants={participants}
-                        projectSlug={projectSlug}
-                        stats={issueStats.get(item.id)}
-                        onSelect={() => {
-                          setTouchPanelTab("runs");
-                          pushSelection({
-                            issue: item.id,
-                            run: null,
-                          });
-                        }}
-                        onTogglePin={() => togglePin(item.id)}
-                      />
-                    </React.Fragment>
-                  ))}
+                  {groupByStatus ? (
+                    statusGroups.map((sg) => {
+                      const collapsed = collapsedStatusGroups.has(sg.status);
+                      return (
+                        <React.Fragment key={`sg-${sg.status}`}>
+                          <div
+                            className="sticky top-0 z-[5] flex cursor-pointer items-center gap-2 border-b border-[var(--card-border)] bg-[var(--app-shell-pane)] px-3 py-2"
+                            onClick={() =>
+                              setCollapsedStatusGroups((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(sg.status)) next.delete(sg.status);
+                                else next.add(sg.status);
+                                return next;
+                              })
+                            }
+                          >
+                            {collapsed ? <ChevronRight size={14} className="shrink-0 text-[var(--muted-foreground)]" /> : <ChevronDown size={14} className="shrink-0 text-[var(--muted-foreground)]" />}
+                            <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_CATEGORY_COLORS[sg.category] ?? "bg-zinc-400"}`} />
+                            <span className="text-xs font-medium text-[var(--foreground)]">{sg.status}</span>
+                            <span className="text-[10px] tabular-nums text-[var(--muted-foreground)]">{sg.items.length}</span>
+                          </div>
+                          {!collapsed &&
+                            sg.items.map((item) => (
+                              <TicketRow
+                                key={item.id}
+                                item={item}
+                                selected={selectedItem?.id === item.id}
+                                pinned={pinnedItemIds.has(item.id)}
+                                activeAgents={issueActiveAgents.get(item.id)}
+                                participants={participants}
+                                projectSlug={projectSlug}
+                                stats={issueStats.get(item.id)}
+                                hideStatus
+                                onSelect={() => {
+                                  setTouchPanelTab("runs");
+                                  pushSelection({
+                                    issue: item.id,
+                                    run: null,
+                                  });
+                                }}
+                                onTogglePin={() => togglePin(item.id)}
+                              />
+                            ))}
+                        </React.Fragment>
+                      );
+                    })
+                  ) : (
+                    sortedItems.map((item, idx) => (
+                      <React.Fragment key={item.id}>
+                        {pinnedItemIds.size > 0 &&
+                          !pinnedItemIds.has(item.id) &&
+                          (idx === 0 || pinnedItemIds.has(sortedItems[idx - 1].id)) && (
+                            <div className="mx-4 border-t border-amber-500/20" />
+                          )}
+                        <TicketRow
+                          item={item}
+                          selected={selectedItem?.id === item.id}
+                          pinned={pinnedItemIds.has(item.id)}
+                          activeAgents={issueActiveAgents.get(item.id)}
+                          participants={participants}
+                          projectSlug={projectSlug}
+                          stats={issueStats.get(item.id)}
+                          onSelect={() => {
+                            setTouchPanelTab("runs");
+                            pushSelection({
+                              issue: item.id,
+                              run: null,
+                            });
+                          }}
+                          onTogglePin={() => togglePin(item.id)}
+                        />
+                      </React.Fragment>
+                    ))
+                  )}
                   {hasMore ? (
                     <div
                       ref={sentinelRef}
@@ -1538,18 +1612,83 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
             </div>
           ) : (
             <>
-              {/* Unified list: groups rendered inline at first-member position */}
-              {(() => {
+              {groupByStatus ? (
+                /* ── Status-grouped view ── */
+                statusGroups.map((sg) => {
+                  const collapsed = collapsedStatusGroups.has(sg.status);
+                  return (
+                    <React.Fragment key={`sg-${sg.status}`}>
+                      <div
+                        className="sticky top-0 z-[5] flex cursor-pointer items-center gap-2 border-b border-[var(--card-border)] bg-[var(--app-shell-pane)] px-4 py-2"
+                        onClick={() =>
+                          setCollapsedStatusGroups((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(sg.status)) next.delete(sg.status);
+                            else next.add(sg.status);
+                            return next;
+                          })
+                        }
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setCollapsedStatusGroups((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(sg.status)) next.delete(sg.status);
+                              else next.add(sg.status);
+                              return next;
+                            });
+                          }
+                        }}
+                      >
+                        {collapsed ? <ChevronRight size={14} className="shrink-0 text-[var(--muted-foreground)]" /> : <ChevronDown size={14} className="shrink-0 text-[var(--muted-foreground)]" />}
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_CATEGORY_COLORS[sg.category] ?? "bg-zinc-400"}`} />
+                        <span className="text-xs font-medium text-[var(--foreground)]">{sg.status}</span>
+                        <span className="text-[10px] tabular-nums text-[var(--muted-foreground)]">{sg.items.length}</span>
+                      </div>
+                      {!collapsed &&
+                        sg.items.map((item) => (
+                          <TicketRow
+                            key={item.id}
+                            item={item}
+                            selected={selectedItem?.id === item.id}
+                            pinned={pinnedItemIds.has(item.id)}
+                            activeAgents={issueActiveAgents.get(item.id)}
+                            participants={participants}
+                            draggable
+                            multiSelected={multiSelectedItemIds.has(item.id)}
+                            projectSlug={projectSlug}
+                            stats={issueStats.get(item.id)}
+                            hideStatus
+                            onSelect={(event) => {
+                              if (event && (event.metaKey || event.ctrlKey)) {
+                                toggleItemMultiSelect(item.id);
+                              } else {
+                                pushSelection({
+                                  issue: item.id,
+                                  run: null,
+                                  group: null,
+                                });
+                              }
+                            }}
+                            onTogglePin={() => togglePin(item.id)}
+                          />
+                        ))}
+                    </React.Fragment>
+                  );
+                })
+              ) : (
+              /* ── Flat/folder view ── */
+              (() => {
                 const pendingSet = showGroupNamePrompt ? new Set(pendingGroupTaskIds) : null;
 
-                // Build a map: itemId → group (for the first member of each group)
                 const firstMemberToGroup = new Map<string, typeof taskGroups[number]>();
                 for (const group of taskGroups) {
                   const firstInSort = sortedItems.find((i) => group.task_ids.includes(i.id));
                   if (firstInSort) firstMemberToGroup.set(firstInSort.id, group);
                 }
 
-                // Pending group prompt: find insert position
                 const pendingTickets = showGroupNamePrompt
                   ? pendingGroupTaskIds
                       .map((id) => sortedItems.find((i) => i.id === id))
@@ -1557,14 +1696,11 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                       .map((i) => ({ id: i!.id, identifier: i!.identifier, title: i!.title, status: STATUS_LABELS[i!.status] ?? i!.status }))
                   : [];
 
-                // Track which groups we've rendered
                 const renderedGroups = new Set<string>();
                 let looseIdx = 0;
 
                 return sortedItems.map((item) => {
-                  // Skip pending tickets
                   if (pendingSet?.has(item.id)) {
-                    // Render prompt at target position
                     if (item.id === pendingGroupTargetId && showGroupNamePrompt) {
                       return (
                         <GroupNamePrompt
@@ -1582,7 +1718,6 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                     return null;
                   }
 
-                  // If this item is the first member of a group, render the group here
                   const group = firstMemberToGroup.get(item.id);
                   if (group && !renderedGroups.has(group.id)) {
                     renderedGroups.add(group.id);
@@ -1643,10 +1778,8 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                     );
                   }
 
-                  // Skip grouped items (already rendered with their group)
                   if (groupedItemIds.has(item.id)) return null;
 
-                  // Loose ticket
                   const currentLooseIdx = looseIdx++;
                   const prevLoose = currentLooseIdx > 0
                     ? sortedItems.filter((i) => !groupedItemIds.has(i.id) && (!pendingSet || !pendingSet.has(i.id)))[currentLooseIdx - 1]
@@ -1684,7 +1817,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                     </React.Fragment>
                   );
                 });
-              })()}
+              })())}
               {hasMore ? (
                 <div
                   ref={sentinelRef}
@@ -1720,7 +1853,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
         </DndContext>
       </div>
 
-      <ResizeHandle onResize={(delta) => setTicketPanelWidth((w) => { const next = Math.max(180, Math.min(600, w + delta)); persistLinearTicketPanelWidth(next); return next; })} />
+      <ResizeHandle onResize={(delta) => setTicketPanelWidth((w) => { const next = Math.max(280, Math.min(960, w + delta)); persistLinearTicketPanelWidth(next); return next; })} />
 
       {showRunScripts ? (
         <div
