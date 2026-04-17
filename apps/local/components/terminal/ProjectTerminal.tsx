@@ -40,7 +40,7 @@ export default function ProjectTerminal() {
 
   const { getSelection, replaceSelection } = useUrlSelection();
   const searchParams = useSearchParams();
-  const initCmd = searchParams.get("cmd");
+  const initCmdRef = useRef(searchParams.get("cmd"));
   const initCmdSentRef = useRef(false);
   const firstTerminalPaneRef = useRef<TerminalPaneHandle>(null);
   const selectedId = getSelection("session");
@@ -74,11 +74,11 @@ export default function ProjectTerminal() {
 
   // Clear ?cmd param from URL immediately on mount so refresh won't re-run
   useEffect(() => {
-    if (!initCmd) return;
+    if (!initCmdRef.current) return;
     const url = new URL(window.location.href);
     url.searchParams.delete("cmd");
     window.history.replaceState({}, "", url.toString());
-  }, [initCmd]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selectedSession = sessions.find((s) => s.id === selectedId);
 
@@ -254,10 +254,10 @@ export default function ProjectTerminal() {
             tabId={terminal.id}
             onSessionReady={(backendSessionId) => {
               setTerminalSessionId(projectId, sessionId, terminal.id, backendSessionId);
-              if (paneRef && initCmd && !initCmdSentRef.current) {
+              if (paneRef && initCmdRef.current && !initCmdSentRef.current) {
                 initCmdSentRef.current = true;
                 setTimeout(() => {
-                  paneRef.current?.sendCommand(initCmd);
+                  paneRef.current?.sendCommand(initCmdRef.current!);
                 }, 300);
               }
             }}
