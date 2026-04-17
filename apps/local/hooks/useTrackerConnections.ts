@@ -75,11 +75,13 @@ export function useTrackerConnections(projectId: string | null): UseTrackerConne
     async (type: string) => {
       if (!projectId) return { ok: false, error: "Missing projectId" };
       try {
-        const res = await fetch("/api/trackers/connections", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ type, projectId }),
-        });
+        // Use the tracker-specific status DELETE which clears the token and removes
+        // from the manifest. The connections DELETE alone is insufficient because the
+        // GET endpoint auto-re-registers adapters that still have valid tokens.
+        const res = await fetch(
+          `/api/trackers/${type}/status?projectId=${encodeURIComponent(projectId)}`,
+          { method: "DELETE" }
+        );
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           return { ok: false, error: data.error || "Failed to remove connection" };

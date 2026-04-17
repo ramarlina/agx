@@ -11,7 +11,7 @@ import { Markdown } from "./Markdown";
 import { MessageAttachments } from "./MessageAttachments";
 import { ActionToolbar, ActionToolbarDivider } from "../ActionToolbar";
 import { IconButton } from "../IconButton";
-import { MessageSquare, Copy, Hash, Loader2, Trash2, User, Clock, Zap, CheckCircle2, Circle, Link, AtSign, Rocket } from "lucide-react";
+import { MessageSquare, Copy, Hash, Loader2, Trash2, User, Clock, Zap, CheckCircle2, Circle, Link, AtSign, Rocket, ArrowUpDown, ArrowDown, ArrowUp } from "lucide-react";
 import { agentAvatarUrl } from "./ParticipantBar";
 import { stripMarkers } from "@/lib/chat-utils";
 
@@ -99,15 +99,32 @@ export function MessageList({
   shipModeThreads,
 }: Props) {
   const messageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [statusMenuMessageId, setStatusMenuMessageId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"active" | "paused" | "in-review" | "done" | "archived">("active");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
   const participantMap = Object.fromEntries(participants.map((p) => [p.id, p]));
 
-  // Filter to only main chat messages (not thread replies), reverse chronological
+  // Filter to only main chat messages (not thread replies)
   const allMainMessages = useMemo(
-    () => [...messages.filter((msg) => !msg.rootMessageId)].reverse(),
-    [messages]
+    () => {
+      const filtered = messages.filter((msg) => !msg.rootMessageId);
+      return sortOrder === "asc"
+        ? [...filtered].sort((a, b) => a.timestamp - b.timestamp)
+        : [...filtered].sort((a, b) => b.timestamp - a.timestamp);
+    },
+    [messages, sortOrder]
   );
+
+  // Auto-scroll to bottom when newest is at bottom (asc) and new messages arrive
+  const prevMessageCountRef = useRef(0);
+  useEffect(() => {
+    if (sortOrder !== "asc") { prevMessageCountRef.current = allMainMessages.length; return; }
+    if (allMainMessages.length > prevMessageCountRef.current) {
+      scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: "smooth" });
+    }
+    prevMessageCountRef.current = allMainMessages.length;
+  }, [allMainMessages.length, sortOrder]);
 
   const TAB_FILTERS: Record<typeof activeTab, Set<ThreadStatus>> = {
     active: new Set(["active"]),
@@ -151,8 +168,6 @@ export function MessageList({
     element.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [highlightedMessageId, messages]);
 
-  // No auto-scroll needed — newest messages are at the top
-
   const TABS: { key: typeof activeTab; label: string }[] = [
     { key: "active", label: "Active" },
     { key: "paused", label: "Paused" },
@@ -162,10 +177,11 @@ export function MessageList({
   ];
 
   return (
-    <div className="chat-scrollbar flex-1 overflow-y-auto p-4">
+    <div ref={scrollContainerRef} className="chat-scrollbar flex-1 overflow-y-auto p-4">
       <div className="max-w-3xl mx-auto">
         {allMainMessages.length > 0 && (
-          <div className="flex items-center justify-center gap-1 p-1 rounded-lg w-fit mx-auto border border-[var(--app-shell-border)] bg-[var(--app-shell-subtle)] mb-4">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <div className="flex items-center gap-1 p-1 rounded-lg border border-[var(--app-shell-border)] bg-[var(--app-shell-subtle)]">
             {TABS.map((tab) => {
               const count = tabCounts[tab.key];
               const isActive = activeTab === tab.key;
@@ -189,6 +205,16 @@ export function MessageList({
                 </button>
               );
             })}
+            </div>
+            <button
+              type="button"
+              onClick={() => setSortOrder((o) => o === "asc" ? "desc" : "asc")}
+              title={sortOrder === "asc" ? "Newest at bottom — click to flip" : "Newest at top — click to flip"}
+              className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg border border-[var(--app-shell-border)] bg-[var(--app-shell-subtle)] text-[var(--app-shell-muted)] hover:text-[var(--foreground)] text-[10px] font-bold transition-colors"
+            >
+              {sortOrder === "asc" ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
+              {sortOrder === "asc" ? "Oldest first" : "Newest first"}
+            </button>
           </div>
         )}
         {/* Top-level streaming indicators are now rendered inside their triggering message card */}

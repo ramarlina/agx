@@ -96,6 +96,10 @@ export default function TrackerSettingsModal({
               connected={connected}
               onConnect={onConnect}
               onConnectWithKey={onConnectWithKey}
+              onDisconnect={onDisconnect}
+              clis={clis}
+              mcpConfigured={mcpConfigured}
+              onConfigureMcp={onConfigureMcp}
             />
           )}
           {tab === "worker" && connected && (

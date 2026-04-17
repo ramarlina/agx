@@ -13,43 +13,37 @@ function redirect(path: string) {
   return NextResponse.redirect(new URL(path, getConfiguredAppBaseUrl()));
 }
 
-function parseProjectIdFromState(stateParam: string | null): string | null {
-  if (!stateParam) return null;
-  try {
-    const decoded = JSON.parse(Buffer.from(stateParam, "base64url").toString());
-    return typeof decoded.projectId === "string" ? decoded.projectId : null;
-  } catch {
-    return null;
-  }
-}
-
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ tracker: string }> }
 ) {
   const { tracker } = await params;
-  const code = req.nextUrl.searchParams.get("code");
-  const state = req.nextUrl.searchParams.get("state");
+  const projectId = req.cookies.get(AUTH_PROJECT_COOKIE)?.value?.trim();
 
-  const projectId =
-    parseProjectIdFromState(state) ??
-    req.cookies.get(AUTH_PROJECT_COOKIE)?.value?.trim();
-
-  if (!code || !projectId) {
-    return redirect("/?tracker=error");
+  if (!projectId) {
+    return redirect("/?tracker=error&reason=missing_project");
   }
 
   const adapter = resolveAdapter(tracker);
 
+  if (!adapter.handleTokenDelivery) {
+    return redirect("/?tracker=error&reason=unsupported");
+  }
+
+  const tokenParams: Record<string, string> = {};
+  for (const [key, value] of req.nextUrl.searchParams.entries()) {
+    tokenParams[key] = value;
+  }
+
   try {
-    await adapter.handleCallback(projectId, code);
+    await adapter.handleTokenDelivery(projectId, tokenParams);
 
     addTrackerConnection(projectId, {
       type: tracker,
       connectedAt: new Date().toISOString(),
     });
 
-    const response = redirect(`/?${tracker}=connected`);
+    const response = redirect("/?tracker=connected");
     response.cookies.delete(AUTH_PROJECT_COOKIE);
     return response;
   } catch {

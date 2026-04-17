@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import "@/lib/tracker"; // Ensure adapters are registered
-import { badRequest } from "@/lib/tracker/route-helpers";
-import { saveProjectTicketToken } from "@/lib/tracker/adapters/linear/client";
+import "@/lib/tracker";
+import { resolveAdapter, badRequest } from "@/lib/tracker/route-helpers";
 import { addTrackerConnection } from "@/lib/tracker/connections";
 
 export const runtime = "nodejs";
@@ -23,7 +22,23 @@ export async function POST(
   if (!projectId) return badRequest("projectId required");
   if (!accessToken) return badRequest("accessToken required");
 
-  saveProjectTicketToken(projectId, tracker, { accessToken });
+  const adapter = resolveAdapter(tracker);
+
+  if (!adapter.handleApiKeyConnect) {
+    return NextResponse.json(
+      { error: `${adapter.displayName} does not support API key authentication` },
+      { status: 400 }
+    );
+  }
+
+  try {
+    await adapter.handleApiKeyConnect(projectId, accessToken);
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed to save token" },
+      { status: 400 }
+    );
+  }
 
   addTrackerConnection(projectId, {
     type: tracker,

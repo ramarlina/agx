@@ -3,6 +3,7 @@ import "server-only";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
+import { getConfiguredAppBaseUrl } from "@/lib/app-config";
 
 const AGX_DIR = path.join(homedir(), ".agx");
 
@@ -67,30 +68,14 @@ export function deleteJiraToken(projectId: string): void {
 
 // ── OAuth helpers ───────────────────────────────────────────────────
 
-export function getJiraAuthUrl(projectId: string): string {
-  const clientId = process.env.JIRA_CLIENT_ID;
-  if (!clientId) {
-    throw new Error("JIRA_CLIENT_ID environment variable is not set");
-  }
-  const redirectUri = getJiraRedirectUri();
-  const state = Buffer.from(JSON.stringify({ projectId })).toString("base64url");
-
-  const params = new URLSearchParams({
-    audience: "api.atlassian.com",
-    client_id: clientId,
-    scope: "read:jira-work write:jira-work read:jira-user offline_access",
-    redirect_uri: redirectUri,
-    response_type: "code",
-    prompt: "consent",
-    state,
-  });
-
-  return `${JIRA_AUTH_BASE}/authorize?${params.toString()}`;
+export function getJiraAuthUrl(_projectId: string): string {
+  const appUrl = getConfiguredAppBaseUrl();
+  const port = new URL(appUrl).port || "41741";
+  return `https://www.runagx.com/integrations/jira/auth?port=${port}`;
 }
 
 function getJiraRedirectUri(): string {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-  return `${appUrl}/api/trackers/jira/callback`;
+  return `${getConfiguredAppBaseUrl()}/api/trackers/jira/callback`;
 }
 
 export async function exchangeJiraCode(code: string): Promise<{
@@ -135,21 +120,10 @@ export async function refreshJiraToken(refreshToken: string): Promise<{
   refreshToken: string;
   expiresAt: number;
 }> {
-  const clientId = process.env.JIRA_CLIENT_ID;
-  const clientSecret = process.env.JIRA_CLIENT_SECRET;
-  if (!clientId || !clientSecret) {
-    throw new Error("JIRA_CLIENT_ID and JIRA_CLIENT_SECRET must be set");
-  }
-
-  const res = await fetch(`${JIRA_AUTH_BASE}/oauth/token`, {
+  const res = await fetch("https://www.runagx.com/integrations/jira/refresh", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-      client_id: clientId,
-      client_secret: clientSecret,
-    }),
+    body: JSON.stringify({ refresh_token: refreshToken }),
   });
 
   if (!res.ok) {
@@ -225,27 +199,28 @@ export class JiraClient {
   // ── Issues ────────────────────────────────────────────────────────
 
   async searchIssues(jql: string, options?: {
-    startAt?: number;
+    nextPageToken?: string;
     maxResults?: number;
     fields?: string[];
   }): Promise<{
     issues: JiraRawIssue[];
-    total: number;
-    startAt: number;
-    maxResults: number;
+    isLast: boolean;
+    nextPageToken?: string;
   }> {
-    const body = {
+    const body: Record<string, unknown> = {
       jql,
-      startAt: options?.startAt ?? 0,
       maxResults: options?.maxResults ?? 50,
       fields: options?.fields ?? [
         "summary", "status", "assignee", "priority", "labels",
         "description", "updated", "created", "issuetype",
-        "project", "sprint", "comment",
+        "project", "customfield_10020", "comment",
       ],
     };
+    if (options?.nextPageToken) {
+      body.nextPageToken = options.nextPageToken;
+    }
 
-    const res = await this.request(`${this.baseUrl}/search`, {
+    const res = await this.request(`${this.baseUrl}/search/jql`, {
       method: "POST",
       body: JSON.stringify(body),
     });
@@ -285,7 +260,7 @@ export class JiraClient {
       `${this.baseUrl}/issue/${encodeURIComponent(issueIdOrKey)}/comment`,
       {
         method: "POST",
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({ body: plainTextToAdf(body) }),
       }
     );
     if (!res.ok) {
@@ -371,13 +346,27 @@ export class JiraClient {
 
   // ── Activity ──────────────────────────────────────────────────────
 
-  async getActivity(issueIdOrKey: string): Promise<JiraRawActivityItem[]> {
-    const res = await this.request(
-      `${this.baseUrl}/issue/${encodeURIComponent(issueIdOrKey)}/changelog`
-    );
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.values ?? [];
+  async getActivity(issueIdOrKey: string, maxTotal = 200): Promise<JiraRawActivityItem[]> {
+    const all: JiraRawActivityItem[] = [];
+    let startAt = 0;
+
+    while (all.length < maxTotal) {
+      const params = new URLSearchParams({
+        startAt: String(startAt),
+        maxResults: String(Math.min(100, maxTotal - all.length)),
+      });
+      const res = await this.request(
+        `${this.baseUrl}/issue/${encodeURIComponent(issueIdOrKey)}/changelog?${params}`
+      );
+      if (!res.ok) break;
+      const data = await res.json();
+      const values: JiraRawActivityItem[] = data.values ?? [];
+      all.push(...values);
+      if (values.length === 0 || all.length >= (data.total ?? 0)) break;
+      startAt += values.length;
+    }
+
+    return all;
   }
 }
 
@@ -398,7 +387,7 @@ export interface JiraRawIssue {
     updated: string;
     project: { id: string; key: string; name: string };
     issuetype: { id: string; name: string };
-    sprint?: { id: number; name: string; state: string } | null;
+    customfield_10020?: { id: number; name: string; state: string } | null;
     comment?: { comments: JiraRawComment[] };
   };
 }
@@ -471,23 +460,43 @@ export type JiraAdfContent = {
 
 // ── Helper: get a JiraClient from a project's stored token ──────────
 
-export function getJiraClient(projectId: string): JiraClient | null {
+export async function getJiraClient(projectId: string): Promise<JiraClient | null> {
   const token = getJiraToken(projectId);
   if (!token?.accessToken || !token?.cloudId || !token?.siteUrl) {
     return null;
   }
 
-  // Auto-refresh if expired
-  if (token.expiresAt && Date.now() > token.expiresAt && token.refreshToken) {
-    // Return a client anyway — the refresh will happen on first request
-    // A production implementation would await the refresh here
-    return new JiraClient(token.accessToken, token.cloudId, token.siteUrl);
+  if (token.expiresAt && Date.now() > token.expiresAt - 60_000 && token.refreshToken) {
+    try {
+      const refreshed = await refreshJiraToken(token.refreshToken);
+      const updatedToken: JiraToken = {
+        ...token,
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken,
+        expiresAt: refreshed.expiresAt,
+      };
+      saveJiraToken(projectId, updatedToken);
+      return new JiraClient(updatedToken.accessToken, token.cloudId, token.siteUrl);
+    } catch {
+      return null;
+    }
   }
 
   return new JiraClient(token.accessToken, token.cloudId, token.siteUrl);
 }
 
 // ── ADF to plain text (minimal conversion) ──────────────────────────
+
+export function plainTextToAdf(text: string): JiraAdfContent {
+  return {
+    type: "doc",
+    version: 1,
+    content: text.split("\n\n").map((paragraph) => ({
+      type: "paragraph",
+      content: paragraph ? [{ type: "text", text: paragraph }] : [],
+    })),
+  };
+}
 
 export function adfToPlainText(content: JiraAdfContent | string | null | undefined): string | null {
   if (!content) return null;
