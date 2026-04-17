@@ -405,6 +405,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   const [selectedAssigneeIds, setSelectedAssigneeIds] = useState<string[]>([]);
   const [selectedStatusCategories, setSelectedStatusCategories] = useState<string[]>([]);
   const [groups, setGroups] = useState<GroupOption[]>([]);
+  const [groupLabel, setGroupLabel] = useState("Group");
   const [selectedGroupId, setSelectedGroupId] = useState("");
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
   const [sortBy, setSortBy] = useState<"activity" | "identifier" | "status" | "created">("activity");
@@ -657,7 +658,8 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
         setAssignees(Array.isArray(data.assignees) ? data.assignees : []);
         setStatusCategories(Array.isArray(data.statuses) ? data.statuses.map((s: { name: string; category: string }) => ({ value: s.name, label: s.name })) : []);
         setWorkspaces(Array.isArray(data.teams) ? data.teams : []);
-        setGroups(Array.isArray(data.cycles) ? data.cycles : []);
+        setGroups(Array.isArray(data.groups) ? data.groups : []);
+        if (data.groupLabel) setGroupLabel(data.groupLabel);
         setFilterOptionsLoaded(true);
       })
       .catch(() => {
@@ -815,13 +817,13 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   );
   const groupOptions = useMemo<FilterOption[]>(
     () => [
-      { value: "", label: "Group" },
+      { value: "", label: groupLabel },
       ...groups.map((group) => ({
         value: group.id,
         label: group.name,
       })),
     ],
-    [groups]
+    [groups, groupLabel]
   );
   const showStatusFilter = statusOptions.length > 0;
   const showGroupFilter = groupOptions.length > 1;
@@ -1167,7 +1169,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                 ) : null}
                 {showGroupFilter ? (
                   <FilterSelect
-                    label="Group"
+                    label={groupLabel}
                     value={selectedGroupId}
                     options={groupOptions}
                     activeClasses="border-purple-500/30 bg-purple-500/10 text-purple-400"
@@ -1499,7 +1501,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
             ) : null}
             {showGroupFilter ? (
               <FilterSelect
-                label="Group"
+                label={groupLabel}
                 value={selectedGroupId}
                 options={groupOptions}
                 activeClasses="border-purple-500/30 bg-purple-500/10 text-purple-400"

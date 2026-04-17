@@ -77,6 +77,7 @@ function cycleToGroup(cycle: LinearCycle): TrackerGroup {
 export class LinearAdapter implements TrackerAdapter {
   type = "linear" as const;
   displayName = "Linear";
+  groupLabel = "Cycle";
   icon = LinearIcon;
 
   getAuthUrl(projectId: string): string {

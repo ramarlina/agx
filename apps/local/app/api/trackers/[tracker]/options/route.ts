@@ -24,6 +24,7 @@ export async function GET(
     return NextResponse.json({
       assignees: assignees.status === "fulfilled" ? assignees.value : [],
       groups: groups.status === "fulfilled" ? groups.value : [],
+      groupLabel: adapter.groupLabel,
       statuses: statuses.status === "fulfilled" ? statuses.value : [],
     });
   } catch (err: unknown) {

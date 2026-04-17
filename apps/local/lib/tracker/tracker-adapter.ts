@@ -29,6 +29,8 @@ export interface TrackerAdapter {
   type: string;
   /** Human-readable name, e.g. 'Linear' or 'Jira Cloud' */
   displayName: string;
+  /** Label for the group filter, e.g. 'Cycle' (Linear), 'Sprint' (Jira) */
+  groupLabel?: string;
   /** Icon component to render in the sidebar and headers */
   icon: ComponentType<{ className?: string }>;
 
