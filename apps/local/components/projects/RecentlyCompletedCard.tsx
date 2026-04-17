@@ -15,6 +15,7 @@ interface EnrichedProcessEntry {
   linearIssueId: string | null;
   linearRunId: string | null;
   trackerType: string | null;
+  responseMessageId: string | null;
 }
 
 interface Participant {
@@ -38,6 +39,55 @@ function formatActivityThread(process: EnrichedProcessEntry): string {
   if (process.threadTitle?.trim()) return process.threadTitle.trim();
   if (process.threadId?.trim()) return `Thread ${process.threadId.slice(0, 12)}...`;
   return "Main thread";
+}
+
+function resolveActivityHref(
+  projectSlug: string,
+  process: {
+    workspaceId: string;
+    threadId: string;
+    linearIssueId: string | null;
+    linearRunId: string | null;
+    trackerType: string | null;
+    responseMessageId: string | null;
+  }
+): string {
+  if (process.linearIssueId && process.linearRunId) {
+    const base = `/projects/${projectSlug}/tracking/${process.trackerType ?? "linear"}?issue=${encodeURIComponent(process.linearIssueId)}&run=${encodeURIComponent(process.linearRunId)}`;
+    return process.responseMessageId
+      ? `${base}&message=${encodeURIComponent(process.responseMessageId)}`
+      : base;
+  }
+  const workspaceId = process.workspaceId ?? "";
+  const threadId = process.threadId ?? "";
+  const objectivePrefix = "objective-chat:";
+  const objectiveSource = workspaceId.startsWith(objectivePrefix)
+    ? workspaceId
+    : threadId.startsWith(objectivePrefix)
+      ? threadId
+      : null;
+  if (objectiveSource) {
+    const objectiveId = objectiveSource.slice(objectivePrefix.length);
+    const params = new URLSearchParams();
+    if (threadId && threadId !== workspaceId) params.set("session", threadId);
+    if (process.responseMessageId) params.set("message", process.responseMessageId);
+    const qs = params.toString();
+    return `/projects/${projectSlug}/objectives/${encodeURIComponent(objectiveId)}${qs ? `?${qs}` : ""}`;
+  }
+  const trackerRunPrefix = "tracker-run:";
+  if (workspaceId.startsWith(trackerRunPrefix)) {
+    const runId = process.linearRunId ?? workspaceId.slice(trackerRunPrefix.length);
+    const params = new URLSearchParams();
+    if (process.linearIssueId) params.set("issue", process.linearIssueId);
+    params.set("run", runId);
+    if (process.responseMessageId) params.set("message", process.responseMessageId);
+    return `/projects/${projectSlug}/tracking/${process.trackerType ?? "linear"}?${params.toString()}`;
+  }
+  const params = new URLSearchParams();
+  if (threadId) params.set("open", threadId);
+  if (process.responseMessageId) params.set("message", process.responseMessageId);
+  const qs = params.toString();
+  return `/projects/${projectSlug}/thread/${encodeURIComponent(workspaceId)}${qs ? `?${qs}` : ""}`;
 }
 
 function formatLastActive(lastActivity: number): string {
@@ -169,13 +219,7 @@ export function RecentlyCompletedCard({
               <tr
                 key={`${process.workspaceId}-${process.threadId}-${process.agentId}`}
                 className="cursor-pointer border-t border-[var(--border)] text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]"
-                onClick={() =>
-                  router.push(
-                    process.linearIssueId && process.linearRunId
-                      ? `/projects/${projectSlug}/${process.trackerType ?? "linear"}?issue=${encodeURIComponent(process.linearIssueId)}&run=${encodeURIComponent(process.linearRunId)}`
-                      : `/projects/${projectSlug}/thread/${encodeURIComponent(process.workspaceId)}${process.threadId ? `?open=${encodeURIComponent(process.threadId)}` : ""}`
-                  )
-                }
+                onClick={() => router.push(resolveActivityHref(projectSlug, process))}
               >
                 <td className="px-4 py-3 text-[var(--foreground)]">{getAgentName(process.agentId)}</td>
                 <td className="px-4 py-3">

@@ -43,6 +43,7 @@ interface EnrichedProcessEntry {
   linearIssueId: string | null;
   linearRunId: string | null;
   trackerType: string | null;
+  responseMessageId: string | null;
 }
 
 interface TeamsViewProps {
@@ -50,6 +51,55 @@ interface TeamsViewProps {
   projectSlug: string;
   projectAgents: Array<{ agent_id: string; routing_order: number }>;
   projectThreadIds?: string[];
+}
+
+function resolveActivityHref(
+  projectSlug: string,
+  row: {
+    workspaceId: string;
+    threadId: string;
+    linearIssueId: string | null;
+    linearRunId: string | null;
+    trackerType: string | null;
+    responseMessageId: string | null;
+  }
+): string {
+  if (row.linearIssueId && row.linearRunId) {
+    const base = `/projects/${projectSlug}/tracking/${row.trackerType ?? "linear"}?issue=${encodeURIComponent(row.linearIssueId)}&run=${encodeURIComponent(row.linearRunId)}`;
+    return row.responseMessageId
+      ? `${base}&message=${encodeURIComponent(row.responseMessageId)}`
+      : base;
+  }
+  const workspaceId = row.workspaceId ?? "";
+  const threadId = row.threadId ?? "";
+  const objectivePrefix = "objective-chat:";
+  const objectiveSource = workspaceId.startsWith(objectivePrefix)
+    ? workspaceId
+    : threadId.startsWith(objectivePrefix)
+      ? threadId
+      : null;
+  if (objectiveSource) {
+    const objectiveId = objectiveSource.slice(objectivePrefix.length);
+    const params = new URLSearchParams();
+    if (threadId && threadId !== workspaceId) params.set("session", threadId);
+    if (row.responseMessageId) params.set("message", row.responseMessageId);
+    const qs = params.toString();
+    return `/projects/${projectSlug}/objectives/${encodeURIComponent(objectiveId)}${qs ? `?${qs}` : ""}`;
+  }
+  const trackerRunPrefix = "tracker-run:";
+  if (workspaceId.startsWith(trackerRunPrefix)) {
+    const runId = row.linearRunId ?? workspaceId.slice(trackerRunPrefix.length);
+    const params = new URLSearchParams();
+    if (row.linearIssueId) params.set("issue", row.linearIssueId);
+    params.set("run", runId);
+    if (row.responseMessageId) params.set("message", row.responseMessageId);
+    return `/projects/${projectSlug}/tracking/${row.trackerType ?? "linear"}?${params.toString()}`;
+  }
+  const params = new URLSearchParams();
+  if (threadId) params.set("open", threadId);
+  if (row.responseMessageId) params.set("message", row.responseMessageId);
+  const qs = params.toString();
+  return `/projects/${projectSlug}/thread/${encodeURIComponent(workspaceId)}${qs ? `?${qs}` : ""}`;
 }
 
 function formatActivityThread(process: EnrichedProcessEntry): string {
@@ -190,6 +240,7 @@ export function TeamsView({
         linearIssueId: process.linearIssueId,
         linearRunId: process.linearRunId,
         trackerType: process.trackerType,
+        responseMessageId: process.responseMessageId,
       }));
   });
 
@@ -209,6 +260,7 @@ export function TeamsView({
         linearIssueId: process.linearIssueId,
         linearRunId: process.linearRunId,
         trackerType: process.trackerType,
+        responseMessageId: process.responseMessageId,
       }));
   });
 
@@ -227,6 +279,7 @@ export function TeamsView({
       linearIssueId: process.linearIssueId,
       linearRunId: process.linearRunId,
       trackerType: process.trackerType,
+      responseMessageId: process.responseMessageId,
     }));
 
   const allCompletedRows = [...completedActivityRows, ...unassignedCompletedRows];
@@ -401,13 +454,7 @@ export function TeamsView({
                   <tr
                     key={row.key}
                     className="cursor-pointer border-t border-[var(--border)] text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]"
-                    onClick={() =>
-                      router.push(
-                        row.linearIssueId && row.linearRunId
-                          ? `/projects/${projectSlug}/${row.trackerType ?? "linear"}?issue=${encodeURIComponent(row.linearIssueId)}&run=${encodeURIComponent(row.linearRunId)}`
-                          : `/projects/${projectSlug}/thread/${encodeURIComponent(row.workspaceId)}${row.threadId ? `?open=${encodeURIComponent(row.threadId)}` : ""}`
-                      )
-                    }
+                    onClick={() => router.push(resolveActivityHref(projectSlug, row))}
                   >
                     <td className="px-4 py-3">
                       <button
@@ -469,13 +516,7 @@ export function TeamsView({
                   <tr
                     key={row.key}
                     className="cursor-pointer border-t border-[var(--border)] text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]"
-                    onClick={() =>
-                      router.push(
-                        row.linearIssueId && row.linearRunId
-                          ? `/projects/${projectSlug}/${row.trackerType ?? "linear"}?issue=${encodeURIComponent(row.linearIssueId)}&run=${encodeURIComponent(row.linearRunId)}`
-                          : `/projects/${projectSlug}/thread/${encodeURIComponent(row.workspaceId)}${row.threadId ? `?open=${encodeURIComponent(row.threadId)}` : ""}`
-                      )
-                    }
+                    onClick={() => router.push(resolveActivityHref(projectSlug, row))}
                   >
                     <td className="px-4 py-3">
                       {row.teamId ? (

@@ -1008,6 +1008,39 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   // Update the ref whenever the callback changes
   handleItemStatusChangeRef.current = handleItemStatusChange;
 
+  const startScriptedForItem = useCallback(
+    async (
+      item: TrackerItem,
+      scriptName: string,
+      scriptPrompt: string,
+      agentId?: string
+    ) => {
+      const agent = agentId ?? participants[0]?.id;
+      if (!agent) return;
+      try {
+        await fetch(`/api/trackers/${trackerType}/runs/scripted`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId: projectId ?? undefined,
+            projectSlug: projectSlug ?? undefined,
+            issueId: item.id,
+            issueIdentifier: item.identifier,
+            issueTitle: item.title,
+            issueStatus: item.status,
+            issueAssignee: item.assignee?.name ?? null,
+            agentId: agent,
+            scriptName,
+            scriptPrompt,
+          }),
+        });
+      } catch (err) {
+        console.error(`Failed to start ${scriptName} for ${item.identifier}:`, err);
+      }
+    },
+    [participants, trackerType, projectId, projectSlug]
+  );
+
   const handleBulkRecap = useCallback(async () => {
     const ids = Array.from(multiSelectedItemIds);
     const selectedItems = ids
@@ -1167,6 +1200,33 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     await createLabelDefinition(name);
   }, [projectId, createLabelDefinition]);
 
+  const rowActionsFor = useCallback(
+    (item: TrackerItem) => ({
+      statusOptions: itemStatusOptions,
+      onRecap: () => {
+        void startScriptedForItem(
+          item,
+          "Recap",
+          "Summarize recent activity and current state of this ticket. Focus on: what was done, what's outstanding, and any blockers."
+        );
+      },
+      onPrompt: (prompt: string, agentId: string) => {
+        void startScriptedForItem(item, "Prompt", prompt, agentId);
+      },
+      onEstimate: () => {
+        void startScriptedForItem(
+          item,
+          "Estimate",
+          "Assess the complexity and scope of this ticket and assign a Fibonacci story-point estimate (1, 2, 3, 5, 8, 13, or 21). Consider: required investigation, files likely to change, unknowns, and testing effort. Briefly justify the number, then set the estimate using the available tooling."
+        );
+      },
+      onStatus: (status: string) => {
+        void handleItemStatusChange(item, status);
+      },
+    }),
+    [itemStatusOptions, startScriptedForItem, handleItemStatusChange]
+  );
+
   const selectedMetadata = useMemo(() => {
     const map = new Map<string, { labels: string[]; estimate: number | null }>();
     for (const id of multiSelectedItemIds) {
@@ -1200,7 +1260,9 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
         if (cancelled) return;
 
         if (response.status === 404) {
-          replaceSelection({ issue: null, run: null });
+          // Keep the URL params intact so the user can see what was requested;
+          // the detail panel will render a "not found" fallback instead.
+          setSelectedItemFallback(null);
           return;
         }
 
@@ -1210,7 +1272,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
 
         const payload = (await response.json().catch(() => ({}))) as { item?: TrackerItem };
         if (!payload.item?.id) {
-          replaceSelection({ issue: null, run: null });
+          setSelectedItemFallback(null);
           return;
         }
 
@@ -1568,6 +1630,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                                   });
                                 }}
                                 onTogglePin={() => togglePin(item.id)}
+                                rowActions={rowActionsFor(item)}
                               />
                             ))}
                         </React.Fragment>
@@ -1603,6 +1666,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                             });
                           }}
                           onTogglePin={() => togglePin(item.id)}
+                          rowActions={rowActionsFor(item)}
                         />
                       </React.Fragment>
                     ))
@@ -2056,6 +2120,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                                         }
                                       }}
                                       onTogglePin={() => togglePin(gi.id)}
+                                      rowActions={rowActionsFor(gi)}
                                     />
                                   ))}
                               </React.Fragment>
@@ -2097,6 +2162,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                                 }
                               }}
                               onTogglePin={() => togglePin(item.id)}
+                              rowActions={rowActionsFor(item)}
                             />
                           );
                         });
@@ -2204,6 +2270,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                                 }
                               }}
                               onTogglePin={() => togglePin(gi.id)}
+                              rowActions={rowActionsFor(gi)}
                             />
                           ))}
                       </React.Fragment>
@@ -2251,6 +2318,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                           }
                         }}
                         onTogglePin={() => togglePin(item.id)}
+                        rowActions={rowActionsFor(item)}
                       />
                     </React.Fragment>
                   );

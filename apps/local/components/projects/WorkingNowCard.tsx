@@ -15,6 +15,7 @@ interface EnrichedProcessEntry {
   linearIssueId: string | null;
   linearRunId: string | null;
   trackerType: string | null;
+  responseMessageId: string | null;
 }
 
 interface Participant {
@@ -25,6 +26,55 @@ interface Participant {
 interface WorkingNowCardProps {
   projectSlug: string;
   projectThreadIds?: string[];
+}
+
+function resolveActivityHref(
+  projectSlug: string,
+  activity: {
+    workspaceId: string;
+    threadId: string;
+    linearIssueId: string | null;
+    linearRunId: string | null;
+    trackerType: string | null;
+    responseMessageId: string | null;
+  }
+): string {
+  if (activity.linearIssueId && activity.linearRunId) {
+    const base = `/projects/${projectSlug}/tracking/${activity.trackerType ?? "linear"}?issue=${encodeURIComponent(activity.linearIssueId)}&run=${encodeURIComponent(activity.linearRunId)}`;
+    return activity.responseMessageId
+      ? `${base}&message=${encodeURIComponent(activity.responseMessageId)}`
+      : base;
+  }
+  const workspaceId = activity.workspaceId ?? "";
+  const threadId = activity.threadId ?? "";
+  const objectivePrefix = "objective-chat:";
+  const objectiveSource = workspaceId.startsWith(objectivePrefix)
+    ? workspaceId
+    : threadId.startsWith(objectivePrefix)
+      ? threadId
+      : null;
+  if (objectiveSource) {
+    const objectiveId = objectiveSource.slice(objectivePrefix.length);
+    const params = new URLSearchParams();
+    if (threadId && threadId !== workspaceId) params.set("session", threadId);
+    if (activity.responseMessageId) params.set("message", activity.responseMessageId);
+    const qs = params.toString();
+    return `/projects/${projectSlug}/objectives/${encodeURIComponent(objectiveId)}${qs ? `?${qs}` : ""}`;
+  }
+  const trackerRunPrefix = "tracker-run:";
+  if (workspaceId.startsWith(trackerRunPrefix)) {
+    const runId = activity.linearRunId ?? workspaceId.slice(trackerRunPrefix.length);
+    const params = new URLSearchParams();
+    if (activity.linearIssueId) params.set("issue", activity.linearIssueId);
+    params.set("run", runId);
+    if (activity.responseMessageId) params.set("message", activity.responseMessageId);
+    return `/projects/${projectSlug}/tracking/${activity.trackerType ?? "linear"}?${params.toString()}`;
+  }
+  const params = new URLSearchParams();
+  if (threadId) params.set("open", threadId);
+  if (activity.responseMessageId) params.set("message", activity.responseMessageId);
+  const qs = params.toString();
+  return `/projects/${projectSlug}/thread/${encodeURIComponent(workspaceId)}${qs ? `?${qs}` : ""}`;
 }
 
 function formatActivityThread(process: EnrichedProcessEntry): string {
@@ -60,6 +110,7 @@ interface AgentGroup {
     linearIssueId: string | null;
     linearRunId: string | null;
     trackerType: string | null;
+    responseMessageId: string | null;
   }>;
 }
 
@@ -151,6 +202,7 @@ export function WorkingNowCard({
       linearIssueId: process.linearIssueId,
       linearRunId: process.linearRunId,
       trackerType: process.trackerType,
+      responseMessageId: process.responseMessageId,
     });
   }
 
@@ -198,13 +250,7 @@ export function WorkingNowCard({
                 <div
                   key={activity.key}
                   className="mx-[-0.5rem] flex cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-[var(--secondary)]"
-                  onClick={() =>
-                    router.push(
-                      activity.linearIssueId && activity.linearRunId
-                        ? `/projects/${projectSlug}/${activity.trackerType ?? "linear"}?issue=${encodeURIComponent(activity.linearIssueId)}&run=${encodeURIComponent(activity.linearRunId)}`
-                        : `/projects/${projectSlug}/thread/${encodeURIComponent(activity.workspaceId)}${activity.threadId ? `?open=${encodeURIComponent(activity.threadId)}` : ""}`
-                    )
-                  }
+                  onClick={() => router.push(resolveActivityHref(projectSlug, activity))}
                 >
                   <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[var(--status-completed-border)] bg-[var(--status-completed-bg)] px-2 py-0.5 text-[11px] font-medium text-[var(--status-completed-text)]">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />

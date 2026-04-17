@@ -1,9 +1,11 @@
 "use client";
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { Check, ExternalLink, Link2, MessageSquare, Pin, Play, StickyNote, Tag } from "lucide-react";
+import { Check, ExternalLink, Link2, MessageSquare, MoreVertical, Pin, Play, StickyNote, Tag } from "lucide-react";
 import { NoteSticker } from "@/components/tracker/NoteSticker";
 import { LabelPicker } from "@/components/tracker/LabelPicker";
+import { RowActionsMenu } from "@/components/tracker/RowActionsMenu";
+import type { FilterOption } from "@/components/tracker/TrackerBoardFilters";
 import { useDraggable, useDroppable } from "@dnd-kit/core";
 import type { TrackerItem } from "@/lib/tracker/types";
 import type { Participant } from "@/lib/types";
@@ -30,6 +32,7 @@ export function TicketRow({
   allLabels,
   onToggleLabel,
   onAddLabel,
+  rowActions,
 }: {
   item: TrackerItem;
   selected: boolean;
@@ -50,6 +53,13 @@ export function TicketRow({
   allLabels?: Array<{ name: string; color: string | null; defined: boolean }>;
   onToggleLabel?: (label: string) => void;
   onAddLabel?: (label: string) => void;
+  rowActions?: {
+    statusOptions: FilterOption[];
+    onRecap: () => void;
+    onPrompt: (prompt: string, agentId: string) => void;
+    onEstimate: () => void;
+    onStatus: (status: string) => void;
+  };
 }) {
   const [copied, setCopied] = useState(false);
   const copyResetTimeoutRef = useRef<number | null>(null);
@@ -61,6 +71,8 @@ export function TicketRow({
   const labelButtonRef = useRef<HTMLButtonElement>(null);
   const labelPopoverRef = useRef<HTMLDivElement>(null);
   const [labelOpen, setLabelOpen] = useState(false);
+  const moreButtonRef = useRef<HTMLButtonElement>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     if (!labelOpen) return;
@@ -416,6 +428,39 @@ export function TicketRow({
         >
           <ExternalLink size={10} />
         </button>
+        {rowActions && (
+          <button
+            ref={moreButtonRef}
+            type="button"
+            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded text-[var(--muted-foreground)] transition-all hover:bg-zinc-700 hover:text-[var(--foreground)] ${
+              moreOpen || selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            }`}
+            onClick={(event) => {
+              event.stopPropagation();
+              setMoreOpen((v) => !v);
+            }}
+            title="More actions"
+            aria-label="More actions"
+          >
+            <MoreVertical size={10} />
+          </button>
+        )}
+        {rowActions && moreOpen && (
+          <RowActionsMenu
+            anchorRef={moreButtonRef}
+            onClose={() => setMoreOpen(false)}
+            participants={participants ?? []}
+            labels={allLabels ?? []}
+            selectedLabels={localLabels ?? []}
+            statusOptions={rowActions.statusOptions}
+            onRecap={rowActions.onRecap}
+            onPrompt={rowActions.onPrompt}
+            onEstimate={rowActions.onEstimate}
+            onToggleLabel={(label) => onToggleLabel?.(label)}
+            onAddLabel={(name) => onAddLabel?.(name)}
+            onStatus={rowActions.onStatus}
+          />
+        )}
       </div>
     </div>
   );
