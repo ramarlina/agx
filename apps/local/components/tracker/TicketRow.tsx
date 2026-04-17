@@ -23,6 +23,9 @@ export function TicketRow({
   projectSlug,
   stats,
   hideStatus,
+  estimate,
+  localLabels,
+  labelDefinitions,
 }: {
   item: TrackerItem;
   selected: boolean;
@@ -37,6 +40,9 @@ export function TicketRow({
   projectSlug?: string;
   stats?: { sessions: number; messages: number };
   hideStatus?: boolean;
+  estimate?: number | null;
+  localLabels?: string[];
+  labelDefinitions?: Array<{ name: string; color: string | null }>;
 }) {
   const [copied, setCopied] = useState(false);
   const copyResetTimeoutRef = useRef<number | null>(null);
@@ -169,7 +175,6 @@ export function TicketRow({
           onClick={(e) => {
             e.stopPropagation();
             e.preventDefault();
-            // Synthesize a meta-click to toggle multi-select
             const synth = new MouseEvent("click", { metaKey: true, ctrlKey: true }) as unknown as React.MouseEvent;
             onSelect(synth);
           }}
@@ -189,6 +194,37 @@ export function TicketRow({
       <span className={`min-w-0 flex-1 truncate text-xs ${selected ? "font-medium text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}`}>
         {item.title}
       </span>
+      {estimate != null && (
+        <span className="shrink-0 rounded-full bg-[var(--card-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--muted-foreground)]">
+          {estimate}
+        </span>
+      )}
+      {localLabels && localLabels.length > 0 && (
+        <span className="flex shrink-0 items-center gap-1">
+          {localLabels.slice(0, 3).map((label) => {
+            const def = labelDefinitions?.find((d) => d.name === label);
+            return (
+              <span
+                key={label}
+                className="flex items-center gap-1 rounded-full border border-[var(--card-border)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]"
+              >
+                {def?.color && (
+                  <span
+                    className="h-1.5 w-1.5 rounded-full"
+                    style={{ backgroundColor: def.color }}
+                  />
+                )}
+                <span className="max-w-[60px] truncate">{label}</span>
+              </span>
+            );
+          })}
+          {localLabels.length > 3 && (
+            <span className="text-[10px] text-[var(--muted-foreground)]">
+              +{localLabels.length - 3}
+            </span>
+          )}
+        </span>
+      )}
       {!hideStatus && (
         <span className="inline-flex shrink-0 items-center gap-2">
           <span className="text-xs text-[var(--muted-foreground)]">
