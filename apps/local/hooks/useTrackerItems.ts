@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { TrackerItem, TrackerStatusCategory, TrackerFilters } from "@/lib/tracker/types";
+import { buildCacheKey, readCachedItems, writeCachedItems } from "@/state/trackerItemsCache";
 
 interface UseTrackerItemsFilters {
   statuses?: string[];
@@ -48,6 +49,22 @@ export function useTrackerItems(
 
   const basePath = `/api/trackers/${encodeURIComponent(trackerType)}/items`;
 
+  const cacheKey = options.projectId
+    ? buildCacheKey(trackerType, options.projectId, {
+        statuses: filters.statuses,
+        statusCategories: filters.statusCategories,
+        search: filters.search,
+        assigneeIds: filters.assigneeIds,
+        groupIds: filters.groupIds,
+        sortBy: filters.sortBy,
+        sortDir: filters.sortDir,
+        hasActivity: filters.hasActivity,
+        limit: options.limit,
+      })
+    : null;
+  const cacheKeyRef = useRef(cacheKey);
+  cacheKeyRef.current = cacheKey;
+
   const fetchPage = useCallback(
     async (append: boolean) => {
       if (!enabled || !options.projectId) return;
@@ -87,9 +104,20 @@ export function useTrackerItems(
         const newItems: TrackerItem[] = data.items ?? [];
 
         setItems((prev) => (append ? [...prev, ...newItems] : newItems));
-        setCursor(data.pageInfo?.endCursor ?? null);
-        setHasMore(data.pageInfo?.hasNextPage ?? false);
+        const endCursor = data.pageInfo?.endCursor ?? null;
+        const hasNextPage = data.pageInfo?.hasNextPage ?? false;
+        setCursor(endCursor);
+        setHasMore(hasNextPage);
         hydratedRef.current = true;
+
+        if (!append && cacheKeyRef.current) {
+          void writeCachedItems(cacheKeyRef.current, {
+            items: newItems,
+            endCursor,
+            hasNextPage,
+            savedAt: Date.now(),
+          });
+        }
       } catch {
         if (!append) setItems([]);
       } finally {
@@ -100,9 +128,26 @@ export function useTrackerItems(
   );
 
   useEffect(() => {
+    let cancelled = false;
     setCursor(null);
+    hydratedRef.current = false;
+
+    if (enabled && cacheKey) {
+      void readCachedItems(cacheKey).then((cached) => {
+        if (cancelled || !cached) return;
+        if (hydratedRef.current) return;
+        setItems(cached.items);
+        setCursor(cached.endCursor);
+        setHasMore(cached.hasNextPage);
+        setLoading(false);
+      });
+    }
+
     void fetchPage(false);
-  }, [fetchPage]);
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchPage, cacheKey, enabled]);
 
   const loadMore = useCallback(() => fetchPage(true), [fetchPage]);
   const refresh = useCallback(() => {
