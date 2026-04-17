@@ -22,6 +22,7 @@ export function TicketRow({
   treeConnector,
   projectSlug,
   stats,
+  hideStatus,
 }: {
   item: TrackerItem;
   selected: boolean;
@@ -35,6 +36,7 @@ export function TicketRow({
   treeConnector?: "mid" | "last";
   projectSlug?: string;
   stats?: { sessions: number; messages: number };
+  hideStatus?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const copyResetTimeoutRef = useRef<number | null>(null);
@@ -181,17 +183,39 @@ export function TicketRow({
           {treeConnector === "last" ? "└──" : "├──"}
         </span>
       )}
-      <span className={`shrink-0 whitespace-nowrap font-mono text-xs text-[var(--muted-foreground)] ${treeConnector ? "" : "w-24"}`}>
+      <span className={`shrink-0 whitespace-nowrap font-mono text-xs text-[var(--muted-foreground)] ${treeConnector ? "" : "w-15"}`}>
         {item.identifier}
       </span>
       <span className={`min-w-0 flex-1 truncate text-xs ${selected ? "font-medium text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}`}>
         {item.title}
       </span>
-      <span className="shrink-0 text-xs text-[var(--muted-foreground)]">
-        {shortStatus}
-      </span>
-      {stats && stats.sessions > 0 && (
-        <span className="inline-flex shrink-0 items-center gap-2 text-[10px] tabular-nums text-[var(--muted-foreground)]" title={`${stats.sessions} session${stats.sessions !== 1 ? "s" : ""}, ${stats.messages} message${stats.messages !== 1 ? "s" : ""}`}>
+      {!hideStatus && (
+        <span className="inline-flex shrink-0 items-center gap-2">
+          <span className="text-xs text-[var(--muted-foreground)]">
+            {shortStatus}
+          </span>
+          {stats && stats.sessions > 0 && (
+            <span
+              className="inline-flex items-center gap-1.5 text-[10px] tabular-nums text-[var(--muted-foreground)]/50"
+              title={`${stats.sessions} session${stats.sessions !== 1 ? "s" : ""}, ${stats.messages} message${stats.messages !== 1 ? "s" : ""}`}
+            >
+              <span className="inline-flex items-center gap-0.5">
+                <Play size={8} className="fill-current" />
+                {stats.sessions}
+              </span>
+              <span className="inline-flex items-center gap-0.5">
+                <MessageSquare size={8} />
+                {stats.messages}
+              </span>
+            </span>
+        )}
+        </span>
+      )}
+      {hideStatus && stats && stats.sessions > 0 && (
+        <span
+          className="inline-flex shrink-0 items-center gap-1.5 text-[10px] tabular-nums text-[var(--muted-foreground)]/50"
+          title={`${stats.sessions} session${stats.sessions !== 1 ? "s" : ""}, ${stats.messages} message${stats.messages !== 1 ? "s" : ""}`}
+        >
           <span className="inline-flex items-center gap-0.5">
             <Play size={8} className="fill-current" />
             {stats.sessions}
