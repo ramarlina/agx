@@ -113,6 +113,7 @@ function mapJiraIssueToCacheInput(
     priority: fields.priority?.name ?? null,
     labels: fields.labels ?? [],
     url: `${siteUrl}/browse/${issue.key}`,
+    createdAt: fields.created ?? null,
     updatedAt: fields.updated,
   };
 }
