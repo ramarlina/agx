@@ -181,7 +181,7 @@ export function TicketRow({
           {treeConnector === "last" ? "└──" : "├──"}
         </span>
       )}
-      <span className={`shrink-0 whitespace-nowrap font-mono text-xs text-[var(--muted-foreground)] ${treeConnector ? "" : "w-24"}`}>
+      <span className={`shrink-0 whitespace-nowrap font-mono text-xs text-[var(--muted-foreground)] ${treeConnector ? "" : "w-15"}`}>
         {item.identifier}
       </span>
       <span className={`min-w-0 flex-1 truncate text-xs ${selected ? "font-medium text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}`}>
