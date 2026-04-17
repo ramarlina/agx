@@ -5,6 +5,7 @@ export interface TrackerBoardFilters {
   assigneeIds: string[];
   statusCategories: string[];
   groupIds: string[];
+  labelNames: string[];
   sortBy: "activity" | "identifier" | "status" | "created";
   sortDir: "asc" | "desc";
   hasActivity: boolean;
@@ -15,6 +16,7 @@ const DEFAULT_TRACKER_BOARD_FILTERS: TrackerBoardFilters = {
   assigneeIds: [],
   statusCategories: [],
   groupIds: [],
+  labelNames: [],
   sortBy: "activity",
   sortDir: "desc",
   hasActivity: false,
@@ -69,6 +71,7 @@ export function loadTrackerBoardFilters(
       assigneeIds: normalizeStringArray(parsed.assigneeIds),
       statusCategories: normalizeStringArray(parsed.statusCategories),
       groupIds: normalizeStringArray(parsed.groupIds),
+      labelNames: normalizeStringArray(parsed.labelNames),
       sortBy: ["activity", "identifier", "status", "created"].includes(parsed.sortBy as string)
         ? (parsed.sortBy as TrackerBoardFilters["sortBy"])
         : DEFAULT_TRACKER_BOARD_FILTERS.sortBy,
@@ -101,6 +104,7 @@ export function persistTrackerBoardFilters(
         assigneeIds: normalizeStringArray(filters.assigneeIds),
         statusCategories: normalizeStringArray(filters.statusCategories),
         groupIds: normalizeStringArray(filters.groupIds),
+        labelNames: normalizeStringArray(filters.labelNames),
         sortBy: filters.sortBy || "activity",
         sortDir: filters.sortDir || "desc",
         hasActivity: !!filters.hasActivity,

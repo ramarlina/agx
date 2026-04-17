@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight, Clock, FileText, Play, Plus, RefreshCw, Search, Settings, User, X } from "lucide-react";
 import { useUrlSelection } from "@/hooks/useUrlSelection";
@@ -421,6 +421,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState("");
   const [sortBy, setSortBy] = useState<"activity" | "identifier" | "status" | "created">("activity");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [selectedLabelNames, setSelectedLabelNames] = useState<string[]>([]);
   const [pinnedItemIds, setPinnedItemIds] = useState<Set<string>>(() => loadPinnedTrackerItemIds(trackerType, projectSlug));
   const [selectedItemFallback, setSelectedItemFallback] = useState<TrackerItem | null>(null);
   const [updatingItemId, setUpdatingItemId] = useState<string | null>(null);
@@ -494,6 +495,10 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   // hoisting issues (sortedItems is declared further down).
   const sortedItemsRef = useRef<TrackerItem[]>([]);
 
+  // Ref to handleItemStatusChange so handleDragEnd can access it without
+  // hoisting issues (handleItemStatusChange is declared further down).
+  const handleItemStatusChangeRef = useRef<((item: TrackerItem, status: string) => Promise<void>) | null>(null);
+
   const handleMultiSelectGroup = useCallback(() => {
     const ids = Array.from(multiSelectedItemIds);
     // Find the topmost selected item in the sorted list to position the prompt
@@ -561,29 +566,33 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
         return;
       }
 
+      console.log("[dragEnd]", { active: active.id, over: over?.id });
       if (!over || active.id === over.id) return;
       const overId = over.id as string;
 
       // Dropped on a status group header → change status upstream
       if (overId.startsWith(STATUS_GROUP_PREFIX)) {
         const targetStatus = overId.slice(STATUS_GROUP_PREFIX.length);
-        const activeItem = sortedItems.find((i) => i.id === activeItemId);
+        const activeItem = sortedItemsRef.current.find((i) => i.id === activeItemId);
+        console.log("[dragEnd] status-group drop", { targetStatus, activeStatus: activeItem?.status, hasRef: !!handleItemStatusChangeRef.current });
         if (activeItem && activeItem.status !== targetStatus) {
-          await handleItemStatusChange(activeItem, targetStatus);
+          await handleItemStatusChangeRef.current?.(activeItem, targetStatus);
         }
         return;
       }
 
       // Dropped on a ticket in a different status group → change status
-      const activeItem = sortedItems.find((i) => i.id === activeItemId);
-      const overItem = sortedItems.find((i) => i.id === overId);
+      const activeItem = sortedItemsRef.current.find((i) => i.id === activeItemId);
+      const overItem = sortedItemsRef.current.find((i) => i.id === overId);
+      console.log("[dragEnd] ticket drop", { activeStatus: activeItem?.status, overStatus: overItem?.status });
       if (activeItem && overItem && activeItem.status !== overItem.status) {
-        await handleItemStatusChange(activeItem, overItem.status);
+        await handleItemStatusChangeRef.current?.(activeItem, overItem.status);
         return;
       }
 
       // Check if dropping on a folder
       const targetGroup = taskGroups.find((g) => g.id === overId);
+      console.log("[dragEnd] folder check", { targetGroupFound: !!targetGroup, taskGroupsCount: taskGroups.length });
       if (targetGroup) {
         await addTasksToGroup(targetGroup.id, [activeItemId]);
         return;
@@ -592,12 +601,15 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
       // Check if dropping on another loose ticket (create folder)
       const overIsLoose = !groupedItemIds.has(overId);
       const activeIsLoose = !groupedItemIds.has(activeItemId);
+      console.log("[dragEnd] loose check", { overIsLoose, activeIsLoose, groupedCount: groupedItemIds.size });
       if (activeIsLoose && overIsLoose) {
+        console.log("[dragEnd] → setShowGroupNamePrompt(true)");
         setPendingGroupTaskIds([activeItemId, overId]);
         setPendingGroupTargetId(overId);
         setShowGroupNamePrompt(true);
         return;
       }
+      console.log("[dragEnd] no branch matched");
 
       // Ticket dragged out of a folder
       const activeGroup = taskGroups.find((g) => g.task_ids.includes(activeItemId));
@@ -605,7 +617,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
         await removeTaskFromGroupApi(activeGroup.id, activeItemId);
       }
     },
-    [taskGroups, groupedItemIds, addTasksToGroup, removeTaskFromGroupApi, showGroupNamePrompt, pendingGroupTaskIds, sortedItems, handleItemStatusChange],
+    [taskGroups, groupedItemIds, addTasksToGroup, removeTaskFromGroupApi, showGroupNamePrompt, pendingGroupTaskIds],
   );
 
   const handleSearchChange = useCallback((value: string) => {
@@ -648,6 +660,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     setSelectedGroupId(storedFilters.groupIds?.[0] ?? "");
     setSortBy(storedFilters.sortBy);
     setSortDir(storedFilters.sortDir);
+    setSelectedLabelNames(storedFilters.labelNames ?? []);
     setPinnedItemIds(loadPinnedTrackerItemIds(trackerType, projectSlug));
   }, [trackerType, projectSlug]);
 
@@ -662,11 +675,12 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
       assigneeIds: selectedAssigneeIds,
       statusCategories: selectedStatusCategories,
       groupIds: selectedGroupId ? [selectedGroupId] : [],
+      labelNames: selectedLabelNames,
       sortBy,
       sortDir,
       hasActivity: false,
     });
-  }, [trackerType, projectSlug, search, selectedAssigneeIds, selectedStatusCategories, selectedWorkspaceId, selectedGroupId, sortBy, sortDir]);
+  }, [trackerType, projectSlug, search, selectedAssigneeIds, selectedStatusCategories, selectedWorkspaceId, selectedGroupId, selectedLabelNames, sortBy, sortDir]);
 
   // Fetch filter options when connected
   useEffect(() => {
@@ -816,10 +830,28 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   }, [items, pinnedItemIds]);
   sortedItemsRef.current = sortedItems;
 
+  const deferredLabelNames = useDeferredValue(selectedLabelNames);
+  const labelFilteredItems = useMemo(() => {
+    if (deferredLabelNames.length === 0) return sortedItems;
+    const filterSet = new Set(deferredLabelNames);
+    const result: TrackerItem[] = [];
+    for (const item of sortedItems) {
+      const labels = metadataMap.get(item.id)?.labels;
+      if (!labels) continue;
+      for (const l of labels) {
+        if (filterSet.has(l)) {
+          result.push(item);
+          break;
+        }
+      }
+    }
+    return result;
+  }, [sortedItems, deferredLabelNames, metadataMap]);
+
   const statusGroups = useMemo(() => {
     if (!groupByStatus) return [];
     const map = new Map<string, { status: string; category: TrackerStatusCategory; items: TrackerItem[] }>();
-    for (const item of sortedItems) {
+    for (const item of labelFilteredItems) {
       let group = map.get(item.status);
       if (!group) {
         group = { status: item.status, category: item.statusCategory, items: [] };
@@ -831,7 +863,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     return [...map.values()].sort(
       (a, b) => (categoryOrder[a.category] ?? 1) - (categoryOrder[b.category] ?? 1)
     );
-  }, [groupByStatus, sortedItems]);
+  }, [groupByStatus, labelFilteredItems]);
 
   const {
     runs,
@@ -893,6 +925,32 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   const showWorkspaceFilter = workspaceOptions.length > 2;
   const activeSessionScriptLabel = activeScript?.name ?? "AGX default";
 
+  const labelFilterOptions = useMemo<FilterOption[]>(
+    () => allLabels.map((l) => ({ value: l.name, label: l.name })),
+    [allLabels]
+  );
+
+  const handleItemToggleLabel = useCallback(async (itemId: string, label: string) => {
+    if (!projectId) return;
+    const current = metadataMap.get(itemId)?.labels ?? [];
+    const has = current.includes(label);
+    const next = has ? current.filter((l) => l !== label) : [...current, label];
+    try {
+      await fetch(`/api/trackers/${trackerType}/metadata?projectId=${encodeURIComponent(projectId)}&issueId=${encodeURIComponent(itemId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ labels: next }),
+      });
+      void refreshMetadata();
+      void refreshLabels();
+    } catch {}
+  }, [projectId, trackerType, metadataMap, refreshMetadata, refreshLabels]);
+
+  const handleItemAddLabel = useCallback(async (name: string) => {
+    if (!projectId) return;
+    await createLabelDefinition(name);
+  }, [projectId, createLabelDefinition]);
+
   const handleItemStatusChange = useCallback(
     async (item: TrackerItem, status: string) => {
       const nextStatus = status.trim();
@@ -935,6 +993,9 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     },
     [refreshItems, selectedItemId, updateItem, trackerType, projectId]
   );
+
+  // Update the ref whenever the callback changes
+  handleItemStatusChangeRef.current = handleItemStatusChange;
 
   const handleBulkRecap = useCallback(async () => {
     const ids = Array.from(multiSelectedItemIds);
@@ -1373,6 +1434,16 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                   onChange={setSelectedAssigneeIds}
                   emptyLabel="All assignees"
                 />
+                {labelFilterOptions.length > 0 && (
+                  <MultiFilterPopdown
+                    label="Label"
+                    values={selectedLabelNames}
+                    options={labelFilterOptions}
+                    activeClasses="border-pink-500/30 bg-pink-500/10 text-pink-400"
+                    onChange={setSelectedLabelNames}
+                    emptyLabel="All labels"
+                  />
+                )}
                 {showWorkspaceFilter ? (
                   <FilterSelect
                     label="Workspace"
@@ -1459,6 +1530,9 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                                 estimate={metadataMap.get(item.id)?.estimate}
                                 localLabels={metadataMap.get(item.id)?.labels}
                                 labelDefinitions={labelDefinitions}
+                                allLabels={allLabels}
+                                onToggleLabel={(label) => handleItemToggleLabel(item.id, label)}
+                                onAddLabel={handleItemAddLabel}
                                 onSelect={() => {
                                   setTouchPanelTab("runs");
                                   pushSelection({
@@ -1473,11 +1547,11 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                       );
                     })
                   ) : (
-                    sortedItems.map((item, idx) => (
+                    labelFilteredItems.map((item, idx) => (
                       <React.Fragment key={item.id}>
                         {pinnedItemIds.size > 0 &&
                           !pinnedItemIds.has(item.id) &&
-                          (idx === 0 || pinnedItemIds.has(sortedItems[idx - 1].id)) && (
+                          (idx === 0 || pinnedItemIds.has(labelFilteredItems[idx - 1].id)) && (
                             <div className="mx-4 border-t border-amber-500/20" />
                           )}
                         <TicketRow
@@ -1491,6 +1565,9 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                           estimate={metadataMap.get(item.id)?.estimate}
                           localLabels={metadataMap.get(item.id)?.labels}
                           labelDefinitions={labelDefinitions}
+                          allLabels={allLabels}
+                          onToggleLabel={(label) => handleItemToggleLabel(item.id, label)}
+                          onAddLabel={handleItemAddLabel}
                           onSelect={() => {
                             setTouchPanelTab("runs");
                             pushSelection({
@@ -1747,6 +1824,16 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
               onChange={setSelectedAssigneeIds}
               emptyLabel="All assignees"
             />
+            {labelFilterOptions.length > 0 && (
+              <MultiFilterPopdown
+                label="Label"
+                values={selectedLabelNames}
+                options={labelFilterOptions}
+                activeClasses="border-pink-500/30 bg-pink-500/10 text-pink-400"
+                onChange={setSelectedLabelNames}
+                emptyLabel="All labels"
+              />
+            )}
             {showWorkspaceFilter ? (
               <FilterSelect
                 label="Workspace"
@@ -1825,34 +1912,142 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                           })
                         }
                       />
-                      {!collapsed &&
-                        sg.items.map((item) => (
-                          <TicketRow
-                            key={item.id}
-                            item={item}
-                            selected={selectedItem?.id === item.id}
-                            pinned={pinnedItemIds.has(item.id)}
-                            activeAgents={issueActiveAgents.get(item.id)}
-                            participants={participants}
-                            draggable
-                            multiSelected={multiSelectedItemIds.has(item.id)}
-                            projectSlug={projectSlug}
-                            stats={issueStats.get(item.id)}
-                            hideStatus
-                            onSelect={(event) => {
-                              if (event && (event.metaKey || event.ctrlKey)) {
-                                toggleItemMultiSelect(item.id);
-                              } else {
-                                pushSelection({
-                                  issue: item.id,
-                                  run: null,
-                                  group: null,
-                                });
-                              }
-                            }}
-                            onTogglePin={() => togglePin(item.id)}
-                          />
-                        ))}
+                      {!collapsed && (() => {
+                        const pendingSet = showGroupNamePrompt ? new Set(pendingGroupTaskIds) : null;
+                        const firstMemberToGroup = new Map<string, typeof taskGroups[number]>();
+                        for (const group of taskGroups) {
+                          const firstInStatus = sg.items.find((i) => group.task_ids.includes(i.id));
+                          if (firstInStatus) firstMemberToGroup.set(firstInStatus.id, group);
+                        }
+                        const pendingTickets = showGroupNamePrompt
+                          ? pendingGroupTaskIds
+                              .map((id) => sg.items.find((i) => i.id === id))
+                              .filter(Boolean)
+                              .map((i) => ({ id: i!.id, identifier: i!.identifier, title: i!.title, status: STATUS_LABELS[i!.status] ?? i!.status }))
+                          : [];
+                        const renderedGroups = new Set<string>();
+
+                        return sg.items.map((item) => {
+                          if (pendingSet?.has(item.id)) {
+                            if (item.id === pendingGroupTargetId && showGroupNamePrompt) {
+                              return (
+                                <GroupNamePrompt
+                                  key="__pending-group__"
+                                  tickets={pendingTickets}
+                                  onConfirm={handleCreateGroup}
+                                  onCancel={() => {
+                                    setShowGroupNamePrompt(false);
+                                    setPendingGroupTaskIds([]);
+                                    setPendingGroupTargetId(null);
+                                  }}
+                                />
+                              );
+                            }
+                            return null;
+                          }
+
+                          const group = firstMemberToGroup.get(item.id);
+                          if (group && !renderedGroups.has(group.id)) {
+                            renderedGroups.add(group.id);
+                            const groupItems = group.task_ids
+                              .map((id) => sg.items.find((i) => i.id === id))
+                              .filter(Boolean) as TrackerItem[];
+                            return (
+                              <React.Fragment key={`group-${group.id}`}>
+                                <FolderRow
+                                  groupId={group.id}
+                                  name={group.name}
+                                  count={groupItems.length}
+                                  collapsed={!!group.collapsed}
+                                  selected={selectedGroupTaskGroupId === group.id}
+                                  projectSlug={projectSlug}
+                                  onToggleCollapse={() => updateGroup(group.id, { collapsed: !group.collapsed })}
+                                  onSelect={() => pushSelection({ group: group.id, issue: null, run: null })}
+                                  onUngroup={() => {
+                                    void deleteGroup(group.id);
+                                    if (selectedGroupTaskGroupId === group.id) {
+                                      replaceSelection({ group: null });
+                                    }
+                                  }}
+                                />
+                                {!group.collapsed &&
+                                  groupItems.map((gi, giIdx) => (
+                                    <TicketRow
+                                      key={gi.id}
+                                      item={gi}
+                                      selected={selectedItem?.id === gi.id}
+                                      pinned={pinnedItemIds.has(gi.id)}
+                                      activeAgents={issueActiveAgents.get(gi.id)}
+                                      participants={participants}
+                                      draggable
+                                      multiSelected={multiSelectedItemIds.has(gi.id)}
+                                      treeConnector={giIdx === groupItems.length - 1 ? "last" : "mid"}
+                                      projectSlug={projectSlug}
+                                      stats={issueStats.get(gi.id)}
+                                      hideStatus
+                                      estimate={metadataMap.get(gi.id)?.estimate}
+                                      localLabels={metadataMap.get(gi.id)?.labels}
+                                      labelDefinitions={labelDefinitions}
+                                      allLabels={allLabels}
+                                      onToggleLabel={(label) => handleItemToggleLabel(gi.id, label)}
+                                      onAddLabel={handleItemAddLabel}
+                                      onSelect={(event) => {
+                                        if (event && (event.metaKey || event.ctrlKey)) {
+                                          toggleItemMultiSelect(gi.id);
+                                        } else {
+                                          pushSelection({
+                                            issue: gi.id,
+                                            run: null,
+                                            group: null,
+                                          });
+                                        }
+                                      }}
+                                      onTogglePin={() => togglePin(gi.id)}
+                                    />
+                                  ))}
+                              </React.Fragment>
+                            );
+                          }
+
+                          if (groupedItemIds.has(item.id)) {
+                            return null;
+                          }
+
+                          return (
+                            <TicketRow
+                              key={item.id}
+                              item={item}
+                              selected={selectedItem?.id === item.id}
+                              pinned={pinnedItemIds.has(item.id)}
+                              activeAgents={issueActiveAgents.get(item.id)}
+                              participants={participants}
+                              draggable
+                              multiSelected={multiSelectedItemIds.has(item.id)}
+                              projectSlug={projectSlug}
+                              stats={issueStats.get(item.id)}
+                              hideStatus
+                              estimate={metadataMap.get(item.id)?.estimate}
+                              localLabels={metadataMap.get(item.id)?.labels}
+                              labelDefinitions={labelDefinitions}
+                              allLabels={allLabels}
+                              onToggleLabel={(label) => handleItemToggleLabel(item.id, label)}
+                              onAddLabel={handleItemAddLabel}
+                              onSelect={(event) => {
+                                if (event && (event.metaKey || event.ctrlKey)) {
+                                  toggleItemMultiSelect(item.id);
+                                } else {
+                                  pushSelection({
+                                    issue: item.id,
+                                    run: null,
+                                    group: null,
+                                  });
+                                }
+                              }}
+                              onTogglePin={() => togglePin(item.id)}
+                            />
+                          );
+                        });
+                      })()}
                     </React.Fragment>
                   );
                 })
@@ -1863,13 +2058,13 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
 
                 const firstMemberToGroup = new Map<string, typeof taskGroups[number]>();
                 for (const group of taskGroups) {
-                  const firstInSort = sortedItems.find((i) => group.task_ids.includes(i.id));
+                  const firstInSort = labelFilteredItems.find((i) => group.task_ids.includes(i.id));
                   if (firstInSort) firstMemberToGroup.set(firstInSort.id, group);
                 }
 
                 const pendingTickets = showGroupNamePrompt
                   ? pendingGroupTaskIds
-                      .map((id) => sortedItems.find((i) => i.id === id))
+                      .map((id) => labelFilteredItems.find((i) => i.id === id))
                       .filter(Boolean)
                       .map((i) => ({ id: i!.id, identifier: i!.identifier, title: i!.title, status: STATUS_LABELS[i!.status] ?? i!.status }))
                   : [];
@@ -1877,7 +2072,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                 const renderedGroups = new Set<string>();
                 let looseIdx = 0;
 
-                return sortedItems.map((item) => {
+                return labelFilteredItems.map((item) => {
                   if (pendingSet?.has(item.id)) {
                     if (item.id === pendingGroupTargetId && showGroupNamePrompt) {
                       return (
@@ -1900,7 +2095,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                   if (group && !renderedGroups.has(group.id)) {
                     renderedGroups.add(group.id);
                     const groupItems = group.task_ids
-                      .map((id) => sortedItems.find((i) => i.id === id))
+                      .map((id) => labelFilteredItems.find((i) => i.id === id))
                       .filter(Boolean) as TrackerItem[];
                     return (
                       <React.Fragment key={`group-${group.id}`}>
@@ -1941,6 +2136,9 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                               estimate={metadataMap.get(gi.id)?.estimate}
                               localLabels={metadataMap.get(gi.id)?.labels}
                               labelDefinitions={labelDefinitions}
+                              allLabels={allLabels}
+                              onToggleLabel={(label) => handleItemToggleLabel(gi.id, label)}
+                              onAddLabel={handleItemAddLabel}
                               onSelect={(event) => {
                                 if (event && (event.metaKey || event.ctrlKey)) {
                                   toggleItemMultiSelect(gi.id);
@@ -1963,7 +2161,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
 
                   const currentLooseIdx = looseIdx++;
                   const prevLoose = currentLooseIdx > 0
-                    ? sortedItems.filter((i) => !groupedItemIds.has(i.id) && (!pendingSet || !pendingSet.has(i.id)))[currentLooseIdx - 1]
+                    ? labelFilteredItems.filter((i) => !groupedItemIds.has(i.id) && (!pendingSet || !pendingSet.has(i.id)))[currentLooseIdx - 1]
                     : null;
                   return (
                     <React.Fragment key={item.id}>
@@ -1985,6 +2183,9 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                         estimate={metadataMap.get(item.id)?.estimate}
                         localLabels={metadataMap.get(item.id)?.labels}
                         labelDefinitions={labelDefinitions}
+                        allLabels={allLabels}
+                        onToggleLabel={(label) => handleItemToggleLabel(item.id, label)}
+                        onAddLabel={handleItemAddLabel}
                         onSelect={(event) => {
                           if (event && (event.metaKey || event.ctrlKey)) {
                             toggleItemMultiSelect(item.id);
@@ -2032,7 +2233,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
         </div>
         <DragOverlay dropAnimation={null}>
           {dragActiveId && (() => {
-            const dragItem = sortedItems.find((i) => i.id === dragActiveId);
+            const dragItem = sortedItemsRef.current.find((i) => i.id === dragActiveId);
             if (!dragItem) return null;
             return (
               <div className="flex items-center gap-3 rounded-lg border border-[var(--primary)]/30 bg-[var(--card-bg)] px-4 py-2.5 text-sm shadow-xl backdrop-blur-sm">
