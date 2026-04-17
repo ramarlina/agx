@@ -164,15 +164,7 @@ export function useProcessPolling(
         );
         setActiveAgents(activeIds);
 
-        // Build streaming indicators from active processes
-        const newStreaming: Record<string, StreamingEntry> = {};
-        for (const proc of entries) {
-          if (!ACTIVE_STATES.has(proc.state)) continue;
-          const triggerMsg = messagesRef.current.find((m) => m.id === proc.sinceMessageId);
-          const rootId = triggerMsg?.rootMessageId ?? proc.sinceMessageId;
-          newStreaming[proc.agentId] = { content: "", rootMessageId: rootId };
-        }
-        setStreaming(newStreaming);
+        // Streaming state is owned by SSE event handlers — don't reset it here.
       }
 
       if (chatRunsRes?.ok) {
@@ -244,13 +236,27 @@ export function useProcessPolling(
 
         switch (event.type) {
           case "participant-start":
+          case "participant-thinking":
             activeStreamAgents.add(event.participantId);
             if (!agentContent.has(event.participantId)) {
               agentContent.set(event.participantId, { text: "", thoughts: [] });
             }
+            setStreaming((prev) => {
+              if (prev[event.participantId]) return prev;
+              return {
+                ...prev,
+                [event.participantId]: {
+                  content: "",
+                  rootMessageId: run.rootMessageId ?? null,
+                },
+              };
+            });
             break;
 
           case "text-delta": {
+            if (!agentContent.has(event.participantId)) {
+              agentContent.set(event.participantId, { text: "", thoughts: [] });
+            }
             const entry = agentContent.get(event.participantId);
             if (entry) {
               entry.text += event.delta;
@@ -273,26 +279,40 @@ export function useProcessPolling(
             const entry = agentContent.get(event.participantId);
             if (entry) {
               entry.thoughts.push(event.content);
+              setStreaming((prev) => {
+                const existing = prev[event.participantId];
+                if (!existing) return prev;
+                return {
+                  ...prev,
+                  [event.participantId]: {
+                    ...existing,
+                    thoughts: [...entry.thoughts],
+                  },
+                };
+              });
             }
             break;
           }
 
           case "participant-end":
             activeStreamAgents.delete(event.participantId);
-            // When a participant ends, clear their streaming indicator
-            setStreaming((prev) => {
-              const updated = { ...prev };
-              delete updated[event.participantId];
-              return updated;
+            poll().then(() => {
+              setStreaming((prev) => {
+                const updated = { ...prev };
+                delete updated[event.participantId];
+                return updated;
+              });
             });
             break;
 
           case "participant-error":
             activeStreamAgents.delete(event.participantId);
-            setStreaming((prev) => {
-              const updated = { ...prev };
-              delete updated[event.participantId];
-              return updated;
+            poll().then(() => {
+              setStreaming((prev) => {
+                const updated = { ...prev };
+                delete updated[event.participantId];
+                return updated;
+              });
             });
             break;
 

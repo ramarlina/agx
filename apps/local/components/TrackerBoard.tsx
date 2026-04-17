@@ -28,6 +28,7 @@ import {
   loadLinearTicketPanelWidth,
   persistLinearTicketPanelWidth,
 } from "@/state/windowState";
+import { loadLastRunForIssue, persistLastRunForIssue } from "@/state/lastSession";
 import {
   orderParticipantIds,
   type ComposerRoutingMetadata,
@@ -391,6 +392,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     configureMcp,
   } = useTrackerConnection(trackerType, projectId ?? "");
 
+  const lastRestoredItemRef = useRef<string | null>(null);
   const [setupDismissed, setSetupDismissed] = useState(false);
   const [showSettings, setShowSettings] = useState(initialShowSettings ?? false);
   const [showRunScripts, setShowRunScripts] = useState(false);
@@ -786,6 +788,8 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   const selectedRun = selectedRunId
     ? runs.find((run) => run.id === selectedRunId) ?? null
     : null;
+  const storedRunId = selectedItemId && !selectedRunId ? loadLastRunForIssue(selectedItemId) : null;
+  const isAwaitingRestore = !!storedRunId && lastRestoredItemRef.current !== selectedItemId;
   const assigneeOptions = useMemo<FilterOption[]>(
     () => assignees.map((assignee) => ({ value: assignee.id, label: assignee.name })),
     [assignees]
@@ -937,6 +941,20 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
       replaceSelection({ run: null });
     }
   }, [replaceSelection, runs, runsLoading, selectedItem, selectedRunId]);
+
+  useEffect(() => {
+    if (selectedItemId && selectedRunId) {
+      persistLastRunForIssue(selectedItemId, selectedRunId);
+    }
+  }, [selectedItemId, selectedRunId]);
+
+  useEffect(() => {
+    if (!isAwaitingRestore || runsLoading || runs.length === 0) return;
+    lastRestoredItemRef.current = selectedItemId;
+    if (storedRunId && runs.some((r) => r.id === storedRunId)) {
+      replaceSelection({ run: storedRunId });
+    }
+  }, [isAwaitingRestore, storedRunId, selectedItemId, runs, runsLoading, replaceSelection]);
 
   useEffect(() => {
     if (!isTouchLayout) {
@@ -1324,7 +1342,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                     </div>
 
                     <div className="flex-1 overflow-y-auto">
-                      {runsLoading && runs.length === 0 ? (
+                      {(runsLoading && runs.length === 0) || isAwaitingRestore ? (
                         <div className="px-3 py-4 text-xs text-[var(--muted-foreground)]">
                           Loading sessions...
                         </div>
@@ -1400,7 +1418,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                     onItemStatusChange={handleItemStatusChange}
                     onBack={() => replaceSelection({ run: null })}
                   />
-                ) : participants.length === 0 ? (
+                ) : isAwaitingRestore ? null : participants.length === 0 ? (
                   <div className="flex h-full items-center justify-center text-xs text-[var(--muted-foreground)]">
                     Add at least one agent to this project to start a session.
                   </div>
@@ -1800,7 +1818,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
           <div className="flex h-full items-center justify-center text-xs text-[var(--muted-foreground)]">
             Select a ticket from the list.
           </div>
-        ) : participants.length === 0 ? (
+        ) : isAwaitingRestore ? null : participants.length === 0 ? (
           <div className="flex h-full items-center justify-center text-xs text-[var(--muted-foreground)]">
             Add at least one agent to this project to start a session.
           </div>

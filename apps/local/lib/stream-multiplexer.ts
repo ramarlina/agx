@@ -724,6 +724,7 @@ async function runAgent(
 }> {
   let fullResponse = "";
 
+  write({ type: "participant-start", participantId: p.id });
   write({ type: "participant-thinking", participantId: p.id });
 
   // Resolve identity from the canonical DB-backed fields only.

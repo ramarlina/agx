@@ -734,65 +734,7 @@ export function Composer({
       <div className="max-w-3xl mx-auto">
         <ComposerDropZone onDrop={attachments.stageFiles}>
           <div className="bg-[var(--app-shell-surface)] border border-[var(--app-shell-border)] shadow-[var(--shadow-sm)] focus-within:border-[var(--app-shell-border-strong)] focus-within:ring-1 focus-within:ring-[var(--ring)] transition-all flex flex-col rounded-2xl">
-          {/* Ship Mode header */}
-          {onAutoModeChange && (
-            <div className={`relative overflow-hidden border-b transition-all duration-500 ${autoMode ? "border-orange-200/50 dark:border-orange-500/30" : "border-gray-100 dark:border-gray-800/60"}`}>
-              {/* Animated gradient background when active */}
-              <div
-                className={`absolute inset-0 transition-opacity duration-700 ${autoMode ? "opacity-100" : "opacity-0"}`}
-                style={{
-                  background: "linear-gradient(120deg, var(--warning-muted) 0%, transparent 50%, var(--warning-muted) 100%)",
-                  backgroundSize: "200% 100%",
-                  animation: autoMode ? "shipBgSweep 4s ease-in-out infinite" : "none",
-                }}
-              />
-              {/* Speed lines when active */}
-              {autoMode && (
-                <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                  {[...Array(8)].map((_, i) => (
-                    <div
-                      key={i}
-                      className="absolute h-[1.5px] rounded-full"
-                      style={{
-                        top: `${12 + i * 10}%`,
-                        right: "-10%",
-                        width: `${20 + (i % 3) * 15}%`,
-                        background: `linear-gradient(to left, transparent, var(--warning))`,
-                        opacity: 0.3 + (i % 3) * 0.1,
-                        animation: `shipSpeedLine ${0.8 + (i % 4) * 0.3}s ${i * 0.1}s ease-in-out infinite`,
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-              <div className="relative px-3 py-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div
-                      className={`p-1 rounded-md transition-all duration-300 ${autoMode ? "bg-[var(--warning)] text-[var(--warning-muted)] shadow-md" : "bg-[var(--app-shell-subtle)] text-[var(--app-shell-muted)]"}`}
-                      style={autoMode ? { animation: "shipPulse 2s ease-in-out infinite" } : {}}
-                    >
-                      <Rocket size={14} />
-                    </div>
-                    <span className={`text-sm font-semibold transition-colors duration-300 ${autoMode ? "text-[var(--warning)]" : "text-[var(--foreground)]"}`}>Ship Mode</span>
-                    <span className={`text-xs transition-colors duration-300 ${autoMode ? "text-[var(--warning)] opacity-60" : "text-[var(--app-shell-muted)] opacity-60"}`}>|</span>
-                    <span className={`text-xs font-medium transition-colors duration-300 ${autoMode ? "text-[var(--warning)] opacity-80" : "text-[var(--app-shell-muted)]"}`}>
-                      {autoMode
-                        ? "Continuous execution is active for this thread"
-                        : "Continuous execution stays off until you enable it"}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onAutoModeChange(!autoMode)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[var(--warning)] focus:ring-offset-2 focus:ring-offset-[var(--background)] ${autoMode ? "bg-[var(--warning)]" : "bg-[var(--app-shell-border-strong)]"}`}
-                  >
-                    <span className={`inline-block h-4 w-4 transform rounded-full bg-[var(--app-shell-elevated)] shadow-sm transition-transform duration-200 ${autoMode ? "translate-x-6" : "translate-x-1"}`} />
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+
           <div className="p-1.5 transition-all">
 
             {attachments.staged.length > 0 && (
