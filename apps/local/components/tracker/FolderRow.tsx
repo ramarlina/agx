@@ -123,7 +123,7 @@ export function FolderRow({
             className={`flex h-5 w-5 shrink-0 items-center justify-center rounded transition-all hover:bg-zinc-700 ${
               hasNote
                 ? "text-amber-400 opacity-100"
-                : "text-[var(--muted-foreground)] opacity-0 group-hover:opacity-100"
+                : `text-[var(--muted-foreground)] ${selected ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`
             }`}
             onClick={handleNoteClick}
             title={hasNote ? "Edit group note" : "Add group note"}
