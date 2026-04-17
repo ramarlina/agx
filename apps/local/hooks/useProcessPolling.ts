@@ -236,10 +236,21 @@ export function useProcessPolling(
 
         switch (event.type) {
           case "participant-start":
+          case "participant-thinking":
             activeStreamAgents.add(event.participantId);
             if (!agentContent.has(event.participantId)) {
               agentContent.set(event.participantId, { text: "", thoughts: [] });
             }
+            setStreaming((prev) => {
+              if (prev[event.participantId]) return prev;
+              return {
+                ...prev,
+                [event.participantId]: {
+                  content: "",
+                  rootMessageId: run.rootMessageId ?? null,
+                },
+              };
+            });
             break;
 
           case "text-delta": {
@@ -268,26 +279,40 @@ export function useProcessPolling(
             const entry = agentContent.get(event.participantId);
             if (entry) {
               entry.thoughts.push(event.content);
+              setStreaming((prev) => {
+                const existing = prev[event.participantId];
+                if (!existing) return prev;
+                return {
+                  ...prev,
+                  [event.participantId]: {
+                    ...existing,
+                    thoughts: [...entry.thoughts],
+                  },
+                };
+              });
             }
             break;
           }
 
           case "participant-end":
             activeStreamAgents.delete(event.participantId);
-            // When a participant ends, clear their streaming indicator
-            setStreaming((prev) => {
-              const updated = { ...prev };
-              delete updated[event.participantId];
-              return updated;
+            poll().then(() => {
+              setStreaming((prev) => {
+                const updated = { ...prev };
+                delete updated[event.participantId];
+                return updated;
+              });
             });
             break;
 
           case "participant-error":
             activeStreamAgents.delete(event.participantId);
-            setStreaming((prev) => {
-              const updated = { ...prev };
-              delete updated[event.participantId];
-              return updated;
+            poll().then(() => {
+              setStreaming((prev) => {
+                const updated = { ...prev };
+                delete updated[event.participantId];
+                return updated;
+              });
             });
             break;
 

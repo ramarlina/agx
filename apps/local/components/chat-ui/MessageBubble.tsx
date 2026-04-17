@@ -8,6 +8,7 @@ import { MessageAttachments } from "./MessageAttachments";
 import { MessageSquare, User, FileText, Loader2, AlertCircle, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import { stripMarkers } from "@/lib/chat-utils";
+import { StreamingSegments } from "./StreamingSegments";
 
 interface Props {
   message: GroupMessage;
@@ -100,7 +101,11 @@ export function MessageBubble({
             }
           }}
         >
-          <Markdown content={cleanContent} isUser={isUser} />
+          {isUser ? (
+            <Markdown content={cleanContent} isUser />
+          ) : (
+            <StreamingSegments content={cleanContent} />
+          )}
           {message.attachments && message.attachments.length > 0 && (
             <MessageAttachments attachments={message.attachments} />
           )}

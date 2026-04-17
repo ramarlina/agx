@@ -359,6 +359,7 @@ function providerNativeCommand({
     case "claude": {
       const args = [
         "-p",
+        prompt,
         "--verbose",
         "--output-format",
         "stream-json",
@@ -366,7 +367,6 @@ function providerNativeCommand({
       ];
       if (model) args.push("--model", model);
       if (systemPrompt) args.push("--system-prompt", systemPrompt);
-      args.push(prompt);
       return { command: "claude", args, parser: "claude-stream-json" };
     }
     case "gemini":
@@ -397,6 +397,7 @@ function providerNativeCommand({
       const zaiApiKey = process.env.ZAI_API_KEY?.trim();
       const zaiArgs = [
         "-p",
+        prompt,
         "--verbose",
         "--output-format",
         "stream-json",
@@ -404,7 +405,6 @@ function providerNativeCommand({
       ];
       if (model) zaiArgs.push("--model", model);
       if (systemPrompt) zaiArgs.push("--system-prompt", systemPrompt);
-      zaiArgs.push(prompt);
       return {
         command: "claude",
         args: zaiArgs,

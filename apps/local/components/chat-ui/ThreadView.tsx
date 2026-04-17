@@ -178,20 +178,21 @@ export function ThreadView({
                                         <span className="text-[11px] text-[var(--app-shell-soft-text)]">{formatTimestamp(msg.timestamp)}</span>
                                     </div>
 
-                                    <div
-                                        className={`surface-card rounded-2xl p-5 text-[15px] leading-relaxed ${msg.id === highlightedMessageId ? "ring-2 ring-[var(--ring)]" : ""}`}
-                                    >
-                                        <Markdown content={stripMarkers(msg.content)} isUser={isUser} />
+                                    <div className={`text-[15px] leading-relaxed ${msg.id === highlightedMessageId ? "ring-2 ring-[var(--ring)] rounded-2xl p-2 -m-2" : ""}`}>
+                                        {isUser ? (
+                                            <Markdown content={stripMarkers(msg.content)} isUser />
+                                        ) : (
+                                            <StreamingSegments content={stripMarkers(msg.content)} />
+                                        )}
                                         {msg.attachments && msg.attachments.length > 0 && (
                                             <MessageAttachments attachments={msg.attachments} />
                                         )}
-
-                                        {msg.reactions && msg.reactions.length > 0 && (
-                                            <div className="mt-4">
-                                                <MessageReactionsBar reactions={msg.reactions} />
-                                            </div>
-                                        )}
                                     </div>
+                                    {msg.reactions && msg.reactions.length > 0 && (
+                                        <div className="mt-2">
+                                            <MessageReactionsBar reactions={msg.reactions} />
+                                        </div>
+                                    )}
 
                                     {/* Actions on hover */}
                                     <ActionToolbar>
@@ -275,12 +276,13 @@ export function ThreadView({
                         </div>
                     )}
 
-                    {/* Typing indicators */}
+                    {/* Streaming content + typing indicators */}
                     {Object.entries(streaming)
                         .filter(([, entry]) => entry.rootMessageId === rootMessageId)
                         .map(([pid, entry]) => {
                             const sp = participantMap[pid];
                             const hasContent = entry.content.trim().length > 0;
+                            const isWorking = activeProcesses.some((p) => p.agentId === pid);
                             return (
                                 <div key={`streaming-${pid}`} className="flex gap-4 group relative animate-in fade-in slide-in-from-bottom-2 duration-300">
                                     <div className="flex-shrink-0 mt-1">
@@ -310,7 +312,16 @@ export function ThreadView({
                                             )}
                                         </div>
                                         {hasContent && (
-                                            <StreamingSegments content={entry.content} />
+                                            <StreamingSegments content={entry.content} thoughts={entry.thoughts} />
+                                        )}
+                                        {hasContent && isWorking && (
+                                            <div className="flex items-center gap-2 pt-1">
+                                                <span className="inline-flex items-center gap-[3px]">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--app-shell-muted)] animate-[pulse-dot_1.4s_ease-in-out_infinite]" />
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--app-shell-muted)] animate-[pulse-dot_1.4s_ease-in-out_0.2s_infinite]" />
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--app-shell-muted)] animate-[pulse-dot_1.4s_ease-in-out_0.4s_infinite]" />
+                                                </span>
+                                            </div>
                                         )}
                                     </div>
                                 </div>
