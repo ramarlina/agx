@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listTrackerConnections, addTrackerConnection, removeTrackerConnection } from "@/lib/tracker/connections";
+import "@/lib/tracker"; // Ensure adapters are registered
+import {
+  listTrackerConnections,
+  addTrackerConnection,
+  removeTrackerConnection,
+  getDefaultTrackerType,
+  setDefaultTrackerType,
+} from "@/lib/tracker/connections";
 import { getAdapterOrNull, listAdapters } from "@/lib/tracker/registry";
 
 export const runtime = "nodejs";
@@ -49,7 +56,44 @@ export async function GET(req: NextRequest) {
     })
   );
 
-  return NextResponse.json({ connections: enriched });
+  const available = allAdapters.map((adapter) => ({
+    type: adapter.type,
+    displayName: adapter.displayName,
+  }));
+
+  const defaultTracker = getDefaultTrackerType(projectId);
+
+  return NextResponse.json({ connections: enriched, available, defaultTracker });
+}
+
+export async function PATCH(req: NextRequest) {
+  const body = (await req.json().catch(() => ({}))) as {
+    projectId?: string;
+    defaultTracker?: string | null;
+  };
+
+  const projectId = body.projectId?.trim();
+  if (!projectId) {
+    return NextResponse.json({ error: "projectId required" }, { status: 400 });
+  }
+
+  const next =
+    body.defaultTracker === null || body.defaultTracker === undefined || body.defaultTracker === ""
+      ? null
+      : body.defaultTracker.trim();
+
+  if (next) {
+    const connected = listTrackerConnections(projectId).some((c) => c.type === next);
+    if (!connected) {
+      return NextResponse.json(
+        { error: `Tracker "${next}" is not connected for this project.` },
+        { status: 400 }
+      );
+    }
+  }
+
+  setDefaultTrackerType(projectId, next);
+  return NextResponse.json({ ok: true, defaultTracker: next });
 }
 
 export async function POST(req: NextRequest) {

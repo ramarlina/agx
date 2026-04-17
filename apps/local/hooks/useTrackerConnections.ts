@@ -13,10 +13,12 @@ interface TrackerConnectionInfo {
 
 interface UseTrackerConnectionsReturn {
   connections: TrackerConnectionInfo[];
+  defaultTracker: string | null;
   loading: boolean;
   refresh: () => Promise<void>;
   addConnection: (type: string, metadata?: Record<string, string>) => Promise<{ ok: boolean; error?: string }>;
   removeConnection: (type: string) => Promise<{ ok: boolean; error?: string }>;
+  setDefaultTracker: (type: string | null) => Promise<{ ok: boolean; error?: string }>;
 }
 
 /**
@@ -26,11 +28,13 @@ interface UseTrackerConnectionsReturn {
  */
 export function useTrackerConnections(projectId: string | null): UseTrackerConnectionsReturn {
   const [connections, setConnections] = useState<TrackerConnectionInfo[]>([]);
+  const [defaultTracker, setDefaultTrackerState] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     if (!projectId) {
       setConnections([]);
+      setDefaultTrackerState(null);
       setLoading(false);
       return;
     }
@@ -38,8 +42,10 @@ export function useTrackerConnections(projectId: string | null): UseTrackerConne
       const res = await fetch(`/api/trackers/connections?projectId=${encodeURIComponent(projectId)}`);
       const data = await res.json();
       setConnections(Array.isArray(data.connections) ? data.connections : []);
+      setDefaultTrackerState(typeof data.defaultTracker === "string" ? data.defaultTracker : null);
     } catch {
       setConnections([]);
+      setDefaultTrackerState(null);
     } finally {
       setLoading(false);
     }
@@ -95,5 +101,27 @@ export function useTrackerConnections(projectId: string | null): UseTrackerConne
     [projectId, refresh]
   );
 
-  return { connections, loading, refresh, addConnection, removeConnection };
+  const setDefaultTracker = useCallback(
+    async (type: string | null) => {
+      if (!projectId) return { ok: false, error: "Missing projectId" };
+      try {
+        const res = await fetch("/api/trackers/connections", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId, defaultTracker: type }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          return { ok: false, error: data.error || "Failed to set default tracker" };
+        }
+        await refresh();
+        return { ok: true };
+      } catch {
+        return { ok: false, error: "Failed to set default tracker" };
+      }
+    },
+    [projectId, refresh]
+  );
+
+  return { connections, defaultTracker, loading, refresh, addConnection, removeConnection, setDefaultTracker };
 }

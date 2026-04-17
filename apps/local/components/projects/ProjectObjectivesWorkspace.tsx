@@ -92,8 +92,9 @@ interface ProjectAgentSummary {
   routing_order: number;
 }
 
-interface ObjectiveLinearIssueSummary {
+interface ObjectiveTrackerItemSummary {
   id: string;
+  trackerType: string;
   identifier: string;
   title: string;
   url: string | null;
@@ -101,6 +102,12 @@ interface ObjectiveLinearIssueSummary {
   assignee: string | null;
   updatedAt: string;
   labels?: string[];
+}
+
+interface TrackerConnectionInfo {
+  type: string;
+  displayName: string;
+  connected: boolean;
 }
 
 const HEALTH_META: Record<
@@ -326,13 +333,18 @@ function buildObjectiveChatPrefix(
   teamName: string | null,
   projectId: string,
   projectSlug: string,
-  appOrigin: string | null
+  appOrigin: string | null,
+  trackerInfo: {
+    available: { type: string; displayName: string }[];
+    configured: { type: string; displayName: string }[];
+    defaultType: string | null;
+  }
 ): string {
   const basePath = `/api/projects/${projectId}/objectives/${objective.id}`;
   const objectiveRoute = appOrigin ? `${appOrigin}${basePath}` : basePath;
   const scheduledTasksRoute = `${objectiveRoute}/scheduled-tasks`;
-  const linearIssuesRoute = `${objectiveRoute}/linear-issues`;
   const notesRoute = `${objectiveRoute}/notes`;
+  const trackersBase = appOrigin ? `${appOrigin}/api/trackers` : `/api/trackers`;
 
   const objectiveFilePath = `~/.agx/projects/${projectSlug}/objectives/${objective.key}.md`;
   const notesDir = `~/.agx/projects/${projectSlug}/objectives/${objective.key}/notes/`;
@@ -354,7 +366,7 @@ function buildObjectiveChatPrefix(
     `## Objective file (source of truth)\n\nThis objective is stored as a frontmatter markdown file at:\n\`${objectiveFilePath}\`\n\nFile format:\n- YAML frontmatter between \`---\` delimiters contains all metadata (title, teamId, key, status, progress, scheduledTaskIds, threadId, chatSessionVersion, createdAt, updatedAt).\n- \`## Activities\` section contains the activity timeline; each activity is a \`### Title\` block with metadata lines (\`- **id:**\`, \`- **source:**\`, \`- **created:**\`, \`- **body:**\`) and optional \`#### Replies\` sub-section.\n\nNotes are stored as separate files in \`${notesDir}\`. Each note is a markdown file with YAML frontmatter (id, title, objectiveId, createdAt, updatedAt) and a markdown body.\n\nWhen updating the objective, you can edit this file directly. Rules:\n- NEVER remove or break the \`---\` frontmatter delimiters.\n- NEVER change the \`id\` or \`createdAt\` fields.\n- Always update \`updatedAt\` to the current ISO timestamp when making changes.\n- After any edit, call \`GET ${validateRoute}\` to verify the file is still valid.\n- If validation fails, fix the errors immediately before doing anything else.`,
 
     "Scheduled tasks live in the shared scheduled-task list and are filtered by this objective label.",
-    "Your job is to help the team develop the strategy needed to reach the goal, including the right combination of objective notes, scheduled tasks, and Linear tickets.",
+    "Your job is to help the team develop the strategy needed to reach the goal, including the right combination of objective notes, scheduled tasks, and tracker tickets.",
     "Use the current session history to build on prior reasoning. Only reset and start from scratch when the user explicitly starts a new session.",
     "Use this thread to pressure-test strategy, suggest better tactics, rewrite the objective when asked, propose the right operational cadence, and take concrete follow-up actions when the user wants them applied.",
     "When suggesting edits, prefer editing the frontmatter file directly or using the notes API. When the user asks you to make a change, edit the file, validate, then confirm.",
@@ -367,9 +379,32 @@ function buildObjectiveChatPrefix(
     `- DELETE ${notesRoute}/{noteId} to delete a note.`,
     `- GET ${scheduledTasksRoute} to inspect the scheduled tasks already tracked for this objective.`,
     `- POST ${scheduledTasksRoute} with {"name","prompt","cadence","agentId"} to create a scheduled task for this objective.`,
-    `- GET ${linearIssuesRoute} to inspect Linear tickets carrying the objective label "${objective.key}".`,
-    `- POST ${linearIssuesRoute} with {"title","description","teamId","assigneeId","cycleId","stateId","priority"} to create a Linear ticket labeled "${objective.key}".`,
     `- GET ${validateRoute} to validate the objective file on disk. Returns {"valid":true} or {"valid":false,"errors":[...]}.`,
+    "Tracker integrations:",
+    `- Available tracker types: ${
+      trackerInfo.available.length > 0
+        ? trackerInfo.available.map((t) => `${t.displayName} (${t.type})`).join(", ")
+        : "none registered"
+    }.`,
+    `- Configured for this project: ${
+      trackerInfo.configured.length > 0
+        ? trackerInfo.configured
+            .map((t) => {
+              const isDefault = trackerInfo.defaultType === t.type;
+              return `${t.displayName} (${t.type})${isDefault ? " — default" : ""}`;
+            })
+            .join(", ")
+        : "none — ask the user to connect a tracker in project settings if they want ticket workflows"
+    }.`,
+    trackerInfo.defaultType
+      ? `- Default tracker for ticket workflows: ${trackerInfo.defaultType}. Prefer this tracker when creating or referencing tickets for this objective unless the user asks otherwise.`
+      : trackerInfo.configured.length > 1
+        ? "- No default tracker has been selected; ask the user which connected tracker to use before creating tickets."
+        : "",
+    ...trackerInfo.configured.map(
+      (t) =>
+        `- GET ${trackersBase}/${t.type}/items?projectId=${projectId} to list ${t.displayName} items. Filter client-side by label "${objective.key}" to find tickets tied to this objective.`
+    ),
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -385,7 +420,7 @@ interface ObjectiveChatSession {
 
 type ObjectiveChatView = "list" | "detail";
 
-type ObjectiveDetailTab = "activity" | "notes" | "linear" | "scheduled-tasks";
+type ObjectiveDetailTab = "activity" | "notes" | "tasks" | "scheduled-tasks";
 
 function summarizeSessionTitle(content: string): string {
   const normalized = content.replace(/\s+/g, " ").trim();
@@ -478,6 +513,9 @@ function ObjectiveChatPanel({
   projectSlug,
   objective,
   teamName,
+  trackerConnections,
+  availableTrackers,
+  defaultTrackerType,
   onThreadLinked,
   onObjectiveUpdated,
 }: {
@@ -485,6 +523,9 @@ function ObjectiveChatPanel({
   projectSlug: string;
   objective: ProjectObjective;
   teamName: string | null;
+  trackerConnections: TrackerConnectionInfo[];
+  availableTrackers: { type: string; displayName: string }[];
+  defaultTrackerType: string | null;
   onThreadLinked: (threadId: string) => Promise<void>;
   onObjectiveUpdated: () => Promise<void>;
 }) {
@@ -959,7 +1000,11 @@ function ObjectiveChatPanel({
       const projectParticipantIds = participants.map((participant) => participant.id);
       const rootMessageId = isDetailView ? selectedSessionId : null;
       const combinedPrefix = [
-        buildObjectiveChatPrefix(objective, teamName, projectId, projectSlug, appOrigin),
+        buildObjectiveChatPrefix(objective, teamName, projectId, projectSlug, appOrigin, {
+          available: availableTrackers,
+          configured: trackerConnections.filter((c) => c.connected).map((c) => ({ type: c.type, displayName: c.displayName })),
+          defaultType: defaultTrackerType,
+        }),
         promptPrefix,
       ]
         .filter(Boolean)
@@ -1639,8 +1684,10 @@ export function ProjectObjectiveDetail({
   const [savingNoteIds, setSavingNoteIds] = useState<Set<string>>(new Set());
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [noteSearch, setNoteSearch] = useState("");
-  const [linearIssues, setLinearIssues] = useState<ObjectiveLinearIssueSummary[]>([]);
-  const [linearConnected, setLinearConnected] = useState(true);
+  const [trackerItems, setTrackerItems] = useState<ObjectiveTrackerItemSummary[]>([]);
+  const [trackerConnections, setTrackerConnections] = useState<TrackerConnectionInfo[]>([]);
+  const [availableTrackers, setAvailableTrackers] = useState<{ type: string; displayName: string }[]>([]);
+  const [defaultTrackerType, setDefaultTrackerType] = useState<string | null>(null);
   const [workingOnObjective, setWorkingOnObjective] = useState(false);
 
   const { jobs: scheduledJobs } = usePromptJobs(project?.id ?? null, {
@@ -1956,46 +2003,119 @@ export function ProjectObjectiveDetail({
   }, [objective, project?.id, refetchProject]);
 
   useEffect(() => {
-    if (!project?.id || !objective?.id) {
-      setLinearIssues([]);
-      setLinearConnected(true);
+    if (!project?.id || !objective?.id || !objective?.key) {
+      setTrackerItems([]);
+      setTrackerConnections([]);
+      setAvailableTrackers([]);
       return;
     }
 
     const projectId = project.id;
-    const currentObjectiveId = objective.id;
+    const objectiveKey = objective.key;
     let cancelled = false;
 
-    async function loadObjectiveResources() {
+    async function loadTrackerResources() {
       try {
-        const linearResponse = await fetch(
-          `/api/projects/${projectId}/objectives/${currentObjectiveId}/linear-issues`
+        const connRes = await fetch(
+          `/api/trackers/connections?projectId=${encodeURIComponent(projectId)}`
         );
-        const linearPayload =
-          linearResponse.status === 401
-            ? { connected: false, issues: [] as ObjectiveLinearIssueSummary[] }
-            : linearResponse.ok
-              ? ((await linearResponse.json()) as {
-                  connected?: boolean;
-                  issues?: ObjectiveLinearIssueSummary[];
-                })
-              : { connected: true, issues: [] as ObjectiveLinearIssueSummary[] };
-
+        if (!connRes.ok) {
+          if (!cancelled) {
+            setTrackerItems([]);
+            setTrackerConnections([]);
+            setAvailableTrackers([]);
+          }
+          return;
+        }
+        const connPayload = (await connRes.json()) as {
+          connections?: { type: string; connected?: boolean }[];
+          available?: { type: string; displayName: string }[];
+          defaultTracker?: string | null;
+        };
         if (cancelled) return;
 
-        setLinearIssues(
-          Array.isArray(linearPayload.issues) ? linearPayload.issues : []
+        const available = Array.isArray(connPayload.available) ? connPayload.available : [];
+        const connections: TrackerConnectionInfo[] = (connPayload.connections ?? []).map((c) => ({
+          type: c.type,
+          displayName: available.find((a) => a.type === c.type)?.displayName ?? c.type,
+          connected: c.connected !== false,
+        }));
+        const nextDefault =
+          typeof connPayload.defaultTracker === "string" && connPayload.defaultTracker
+            ? connPayload.defaultTracker
+            : null;
+
+        setAvailableTrackers(available);
+        setTrackerConnections(connections);
+        setDefaultTrackerType(nextDefault);
+
+        const connectedOnly = connections.filter((c) => c.connected);
+        const activeConns =
+          nextDefault && connectedOnly.some((c) => c.type === nextDefault)
+            ? connectedOnly.filter((c) => c.type === nextDefault)
+            : connectedOnly;
+        if (activeConns.length === 0) {
+          setTrackerItems([]);
+          return;
+        }
+
+        const normalizedKey = objectiveKey.trim().toLowerCase();
+        const results = await Promise.all(
+          activeConns.map(async (conn) => {
+            try {
+              const itemsRes = await fetch(
+                `/api/trackers/${encodeURIComponent(conn.type)}/items?projectId=${encodeURIComponent(projectId)}&limit=500`
+              );
+              if (!itemsRes.ok) return [];
+              const payload = (await itemsRes.json()) as {
+                items?: {
+                  id: string;
+                  trackerType?: string;
+                  identifier: string;
+                  title: string;
+                  url?: string | null;
+                  status: string;
+                  assignee?: { name?: string } | null;
+                  updatedAt: string;
+                  labels?: string[];
+                }[];
+              };
+              const items = Array.isArray(payload.items) ? payload.items : [];
+              return items
+                .filter((item) =>
+                  (item.labels ?? []).some(
+                    (label) => label.trim().toLowerCase() === normalizedKey
+                  )
+                )
+                .map<ObjectiveTrackerItemSummary>((item) => ({
+                  id: item.id,
+                  trackerType: item.trackerType ?? conn.type,
+                  identifier: item.identifier,
+                  title: item.title,
+                  url: item.url ?? null,
+                  status: item.status,
+                  assignee: item.assignee?.name ?? null,
+                  updatedAt: item.updatedAt,
+                  labels: item.labels,
+                }));
+            } catch {
+              return [];
+            }
+          })
         );
-        setLinearConnected(linearPayload.connected !== false);
+
+        if (cancelled) return;
+        setTrackerItems(results.flat());
       } catch (error) {
         if (cancelled) return;
-        console.warn("Failed to load objective resources", error);
-        setLinearIssues([]);
-        setLinearConnected(true);
+        console.warn("Failed to load objective tracker resources", error);
+        setTrackerItems([]);
+        setTrackerConnections([]);
+        setAvailableTrackers([]);
       }
     }
 
-    void loadObjectiveResources();
+    void loadTrackerResources();
 
     return () => {
       cancelled = true;
@@ -2179,7 +2299,14 @@ export function ProjectObjectiveDetail({
                   {([
                     { id: "activity" as const, label: "Activity", icon: Clock },
                     { id: "notes" as const, label: "Notes", icon: FileText },
-                    { id: "linear" as const, label: "Tasks", icon: (props: { size?: number; className?: string }) => <TrackerIcon trackerType="linear" className="h-3.5 w-3.5" /> },
+                    { id: "tasks" as const, label: "Tasks", icon: (props: { size?: number; className?: string }) => {
+                      const connected = trackerConnections.filter((c) => c.connected);
+                      const iconType =
+                        (defaultTrackerType && connected.some((c) => c.type === defaultTrackerType)
+                          ? defaultTrackerType
+                          : connected[0]?.type) ?? "tracker";
+                      return <TrackerIcon trackerType={iconType} className="h-3.5 w-3.5" />;
+                    } },
                     { id: "scheduled-tasks" as const, label: "Scheduled Jobs", icon: CalendarClock },
                   ]).map((tab) => (
                     <button
@@ -2204,9 +2331,9 @@ export function ProjectObjectiveDetail({
                           {notes.length}
                         </span>
                       )}
-                      {tab.id === "linear" && (() => {
+                      {tab.id === "tasks" && (() => {
                         const DONE = ["done", "canceled", "cancelled", "completed", "duplicate"];
-                        const active = linearIssues.filter(
+                        const active = trackerItems.filter(
                           (i, idx, arr) => arr.findIndex((x) => x.id === i.id) === idx && !DONE.includes(i.status.toLowerCase())
                         );
                         return active.length > 0 ? (
@@ -2385,9 +2512,9 @@ export function ProjectObjectiveDetail({
                   />
                 )}
 
-                {/* Linear Tickets Tab */}
-                {activeTab === "linear" && (() => {
-                  const dedupedIssues = linearIssues.filter(
+                {/* Tracker Tickets Tab */}
+                {activeTab === "tasks" && (() => {
+                  const dedupedIssues = trackerItems.filter(
                     (issue, idx, arr) => arr.findIndex((i) => i.id === issue.id) === idx
                   );
                   const DONE_STATUSES = ["done", "canceled", "cancelled", "completed", "duplicate"];
@@ -2398,6 +2525,16 @@ export function ProjectObjectiveDetail({
                     .filter((i) => DONE_STATUSES.includes(i.status.toLowerCase()))
                     .slice(-5);
 
+                  const connectedTrackers = trackerConnections.filter((c) => c.connected);
+                  const activeTrackers =
+                    defaultTrackerType && connectedTrackers.some((c) => c.type === defaultTrackerType)
+                      ? connectedTrackers.filter((c) => c.type === defaultTrackerType)
+                      : connectedTrackers;
+                  const connectedLabel =
+                    activeTrackers.length === 0
+                      ? null
+                      : activeTrackers.map((c) => c.displayName).join(", ");
+
                   return (
                     <section>
                       <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
@@ -2405,13 +2542,22 @@ export function ProjectObjectiveDetail({
                           Tickets tracked by the objective label{" "}
                           <code className="rounded bg-[var(--tone-neutral-bg)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--foreground)]">
                             {objective.key}
-                          </code>.
+                          </code>
+                          {connectedLabel ? <> across {connectedLabel}.</> : "."}
                         </p>
                       </div>
-                      {!linearConnected ? (
-                        <EmptyState label="Connect Linear to create and track tickets for this objective." />
+                      {activeTrackers.length === 0 ? (
+                        <EmptyState
+                          label={
+                            availableTrackers.length === 0
+                              ? "No tracker integrations registered."
+                              : `Connect a tracker (${availableTrackers
+                                  .map((t) => t.displayName)
+                                  .join(", ")}) to create and track tickets for this objective.`
+                          }
+                        />
                       ) : dedupedIssues.length === 0 ? (
-                        <EmptyState label={`No Linear tickets with label ${objective.key} yet.`} />
+                        <EmptyState label={`No tracker tickets with label ${objective.key} yet.`} />
                       ) : (
                         <>
                           {activeIssues.length > 0 && (
@@ -2423,11 +2569,14 @@ export function ProjectObjectiveDetail({
                                 >
                                   <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
-                                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
-                                        {issue.identifier}
-                                      </p>
+                                      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                                        <TrackerIcon trackerType={issue.trackerType} className="h-3 w-3" />
+                                        <span>{issue.identifier}</span>
+                                      </div>
                                       <a
-                                        href={`/projects/${projectSlug}/linear?issue=${issue.id}`}
+                                        href={issue.url ?? `/projects/${projectSlug}/${issue.trackerType}?issue=${issue.id}`}
+                                        target={issue.url ? "_blank" : undefined}
+                                        rel={issue.url ? "noreferrer" : undefined}
                                         className="mt-1 block text-sm font-medium text-[var(--foreground)] transition-colors hover:text-[var(--primary)]"
                                       >
                                         {issue.title}
@@ -2455,9 +2604,12 @@ export function ProjectObjectiveDetail({
                                 {doneIssues.map((issue) => (
                                   <a
                                     key={issue.id}
-                                    href={`/projects/${projectSlug}/linear?issue=${issue.id}`}
+                                    href={issue.url ?? `/projects/${projectSlug}/${issue.trackerType}?issue=${issue.id}`}
+                                    target={issue.url ? "_blank" : undefined}
+                                    rel={issue.url ? "noreferrer" : undefined}
                                     className="group flex items-center gap-3 rounded-md px-2 py-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
                                   >
+                                    <TrackerIcon trackerType={issue.trackerType} className="h-3 w-3 shrink-0" />
                                     <span className="text-[11px] font-mono shrink-0">{issue.identifier}</span>
                                     <span className="text-[12px] truncate">{issue.title}</span>
                                     <span className="ml-auto shrink-0 text-[10px] text-[var(--app-shell-soft-text)] group-hover:text-[var(--muted-foreground)]">{issue.status}</span>
@@ -2518,6 +2670,9 @@ export function ProjectObjectiveDetail({
             projectSlug={projectSlug}
             objective={objective}
             teamName={teamName}
+            trackerConnections={trackerConnections}
+            availableTrackers={availableTrackers}
+            defaultTrackerType={defaultTrackerType}
             onThreadLinked={handleObjectiveThreadLinked}
             onObjectiveUpdated={refetchProject}
           />

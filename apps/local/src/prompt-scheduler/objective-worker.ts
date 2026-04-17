@@ -379,6 +379,13 @@ export async function executeObjectiveWorker(opts: {
         ? (parsed.decision as string).trim().toLowerCase()
         : '';
     const action = rawAction === 'work' ? 'work_ticket' : rawAction;
+    if (!action) {
+      const raw = controllerResult.output ?? '';
+      console.warn(
+        `[objective-worker] empty action from controller (job=${opts.job.id}, outputLen=${raw.length}, parsed=${parsed ? 'object' : 'null'}):`,
+        raw.slice(0, 500),
+      );
+    }
     const reason = typeof parsed?.reason === 'string' ? parsed.reason.trim() : '';
     const objectiveProgress = normalizeAssessmentProgress(parsed?.objectiveProgress);
     const objectiveStatus = normalizeAssessmentStatus(parsed?.objectiveStatus);
