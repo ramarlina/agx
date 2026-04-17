@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   AlertTriangle,
@@ -536,8 +536,12 @@ function ObjectiveChatPanel({
   const [threadId, setThreadId] = useState<string | null>(
     objective.threadId ?? (objective.id ? `objective-chat:${objective.id}` : null)
   );
-  const [chatView, setChatView] = useState<ObjectiveChatView>("list");
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+  const urlSessionId = searchParams?.get("session") ?? null;
+  const urlMessageId = searchParams?.get("message") ?? null;
+  const [chatView, setChatView] = useState<ObjectiveChatView>(urlSessionId ? "detail" : "list");
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(urlSessionId);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(urlMessageId);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [chatSessionVersion, setChatSessionVersion] = useState(objective.chatSessionVersion);
   const [participants, setParticipants] = useState<Participant[]>([]);
@@ -948,6 +952,27 @@ function ObjectiveChatPanel({
   }, [objective.id, selectedSessionId]);
 
   useEffect(() => {
+    if (!urlSessionId) return;
+    setSelectedSessionId(urlSessionId);
+    setChatView("detail");
+  }, [urlSessionId]);
+
+  useEffect(() => {
+    if (urlMessageId) setHighlightedMessageId(urlMessageId);
+  }, [urlMessageId]);
+
+  useEffect(() => {
+    if (!highlightedMessageId) return;
+    const raf = requestAnimationFrame(() => {
+      const el = document.querySelector<HTMLElement>(
+        `[data-objective-message-id="${CSS.escape(highlightedMessageId)}"]`
+      );
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [highlightedMessageId, historyLoaded, selectedSessionId]);
+
+  useEffect(() => {
     if (selectedSessionId || sessions.length === 0) return;
     const storedId = loadLastSessionForEntity(objective.id);
     if (!storedId) return;
@@ -1175,8 +1200,13 @@ function ObjectiveChatPanel({
                 const participant = message.participantId
                   ? participantMap.get(message.participantId)
                   : null;
+                const isHighlighted = highlightedMessageId === message.id;
                 return (
-                  <div key={message.id} className="flex gap-3">
+                  <div
+                    key={message.id}
+                    data-objective-message-id={message.id}
+                    className={`flex gap-3 rounded-2xl transition-colors ${isHighlighted ? "bg-[var(--status-in-progress-bg)] p-2 -m-2" : ""}`}
+                  >
                     {message.role === "user" ? (
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--overlay-panel-soft)] text-[var(--muted-foreground)]">
                         <User className="h-4 w-4" />
@@ -2574,7 +2604,7 @@ export function ProjectObjectiveDetail({
                                         <span>{issue.identifier}</span>
                                       </div>
                                       <a
-                                        href={issue.url ?? `/projects/${projectSlug}/${issue.trackerType}?issue=${issue.id}`}
+                                        href={issue.url ?? `/projects/${projectSlug}/tracking/${issue.trackerType}?issue=${issue.id}`}
                                         target={issue.url ? "_blank" : undefined}
                                         rel={issue.url ? "noreferrer" : undefined}
                                         className="mt-1 block text-sm font-medium text-[var(--foreground)] transition-colors hover:text-[var(--primary)]"
@@ -2604,7 +2634,7 @@ export function ProjectObjectiveDetail({
                                 {doneIssues.map((issue) => (
                                   <a
                                     key={issue.id}
-                                    href={issue.url ?? `/projects/${projectSlug}/${issue.trackerType}?issue=${issue.id}`}
+                                    href={issue.url ?? `/projects/${projectSlug}/tracking/${issue.trackerType}?issue=${issue.id}`}
                                     target={issue.url ? "_blank" : undefined}
                                     rel={issue.url ? "noreferrer" : undefined}
                                     className="group flex items-center gap-3 rounded-md px-2 py-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
