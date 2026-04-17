@@ -2,22 +2,22 @@
 
 import { useState, type ComponentProps } from "react";
 import { Bot, Link2, ScrollText, X } from "lucide-react";
-import LinearSetup from "@/components/LinearSetup";
-import LinearWorkerConfig from "@/components/linear/LinearWorkerConfig";
-import LinearWorkerRunLog from "@/components/linear/LinearWorkerRunLog";
+import LinearSetup from "@/components/tracking/TrackerSetup";
+import TrackerWorkerConfig from "@/components/tracker/TrackerWorkerConfig";
+import TrackerWorkerRunLog from "@/components/tracker/TrackerWorkerRunLog";
 
-type LinearSetupProps = ComponentProps<typeof LinearSetup>;
+type TrackerSetupProps = ComponentProps<typeof LinearSetup>;
 
 interface TrackerSettingsModalProps {
   trackerType: string;
-  connected: LinearSetupProps["connected"];
-  user: LinearSetupProps["user"];
-  clis: LinearSetupProps["clis"];
-  mcpConfigured: LinearSetupProps["mcpConfigured"];
-  onConnect: LinearSetupProps["onConnect"];
-  onConnectWithKey: LinearSetupProps["onConnectWithKey"];
-  onDisconnect: LinearSetupProps["onDisconnect"];
-  onConfigureMcp: LinearSetupProps["onConfigureMcp"];
+  connected: TrackerSetupProps["connected"];
+  user: { name: string; email: string } | null;
+  clis: { claude: boolean; codex: boolean; gemini: boolean };
+  mcpConfigured: Record<string, boolean>;
+  onConnect: TrackerSetupProps["onConnect"];
+  onConnectWithKey: TrackerSetupProps["onConnectWithKey"];
+  onDisconnect: () => Promise<void>;
+  onConfigureMcp: (cli: string) => Promise<{ ok: boolean; error?: string }>;
   onClose: () => void;
   projectId?: string;
 }
@@ -91,22 +91,18 @@ export default function TrackerSettingsModal({
         <div className="flex-1 min-h-0 max-h-[80vh] overflow-y-auto p-6">
           {tab === "connection" && (
             <LinearSetup
+              trackerType={trackerType}
+              projectId={projectId ?? ""}
               connected={connected}
-              user={user}
-              clis={clis}
-              mcpConfigured={mcpConfigured}
               onConnect={onConnect}
               onConnectWithKey={onConnectWithKey}
-              onDisconnect={onDisconnect}
-              onConfigureMcp={onConfigureMcp}
-              onContinue={onClose}
             />
           )}
           {tab === "worker" && connected && (
-            <LinearWorkerConfig projectId={projectId} onJobLoaded={setWorkerJobId} />
+            <TrackerWorkerConfig projectId={projectId} onJobLoaded={setWorkerJobId} />
           )}
           {tab === "run-log" && connected && (
-            <LinearWorkerRunLog jobId={workerJobId} />
+            <TrackerWorkerRunLog jobId={workerJobId} />
           )}
         </div>
       </div>

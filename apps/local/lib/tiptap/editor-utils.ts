@@ -98,7 +98,7 @@ function getAtomDisplayText(node: { type: { name: string }; attrs: Record<string
       const shortId = (node.attrs.threadId ?? "").slice(0, 8);
       return `@#${shortId}`;
     }
-    case "linearIssueMention": {
+    case "trackerItemMention": {
       const identifier = String(node.attrs.identifier ?? "").trim();
       return identifier ? `@${identifier}` : "";
     }

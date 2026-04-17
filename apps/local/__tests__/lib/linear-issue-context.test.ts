@@ -4,11 +4,11 @@
 
 import type { JSONContent } from "@tiptap/core";
 import {
-  buildLinearIssueContextPrefix,
-  extractMentionedLinearIssueIds,
-} from "@/lib/chat/linear-issue-context";
+  buildTrackerItemContextPrefix,
+  extractMentionedTrackerItemIds,
+} from "@/lib/chat/tracker-item-context";
 
-describe("linear issue mention context", () => {
+describe("tracker item mention context", () => {
   test("extracts explicitly mentioned ticket ids from the composer document", () => {
     const doc: JSONContent = {
       type: "doc",
@@ -17,7 +17,7 @@ describe("linear issue mention context", () => {
           type: "paragraph",
           content: [
             {
-              type: "linearIssueMention",
+              type: "trackerItemMention",
               attrs: {
                 id: "issue-1",
                 identifier: "AGX-101",
@@ -25,7 +25,7 @@ describe("linear issue mention context", () => {
             },
             { type: "text", text: " and " },
             {
-              type: "linearIssueMention",
+              type: "trackerItemMention",
               attrs: {
                 id: "issue-2",
                 identifier: "AGX-102",
@@ -36,11 +36,11 @@ describe("linear issue mention context", () => {
       ],
     };
 
-    expect(extractMentionedLinearIssueIds(doc)).toEqual(["issue-1", "issue-2"]);
+    expect(extractMentionedTrackerItemIds(doc)).toEqual(["issue-1", "issue-2"]);
   });
 
-  test("formats cached Linear ticket context for prompt injection", () => {
-    const prefix = buildLinearIssueContextPrefix([
+  test("formats cached tracker item context for prompt injection", () => {
+    const prefix = buildTrackerItemContextPrefix([
       {
         id: "issue-1",
         identifier: "AGX-101",
@@ -63,7 +63,7 @@ describe("linear issue mention context", () => {
       },
     ]);
 
-    expect(prefix).toContain("Referenced Linear tickets");
+    expect(prefix).toContain("Referenced tickets");
     expect(prefix).toContain('identifier="AGX-101"');
     expect(prefix).toContain("Need to add a copy-link action");
   });

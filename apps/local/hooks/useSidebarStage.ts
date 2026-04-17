@@ -6,6 +6,12 @@ import { useTrackerConnections } from "./useTrackerConnections";
 
 export type SidebarStage = "stage1" | "stage2" | "stage3" | "stage4";
 
+export interface TrackerConnectionEntry {
+  type: string;
+  connected: boolean;
+  connectedAt: string;
+}
+
 export interface SidebarStageResult {
   stage: SidebarStage;
   loading: boolean;
@@ -21,6 +27,8 @@ export interface SidebarStageResult {
     scheduledTasks: boolean;
     envVars: boolean;
   };
+  /** Connected tracker types for sidebar sub-entries */
+  trackerConnections: TrackerConnectionEntry[];
 }
 
 const ALL_VISIBLE_BASE = {
@@ -29,7 +37,7 @@ const ALL_VISIBLE_BASE = {
   terminal: true,
   objectives: true,
   objectivesIsNew: false,
-  tracking: true,
+  tracking: true, // Always true — section is always visible
   teams: true,
   folders: true,
   scheduledTasks: true,
@@ -38,28 +46,34 @@ const ALL_VISIBLE_BASE = {
 
 /**
  * Determine which sidebar sections to show.
- * Gating:
- *  - tracking: shown only when the project has at least one connected tracker
+ * Task Tracking is always visible — shows "+ Connect" when no trackers connected.
  */
 export function useSidebarStage(
   project: ProjectWithAgents | null,
 ): SidebarStageResult {
   const { connections, loading } = useTrackerConnections(project?.id ?? null);
-  const hasTracker = connections.some((c) => c.connected);
 
   return useMemo(() => {
+    const trackerConnections = connections.map((c) => ({
+      type: c.type,
+      connected: c.connected,
+      connectedAt: c.connectedAt,
+    }));
+
     if (loading) {
       return {
         stage: "stage1",
         loading: true,
-        show: { ...ALL_VISIBLE_BASE, tracking: false },
+        show: { ...ALL_VISIBLE_BASE },
+        trackerConnections: [],
       };
     }
 
     return {
       stage: "stage4",
       loading: false,
-      show: { ...ALL_VISIBLE_BASE, tracking: hasTracker },
+      show: { ...ALL_VISIBLE_BASE },
+      trackerConnections,
     };
-  }, [loading, hasTracker]);
+  }, [loading, connections]);
 }

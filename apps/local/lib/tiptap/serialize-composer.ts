@@ -7,7 +7,7 @@ import type { JSONContent } from "@tiptap/core";
  * - projectMention → @~project:slug
  * - fileMention → @/path or @~/path
  * - threadMention → @#shortId
- * - linearIssueMention → @ABC-123
+ * - trackerItemMention → @ABC-123
  * - text nodes → verbatim text
  * - paragraphs separated by \n
  */
@@ -71,7 +71,7 @@ function serializeParagraph(node: JSONContent): string {
         break;
       }
 
-      case "linearIssueMention": {
+      case "trackerItemMention": {
         const attrs = child.attrs ?? {};
         const identifier = String(attrs.identifier ?? "").trim();
         if (identifier) {

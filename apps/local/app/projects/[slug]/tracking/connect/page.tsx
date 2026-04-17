@@ -55,22 +55,26 @@ export default function TrackingConnectPage({
   if (selected) {
     const tracker = TRACKER_TYPES.find((t) => t.type === selected);
     return (
-      <div className="flex flex-col items-center justify-center h-full gap-6 p-8">
-        <button
-          onClick={() => setSelected(null)}
-          className="self-start text-sm text-muted-foreground hover:text-foreground mb-2"
-        >
-          ← Back to tracker picker
-        </button>
-        <h2 className="text-xl font-semibold">Connect {tracker?.label ?? selected}</h2>
-        <TrackerSetup
-          projectId={projectId}
-          trackerType={selected}
-          connected={singleConnected}
-          loading={singleLoading}
-          onConnect={connect}
-          onConnectWithKey={connectWithKey}
-        />
+      <div className="h-full overflow-auto">
+        <div className="mx-auto max-w-2xl px-6 py-6">
+          <button
+            onClick={() => setSelected(null)}
+            className="text-sm text-muted-foreground hover:text-foreground mb-8"
+          >
+            ← Back to tracker picker
+          </button>
+          <div className="flex flex-col items-center gap-6">
+            <h2 className="text-xl font-semibold">Connect {tracker?.label ?? selected}</h2>
+            <TrackerSetup
+              projectId={projectId}
+              trackerType={selected}
+              connected={singleConnected}
+              loading={singleLoading}
+              onConnect={connect}
+              onConnectWithKey={connectWithKey}
+            />
+          </div>
+        </div>
       </div>
     );
   }

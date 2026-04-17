@@ -152,10 +152,10 @@ export const ThreadMention = Node.create({
 });
 
 /**
- * Linear issue mention pill — renders @ENG-123.
+ * Tracker item mention pill — renders @ENG-123.
  */
-export const LinearIssueMention = Node.create({
-  name: "linearIssueMention",
+export const TrackerItemMention = Node.create({
+  name: "trackerItemMention",
   group: "inline",
   inline: true,
   atom: true,
@@ -171,14 +171,14 @@ export const LinearIssueMention = Node.create({
   },
 
   parseHTML() {
-    return [{ tag: 'span[data-linear-issue-mention]' }];
+    return [{ tag: 'span[data-tracker-item-mention]' }];
   },
 
   renderHTML({ node, HTMLAttributes }) {
     return [
       "span",
       mergeAttributes(HTMLAttributes, {
-        "data-linear-issue-mention": "",
+        "data-tracker-item-mention": "",
         "data-id": node.attrs.id,
         "data-identifier": node.attrs.identifier,
         class: "composer-pill composer-pill--linear-issue",

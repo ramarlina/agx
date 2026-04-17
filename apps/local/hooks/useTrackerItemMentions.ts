@@ -1,27 +1,34 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { LinearIssue } from "@/hooks/useLinearIssues";
 
-interface UseLinearIssueMentionsOptions {
+export interface TrackerItemMention {
+  id: string;
+  identifier: string;
+  title: string;
+  status: string;
+  url?: string;
+}
+
+interface UseTrackerItemMentionsOptions {
   projectId: string;
   projectSlug?: string;
   enabled?: boolean;
   limit?: number;
 }
 
-interface UseLinearIssueMentionsReturn {
-  issues: LinearIssue[];
+interface UseTrackerItemMentionsReturn {
+  issues: TrackerItemMention[];
   loading: boolean;
 }
 
-export function useLinearIssueMentions({
+export function useTrackerItemMentions({
   projectId,
   projectSlug,
   enabled = true,
   limit = 500,
-}: UseLinearIssueMentionsOptions): UseLinearIssueMentionsReturn {
-  const [issues, setIssues] = useState<LinearIssue[]>([]);
+}: UseTrackerItemMentionsOptions): UseTrackerItemMentionsReturn {
+  const [issues, setIssues] = useState<TrackerItemMention[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -40,7 +47,7 @@ export function useLinearIssueMentions({
     }
 
     setLoading(true);
-    fetch(`/api/linear/issues?${params.toString()}`)
+    fetch(`/api/trackers/linear/items?${params.toString()}`)
       .then(async (response) => {
         const data = await response.json().catch(() => ({}));
         if (!cancelled) {

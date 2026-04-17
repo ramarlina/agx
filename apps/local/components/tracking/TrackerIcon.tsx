@@ -1,8 +1,14 @@
 "use client";
 
 import type { ComponentType } from "react";
-import { getAdapterOrNull } from "@/lib/tracker/registry";
 import { LinearIcon } from "@/lib/tracker/adapters/linear/linear-icon";
+import { JiraIcon } from "@/lib/tracker/adapters/jira/jira-icon";
+
+/** Client-side icon map — the adapter registry is server-only. */
+const TRACKER_ICONS: Record<string, ComponentType<{ className?: string }>> = {
+  linear: LinearIcon,
+  jira: JiraIcon,
+};
 
 interface TrackerIconProps {
   trackerType: string;
@@ -10,16 +16,15 @@ interface TrackerIconProps {
 }
 
 /**
- * Dynamically renders the icon for a given tracker type.
- * Falls back to a generic icon if the adapter is not registered.
+ * Renders the icon for a given tracker type.
+ * Falls back to a generic clipboard icon for unknown types.
  */
 export function TrackerIcon({ trackerType, className }: TrackerIconProps) {
-  const adapter = getAdapterOrNull(trackerType);
-  if (!adapter) {
-    return <GenericTrackerIcon className={className} />;
+  const Icon = TRACKER_ICONS[trackerType];
+  if (Icon) {
+    return <Icon className={className} />;
   }
-  const Icon = adapter.icon as ComponentType<{ className?: string }>;
-  return <Icon className={className} />;
+  return <GenericTrackerIcon className={className} />;
 }
 
 /**
@@ -45,13 +50,9 @@ function GenericTrackerIcon({ className }: { className?: string }) {
 }
 
 /**
- * Get the adapter icon component for server-side rendering.
- * Returns the Linear icon by default (most common case in Phase 1).
+ * Get the icon component for a tracker type.
+ * Returns the Linear icon as fallback.
  */
 export function getTrackerIconComponent(trackerType: string): ComponentType<{ className?: string }> {
-  const adapter = getAdapterOrNull(trackerType);
-  if (adapter) {
-    return adapter.icon as ComponentType<{ className?: string }>;
-  }
-  return LinearIcon;
+  return TRACKER_ICONS[trackerType] ?? LinearIcon;
 }

@@ -1,4 +1,6 @@
-import type { LinearRun } from "@/hooks/useLinearRuns";
+import type { TrackerRunRecord } from "@/lib/tracker/tracker-run-store";
+
+type LinearRun = TrackerRunRecord;
 
 export type RunDisplayTone = LinearRun["status"] | "ready";
 

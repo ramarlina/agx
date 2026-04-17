@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { RefreshCw, CheckCircle2, XCircle, Clock, Loader2, Ban } from "lucide-react";
 import type { PromptRun } from "@/src/prompt-scheduler/types";
 
-interface LinearWorkerRunLogProps {
+interface TrackerWorkerRunLogProps {
   jobId: string | null;
 }
 
@@ -47,7 +47,7 @@ function statusColor(status: PromptRun["status"]): string {
 }
 
 function formatDuration(ms: number | null): string {
-  if (ms === null) return "—";
+  if (ms === null) return "\u2014";
   if (ms < 1000) return `${ms}ms`;
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
   if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s`;
@@ -55,7 +55,7 @@ function formatDuration(ms: number | null): string {
 }
 
 function formatTime(iso: string | null): string {
-  if (!iso) return "—";
+  if (!iso) return "\u2014";
   const d = new Date(iso);
   return d.toLocaleString(undefined, {
     month: "short",
@@ -66,7 +66,7 @@ function formatTime(iso: string | null): string {
   });
 }
 
-export default function LinearWorkerRunLog({ jobId }: LinearWorkerRunLogProps) {
+export default function TrackerWorkerRunLog({ jobId }: TrackerWorkerRunLogProps) {
   const [runs, setRuns] = useState<PromptRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);

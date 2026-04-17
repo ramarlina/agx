@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPromptJobStore } from '@/src/prompt-scheduler/get-store';
 import { OBJECTIVE_WORKER_DEFAULT_PROMPT } from '@/src/prompt-scheduler/objective-worker-job';
-import { LINEAR_WORKER_DEFAULT_PROMPT } from '@/src/prompt-scheduler/linear-worker-job';
+import { TASK_WORKER_DEFAULT_PROMPT as LINEAR_WORKER_DEFAULT_PROMPT } from '@/src/prompt-scheduler/task-worker-job';
 import {
   computeNextRun,
   computePrevRun,

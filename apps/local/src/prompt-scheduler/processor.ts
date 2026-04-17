@@ -8,10 +8,10 @@ import { getAgent, getAgentSkills, getProjectAgents, getTeamAgents } from '@/lib
 import { LOCAL_USER } from '@/lib/auth-mode';
 import { loadDbParticipants } from '@/lib/agent-participants';
 import { runCliResponse, buildCliAttempts, CliRunError } from '@/lib/cli-runner';
-import { startScriptedLinearSession } from '@/lib/linear-scripted-session';
+import { startScriptedTrackerSession } from '@/lib/tracker/scripted-session';
 import {
-  isObjectiveLinearTerminalStatus,
-} from '@/lib/objective-linear-issues';
+  isObjectiveTrackerTerminalStatus as isObjectiveLinearTerminalStatus,
+} from '@/lib/objective-tracker-issues';
 import {
   loadProjectObjectiveContext,
 } from '@/lib/project-objective-context';
@@ -380,7 +380,8 @@ export async function dispatchObjectiveAction(opts: {
       };
     }
 
-    const launch = await startScriptedLinearSession({
+    const launch = await startScriptedTrackerSession({
+      trackerType: 'linear',
       projectId: opts.objectiveContext.project.id,
       projectSlug: opts.objectiveContext.project.slug,
       issue: {
@@ -457,7 +458,7 @@ async function executeJobAction(
   }
 
   if (job.executionMode === 'linear_worker' || job.executionMode === 'task_worker') {
-    const { executeLinearWorker } = await import('./linear-worker');
+    const { executeLinearWorker } = await import('./task-worker');
     const sessionAgent = await resolveLinearWorkerAgent(job);
     const controllerContext = await resolveJobContextForAgent(job, sessionAgent.id);
     return executeLinearWorker({

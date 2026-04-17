@@ -33,8 +33,10 @@ import type { SidebarStageResult } from "@/hooks/useSidebarStage";
 import { agentAvatarUrl, AgentForm, type AgentFormData } from "@/components/chat-ui/ParticipantBar";
 import ProjectModal, { createProjectPayload, useProjectFormState } from "@/components/ProjectModal";
 import { readProjectObjectivesWorkspace } from "@/lib/project-objectives";
-import { TrackerIcon } from "@/components/tracking/TrackerIcon";
+import { TaskTrackingNav } from "@/components/tracking/TaskTrackingNav";
+import { LinearIcon } from "@/lib/tracker/adapters/linear/linear-icon";
 import { useTrackerConnections } from "@/hooks/useTrackerConnections";
+import type { TrackerConnectionEntry } from "@/hooks/useSidebarStage";
 
 interface WorkspaceSidebarProps {
   threads: Thread[];
@@ -71,6 +73,7 @@ interface WorkspaceSidebarProps {
   activeProjectView?: "home" | "objectives" | "teams" | "thread" | "automations" | "linear" | "tracking" | "terminal" | "env-vars" | "folders" | null;
   onAddTeam?: (projectId: string) => void;
   stageShow?: SidebarStageResult["show"];
+  trackerConnections?: TrackerConnectionEntry[];
 }
 
 function WorkspaceSidebarBrandLogo({ compact = false }: { compact?: boolean }) {
@@ -266,6 +269,7 @@ export function WorkspaceSidebar({
   onWidthChange,
   onAddTeam,
   stageShow: stageShowProp,
+  trackerConnections: trackerConnectionsProp = [],
 }: WorkspaceSidebarProps) {
   const { isTouchLayout, isPhone } = useInputCapabilities();
   const resizing = useRef(false);
@@ -571,7 +575,6 @@ export function WorkspaceSidebar({
   const nonDefaultProjects = projectsProp.filter((project) => !project.is_default);
   const selectedProject = nonDefaultProjects.find((p) => p.id === activeProjectId) ?? nonDefaultProjects[0] ?? null;
   const { connections: trackerConnections } = useTrackerConnections(selectedProject?.id ?? null);
-  const primaryTrackerType = trackerConnections.find((c) => c.connected)?.type ?? "linear";
   const stageShow = stageShowProp ?? {
     home: true, threads: true, terminal: true, objectives: false,
     objectivesIsNew: false, tracking: false, teams: false, folders: false,
@@ -776,9 +779,9 @@ export function WorkspaceSidebar({
               </RailTooltip>
             )}
             {stageShow.tracking && (
-              <RailTooltip label="Tasks">
+              <RailTooltip label="Task Tracking">
                 <Link href={`/projects/${collapsedSlug}/tracking`} className={`workspace-sidebar__rail-icon${(activeProjectView === "linear" || activeProjectView === "tracking") ? " workspace-sidebar__rail-icon--active" : ""}`}>
-                  <TrackerIcon trackerType={primaryTrackerType} className="h-4 w-4" />
+                  <LinearIcon className="h-4 w-4" />
                 </Link>
               </RailTooltip>
             )}
@@ -922,7 +925,10 @@ export function WorkspaceSidebar({
           const isActiveProject = selectedProject.id === activeProjectId;
           const isActiveProjectHome = isActiveProject && activeProjectView === "home";
           const isActiveProjectObjectives = isActiveProject && activeProjectView === "objectives";
-          const isActiveProjectLinear = isActiveProject && (activeProjectView === "linear" || activeProjectView === "tracking");
+          const isActiveProjectTracking = isActiveProject && (activeProjectView === "linear" || activeProjectView === "tracking");
+          const activeTrackerFromUrl = typeof window !== "undefined"
+            ? window.location.pathname.match(/\/tracking\/([^/]+)/)?.[1] ?? null
+            : null;
           const isActiveProjectAutomations = isActiveProject && activeProjectView === "automations";
           const isActiveProjectTerminal = isActiveProject && activeProjectView === "terminal";
           const isActiveProjectThread = isActiveProject && activeProjectView === "thread" && primaryProjectThreadId === activeThreadId;
@@ -931,7 +937,7 @@ export function WorkspaceSidebar({
           const isActiveProjectEnvVars = isActiveProject && activeProjectView === "env-vars";
           const navActivity = navActivityByProject[selectedProject.id];
 
-          const showWorkGroup = stageShow.objectives || stageShow.tracking || stageShow.scheduledTasks;
+          const showWorkGroup = stageShow.objectives || stageShow.scheduledTasks;
           const showSettingsGroup = stageShow.teams || stageShow.folders || stageShow.envVars;
 
           return (
@@ -989,40 +995,6 @@ export function WorkspaceSidebar({
                         </Link>
                       </div>
                     )}
-                    {stageShow.tracking && (
-                      <div className="workspace-sidebar__workspace-item group/linear flex items-center">
-                        <Link
-                          href={`/projects/${selectedProject.slug}/tracking`}
-                          onClick={closeTouchDrawer}
-                          className={`workspace-sidebar__nav-item flex-1 ${(isActiveProjectLinear || activeProjectView === "tracking") ? "workspace-sidebar__nav-item--active" : ""}`}
-                          aria-current={(isActiveProjectLinear || activeProjectView === "tracking") ? "page" : undefined}
-                        >
-                          <TrackerIcon trackerType={primaryTrackerType} className="flex-shrink-0 h-3.5 w-3.5 text-[var(--muted-foreground)]" />
-                          <span className="workspace-sidebar__workspace-title text-sm">Tasks</span>
-                          {navActivity?.linear.length > 0 && (
-                            <span className="inline-flex items-center -space-x-1 ml-auto shrink-0">
-                              {navActivity.linear.slice(0, 3).map((dot) => {
-                                const agent = participants.find((p) => p.id === dot.agentId);
-                                return (
-                                  <span key={dot.agentId} className="relative inline-block" title={agent?.name}>
-                                    <img src={agentAvatarUrl(agent?.id ?? dot.agentId, 16, dot.color)} alt={agent?.name ?? ""} className="h-3.5 w-3.5 rounded-full ring-[1.5px] ring-[var(--app-shell-pane)]" />
-                                    <span className="absolute -bottom-px -right-px h-1.5 w-1.5 rounded-full bg-green-500 ring-[1px] ring-[var(--app-shell-pane)]" />
-                                  </span>
-                                );
-                              })}
-                            </span>
-                          )}
-                        </Link>
-                        <Link
-                          href={`/projects/${selectedProject.slug}/tracking?settings=true`}
-                          onClick={closeTouchDrawer}
-                          className="flex h-5 w-5 items-center justify-center rounded opacity-0 group-hover/linear:opacity-100 hover:bg-[var(--sidebar-hover)] transition-opacity"
-                          title="Tracker settings"
-                        >
-                          <Settings size={11} className="text-[var(--muted-foreground)]" />
-                        </Link>
-                      </div>
-                    )}
                     {stageShow.scheduledTasks && (
                       <div className="workspace-sidebar__workspace-item">
                         <Link
@@ -1036,6 +1008,24 @@ export function WorkspaceSidebar({
                         </Link>
                       </div>
                     )}
+                  </div>
+                </div>
+              )}
+
+              {/* Task Tracking — own section */}
+              {stageShow.tracking && (
+                <div className="mb-3">
+                  <div className="workspace-sidebar__section-header">
+                    <p className="workspace-sidebar__section-label">Task Tracking</p>
+                  </div>
+                  <div className="px-2 flex flex-col gap-0.5">
+                    <TaskTrackingNav
+                      projectSlug={selectedProject.slug}
+                      trackerConnections={trackerConnectionsProp}
+                      activeTrackerType={activeTrackerFromUrl}
+                      isTrackingActive={isActiveProjectTracking}
+                      onLinkClick={closeTouchDrawer}
+                    />
                   </div>
                 </div>
               )}

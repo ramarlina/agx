@@ -35,7 +35,7 @@ import {
 } from "@/lib/chat/composer-routing";
 import { buildTrackerExecutionPrompt } from "@/lib/tracker/tracker-execution-prompt";
 import type { Participant } from "@/lib/types";
-import LinearSetup from "@/components/LinearSetup";
+import LinearSetup from "@/components/tracking/TrackerSetup";
 import TrackerSettingsModal from "@/components/tracker/TrackerSettingsModal";
 import {
   getRunDisplayState,
@@ -1100,15 +1100,11 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   if (!connected || needsMcpSetup) {
     return (
       <LinearSetup
+        trackerType={trackerType}
+        projectId={projectId ?? ""}
         connected={connected}
-        user={user}
-        clis={clis}
-        mcpConfigured={mcpConfigured}
         onConnect={connect}
         onConnectWithKey={connectWithKey}
-        onDisconnect={disconnect}
-        onConfigureMcp={configureMcp}
-        onContinue={() => setSetupDismissed(true)}
       />
     );
   }
