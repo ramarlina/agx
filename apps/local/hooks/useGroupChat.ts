@@ -22,6 +22,7 @@ function buildLogsQuery(workspaceId: string): string {
 export interface StreamingEntry {
   content: string;
   rootMessageId: string | null;
+  thoughts?: string[];
 }
 
 export interface ChatRunInfo {

@@ -16,62 +16,67 @@ export function stripMarkers(content: string): string {
 
 export type StreamSegment =
   | { type: "text"; content: string }
-  | { type: "tool"; name: string; details: string; pending: boolean };
+  | { type: "tool"; name: string; input: string; pending: boolean };
 
 const TOOL_START = /\*\*(?:🌐\s*)?(?:Z\.ai\s+)?Built-in Tool:\s*(\w+)\*\*/;
 
+function cleanText(s: string): string {
+  return stripMarkers(
+    s
+      .replace(/<think>[\s\S]*?<\/think>/g, "")
+      .replace(/^[\s\S]*?<\/think>/g, "")
+      .replace(/<think>[\s\S]*$/g, "")
+      .replace(/ {10,}/g, " ")
+  ).trim();
+}
+
 export function parseStreamSegments(raw: string): StreamSegment[] {
   const segments: StreamSegment[] = [];
-  let rest = raw;
 
-  while (rest.length > 0) {
-    const match = rest.match(TOOL_START);
-    if (!match || match.index === undefined) {
-      const text = stripMarkers(rest).trim();
-      if (text) segments.push({ type: "text", content: text });
-      break;
-    }
+  // Split content on tool block starts, keeping the delimiter
+  const parts = raw.split(TOOL_START);
 
-    const before = rest.slice(0, match.index).trim();
-    if (before) {
-      const text = stripMarkers(before).trim();
-      if (text) segments.push({ type: "text", content: text });
-    }
+  // parts[0] = text before first tool
+  // parts[1] = tool name, parts[2] = rest until next split
+  // parts[3] = tool name, parts[4] = rest, etc.
 
-    rest = rest.slice(match.index + match[0].length);
-    const toolName = match[1];
+  const firstText = cleanText(parts[0]);
+  if (firstText) segments.push({ type: "text", content: firstText });
 
-    const nextTool = rest.match(TOOL_START);
-    let toolBlock: string;
-    if (nextTool && nextTool.index !== undefined) {
-      const nextText = rest.slice(nextTool.index);
-      const hasTextBefore = rest.slice(0, nextTool.index).replace(/\s/g, "").length > 0;
-      if (hasTextBefore) {
-        toolBlock = rest.slice(0, nextTool.index);
-        rest = rest.slice(nextTool.index);
-      } else {
-        toolBlock = rest;
-        rest = "";
+  for (let i = 1; i < parts.length; i += 2) {
+    const toolName = parts[i];
+    const block = parts[i + 1] || "";
+
+    // Extract input from code block
+    const inputMatch = block.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+    const input = inputMatch ? inputMatch[1].trim() : "";
+
+    // Find where tool block ends and text resumes
+    const hasOutput = /\*\*Output:\*\*/.test(block);
+    let textAfter = "";
+
+    if (hasOutput) {
+      // Output line ends, then after double-newline text resumes
+      const outputIdx = block.indexOf("**Output:**");
+      const afterOutput = block.slice(outputIdx);
+      // Find double newline after the output summary line
+      const boundary = afterOutput.search(/\n\s*\n(?=\S)/);
+      if (boundary !== -1) {
+        textAfter = afterOutput.slice(boundary).trim();
       }
     } else {
-      toolBlock = rest;
-      rest = "";
+      // No output yet (pending) — check for text after *Executing on server...*
+      const execIdx = block.indexOf("*Executing on server...*");
+      if (execIdx !== -1) {
+        const afterExec = block.slice(execIdx + "*Executing on server...*".length).trim();
+        if (afterExec) textAfter = afterExec;
+      }
     }
 
-    const hasOutput = /\*\*Output:\*\*/.test(toolBlock);
-    const pending = !hasOutput;
+    segments.push({ type: "tool", name: toolName, input, pending: !hasOutput });
 
-    const details = toolBlock
-      .replace(/^\s*\n/, "")
-      .replace(/\s+$/, "")
-      .replace(/^\*\*Input:\*\*\s*\n?/, "")
-      .replace(/```json\n?/g, "")
-      .replace(/```\n?/g, "")
-      .replace(/\*Executing on server\.\.\.\*\s*/g, "")
-      .replace(/\s{2,}/g, " ")
-      .trim();
-
-    segments.push({ type: "tool", name: toolName, details, pending });
+    const cleaned = cleanText(textAfter);
+    if (cleaned) segments.push({ type: "text", content: cleaned });
   }
 
   return segments;
