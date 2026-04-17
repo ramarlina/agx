@@ -97,11 +97,19 @@ function getDb(): DatabaseSync {
       PRIMARY KEY (thread_id, id)
     )
   `);
+  // Migrate: rename linear_runs → tracker_runs if old table exists
+  const hasOldTable = (db.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name='linear_runs'"
+  ).get() as { name: string } | undefined);
+  if (hasOldTable) {
+    db.exec("ALTER TABLE linear_runs RENAME TO tracker_runs");
+  }
   db.exec(`
-    CREATE TABLE IF NOT EXISTS linear_runs (
+    CREATE TABLE IF NOT EXISTS tracker_runs (
       id TEXT PRIMARY KEY,
       project_id TEXT,
       project_slug TEXT,
+      tracker_type TEXT NOT NULL DEFAULT 'linear',
       issue_id TEXT NOT NULL,
       issue_identifier TEXT NOT NULL,
       issue_title TEXT NOT NULL,
@@ -236,7 +244,12 @@ export function getAll(): AgentProcessEntry[] {
 
 export interface EnrichedProcessEntry extends AgentProcessEntry {
   threadTitle: string | null;
+  trackerItemId: string | null;
+  trackerRunId: string | null;
+  trackerType: string | null;
+  /** @deprecated Use trackerItemId */
   linearIssueId: string | null;
+  /** @deprecated Use trackerRunId */
   linearRunId: string | null;
 }
 
@@ -244,16 +257,21 @@ export function getAllEnriched(): EnrichedProcessEntry[] {
   return withDb((db) => {
     const rows = db.prepare(`
       SELECT ap.*, substr(m.content, 1, 120) AS thread_title,
-             lr.issue_id AS linear_issue_id, lr.id AS linear_run_id
+             tr.issue_id AS tracker_item_id, tr.id AS tracker_run_id,
+             tr.tracker_type AS tracker_type
       FROM agent_processes ap
       LEFT JOIN messages m ON m.id = ap.thread_id AND m.thread_id = ap.workspace_id
-      LEFT JOIN linear_runs lr ON lr.thread_id = ap.workspace_id
-    `).all() as unknown as (Row & { thread_title: string | null; linear_issue_id: string | null; linear_run_id: string | null })[];
+      LEFT JOIN tracker_runs tr ON tr.thread_id = ap.workspace_id
+    `).all() as unknown as (Row & { thread_title: string | null; tracker_item_id: string | null; tracker_run_id: string | null; tracker_type: string | null })[];
     return rows.map((r) => ({
       ...toEntry(r),
       threadTitle: r.thread_title,
-      linearIssueId: r.linear_issue_id ?? null,
-      linearRunId: r.linear_run_id ?? null,
+      trackerItemId: r.tracker_item_id ?? null,
+      trackerRunId: r.tracker_run_id ?? null,
+      trackerType: r.tracker_type ?? null,
+      // Deprecated aliases
+      linearIssueId: r.tracker_item_id ?? null,
+      linearRunId: r.tracker_run_id ?? null,
     }));
   });
 }
