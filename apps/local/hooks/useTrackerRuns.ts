@@ -35,6 +35,7 @@ export function useTrackerRuns(
 ) {
   const [runs, setRuns] = useState<TrackerRunRecord[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadedForIssueId, setLoadedForIssueId] = useState<string | null>(null);
   const issueIdRef = useRef(issueId ?? null);
   issueIdRef.current = issueId ?? null;
 
@@ -44,6 +45,7 @@ export function useTrackerRuns(
     const activeIssueId = issueIdRef.current?.trim();
     if (!activeIssueId) {
       setRuns([]);
+      setLoadedForIssueId(null);
       return [];
     }
 
@@ -58,6 +60,7 @@ export function useTrackerRuns(
       const data = await response.json();
       const nextRuns = Array.isArray(data.runs) ? (data.runs as TrackerRunRecord[]) : [];
       setRuns(nextRuns);
+      setLoadedForIssueId(activeIssueId);
       return nextRuns;
     } finally {
       setLoading(false);
@@ -66,6 +69,7 @@ export function useTrackerRuns(
 
   useEffect(() => {
     setRuns([]);
+    setLoadedForIssueId(null);
     void refresh();
   }, [refresh, issueId]);
 
@@ -115,6 +119,7 @@ export function useTrackerRuns(
   return {
     runs,
     loading,
+    loadedForIssueId,
     refresh,
     createRun,
     updateRun,
