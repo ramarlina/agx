@@ -1,6 +1,6 @@
 import type { JSONContent } from "@tiptap/core";
 
-export interface MentionedLinearIssueContext {
+export interface MentionedTrackerItemContext {
   id: string;
   identifier: string;
   title: string;
@@ -21,6 +21,9 @@ export interface MentionedLinearIssueContext {
   pulledAt: string;
 }
 
+/** @deprecated Use MentionedTrackerItemContext instead */
+export type MentionedLinearIssueContext = MentionedTrackerItemContext;
+
 function walkNodes(
   nodes: JSONContent[] | undefined,
   visitor: (node: JSONContent) => void
@@ -40,26 +43,29 @@ function escapeAttribute(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-export function extractMentionedLinearIssueIds(doc: JSONContent): string[] {
-  const issueIds = new Set<string>();
+export function extractMentionedTrackerItemIds(doc: JSONContent): string[] {
+  const itemIds = new Set<string>();
 
   walkNodes(doc.content, (node) => {
-    if (node.type !== "linearIssueMention") return;
+    if (node.type !== "trackerItemMention") return;
     const id = typeof node.attrs?.id === "string" ? node.attrs.id.trim() : "";
     if (id) {
-      issueIds.add(id);
+      itemIds.add(id);
     }
   });
 
-  return Array.from(issueIds);
+  return Array.from(itemIds);
 }
 
-export function buildLinearIssueContextPrefix(issues: MentionedLinearIssueContext[]): string {
+/** @deprecated Use extractMentionedTrackerItemIds instead */
+export const extractMentionedLinearIssueIds = extractMentionedTrackerItemIds;
+
+export function buildTrackerItemContextPrefix(issues: MentionedTrackerItemContext[]): string {
   if (issues.length === 0) return "";
 
   const blocks = issues.map((issue) => {
     const parts = [
-      `<linear-issue identifier="${escapeAttribute(issue.identifier)}" status="${escapeAttribute(issue.status)}"${issue.assignee ? ` assignee="${escapeAttribute(issue.assignee)}"` : ""}>`,
+      `<tracker-item identifier="${escapeAttribute(issue.identifier)}" status="${escapeAttribute(issue.status)}"${issue.assignee ? ` assignee="${escapeAttribute(issue.assignee)}"` : ""}>`,
       `Title: ${issue.title}`,
       issue.url ? `URL: ${issue.url}` : null,
       issue.teamName ? `Team: ${issue.teamName}` : null,
@@ -69,11 +75,14 @@ export function buildLinearIssueContextPrefix(issues: MentionedLinearIssueContex
       `Updated: ${issue.updatedAt}`,
       "",
       issue.description?.trim() || "No description provided.",
-      "</linear-issue>",
+      "</tracker-item>",
     ];
 
     return parts.filter((part): part is string => part !== null).join("\n");
   });
 
-  return `Referenced Linear tickets (only because the user explicitly @mentioned them):\n\n${blocks.join("\n\n")}\n\n`;
+  return `Referenced tickets (only because the user explicitly @mentioned them):\n\n${blocks.join("\n\n")}\n\n`;
 }
+
+/** @deprecated Use buildTrackerItemContextPrefix instead */
+export const buildLinearIssueContextPrefix = buildTrackerItemContextPrefix;

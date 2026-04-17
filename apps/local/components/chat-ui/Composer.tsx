@@ -19,9 +19,9 @@ import { useComposerHistory } from "@/hooks/useComposerHistory";
 import { useLinearIssueMentions } from "@/hooks/useLinearIssueMentions";
 import { buildAgentContext } from "@/lib/chat/agentContextBuilder";
 import {
-  buildLinearIssueContextPrefix,
-  extractMentionedLinearIssueIds,
-} from "@/lib/chat/linear-issue-context";
+  buildTrackerItemContextPrefix,
+  extractMentionedTrackerItemIds,
+} from "@/lib/chat/tracker-item-context";
 import {
   extractComposerRouting,
   type ComposerRoutingMetadata,
@@ -37,7 +37,7 @@ import {
   ProjectMention,
   FileMention,
   ThreadMention,
-  LinearIssueMention,
+  TrackerItemMention,
 } from "@/lib/tiptap/composer-mentions";
 import { serializeToPlainText } from "@/lib/tiptap/serialize-composer";
 import { getCurrentParagraphText, plainTextRangeToPos } from "@/lib/tiptap/editor-utils";
@@ -264,7 +264,7 @@ export function Composer({
       ProjectMention,
       FileMention,
       ThreadMention,
-      LinearIssueMention,
+      TrackerItemMention,
     ],
     editorProps: {
       attributes: {
@@ -499,7 +499,7 @@ export function Composer({
             }
           : suggestion.kind === "ticket"
             ? {
-                type: "linearIssueMention",
+                type: "trackerItemMention",
                 attrs: {
                   id: suggestion.issue.id,
                   identifier: suggestion.issue.identifier,
@@ -663,25 +663,26 @@ export function Composer({
       }
     }
 
-    const mentionedLinearIssueIds = extractMentionedLinearIssueIds(doc);
-    if (mentionedLinearIssueIds.length > 0) {
+    const mentionedTrackerItemIds = extractMentionedTrackerItemIds(doc);
+    if (mentionedTrackerItemIds.length > 0) {
       try {
-        const response = await fetch("/api/linear/issues/context", {
+        // TODO(multi-tracker): resolve tracker type from mention attrs and route to correct adapter
+        const response = await fetch("/api/trackers/linear/items/context", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ issueIds: mentionedLinearIssueIds }),
+          body: JSON.stringify({ issueIds: mentionedTrackerItemIds }),
         });
         if (!response.ok) {
-          throw new Error(`Failed to load issue context: ${response.status}`);
+          throw new Error(`Failed to load item context: ${response.status}`);
         }
         const data = await response.json().catch(() => ({}));
         const issues = Array.isArray(data.issues) ? data.issues : [];
-        const issueContext = buildLinearIssueContextPrefix(issues);
+        const issueContext = buildTrackerItemContextPrefix(issues);
         if (issueContext) {
           prefixParts.push(issueContext.trimEnd());
         }
       } catch (error) {
-        console.error("Failed to load Linear issue mention context:", error);
+        console.error("Failed to load tracker item mention context:", error);
       }
     }
 
