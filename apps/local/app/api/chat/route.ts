@@ -45,8 +45,20 @@ const CHAT_MENTION_PATTERN = /@([A-Za-z0-9_-]+)/g;
 
 type ParticipantNameMap = Record<string, { name: string }>;
 
+const STALE_ACCESS_PATTERNS = [
+  /i don't have access to `~\/\.agx`/i,
+  /i can only access `\/Users\/mendrika\/Projects\/Agents\/agx\/apps\/local`/i,
+  /~\/\.agx is outside (the )?(allowed )?working directory/i,
+];
+
 function normalizeText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function shouldExcludeFromHistoryContext(message: GroupMessage): boolean {
+  if (message.role === "user") return false;
+  const content = message.content;
+  return STALE_ACCESS_PATTERNS.some((pattern) => pattern.test(content));
 }
 
 function getSpeakerLabel(message: GroupMessage, participantMap: ParticipantNameMap): string {
@@ -62,6 +74,7 @@ function buildHistoryContext(history: GroupMessage[], participantMap: Participan
   // Iterate newest-first so the most recent context is always included
   for (let i = history.length - 1; i >= 0; i--) {
     const message = history[i];
+    if (shouldExcludeFromHistoryContext(message)) continue;
     const line = `${getSpeakerLabel(message, participantMap)}: ${message.content}`;
     if (totalChars + line.length > MAX_HISTORY_CHARS) break;
     lines.unshift(line);

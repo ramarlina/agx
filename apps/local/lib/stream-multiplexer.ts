@@ -1,4 +1,5 @@
 import { readFile } from "fs/promises";
+import os from "os";
 import type { Participant, ChatEvent } from "./types";
 import { runCliResponse } from "./cli-runner";
 import { register, update as updateProcess } from "./agent-process-registry";
@@ -35,6 +36,23 @@ function isKnowledgeEvidence(
 }
 
 const DEFAULT_RUNTIME_SEED = "I evolve through experience and collaboration.";
+
+function buildFilesystemAccessContext(p: Participant): string | null {
+  const homeDir = os.homedir();
+  switch (p.provider) {
+    case "claude":
+    case "codex":
+    case "gemini":
+    case "zai":
+      return `<filesystem-access>
+Current CLI access includes the project working directory and ${homeDir}.
+Treat ~/.agx as accessible from this chat because it lives under ${homeDir}.
+Do not claim that ~/.agx is unavailable unless a tool call in this run actually fails with an access error.
+</filesystem-access>`;
+    default:
+      return null;
+  }
+}
 
 function normalizeRuntimeSeedText(raw: string, name: string): string {
   const collapsed = raw.replace(/\s+/g, " ").trim();
@@ -781,6 +799,7 @@ async function runAgent(
   );
   const systemContext = [
     baseSystemContext,
+    buildFilesystemAccessContext(p),
     executionProvenance
       ? `<execution-provenance>
 Resolved skills: ${executionProvenance.skills.map((skill) => `${skill.file} (${skill.source})`).join(", ") || "none"}
