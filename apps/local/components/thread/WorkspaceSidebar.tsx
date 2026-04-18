@@ -791,7 +791,7 @@ export function WorkspaceSidebar({
             )}
             {stageShow.tracking && (
               <RailTooltip label="Pull Requests">
-                <Link href={`/projects/${collapsedSlug}/prs`} className={`workspace-sidebar__rail-icon${activeProjectView === "prs" ? " workspace-sidebar__rail-icon--active" : ""}`}>
+                <Link href={`/projects/${collapsedSlug}/prs`} className="workspace-sidebar__rail-icon">
                   <GitPullRequest size={16} />
                 </Link>
               </RailTooltip>
