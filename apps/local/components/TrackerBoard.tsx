@@ -387,9 +387,11 @@ interface TrackerBoardProps {
   projectId?: string;
   projectSlug?: string;
   initialShowSettings?: boolean;
+  /** When set, seeds the group filter (e.g. a GitHub repo). Overrides stored filter. */
+  initialGroupId?: string;
 }
 
-export default function TrackerBoard({ trackerType, projectId, projectSlug, initialShowSettings }: TrackerBoardProps) {
+export default function TrackerBoard({ trackerType, projectId, projectSlug, initialShowSettings, initialGroupId }: TrackerBoardProps) {
   const { isTouchLayout } = useInputCapabilities();
   const {
     connected,
@@ -650,13 +652,13 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     setDebouncedSearch(storedFilters.search);
     setSelectedAssigneeIds(storedFilters.assigneeIds);
     setSelectedStatusCategories(storedFilters.statusCategories);
-    setSelectedWorkspaceId(storedFilters.groupIds?.[0] ?? "");
-    setSelectedGroupId(storedFilters.groupIds?.[0] ?? "");
+    setSelectedWorkspaceId(initialGroupId ?? storedFilters.groupIds?.[0] ?? "");
+    setSelectedGroupId(initialGroupId ?? storedFilters.groupIds?.[0] ?? "");
     setSortBy(storedFilters.sortBy);
     setSortDir(storedFilters.sortDir);
     setSelectedLabelNames(storedFilters.labelNames ?? []);
     setPinnedItemIds(loadPinnedTrackerItemIds(trackerType, projectSlug));
-  }, [trackerType, projectSlug]);
+  }, [trackerType, projectSlug, initialGroupId]);
 
   useEffect(() => {
     if (skipNextFilterPersistRef.current) {

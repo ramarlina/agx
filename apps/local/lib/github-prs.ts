@@ -4,6 +4,7 @@ import {
   deleteAutoPrLinks,
   upsertPrLink,
 } from "./github-pr-store";
+import { upsertGithubIssue } from "./github-issue-store";
 import { markRepoSynced } from "./github-repo-store";
 import { resolvePrLink, type TrackerResolver } from "./github-link-resolver";
 import type { GithubPr } from "./github-types";
@@ -11,8 +12,12 @@ import type { GithubPr } from "./github-types";
 export interface SyncRepoInput {
   repoId: string;
   client: Pick<GithubClient, "listPullRequests"> &
-    Partial<Pick<GithubClient, "enrichPrStatus">>;
+    Partial<Pick<GithubClient, "enrichPrStatus" | "listIssues">>;
   resolvers: TrackerResolver[];
+  /** When true, skip the AGX_GITHUB_ENABLED env gate (user-initiated sync). */
+  force?: boolean;
+  /** When true, also fetch and upsert issues. Defaults to false for back-compat. */
+  includeIssues?: boolean;
 }
 
 function isEnabled(): boolean {
@@ -26,13 +31,17 @@ function parseRepoId(repoId: string): { owner: string; name: string } {
 }
 
 export async function syncRepo(input: SyncRepoInput): Promise<void> {
-  if (!isEnabled()) return;
+  if (!input.force && !isEnabled()) return;
   const { owner, name } = parseRepoId(input.repoId);
   const prs = await input.client.listPullRequests({ owner, name });
   const enrich = input.client.enrichPrStatus?.bind(input.client);
   for (const pr of prs) {
     const enriched = enrich ? await enrich(pr) : pr;
     await upsertAndResolve(enriched, input.resolvers);
+  }
+  if (input.includeIssues && input.client.listIssues) {
+    const issues = await input.client.listIssues({ owner, name });
+    for (const issue of issues) upsertGithubIssue(issue);
   }
   markRepoSynced(input.repoId, Date.now());
 }

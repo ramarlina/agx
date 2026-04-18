@@ -24,8 +24,66 @@ import {
 } from "@/lib/github-token-store";
 import { consumeOAuthSession, createOAuthSession } from "@/lib/github-oauth-sessions";
 import { getConfiguredAppBaseUrl } from "@/lib/app-config";
+import { listGithubRepos } from "@/lib/github-repo-store";
+import { listGithubPrs } from "@/lib/github-pr-store";
+import { listGithubIssuesByRepo, listAllGithubIssues } from "@/lib/github-issue-store";
+import type { GithubIssue, GithubPr } from "@/lib/github-types";
 import { GitHubIcon } from "./github-icon";
 export { GitHubIcon } from "./github-icon";
+
+function prToTrackerItem(pr: GithubPr): TrackerItem {
+  const statusCategory: TrackerItem["statusCategory"] =
+    pr.state === "merged"
+      ? "done"
+      : pr.state === "closed"
+        ? "cancelled"
+        : pr.draft
+          ? "todo"
+          : "in_progress";
+  const [owner, name] = pr.repoId.split("/");
+  const identifier = `${name ?? pr.repoId}#${pr.number}`;
+  return {
+    id: pr.id,
+    trackerId: pr.id,
+    trackerType: "github",
+    identifier,
+    title: pr.title,
+    description: pr.body,
+    status: pr.draft ? "draft" : pr.state,
+    statusCategory,
+    assignee: pr.authorLogin
+      ? { id: pr.authorLogin, name: pr.authorLogin }
+      : undefined,
+    labels: ["pr", ...pr.labels],
+    createdAt: new Date(pr.createdAt).toISOString(),
+    updatedAt: new Date(pr.updatedAt).toISOString(),
+    url: pr.url,
+  };
+}
+
+function issueToTrackerItem(issue: GithubIssue): TrackerItem {
+  const statusCategory: TrackerItem["statusCategory"] =
+    issue.state === "closed" ? "done" : "todo";
+  const [, name] = issue.repoId.split("/");
+  const identifier = `${name ?? issue.repoId}!${issue.number}`;
+  return {
+    id: issue.id,
+    trackerId: issue.id,
+    trackerType: "github",
+    identifier,
+    title: issue.title,
+    description: issue.body,
+    status: issue.state,
+    statusCategory,
+    assignee: issue.authorLogin
+      ? { id: issue.authorLogin, name: issue.authorLogin }
+      : undefined,
+    labels: ["issue", ...issue.labels],
+    createdAt: new Date(issue.createdAt).toISOString(),
+    updatedAt: new Date(issue.updatedAt).toISOString(),
+    url: issue.url,
+  };
+}
 
 const CONNECT_BASE_URL = "https://www.runagx.com/connect/github";
 
@@ -110,9 +168,23 @@ export class GitHubAdapter implements TrackerAdapter {
 
   async listItems(
     _projectId: string,
-    _filters: TrackerFilters,
+    filters: TrackerFilters,
   ): Promise<PaginatedResult<TrackerItem>> {
-    return { items: [], pageInfo: { hasNextPage: false, endCursor: null } };
+    const repoIds = filters.groupIds && filters.groupIds.length > 0 ? filters.groupIds : null;
+    const prs: GithubPr[] = repoIds
+      ? repoIds.flatMap((repoId) => listGithubPrs({ repoId }))
+      : listGithubPrs({});
+    const issues: GithubIssue[] = repoIds
+      ? repoIds.flatMap((repoId) => listGithubIssuesByRepo(repoId))
+      : listAllGithubIssues();
+    const items = [
+      ...prs.map(prToTrackerItem),
+      ...issues.map(issueToTrackerItem),
+    ].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+    return {
+      items,
+      pageInfo: { hasNextPage: false, endCursor: null },
+    };
   }
 
   async getItem(_projectId: string, _itemId: string): Promise<TrackerItemDetail> {
@@ -143,11 +215,18 @@ export class GitHubAdapter implements TrackerAdapter {
   }
 
   async listGroups(_projectId: string): Promise<TrackerGroup[]> {
-    return [];
+    const repos = listGithubRepos();
+    return repos.map((r) => ({ id: r.id, name: r.name, type: "repo" }));
   }
 
   async listStatuses(_projectId: string): Promise<TrackerStatusOption[]> {
-    return [];
+    return [
+      { id: "open", name: "Open", category: "todo" },
+      { id: "in_progress", name: "Open PR", category: "in_progress" },
+      { id: "draft", name: "Draft", category: "todo" },
+      { id: "merged", name: "Merged", category: "done" },
+      { id: "closed", name: "Closed", category: "cancelled" },
+    ];
   }
 
   async listAssignees(_projectId: string): Promise<TrackerAssignee[]> {

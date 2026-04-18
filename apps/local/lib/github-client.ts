@@ -1,6 +1,7 @@
 import type {
   GithubPr,
   GithubPrComment,
+  GithubIssue,
   GithubTokens,
   GithubReviewer,
   GithubCiStatus,
@@ -227,6 +228,58 @@ export class GithubClient {
       this.getReviewDecision({ owner, name, number: pr.number }),
     ]);
     return { ...pr, ciStatus, reviewDecision };
+  }
+
+  async listIssues(input: {
+    owner: string;
+    name: string;
+    state?: "all" | "open" | "closed";
+    perPage?: number;
+  }): Promise<GithubIssue[]> {
+    const params = new URLSearchParams({
+      state: input.state ?? "all",
+      sort: "updated",
+      direction: "desc",
+      per_page: String(input.perPage ?? 50),
+    });
+    // Note: GitHub's issues endpoint returns both issues and PRs; filter PRs out
+    const raw = await this.request<
+      Array<{
+        number: number;
+        title: string | null;
+        body: string | null;
+        state: string;
+        closed_at: string | null;
+        created_at: string;
+        updated_at: string;
+        user: { login: string } | null;
+        html_url: string;
+        assignees?: Array<{ login: string }>;
+        labels?: Array<{ name: string } | string>;
+        pull_request?: unknown;
+      }>
+    >(`/repos/${input.owner}/${input.name}/issues?${params}`);
+    const now = Date.now();
+    return raw
+      .filter((r) => !r.pull_request)
+      .map((r) => ({
+        id: `${input.owner}/${input.name}!${r.number}`,
+        repoId: `${input.owner}/${input.name}`,
+        number: r.number,
+        title: r.title ?? "",
+        body: r.body ?? "",
+        state: (r.state === "closed" ? "closed" : "open") as GithubIssue["state"],
+        authorLogin: r.user?.login ?? "",
+        url: r.html_url,
+        assignees: (r.assignees ?? []).map((a) => a.login),
+        labels: (r.labels ?? []).map((l) =>
+          typeof l === "string" ? l : l.name,
+        ),
+        createdAt: toEpoch(r.created_at),
+        updatedAt: toEpoch(r.updated_at),
+        closedAt: r.closed_at ? toEpoch(r.closed_at) : null,
+        lastSyncedAt: now,
+      }));
   }
 
   async listPullRequestComments(input: {
