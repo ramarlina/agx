@@ -192,6 +192,18 @@ export function listPrLinksForTarget(
   });
 }
 
+export function deletePrLink(
+  prId: string,
+  targetType: TrackerTargetType,
+  targetId: string,
+): void {
+  withGithubDatabase((db) => {
+    db.prepare(
+      `DELETE FROM pr_links WHERE pr_id = ? AND target_type = ? AND target_id = ?`,
+    ).run(prId, targetType, targetId);
+  });
+}
+
 export function deleteAutoPrLinks(prId: string): void {
   withGithubDatabase((db) => {
     db.prepare(`DELETE FROM pr_links WHERE pr_id = ? AND link_source != 'manual'`).run(prId);
