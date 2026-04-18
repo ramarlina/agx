@@ -1,3 +1,4 @@
+import { logger } from '@/lib/logger';
 import type { PromptJob, PromptRun } from './types';
 import type { PromptJobStore } from './store';
 import { computeNextRun, parseCadence } from './cron';
@@ -11,7 +12,7 @@ export async function pollDueJobs(store: PromptJobStore, now: number = Date.now(
   // Reap runs stuck in 'running' for > 30 minutes so overlap-skip doesn't block forever
   const reaped = await store.reapStaleRuns();
   if (reaped > 0) {
-    console.log(`[prompt-jobs] reaped ${reaped} stale run(s)`);
+    logger.info(`[prompt-jobs] reaped ${reaped} stale run(s)`);
   }
 
   // Heal active jobs with null nextRunAt

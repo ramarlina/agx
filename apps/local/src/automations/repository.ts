@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
+import { logger } from "@/lib/logger";
 
 import { parseAutomationMarkdown } from "./parser";
 import { serializeAutomationDefinition } from "./serializer";
@@ -293,7 +294,7 @@ export class AutomationRepository {
     copiedEntries += this.copyDirContents(legacyStateDir, this.stateDir);
 
     if (copiedEntries > 0) {
-      console.log(
+      logger.info(
         `[automations] migrated ${copiedEntries} legacy file(s) from ${legacyRootDir} to ${this.rootDir}`,
       );
     }
