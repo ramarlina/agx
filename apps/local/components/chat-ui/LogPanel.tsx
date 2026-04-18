@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { LogEntry } from "@/hooks/useGroupChat";
 import type { Participant } from "@/lib/types";
+import { JumpToLatestButton } from "./JumpToLatestButton";
 
 interface Props {
   logs: LogEntry[];
@@ -16,6 +17,8 @@ export function LogPanel({ logs, participants, onClear, open, onToggle }: Props)
   const [width, setWidth] = useState(420);
   const [filter, setFilter] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [showJump, setShowJump] = useState(false);
   const dragging = useRef(false);
   const startX = useRef(0);
   const startW = useRef(0);
@@ -24,6 +27,21 @@ export function LogPanel({ logs, participants, onClear, open, onToggle }: Props)
   useEffect(() => {
     if (open) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [logs.length, open]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const handler = () => {
+      const d = el.scrollHeight - el.scrollTop - el.clientHeight;
+      setShowJump(d > 200);
+    };
+    el.addEventListener("scroll", handler, { passive: true });
+    return () => el.removeEventListener("scroll", handler);
+  }, [open]);
+
+  const jumpToLatest = useCallback(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
     e.preventDefault();
@@ -85,7 +103,8 @@ export function LogPanel({ logs, participants, onClear, open, onToggle }: Props)
             </button>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto font-mono text-[11px] leading-4 px-3 py-2">
+        <div className="relative flex-1 min-h-0 flex flex-col">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto font-mono text-[11px] leading-4 px-3 py-2">
           {filtered.map((entry, i) => {
             const name = pMap[entry.participantId]?.name || entry.participantId;
             const color = pMap[entry.participantId]?.color || "#888";
@@ -103,6 +122,8 @@ export function LogPanel({ logs, participants, onClear, open, onToggle }: Props)
             );
           })}
           <div ref={bottomRef} />
+        </div>
+        <JumpToLatestButton visible={showJump && filtered.length > 20} onClick={jumpToLatest} />
         </div>
       </div>
     </div>
