@@ -1,5 +1,6 @@
 
 import { createAdminDbClient } from "@/lib/db-adapter";
+import { logger } from "@/lib/logger";
 
 export type DeviceCode = {
     device_code: string;
@@ -51,7 +52,7 @@ export async function createDeviceCode() {
         });
 
     if (error) {
-        console.error("[device-code] insert failed", {
+        logger.error("[device-code] insert failed", {
             message: error.message,
             code: error.code,
             details: error.details,
@@ -78,7 +79,7 @@ export async function getDeviceCode(deviceCode: string) {
         .single();
 
     if (error) {
-        console.error("[device-code] fetch failed", {
+        logger.error("[device-code] fetch failed", {
             message: error.message,
             code: error.code,
             details: error.details,
@@ -103,7 +104,7 @@ export async function approveDeviceCode(userCode: string, userId: string, tokens
 
     if (fetchError || !data) {
         if (fetchError) {
-            console.error("[device-code] approve fetch failed", {
+            logger.error("[device-code] approve fetch failed", {
                 message: fetchError.message,
                 code: fetchError.code,
                 details: fetchError.details,
@@ -125,7 +126,7 @@ export async function approveDeviceCode(userCode: string, userId: string, tokens
         .eq("device_code", data.device_code);
 
     if (error) {
-        console.error("[device-code] approve update failed", {
+        logger.error("[device-code] approve update failed", {
             message: error.message,
             code: error.code,
             details: error.details,

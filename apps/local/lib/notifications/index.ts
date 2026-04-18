@@ -1,4 +1,5 @@
 import { createAdminDbClient } from '@/lib/db-adapter';
+import { logger } from '@/lib/logger';
 import type { TaskStage, TaskStatus } from '@/lib/db-adapter.interface';
 import {
   NotificationEventType,
@@ -263,7 +264,7 @@ export async function notifyTaskEvent(payload: NotificationEventPayload): Promis
       console.debug('[notifications] notification_webhooks schema not ready, skipping');
       return;
     }
-    console.error('[notifications] failed to load webhooks', error);
+    logger.error('[notifications] failed to load webhooks', logger.formatError(error));
     return;
   }
 
@@ -298,12 +299,12 @@ export async function notifyTaskEvent(payload: NotificationEventPayload): Promis
           body: JSON.stringify(body),
         });
         if (!response.ok) {
-          console.error(
+          logger.error(
             `[notifications] webhook ${endpoint.url} responded with ${response.status}`
           );
         }
       } catch (error) {
-        console.error(`[notifications] failed to send to ${endpoint.url}`, error);
+        logger.error(`[notifications] failed to send to ${endpoint.url}`, logger.formatError(error));
       }
     })
   );

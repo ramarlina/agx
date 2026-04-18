@@ -7,6 +7,7 @@
  * 3. Parses structured output: { isDone: boolean, message: string }
  */
 
+import { logger } from '@/lib/logger';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -165,7 +166,7 @@ export function createDispatchWork(): (
       };
     }
 
-    console.log(
+    logger.info(
       `[work-dispatch] Dispatching steer node "${node.title}" for graph ${graph.id} (root: ${rootMessageId})`,
     );
 
@@ -217,7 +218,7 @@ export function createDispatchWork(): (
         })
         .join('\n');
 
-      console.log(`[work-dispatch] Thread: active=${activeProcessCount}, msgs=${snapshot.messages?.length ?? 0}`);
+      logger.info(`[work-dispatch] Thread: active=${activeProcessCount}, msgs=${snapshot.messages?.length ?? 0}`);
 
       // 2. Build assessment prompt
       const assessPrompt = [
@@ -243,7 +244,7 @@ export function createDispatchWork(): (
       // 3. Call provider directly via runCliResponse (same path as chat endpoint)
       const { runCliResponse } = await import('@/lib/cli-runner');
       const steeringAgent = await getSteeringAgentConfig(threadRef.threadId, graph.taskId);
-      console.log(
+      logger.info(
         `[work-dispatch] Calling ${steeringAgent.provider} via runCliResponse (prompt length: ${assessPrompt.length})...`
       );
 
@@ -257,11 +258,11 @@ export function createDispatchWork(): (
           fullResponse += chunk;
         },
         onLog: (stream, line) => {
-          console.log(`[work-dispatch] [${stream}] ${line}`);
+          logger.info(`[work-dispatch] [${stream}] ${line}`);
         },
       });
 
-      console.log(`[work-dispatch] Raw response: ${fullResponse.slice(0, 500)}`);
+      logger.info(`[work-dispatch] Raw response: ${fullResponse.slice(0, 500)}`);
 
       // 4. Parse structured output
       const parsed = parseSteerResponse(fullResponse.trim());
@@ -272,7 +273,7 @@ export function createDispatchWork(): (
           message: parsed.error,
         };
       }
-      console.log(`[work-dispatch] Parsed result:`, parsed);
+      logger.info(`[work-dispatch] Parsed result: ${JSON.stringify(parsed)}`);
 
       return {
         status: 'success' as const,

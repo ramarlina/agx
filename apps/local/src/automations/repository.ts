@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
+import { logger } from "@/lib/logger";
 
 import { parseAutomationMarkdown } from "./parser";
 import { serializeAutomationDefinition } from "./serializer";
@@ -91,7 +92,7 @@ export class AutomationRepository {
         continue;
       }
       if (recordsById.has(record.definition.id)) {
-        console.error(`[automations] duplicate automation id detected: ${record.definition.id}`);
+        logger.error(`[automations] duplicate automation id detected: ${record.definition.id}`);
         continue;
       }
       recordsById.set(record.definition.id, record);
@@ -293,7 +294,7 @@ export class AutomationRepository {
     copiedEntries += this.copyDirContents(legacyStateDir, this.stateDir);
 
     if (copiedEntries > 0) {
-      console.log(
+      logger.info(
         `[automations] migrated ${copiedEntries} legacy file(s) from ${legacyRootDir} to ${this.rootDir}`,
       );
     }
@@ -375,7 +376,7 @@ export class AutomationRepository {
         archived,
       };
     } catch (error) {
-      console.error(`[automations] failed to read ${filePath}:`, error);
+      logger.error(`[automations] failed to read ${filePath}`, logger.formatError(error));
       return null;
     }
   }
@@ -388,7 +389,7 @@ export class AutomationRepository {
       try {
         existing = JSON.parse(fs.readFileSync(statePath, "utf8")) as Partial<AutomationRuntimeState>;
       } catch (error) {
-        console.error(`[automations] failed to parse state for ${definition.id}:`, error);
+        logger.error(`[automations] failed to parse state for ${definition.id}`, logger.formatError(error));
       }
     }
 

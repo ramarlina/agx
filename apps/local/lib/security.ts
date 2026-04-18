@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { getAllowedOrigins } from "./app-config";
 import { createAdminDbClient } from "./db-adapter";
+import { logger } from "@/lib/logger";
 
 // ============ TASK SIGNING (HMAC-SHA256) ============
 
@@ -215,7 +216,7 @@ export async function writeAuditLog(entry: AuditLogEntry): Promise<string> {
     .single();
 
   if (error) {
-    console.error("Failed to write audit log:", error);
+    logger.error("Failed to write audit log", logger.formatError(error));
     throw new Error("Audit log write failed");
   }
 
@@ -241,7 +242,7 @@ export async function updateAuditLogResult(
     .eq("id", auditId);
 
   if (error) {
-    console.error("Failed to update audit log:", error);
+    logger.error("Failed to update audit log", logger.formatError(error));
     throw new Error("Audit log update failed");
   }
 }
@@ -274,7 +275,7 @@ export async function getAuditLogs(
   const { data, error } = await query;
 
   if (error) {
-    console.error("Failed to get audit logs:", error);
+    logger.error("Failed to get audit logs", logger.formatError(error));
     throw error;
   }
 

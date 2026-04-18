@@ -1,4 +1,6 @@
+import { logger } from '@/lib/logger';
 import { getSQLiteDb } from '@/lib/sqlite-query-adapter';
+import { logger } from '@/lib/logger';
 import {
   automationRecordToGraphSchedule,
   getAutomationRepository,
@@ -108,7 +110,7 @@ export async function pollSchedules(
   };
 
   const activeSchedules = getGraphsWithActiveSchedules();
-  console.log(`[schedules:poll] found ${activeSchedules.length} active schedule(s)`);
+  logger.info(`[schedules:poll] found ${activeSchedules.length} active schedule(s)`);
 
   for (const { taskId } of activeSchedules) {
     try {
@@ -121,12 +123,12 @@ export async function pollSchedules(
       // Check if tick is due
       const tickResult = scheduleTickIfDue(graph);
       if (!tickResult.tickFired) {
-        console.log(`[schedules:poll] ${taskId} skipped (${tickResult.skipReason ?? 'unknown'})`);
+        logger.info(`[schedules:poll] ${taskId} skipped (${tickResult.skipReason ?? 'unknown'})`);
         result.skippedGraphIds.push(taskId);
         continue;
       }
 
-      console.log(`[schedules:poll] ${taskId} tick fired — resetting nodes`);
+      logger.info(`[schedules:poll] ${taskId} tick fired — resetting nodes`);
 
       // Tick fired - persist the updated graph with nodes reset
       store.updateGraphStructure(tickResult.graph.id, {
@@ -136,7 +138,7 @@ export async function pollSchedules(
 
       // Run the scheduler tick to get runnable nodes
       const schedulerResult = schedulerTick(tickResult.graph, context);
-      console.log(`[schedules:poll] ${taskId} scheduler: fn=${schedulerResult.functionToRun.length} work=${schedulerResult.workToRun.length}`);
+      logger.info(`[schedules:poll] ${taskId} scheduler: fn=${schedulerResult.functionToRun.length} work=${schedulerResult.workToRun.length}`);
 
       // Execute function nodes
       let currentGraph = schedulerResult.graph;
@@ -145,13 +147,13 @@ export async function pollSchedules(
         if (!node || node.type !== 'function') continue;
 
         try {
-          console.log(`[schedules:poll] ${taskId} executing function node "${nodeId}"`);
+          logger.info(`[schedules:poll] ${taskId} executing function node "${nodeId}"`);
           const execResult = await executeNode(currentGraph, nodeId, context);
           const resultNode = execResult.graph.nodes[nodeId];
-          console.log(`[schedules:poll] ${taskId} function "${nodeId}" → ${resultNode?.status}`, resultNode && 'output' in resultNode ? JSON.stringify((resultNode as any).output)?.slice(0, 200) : '');
+          logger.info(`[schedules:poll] ${taskId} function "${nodeId}" → ${resultNode?.status}`, resultNode && 'output' in resultNode ? { output: JSON.stringify((resultNode as any).output)?.slice(0, 200) } : undefined);
           currentGraph = execResult.graph;
         } catch (err) {
-          console.error(`[schedules:poll] ${taskId} function "${nodeId}" error:`, err);
+          logger.error(`[schedules:poll] ${taskId} function "${nodeId}" error`, logger.formatError(err));
           result.errors.push({
             graphId: taskId,
             error: err instanceof Error ? err : new Error(String(err)),
@@ -166,7 +168,7 @@ export async function pollSchedules(
 
       // Second pass: re-run scheduler to find work nodes now unblocked by function/conditional results
       const postFunctionResult = schedulerTick(currentGraph, context);
-      console.log(`[schedules:poll] ${taskId} post-fn scheduler: cond=${postFunctionResult.control.conditionalNodeIds.length} work=${postFunctionResult.workToRun.length}`);
+      logger.info(`[schedules:poll] ${taskId} post-fn scheduler: cond=${postFunctionResult.control.conditionalNodeIds.length} work=${postFunctionResult.workToRun.length}`);
       currentGraph = postFunctionResult.graph;
 
       // Auto-dispatch work nodes in scheduled runs
@@ -199,7 +201,7 @@ export async function pollSchedules(
         });
 
         const postWorkResult = schedulerTick(currentGraph, context);
-        console.log(`[schedules:poll] ${taskId} post-work scheduler: fn=${postWorkResult.functionToRun.length} cond=${postWorkResult.control.conditionalNodeIds.length}`);
+        logger.info(`[schedules:poll] ${taskId} post-work scheduler: fn=${postWorkResult.functionToRun.length} cond=${postWorkResult.control.conditionalNodeIds.length}`);
         currentGraph = postWorkResult.graph;
 
         for (const nodeId of postWorkResult.functionToRun) {
@@ -207,11 +209,11 @@ export async function pollSchedules(
           if (!node || node.type !== 'function') continue;
 
           try {
-            console.log(`[schedules:poll] ${taskId} executing post-work function "${nodeId}"`);
+            logger.info(`[schedules:poll] ${taskId} executing post-work function "${nodeId}"`);
             const execResult = await executeNode(currentGraph, nodeId, context);
             currentGraph = execResult.graph;
           } catch (err) {
-            console.error(`[schedules:poll] ${taskId} post-work function "${nodeId}" error:`, err);
+            logger.error(`[schedules:poll] ${taskId} post-work function "${nodeId}" error`, logger.formatError(err));
             result.errors.push({
               graphId: taskId,
               error: err instanceof Error ? err : new Error(String(err)),
@@ -227,9 +229,9 @@ export async function pollSchedules(
 
       // Check if tick is complete
       const nodeStates = Object.entries(currentGraph.nodes).map(([id, n]) => `${id}:${n.status}`).join(', ');
-      console.log(`[schedules:poll] ${taskId} node states: ${nodeStates}`);
+      logger.info(`[schedules:poll] ${taskId} node states: ${nodeStates}`);
       const tickComplete = isScheduleTickComplete(currentGraph);
-      console.log(`[schedules:poll] ${taskId} tick complete? ${tickComplete}`);
+      logger.info(`[schedules:poll] ${taskId} tick complete? ${tickComplete}`);
       if (tickComplete) {
         const completed = completeScheduleTick(currentGraph);
 
@@ -258,7 +260,7 @@ export async function pollSchedules(
         // Re-read DB schedule state to respect mid-tick changes (e.g. act node stopped it)
         const dbGraph = store.getGraph(taskId);
         if (dbGraph?.schedule?.state === 'stopped') {
-          console.log(`[schedules:poll] ${taskId} schedule was stopped mid-tick, preserving stopped state`);
+          logger.info(`[schedules:poll] ${taskId} schedule was stopped mid-tick, preserving stopped state`);
           completed.schedule = {
             ...completed.schedule,
             state: 'stopped',
@@ -274,14 +276,14 @@ export async function pollSchedules(
 
       result.tickedGraphIds.push(taskId);
     } catch (err) {
-      console.error(`[schedules:poll] ${taskId} caught error:`, err);
+      logger.error(`[schedules:poll] ${taskId} caught error`, logger.formatError(err));
       result.errors.push({
         graphId: taskId,
         error: err instanceof Error ? err : new Error(String(err)),
       });
       try {
         store.releaseScheduleTick(taskId);
-        console.log(`[schedules:poll] ${taskId} released concurrency slot after error`);
+        logger.info(`[schedules:poll] ${taskId} released concurrency slot after error`);
       } catch { /* best effort */ }
     }
   }
@@ -336,10 +338,10 @@ export async function executeScheduleTick(
   while (true) {
     loopCount++;
     const nodesBefore = Object.entries(currentGraph.nodes).map(([id, n]) => `${id}:${n.status}`).join(', ');
-    console.log(`[schedules:tick] loop ${loopCount} nodes before: ${nodesBefore}`);
+    logger.info(`[schedules:tick] loop ${loopCount} nodes before: ${nodesBefore}`);
 
     const schedulerResult = schedulerTick(currentGraph, context);
-    console.log(`[schedules:tick] loop ${loopCount} fn=${schedulerResult.functionToRun.length} work=${schedulerResult.workToRun.length} cond=${schedulerResult.control.conditionalNodeIds.length}`);
+    logger.info(`[schedules:tick] loop ${loopCount} fn=${schedulerResult.functionToRun.length} work=${schedulerResult.workToRun.length} cond=${schedulerResult.control.conditionalNodeIds.length}`);
 
     // Execute all runnable function nodes
     for (const nodeId of schedulerResult.functionToRun) {
@@ -348,13 +350,13 @@ export async function executeScheduleTick(
 
       const execResult = await executeNode(currentGraph, nodeId, context);
       currentGraph = execResult.graph;
-      console.log(`[schedules:tick] fn "${nodeId}" → ${currentGraph.nodes[nodeId]?.status}`);
+      logger.info(`[schedules:tick] fn "${nodeId}" → ${currentGraph.nodes[nodeId]?.status}`);
     }
 
     // Conditionals are evaluated in schedulerTick — update currentGraph
     if (schedulerResult.control.conditionalNodeIds.length > 0) {
       currentGraph = schedulerResult.graph;
-      console.log(`[schedules:tick] applied conditional results: ${schedulerResult.control.conditionalNodeIds.join(', ')}`);
+      logger.info(`[schedules:tick] applied conditional results: ${schedulerResult.control.conditionalNodeIds.join(', ')}`);
     }
 
     // Execute work nodes (if any runnable)
@@ -364,11 +366,11 @@ export async function executeScheduleTick(
     }
 
     const nodesAfter = Object.entries(currentGraph.nodes).map(([id, n]) => `${id}:${n.status}`).join(', ');
-    console.log(`[schedules:tick] loop ${loopCount} nodes after: ${nodesAfter}`);
+    logger.info(`[schedules:tick] loop ${loopCount} nodes after: ${nodesAfter}`);
 
     // If tick is complete, break
     if (isScheduleTickComplete(currentGraph)) {
-      console.log(`[schedules:tick] tick complete after loop ${loopCount}`);
+      logger.info(`[schedules:tick] tick complete after loop ${loopCount}`);
       break;
     }
 
