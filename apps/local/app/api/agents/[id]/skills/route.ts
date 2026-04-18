@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAgentSkills, setAgentSkills } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { parseBody } from "@/lib/parse-body";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,7 +24,9 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 export async function PUT(request: NextRequest, context: RouteContext) {
   try {
     const { id: agentId } = await context.params;
-    const body = await request.json().catch(() => ({}));
+    const parsed = await parseBody(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
 
     if (!Array.isArray(body.skills)) {
       return NextResponse.json({ error: "skills array is required" }, { status: 400 });

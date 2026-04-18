@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { parseBody } from "@/lib/parse-body";
 import {
   buildBudgetConsumedEvent,
   buildGateVerificationEvent,
@@ -501,7 +502,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   }
 
   // Clone request body so we can inspect it for format detection
-  const rawBody = await request.json().catch(() => ({}));
+  const parsed = await parseBody(request);
+  if (!parsed.ok) return parsed.response;
+  const rawBody = parsed.body;
 
   // Daemon sends { graph, ifMatchGraphVersion } or { nodes, edges, ... } (full replacement)
   const isDaemonPayload = rawBody.graph || (rawBody.nodes && !rawBody.nodeUpdates);

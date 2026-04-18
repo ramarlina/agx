@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProjectVariables, setProjectVariable, deleteProjectVariable } from "@/lib/db";
 import { logger } from "@/lib/logger";
+import { parseBody } from "@/lib/parse-body";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +28,9 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const { id: projectId } = await context.params;
-    const body = await request.json().catch(() => ({}));
+    const parsed = await parseBody(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const key = typeof body.key === "string" ? body.key.trim() : "";
     const value = typeof body.value === "string" ? body.value : "";
 

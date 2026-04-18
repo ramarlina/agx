@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import "@/lib/tracker"; // Ensure adapters are registered
 import { resolveAdapter, badRequest } from "@/lib/tracker/route-helpers";
 import { updateCachedTrackerItemStatus } from "@/lib/tracker/tracker-item-store";
+import { parseBody } from "@/lib/parse-body";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,12 +33,14 @@ export async function PATCH(
   const projectId = req.nextUrl.searchParams.get("projectId")?.trim();
   if (!projectId) return badRequest("projectId required");
 
-  const body = (await req.json().catch(() => ({}))) as {
+  const parsed = await parseBody<{
     status?: string;
     assigneeId?: string;
     priority?: string;
     labels?: string[];
-  };
+  }>(req);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
 
   const adapter = resolveAdapter(tracker);
   try {

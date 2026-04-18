@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseBody } from "@/lib/parse-body";
 import {
   getTeams,
   getTeamAgents,
@@ -178,7 +179,9 @@ async function provisionAgent(requested: RequestedAgent, projectId: string, team
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const { id: projectId } = await context.params;
-    const body = await request.json().catch(() => ({}));
+    const parsed = await parseBody(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
 
     const templateId = typeof body.templateId === "string" ? body.templateId.trim() : undefined;
     const variantId = typeof body.variantId === "string" ? body.variantId.trim() : undefined;

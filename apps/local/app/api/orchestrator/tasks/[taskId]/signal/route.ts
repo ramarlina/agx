@@ -10,6 +10,7 @@ import { appendWorkflowEvent } from "@/lib/orchestrator/events";
 import { requireUserId } from "@/lib/api/auth";
 import type { StageDecision } from "@/lib/orchestration/stage-machine";
 import type { TaskJobData } from "@/lib/orchestrator/processor";
+import { parseBody } from "@/lib/parse-body";
 import type {
     AgentDecisionSignalPayload,
     DaemonStepSignalPayload,
@@ -25,7 +26,9 @@ export async function POST(
         const auth = await requireUserId(request);
 
         const { taskId } = await params;
-        const body = await request.json().catch(() => ({}));
+        const parsed = await parseBody(request);
+        if (!parsed.ok) return parsed.response;
+        const body = parsed.body;
         const signal = String(body?.signal || "");
         const rawPayload = body?.payload || {};
 

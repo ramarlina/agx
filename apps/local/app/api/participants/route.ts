@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { parseBody } from "@/lib/parse-body";
 import {
   createAgent,
   updateAgent as updateDbAgent,
@@ -142,7 +143,9 @@ function toParticipant(body: ParticipantPayload, fallbackId?: string): Participa
  * Also auto-assigns to a project if projectId is provided.
  */
 export async function POST(request: NextRequest) {
-  const body = (await request.json().catch(() => ({}))) as ParticipantPayload;
+  const parsed = await parseBody<ParticipantPayload>(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
   const name = toOptionalString(body.name);
   const generatedId = name ? slugifyParticipantId(name) : undefined;
   const participant = toParticipant(body, generatedId);
@@ -216,7 +219,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const body = (await request.json().catch(() => ({}))) as ParticipantPayload;
+  const parsed2 = await parseBody<ParticipantPayload>(request);
+  if (!parsed2.ok) return parsed2.response;
+  const body = parsed2.body;
   const participant = toParticipant(body);
 
   if (!participant) {
@@ -277,7 +282,9 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const body = (await request.json().catch(() => ({}))) as { orderedIds?: unknown };
+  const parsed3 = await parseBody<{ orderedIds?: unknown }>(request);
+  if (!parsed3.ok) return parsed3.response;
+  const body = parsed3.body;
   if (!Array.isArray(body.orderedIds) || body.orderedIds.some((id: unknown) => typeof id !== "string")) {
     return Response.json({ error: "orderedIds must be a string array" }, { status: 400 });
   }
