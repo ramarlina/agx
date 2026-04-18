@@ -92,7 +92,7 @@ export class AutomationRepository {
         continue;
       }
       if (recordsById.has(record.definition.id)) {
-        console.error(`[automations] duplicate automation id detected: ${record.definition.id}`);
+        logger.error(`[automations] duplicate automation id detected: ${record.definition.id}`);
         continue;
       }
       recordsById.set(record.definition.id, record);
@@ -376,7 +376,7 @@ export class AutomationRepository {
         archived,
       };
     } catch (error) {
-      console.error(`[automations] failed to read ${filePath}:`, error);
+      logger.error(`[automations] failed to read ${filePath}`, logger.formatError(error));
       return null;
     }
   }
@@ -389,7 +389,7 @@ export class AutomationRepository {
       try {
         existing = JSON.parse(fs.readFileSync(statePath, "utf8")) as Partial<AutomationRuntimeState>;
       } catch (error) {
-        console.error(`[automations] failed to parse state for ${definition.id}:`, error);
+        logger.error(`[automations] failed to parse state for ${definition.id}`, logger.formatError(error));
       }
     }
 

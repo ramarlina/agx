@@ -1,5 +1,6 @@
 import { logger } from '@/lib/logger';
 import { getSQLiteDb } from '@/lib/sqlite-query-adapter';
+import { logger } from '@/lib/logger';
 import {
   automationRecordToGraphSchedule,
   getAutomationRepository,
@@ -152,7 +153,7 @@ export async function pollSchedules(
           logger.info(`[schedules:poll] ${taskId} function "${nodeId}" → ${resultNode?.status}`, resultNode && 'output' in resultNode ? { output: JSON.stringify((resultNode as any).output)?.slice(0, 200) } : undefined);
           currentGraph = execResult.graph;
         } catch (err) {
-          console.error(`[schedules:poll] ${taskId} function "${nodeId}" error:`, err);
+          logger.error(`[schedules:poll] ${taskId} function "${nodeId}" error`, logger.formatError(err));
           result.errors.push({
             graphId: taskId,
             error: err instanceof Error ? err : new Error(String(err)),
@@ -212,7 +213,7 @@ export async function pollSchedules(
             const execResult = await executeNode(currentGraph, nodeId, context);
             currentGraph = execResult.graph;
           } catch (err) {
-            console.error(`[schedules:poll] ${taskId} post-work function "${nodeId}" error:`, err);
+            logger.error(`[schedules:poll] ${taskId} post-work function "${nodeId}" error`, logger.formatError(err));
             result.errors.push({
               graphId: taskId,
               error: err instanceof Error ? err : new Error(String(err)),
@@ -275,7 +276,7 @@ export async function pollSchedules(
 
       result.tickedGraphIds.push(taskId);
     } catch (err) {
-      console.error(`[schedules:poll] ${taskId} caught error:`, err);
+      logger.error(`[schedules:poll] ${taskId} caught error`, logger.formatError(err));
       result.errors.push({
         graphId: taskId,
         error: err instanceof Error ? err : new Error(String(err)),
