@@ -84,13 +84,9 @@ function WorkspaceSidebarBrandLogo({ compact = false }: { compact?: boolean }) {
     <span
       className={`workspace-sidebar__brand-logo${compact ? " workspace-sidebar__brand-logo--compact" : ""}`}
       aria-hidden="true"
+      style={compact ? undefined : { gap: 5 }}
     >
-      <span className="workspace-sidebar__brand-grid">
-        <span className="workspace-sidebar__brand-dot workspace-sidebar__brand-dot--blue" />
-        <span className="workspace-sidebar__brand-dot workspace-sidebar__brand-dot--yellow" />
-        <span className="workspace-sidebar__brand-dot workspace-sidebar__brand-dot--mint" />
-        <span className="workspace-sidebar__brand-dot workspace-sidebar__brand-dot--red" />
-      </span>
+      <img src="/agx_icon.png" alt="AGX" className="workspace-sidebar__brand-grid" style={{ height: 28 }} />
       <span className="workspace-sidebar__brand-text">AGX</span>
     </span>
   );
