@@ -40,8 +40,7 @@ function prToTrackerItem(pr: GithubPr): TrackerItem {
         : pr.draft
           ? "todo"
           : "in_progress";
-  const [owner, name] = pr.repoId.split("/");
-  const identifier = `${name ?? pr.repoId}#${pr.number}`;
+  const identifier = `PR #${pr.number}`;
   return {
     id: pr.id,
     trackerId: pr.id,
@@ -64,8 +63,7 @@ function prToTrackerItem(pr: GithubPr): TrackerItem {
 function issueToTrackerItem(issue: GithubIssue): TrackerItem {
   const statusCategory: TrackerItem["statusCategory"] =
     issue.state === "closed" ? "done" : "todo";
-  const [, name] = issue.repoId.split("/");
-  const identifier = `${name ?? issue.repoId}!${issue.number}`;
+  const identifier = `#${issue.number}`;
   return {
     id: issue.id,
     trackerId: issue.id,

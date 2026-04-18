@@ -158,7 +158,31 @@ export function TicketPanel({
           runtime: { recapContent },
         });
 
-        const combinedPrefix = ticketPrefix + (promptPrefix ? `\n${promptPrefix}` : "");
+        let prContext = "";
+        if (
+          trackerType === "github" &&
+          (item.labels ?? []).includes("pr") &&
+          projectId
+        ) {
+          try {
+            const ctxRes = await fetch("/api/github/prs/context", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ projectId, prId: item.id }),
+            });
+            if (ctxRes.ok) {
+              const ctxPayload = (await ctxRes.json()) as { context?: string };
+              if (ctxPayload.context) prContext = ctxPayload.context;
+            }
+          } catch (err) {
+            console.warn("Failed to fetch PR context", err);
+          }
+        }
+
+        const combinedPrefix =
+          ticketPrefix +
+          (prContext ? `\n\n${prContext}` : "") +
+          (promptPrefix ? `\n${promptPrefix}` : "");
 
         const response = await fetch("/api/chat", {
           method: "POST",
@@ -197,7 +221,7 @@ export function TicketPanel({
         }
       }
     },
-    [item, participants, defaultAgent, projectId, projectSlug, createRun, updateRun, onRunCreated]
+    [item, participants, defaultAgent, projectId, projectSlug, trackerType, createRun, updateRun, onRunCreated]
   );
 
   return (

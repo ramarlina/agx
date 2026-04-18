@@ -96,6 +96,17 @@ export interface GithubPrComment {
   updatedAt: number;
 }
 
+export interface GithubPrFile {
+  prId: string;
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  changes: number;
+  patch: string | null;
+  lastSyncedAt: number;
+}
+
 export interface GithubTokens {
   accessToken: string;
   refreshToken: string | null;

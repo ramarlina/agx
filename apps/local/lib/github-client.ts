@@ -1,6 +1,7 @@
 import type {
   GithubPr,
   GithubPrComment,
+  GithubPrFile,
   GithubIssue,
   GithubTokens,
   GithubReviewer,
@@ -280,6 +281,39 @@ export class GithubClient {
         closedAt: r.closed_at ? toEpoch(r.closed_at) : null,
         lastSyncedAt: now,
       }));
+  }
+
+  async listPullRequestFiles(input: {
+    owner: string;
+    name: string;
+    number: number;
+    perPage?: number;
+  }): Promise<GithubPrFile[]> {
+    const prId = `${input.owner}/${input.name}#${input.number}`;
+    const params = new URLSearchParams({
+      per_page: String(input.perPage ?? 100),
+    });
+    const raw = await this.request<
+      Array<{
+        filename: string;
+        status: string;
+        additions: number;
+        deletions: number;
+        changes: number;
+        patch?: string;
+      }>
+    >(`/repos/${input.owner}/${input.name}/pulls/${input.number}/files?${params}`);
+    const now = Date.now();
+    return raw.map((r) => ({
+      prId,
+      path: r.filename,
+      status: r.status,
+      additions: r.additions ?? 0,
+      deletions: r.deletions ?? 0,
+      changes: r.changes ?? 0,
+      patch: r.patch ?? null,
+      lastSyncedAt: now,
+    }));
   }
 
   async listPullRequestComments(input: {

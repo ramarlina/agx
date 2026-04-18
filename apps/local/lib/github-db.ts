@@ -108,6 +108,20 @@ CREATE TABLE IF NOT EXISTS github_pr_comments (
 CREATE INDEX IF NOT EXISTS idx_github_pr_comments_pr
   ON github_pr_comments (pr_id);
 
+CREATE TABLE IF NOT EXISTS github_pr_files (
+  pr_id TEXT NOT NULL,
+  path TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT '',
+  additions INTEGER NOT NULL DEFAULT 0,
+  deletions INTEGER NOT NULL DEFAULT 0,
+  changes INTEGER NOT NULL DEFAULT 0,
+  patch TEXT,
+  last_synced_at INTEGER NOT NULL,
+  PRIMARY KEY (pr_id, path)
+);
+CREATE INDEX IF NOT EXISTS idx_github_pr_files_pr
+  ON github_pr_files (pr_id);
+
 CREATE TABLE IF NOT EXISTS github_sync_state (
   repo_id TEXT PRIMARY KEY,
   last_synced_at INTEGER NOT NULL,
