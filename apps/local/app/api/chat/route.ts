@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { parseBody } from "@/lib/parse-body";
 import {
   mergeComposerRouting,
   normalizeComposerRouting,
@@ -291,7 +292,9 @@ function toActiveParticipantIds(input: unknown): string[] {
 }
 
 export async function POST(request: NextRequest) {
-  const body = (await request.json().catch(() => ({}))) as ChatRequestBody;
+  const parsed = await parseBody<ChatRequestBody>(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
   const prompt =
     typeof body.prompt === "string"
       ? body.prompt.trim()

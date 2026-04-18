@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseBody } from "@/lib/parse-body";
 import {
   bulkGetItemMetadata,
   bulkSetEstimate,
@@ -26,12 +27,14 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json().catch(() => ({}))) as {
+    const parsed = await parseBody<{
       projectId?: string;
       issueIds?: string[];
       action?: string;
       payload?: Record<string, unknown>;
-    };
+    }>(req);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const projectId = body.projectId?.trim();
     const issueIds = body.issueIds?.filter((id) => id?.trim()) ?? [];
     const action = body.action?.trim();

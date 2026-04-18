@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import "@/lib/tracker";
 import { resolveAdapter, badRequest } from "@/lib/tracker/route-helpers";
 import { addTrackerConnection } from "@/lib/tracker/connections";
+import { parseBody } from "@/lib/parse-body";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,10 +12,12 @@ export async function POST(
   { params }: { params: Promise<{ tracker: string }> }
 ) {
   const { tracker } = await params;
-  const body = (await req.json().catch(() => ({}))) as {
+  const parsed = await parseBody<{
     projectId?: string;
     accessToken?: string;
-  };
+  }>(req);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
 
   const projectId = body.projectId?.trim();
   const accessToken = body.accessToken?.trim();

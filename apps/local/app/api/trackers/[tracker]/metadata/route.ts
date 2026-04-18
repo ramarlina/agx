@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getItemMetadata, setItemMetadata } from "@/lib/tracker/tracker-item-metadata-store";
+import { parseBody } from "@/lib/parse-body";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +22,9 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "projectId and issueId required" }, { status: 400 });
   }
   try {
-    const body = (await req.json().catch(() => ({}))) as { labels?: string[]; estimate?: number | null };
+    const parsed = await parseBody<{ labels?: string[]; estimate?: number | null }>(req);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const metadata = await setItemMetadata(projectId, issueId, body);
     return NextResponse.json(metadata);
   } catch (err) {

@@ -2,13 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { removeSkill } from "@/lib/skills-library";
 import type { ChatProvider } from "@/lib/types";
 import { logger } from "@/lib/logger";
+import { parseBody } from "@/lib/parse-body";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => ({}));
+    const parsed = await parseBody(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const skillId = typeof body.skillId === "string" ? body.skillId.trim() : "";
     const providers = Array.isArray(body.providers)
       ? body.providers.filter((value: unknown): value is ChatProvider => typeof value === "string")

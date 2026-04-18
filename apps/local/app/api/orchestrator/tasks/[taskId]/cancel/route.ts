@@ -10,6 +10,7 @@ import { appendWorkflowEvent } from "@/lib/orchestrator/events";
 import { requireUserId } from "@/lib/api/auth";
 import type { TaskJobData } from "@/lib/orchestrator/processor";
 import { logger } from "@/lib/logger";
+import { parseBody } from "@/lib/parse-body";
 
 export async function POST(
     request: NextRequest,
@@ -19,7 +20,9 @@ export async function POST(
         const auth = await requireUserId(request);
 
         const { taskId } = await params;
-        const body = await request.json().catch(() => ({}));
+        const parsed = await parseBody(request);
+        if (!parsed.ok) return parsed.response;
+        const body = parsed.body;
         const reason = typeof body.reason === "string" ? body.reason : undefined;
 
         // Enqueue cancel job

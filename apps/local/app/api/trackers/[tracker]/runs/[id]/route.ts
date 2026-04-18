@@ -3,6 +3,7 @@ import "@/lib/tracker"; // Ensure adapters are registered
 import { getTrackerRun, updateTrackerRun } from "@/lib/tracker/tracker-run-store";
 import type { TrackerRunStatus } from "@/lib/tracker/types";
 import { logger } from "@/lib/logger";
+import { parseBody } from "@/lib/parse-body";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -63,7 +64,9 @@ export async function PATCH(
 ) {
   try {
     const { id } = await context.params;
-    const body = (await request.json().catch(() => ({}))) as UpdateTrackerRunBody;
+    const parsed = await parseBody<UpdateTrackerRunBody>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const run = await updateTrackerRun({
       id,
       rootMessageId: toOptionalString(body.rootMessageId),

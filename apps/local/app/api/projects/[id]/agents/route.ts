@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseBody } from "@/lib/parse-body";
 import {
   getProjectAgents,
   addProjectAgent,
@@ -28,7 +29,9 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const { id: projectId } = await context.params;
-    const body = await request.json().catch(() => ({}));
+    const parsed = await parseBody(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const agentId = typeof body.agentId === "string" ? body.agentId.trim() : "";
 
     if (!agentId) {
@@ -67,7 +70,9 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const { id: projectId } = await context.params;
-    const body = await request.json().catch(() => ({}));
+    const parsed2 = await parseBody(request);
+    if (!parsed2.ok) return parsed2.response;
+    const body = parsed2.body;
     const orderedIds = body.orderedAgentIds;
 
     if (!Array.isArray(orderedIds) || orderedIds.some((id: unknown) => typeof id !== "string")) {

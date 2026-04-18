@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { toCronExpr } from '@/src/graph/nl-schedule';
+import { parseBody } from "@/lib/parse-body";
 import {
   createGraph,
   getGraph,
@@ -38,7 +39,9 @@ const CreateAutomationSchema = z.object({
  */
 export async function POST(request: NextRequest) {
   try {
-    const rawBody = await request.json().catch(() => ({}));
+    const parsedBody = await parseBody(request);
+    if (!parsedBody.ok) return parsedBody.response;
+    const rawBody = parsedBody.body;
     const parsed = CreateAutomationSchema.safeParse(rawBody);
     if (!parsed.success) {
       return NextResponse.json(
