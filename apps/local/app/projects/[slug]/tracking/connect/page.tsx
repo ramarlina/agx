@@ -12,6 +12,7 @@ import { useTrackerConnections } from "@/hooks/useTrackerConnections";
 const TRACKER_TYPES = [
   { type: "linear", label: "Linear" },
   { type: "jira", label: "Jira Cloud" },
+  { type: "github", label: "GitHub" },
 ] as const;
 
 function PickerSkeleton() {
