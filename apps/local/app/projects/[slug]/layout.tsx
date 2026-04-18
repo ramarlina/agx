@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, PanelLeftOpen, Sun, Moon } from "lucide-react";
 import { StatusIndicator } from "@/components/chat-ui/StatusIndicator";
+import { ActivityStreamButton } from "@/components/activity/ActivityStreamButton";
 import { ProjectSearchBar } from "@/components/projects/ProjectSearchBar";
 import { WorkspaceSidebar } from "@/components/thread/WorkspaceSidebar";
 import { useInputCapabilities } from "@/hooks/useInputCapabilities";
@@ -245,6 +246,7 @@ function ProjectLayoutContent({
           {/* Right: status + theme */}
           <div className="flex items-center gap-2 flex-shrink-0">
             <StatusIndicator />
+            <ActivityStreamButton projectId={currentProject.id} participants={participants} />
             <button
               type="button"
               onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
