@@ -3055,6 +3055,7 @@ export async function createWorkspaceEntry(
 }
 
 export async function updateWorkspaceEntry(
+  projectId: string,
   entryId: string,
   updates: { name?: string; path?: string | null; purpose?: string | null; sort_order?: number }
 ): Promise<WorkspaceEntry | null> {
@@ -3069,6 +3070,7 @@ export async function updateWorkspaceEntry(
     .from("workspace_entries")
     .update(payload)
     .eq("id", entryId)
+    .eq("project_id", projectId)
     .select()
     .single();
 
@@ -3079,12 +3081,13 @@ export async function updateWorkspaceEntry(
   return data as WorkspaceEntry;
 }
 
-export async function deleteWorkspaceEntry(entryId: string): Promise<void> {
+export async function deleteWorkspaceEntry(projectId: string, entryId: string): Promise<void> {
   const db = createAdminDbClient();
   const { error } = await db
     .from("workspace_entries")
     .delete()
-    .eq("id", entryId);
+    .eq("id", entryId)
+    .eq("project_id", projectId);
   if (error) throw error;
 }
 
