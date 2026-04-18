@@ -103,6 +103,223 @@ test("listPullRequestComments returns issue + review comments", async () => {
   expect(comments.find((c) => c.kind === "review_comment")?.line).toBe(42);
 });
 
+test("getCombinedStatus aggregates to success when all runs succeed", async () => {
+  const client = new GithubClient({
+    tokens,
+    fetchImpl: makeFetch([
+      {
+        url: /\/check-runs/,
+        body: {
+          check_runs: [
+            { status: "completed", conclusion: "success" },
+            { status: "completed", conclusion: "success" },
+          ],
+        },
+      },
+    ]),
+  });
+  const s = await client.getCombinedStatus({ owner: "foo", name: "bar", sha: "abc" });
+  expect(s).toBe("success");
+});
+
+test("getCombinedStatus aggregates to failure on any failed conclusion", async () => {
+  const client = new GithubClient({
+    tokens,
+    fetchImpl: makeFetch([
+      {
+        url: /\/check-runs/,
+        body: {
+          check_runs: [
+            { status: "completed", conclusion: "success" },
+            { status: "completed", conclusion: "failure" },
+          ],
+        },
+      },
+    ]),
+  });
+  expect(
+    await client.getCombinedStatus({ owner: "foo", name: "bar", sha: "abc" }),
+  ).toBe("failure");
+});
+
+test("getCombinedStatus aggregates to pending when any is in_progress", async () => {
+  const client = new GithubClient({
+    tokens,
+    fetchImpl: makeFetch([
+      {
+        url: /\/check-runs/,
+        body: {
+          check_runs: [
+            { status: "completed", conclusion: "success" },
+            { status: "in_progress", conclusion: null },
+          ],
+        },
+      },
+    ]),
+  });
+  expect(
+    await client.getCombinedStatus({ owner: "foo", name: "bar", sha: "abc" }),
+  ).toBe("pending");
+});
+
+test("getCombinedStatus returns null when no check runs", async () => {
+  const client = new GithubClient({
+    tokens,
+    fetchImpl: makeFetch([{ url: /\/check-runs/, body: { check_runs: [] } }]),
+  });
+  expect(
+    await client.getCombinedStatus({ owner: "foo", name: "bar", sha: "abc" }),
+  ).toBeNull();
+});
+
+test("getReviewDecision returns approved when latest is approval", async () => {
+  const client = new GithubClient({
+    tokens,
+    fetchImpl: makeFetch([
+      {
+        url: /\/pulls\/7\/reviews/,
+        body: [
+          {
+            state: "APPROVED",
+            user: { login: "alice" },
+            submitted_at: "2026-04-17T10:00:00Z",
+          },
+        ],
+      },
+    ]),
+  });
+  expect(
+    await client.getReviewDecision({ owner: "foo", name: "bar", number: 7 }),
+  ).toBe("approved");
+});
+
+test("getReviewDecision returns changes_requested when any reviewer's latest is changes_requested", async () => {
+  const client = new GithubClient({
+    tokens,
+    fetchImpl: makeFetch([
+      {
+        url: /\/pulls\/7\/reviews/,
+        body: [
+          {
+            state: "APPROVED",
+            user: { login: "alice" },
+            submitted_at: "2026-04-17T10:00:00Z",
+          },
+          {
+            state: "CHANGES_REQUESTED",
+            user: { login: "bob" },
+            submitted_at: "2026-04-17T10:05:00Z",
+          },
+        ],
+      },
+    ]),
+  });
+  expect(
+    await client.getReviewDecision({ owner: "foo", name: "bar", number: 7 }),
+  ).toBe("changes_requested");
+});
+
+test("getReviewDecision returns review_required when no finalized reviews", async () => {
+  const client = new GithubClient({
+    tokens,
+    fetchImpl: makeFetch([
+      {
+        url: /\/pulls\/7\/reviews/,
+        body: [
+          {
+            state: "COMMENTED",
+            user: { login: "alice" },
+            submitted_at: "2026-04-17T10:00:00Z",
+          },
+          {
+            state: "DISMISSED",
+            user: { login: "bob" },
+            submitted_at: "2026-04-17T10:01:00Z",
+          },
+        ],
+      },
+    ]),
+  });
+  expect(
+    await client.getReviewDecision({ owner: "foo", name: "bar", number: 7 }),
+  ).toBe("review_required");
+});
+
+test("getReviewDecision uses only the latest review per reviewer", async () => {
+  const client = new GithubClient({
+    tokens,
+    fetchImpl: makeFetch([
+      {
+        url: /\/pulls\/7\/reviews/,
+        body: [
+          {
+            state: "CHANGES_REQUESTED",
+            user: { login: "alice" },
+            submitted_at: "2026-04-17T10:00:00Z",
+          },
+          {
+            state: "APPROVED",
+            user: { login: "alice" },
+            submitted_at: "2026-04-17T11:00:00Z",
+          },
+        ],
+      },
+    ]),
+  });
+  expect(
+    await client.getReviewDecision({ owner: "foo", name: "bar", number: 7 }),
+  ).toBe("approved");
+});
+
+test("enrichPrStatus merges both results into the PR", async () => {
+  const client = new GithubClient({
+    tokens,
+    fetchImpl: makeFetch([
+      {
+        url: /\/check-runs/,
+        body: { check_runs: [{ status: "completed", conclusion: "success" }] },
+      },
+      {
+        url: /\/pulls\/7\/reviews/,
+        body: [
+          {
+            state: "APPROVED",
+            user: { login: "alice" },
+            submitted_at: "2026-04-17T10:00:00Z",
+          },
+        ],
+      },
+    ]),
+  });
+  const basePr = {
+    id: "foo/bar#7",
+    repoId: "foo/bar",
+    number: 7,
+    title: "t",
+    body: "",
+    state: "open" as const,
+    draft: false,
+    authorLogin: "a",
+    headRef: "f",
+    headSha: "abc",
+    baseRef: "main",
+    url: "",
+    ciStatus: null,
+    reviewDecision: null,
+    assignees: [],
+    reviewers: [],
+    labels: [],
+    createdAt: 0,
+    updatedAt: 0,
+    mergedAt: null,
+    closedAt: null,
+    lastSyncedAt: 0,
+  };
+  const enriched = await client.enrichPrStatus(basePr);
+  expect(enriched.ciStatus).toBe("success");
+  expect(enriched.reviewDecision).toBe("approved");
+});
+
 test("401 surfaces as AuthError", async () => {
   const client = new GithubClient({
     tokens,

@@ -3,6 +3,8 @@ import type {
   GithubPrComment,
   GithubTokens,
   GithubReviewer,
+  GithubCiStatus,
+  GithubReviewDecision,
 } from "./github-types";
 
 export class GithubAuthError extends Error {
@@ -152,6 +154,79 @@ export class GithubClient {
     );
     const now = Date.now();
     return raw.map((r) => mapPr(input.owner, input.name, r, now));
+  }
+
+  async getCombinedStatus(input: {
+    owner: string;
+    name: string;
+    sha: string;
+  }): Promise<GithubCiStatus> {
+    const data = await this.request<{
+      check_runs?: Array<{
+        status: string;
+        conclusion: string | null;
+      }>;
+    }>(`/repos/${input.owner}/${input.name}/commits/${input.sha}/check-runs`);
+    const runs = data.check_runs ?? [];
+    if (runs.length === 0) return null;
+    if (runs.some((r) => r.status !== "completed")) return "pending";
+    const failConclusions = new Set([
+      "failure",
+      "timed_out",
+      "cancelled",
+      "action_required",
+    ]);
+    if (runs.some((r) => r.conclusion && failConclusions.has(r.conclusion))) {
+      return "failure";
+    }
+    if (runs.some((r) => r.conclusion === "success")) return "success";
+    return null;
+  }
+
+  async getReviewDecision(input: {
+    owner: string;
+    name: string;
+    number: number;
+  }): Promise<GithubReviewDecision> {
+    const reviews = await this.request<
+      Array<{
+        state: string;
+        user: { login: string } | null;
+        submitted_at: string | null;
+      }>
+    >(`/repos/${input.owner}/${input.name}/pulls/${input.number}/reviews`);
+    const latestByUser = new Map<string, { state: string; at: number }>();
+    for (const r of reviews) {
+      const login = r.user?.login;
+      if (!login) continue;
+      if (
+        r.state === "DISMISSED" ||
+        r.state === "PENDING" ||
+        r.state === "COMMENTED"
+      ) {
+        continue;
+      }
+      const at = toEpoch(r.submitted_at);
+      const existing = latestByUser.get(login);
+      if (!existing || at >= existing.at) {
+        latestByUser.set(login, { state: r.state, at });
+      }
+    }
+    const states = [...latestByUser.values()].map((v) => v.state);
+    if (states.length === 0) return "review_required";
+    if (states.some((s) => s === "CHANGES_REQUESTED")) return "changes_requested";
+    if (states.some((s) => s === "APPROVED")) return "approved";
+    return "review_required";
+  }
+
+  async enrichPrStatus(pr: GithubPr): Promise<GithubPr> {
+    const [owner, name] = pr.repoId.split("/");
+    if (!owner || !name) return pr;
+    const [ciStatus, reviewDecision] = await Promise.all([
+      this.getCombinedStatus({ owner, name, sha: pr.headSha }),
+      this.getReviewDecision({ owner, name, number: pr.number }),
+    ]);
+    return { ...pr, ciStatus, reviewDecision };
   }
 
   async listPullRequestComments(input: {
