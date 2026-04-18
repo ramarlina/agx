@@ -4,6 +4,7 @@ import { use, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, CheckCircle2, LogOut, Star } from "lucide-react";
 import TrackerSetup from "@/components/tracking/TrackerSetup";
+import { TaskIdentifierPrefix } from "@/components/tracking/TaskIdentifierPrefix";
 import { TrackerIcon } from "@/components/tracking/TrackerIcon";
 import { useProjects } from "@/hooks/useProjects";
 import { useTrackerConnection } from "@/hooks/useTrackerConnection";
@@ -110,18 +111,21 @@ export default function TrackingConnectPage({
                 {singleLoading ? (
                   <SetupSkeleton />
                 ) : (
-                  <TrackerSetup
-                    projectId={projectId}
-                    trackerType={selected}
-                    connected={singleConnected}
-                    loading={false}
-                    onConnect={connect}
-                    onConnectWithKey={connectWithKey}
-                    onDisconnect={() => { disconnect(); setSelected(null); }}
-                    clis={clis}
-                    mcpConfigured={mcpConfigured}
-                    onConfigureMcp={configureMcp}
-                  />
+                  <div className="space-y-4">
+                    <TrackerSetup
+                      projectId={projectId}
+                      trackerType={selected}
+                      connected={singleConnected}
+                      loading={false}
+                      onConnect={connect}
+                      onConnectWithKey={connectWithKey}
+                      onDisconnect={() => { disconnect(); setSelected(null); }}
+                      clis={clis}
+                      mcpConfigured={mcpConfigured}
+                      onConfigureMcp={configureMcp}
+                    />
+                    <TaskIdentifierPrefix projectId={projectId} trackerType={selected ?? undefined} />
+                  </div>
                 )}
               </div>
             </div>
@@ -146,14 +150,14 @@ export default function TrackingConnectPage({
                   <div
                     key={tracker.type}
                     className={
-                      "relative flex flex-col items-center gap-4 p-8 rounded-xl border transition-all duration-200 group " +
+                      "relative flex flex-col items-center gap-4 p-8 rounded-xl border transition-all duration-200 group cursor-pointer active:scale-[0.98] " +
                       (isAlreadyConnected
                         ? (isDefault
-                            ? "border-yellow-500/40 bg-yellow-500/5"
-                            : "border-green-500/20 bg-green-500/5")
-                        : "border-border hover:border-primary/50 hover:bg-accent/50 hover:shadow-md cursor-pointer active:scale-[0.98]")
+                            ? "border-yellow-500/40 bg-yellow-500/5 hover:border-yellow-500/60 hover:bg-yellow-500/10"
+                            : "border-green-500/20 bg-green-500/5 hover:border-green-500/40 hover:bg-green-500/10")
+                        : "border-border hover:border-primary/50 hover:bg-accent/50 hover:shadow-md")
                     }
-                    onClick={() => !isAlreadyConnected && setSelected(tracker.type)}
+                    onClick={() => setSelected(tracker.type)}
                   >
                     <div className="relative">
                       <TrackerIcon trackerType={tracker.type} className="h-16 w-16 transition-transform group-hover:scale-105" />
