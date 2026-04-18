@@ -13,27 +13,68 @@ interface GithubRepo {
 export default function SelectReposPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const accessToken = searchParams.get('access_token');
-  const refreshToken = searchParams.get('refresh_token');
-  const expiresIn = searchParams.get('expires_in');
-  const scope = searchParams.get('scope');
 
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState<string | null>(null);
+  const [expiresIn, setExpiresIn] = useState<string | null>(null);
+  const [scope, setScope] = useState<string | null>(null);
   const [repos, setRepos] = useState<GithubRepo[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!accessToken) {
-      setError('Missing access token');
+    const sessionId = searchParams.get('session');
+    const apiBase = searchParams.get('api_base') || '/api';
+    const storedToken = typeof window !== 'undefined' ? sessionStorage.getItem('github_token') : null;
+
+    if (!sessionId && !storedToken) {
+      setError('Missing session or access token');
+      setLoading(false);
       return;
     }
+
+    if (sessionId) {
+      fetch(`${apiBase}/integrations/github/token-session?session=${encodeURIComponent(sessionId)}`)
+        .then((res) => {
+          if (!res.ok) throw new Error(`Failed to retrieve tokens: ${res.status}`);
+          return res.json();
+        })
+        .then((data) => {
+          setAccessToken(data.access_token);
+          setRefreshToken(data.refresh_token || null);
+          setExpiresIn(data.expires_in ? String(data.expires_in) : null);
+          setScope(data.scope || null);
+
+          sessionStorage.setItem('github_token', data.access_token);
+          if (data.refresh_token) sessionStorage.setItem('github_refresh_token', data.refresh_token);
+          if (data.expires_in) sessionStorage.setItem('github_expires_in', String(data.expires_in));
+          if (data.scope) sessionStorage.setItem('github_scope', data.scope);
+
+          window.history.replaceState({}, '', '/integrations/github/select-repos');
+          setLoading(false);
+        })
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : 'Failed to retrieve tokens');
+          setLoading(false);
+        });
+    } else {
+      setAccessToken(storedToken);
+      setRefreshToken(sessionStorage.getItem('github_refresh_token'));
+      setExpiresIn(sessionStorage.getItem('github_expires_in'));
+      setScope(sessionStorage.getItem('github_scope'));
+      setLoading(false);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!accessToken) return;
 
     const fetchRepos = async () => {
       try {
         const res = await fetch('https://api.github.com/user/repos?per_page=100&sort=updated', {
           headers: {
-            Authorization: `Bearer ${accessToken}`,
+            Authorization: `token ${accessToken}`,
             Accept: 'application/vnd.github+json',
             'User-Agent': 'agx',
             'X-GitHub-Api-Version': '2022-11-28',
