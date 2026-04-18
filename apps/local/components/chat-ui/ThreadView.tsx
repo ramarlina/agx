@@ -14,6 +14,7 @@ import { agentAvatarUrl } from "./ParticipantBar";
 import { MessageReactionsBar } from "./MessageReactionsBar";
 import { stripMarkers } from "@/lib/chat-utils";
 import { StreamingSegments } from "./StreamingSegments";
+import { JumpToLatestButton } from "./JumpToLatestButton";
 
 interface Props {
     messages: GroupMessage[];
@@ -67,6 +68,7 @@ export function ThreadView({
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const userScrolledUpRef = useRef(false);
     const prevHighlightRef = useRef<string | null>(null);
+    const [showJumpToLatest, setShowJumpToLatest] = useState(false);
 
     // Track whether user has scrolled up
     useEffect(() => {
@@ -74,10 +76,16 @@ export function ThreadView({
         if (!container) return;
         const handleScroll = () => {
             const { scrollTop, scrollHeight, clientHeight } = container;
-            userScrolledUpRef.current = scrollHeight - scrollTop - clientHeight > 80;
+            const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+            userScrolledUpRef.current = distanceFromBottom > 80;
+            setShowJumpToLatest(distanceFromBottom > 200);
         };
         container.addEventListener("scroll", handleScroll, { passive: true });
         return () => container.removeEventListener("scroll", handleScroll);
+    }, []);
+
+    const jumpToLatest = useCallback(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }, []);
 
     useEffect(() => {
@@ -127,6 +135,7 @@ export function ThreadView({
                 </div>
             )}
             {/* Thread Content */}
+            <div className="relative flex-1 min-h-0 flex flex-col">
             <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 chat-scrollbar">
                 <div className="max-w-2xl mx-auto space-y-8 pb-4">
 
@@ -329,6 +338,11 @@ export function ThreadView({
                         })}
                     <div ref={bottomRef} className="h-4" />
                 </div>
+            </div>
+            <JumpToLatestButton
+                visible={showJumpToLatest && threadMessages.length > 10}
+                onClick={jumpToLatest}
+            />
             </div>
 
             {/* Composer Area */}

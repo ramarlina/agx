@@ -14,6 +14,7 @@ import { IconButton } from "../IconButton";
 import { MessageSquare, Copy, Hash, Loader2, Trash2, User, Clock, Zap, CheckCircle2, Circle, Link, AtSign, Rocket, ArrowUpDown, ArrowDown, ArrowUp } from "lucide-react";
 import { agentAvatarUrl } from "./ParticipantBar";
 import { stripMarkers } from "@/lib/chat-utils";
+import { JumpToLatestButton } from "./JumpToLatestButton";
 
 
 const THREAD_STATUSES: { value: ThreadStatus; label: string; color: string }[] = [
@@ -103,6 +104,26 @@ export function MessageList({
   const [statusMenuMessageId, setStatusMenuMessageId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"active" | "paused" | "in-review" | "done" | "archived">("active");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      setShowJumpToLatest(distanceFromBottom > 200);
+    };
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  const jumpToLatest = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const target = sortOrder === "asc" ? container.scrollHeight : 0;
+    container.scrollTo({ top: target, behavior: "smooth" });
+  }, [sortOrder]);
   const participantMap = Object.fromEntries(participants.map((p) => [p.id, p]));
 
   // Filter to only main chat messages (not thread replies)
@@ -177,6 +198,7 @@ export function MessageList({
   ];
 
   return (
+    <div className="relative flex-1 min-h-0 flex flex-col">
     <div ref={scrollContainerRef} className="chat-scrollbar flex-1 overflow-y-auto p-4">
       <div className="max-w-3xl mx-auto">
         {allMainMessages.length > 0 && (
@@ -577,6 +599,11 @@ export function MessageList({
         })}
 
       </div>
+    </div>
+    <JumpToLatestButton
+      visible={showJumpToLatest && allMainMessages.length > 10}
+      onClick={jumpToLatest}
+    />
     </div>
   );
 }
