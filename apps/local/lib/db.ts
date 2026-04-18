@@ -340,6 +340,18 @@ export interface Team {
   updated_at: string;
 }
 
+export interface WorkspaceEntry {
+  id: string;
+  project_id: string;
+  category: string;
+  name: string;
+  path: string | null;
+  purpose: string | null;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface TeamAgent {
   team_id: string;
   agent_id: string;
@@ -2989,4 +3001,115 @@ export async function buildExecutionProvenance(
     memory: resolveMemory(agentMemoryEntries, projectMem),
     variables,
   };
+}
+
+// ============ WORKSPACE ENTRIES ============
+
+export async function getProjectWorkspace(projectId: string): Promise<Record<string, WorkspaceEntry[]>> {
+  const db = createAdminDbClient();
+  const { data, error } = await db
+    .from("workspace_entries")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("category", { ascending: true })
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+
+  if (error) {
+    if (isMissingRelationError(error, "workspace_entries")) return {};
+    throw error;
+  }
+  const entries = (data || []) as WorkspaceEntry[];
+  return entries.reduce<Record<string, WorkspaceEntry[]>>((acc, entry) => {
+    if (!acc[entry.category]) acc[entry.category] = [];
+    acc[entry.category].push(entry);
+    return acc;
+  }, {});
+}
+
+export async function createWorkspaceEntry(
+  projectId: string,
+  entry: { category: string; name: string; path?: string; purpose?: string }
+): Promise<WorkspaceEntry> {
+  const db = createAdminDbClient();
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  const { data, error } = await db
+    .from("workspace_entries")
+    .insert({
+      id,
+      project_id: projectId,
+      category: entry.category,
+      name: entry.name,
+      path: entry.path || null,
+      purpose: entry.purpose || null,
+      sort_order: 0,
+      created_at: now,
+      updated_at: now,
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data as WorkspaceEntry;
+}
+
+export async function updateWorkspaceEntry(
+  projectId: string,
+  entryId: string,
+  updates: { name?: string; path?: string | null; purpose?: string | null; sort_order?: number }
+): Promise<WorkspaceEntry | null> {
+  const db = createAdminDbClient();
+  const payload: Record<string, unknown> = {};
+  if (updates.name !== undefined) payload.name = updates.name;
+  if (updates.path !== undefined) payload.path = updates.path;
+  if (updates.purpose !== undefined) payload.purpose = updates.purpose;
+  if (updates.sort_order !== undefined) payload.sort_order = updates.sort_order;
+
+  const { data, error } = await db
+    .from("workspace_entries")
+    .update(payload)
+    .eq("id", entryId)
+    .eq("project_id", projectId)
+    .select()
+    .single();
+
+  if (error) {
+    if (error.code === "PGRST116") return null;
+    throw error;
+  }
+  return data as WorkspaceEntry;
+}
+
+export async function deleteWorkspaceEntry(projectId: string, entryId: string): Promise<void> {
+  const db = createAdminDbClient();
+  const { error } = await db
+    .from("workspace_entries")
+    .delete()
+    .eq("id", entryId)
+    .eq("project_id", projectId);
+  if (error) throw error;
+}
+
+export async function getWorkspaceMapForContext(
+  projectId: string
+): Promise<{ location: string; path: string | null; purpose: string | null }[]> {
+  const db = createAdminDbClient();
+  const { data, error } = await db
+    .from("workspace_entries")
+    .select("category, name, path, purpose")
+    .eq("project_id", projectId)
+    .order("category", { ascending: true })
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
+
+  if (error) {
+    if (isMissingRelationError(error, "workspace_entries")) return [];
+    throw error;
+  }
+  return (data || []).map((row: Record<string, unknown>) => ({
+    location: `${row.category}/${row.name}`,
+    path: (row.path as string) || null,
+    purpose: (row.purpose as string) || null,
+  }));
 }
