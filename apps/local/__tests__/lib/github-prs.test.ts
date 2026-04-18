@@ -94,6 +94,31 @@ test("syncRepo is no-op when feature flag disabled", async () => {
   process.env.AGX_GITHUB_ENABLED = "1";
 });
 
+test("syncRepo calls enrichPrStatus when available", async () => {
+  const enriched: GithubPr = {
+    ...fakePr,
+    number: 8,
+    id: "foo/bar#8",
+    ciStatus: "success",
+    reviewDecision: "approved",
+  };
+  const client = {
+    listPullRequests: jest
+      .fn()
+      .mockResolvedValue([{ ...fakePr, number: 8, id: "foo/bar#8" }]),
+    enrichPrStatus: jest.fn().mockResolvedValue(enriched),
+  };
+  await syncRepo({
+    repoId: "foo/bar",
+    client: client as any,
+    resolvers: [],
+  });
+  expect(client.enrichPrStatus).toHaveBeenCalledTimes(1);
+  const stored = listGithubPrs({ repoId: "foo/bar" }).find((p) => p.number === 8);
+  expect(stored?.ciStatus).toBe("success");
+  expect(stored?.reviewDecision).toBe("approved");
+});
+
 test("syncRepo re-resolves links when PR body changes", async () => {
   const client = {
     listPullRequests: jest.fn().mockResolvedValue([

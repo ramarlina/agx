@@ -10,7 +10,8 @@ import type { GithubPr } from "./github-types";
 
 export interface SyncRepoInput {
   repoId: string;
-  client: Pick<GithubClient, "listPullRequests">;
+  client: Pick<GithubClient, "listPullRequests"> &
+    Partial<Pick<GithubClient, "enrichPrStatus">>;
   resolvers: TrackerResolver[];
 }
 
@@ -28,8 +29,10 @@ export async function syncRepo(input: SyncRepoInput): Promise<void> {
   if (!isEnabled()) return;
   const { owner, name } = parseRepoId(input.repoId);
   const prs = await input.client.listPullRequests({ owner, name });
+  const enrich = input.client.enrichPrStatus?.bind(input.client);
   for (const pr of prs) {
-    await upsertAndResolve(pr, input.resolvers);
+    const enriched = enrich ? await enrich(pr) : pr;
+    await upsertAndResolve(enriched, input.resolvers);
   }
   markRepoSynced(input.repoId, Date.now());
 }
