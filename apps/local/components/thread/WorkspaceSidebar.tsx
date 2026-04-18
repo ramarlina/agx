@@ -23,6 +23,7 @@ import {
   TerminalSquare,
   KeyRound,
   ArrowUpCircle,
+  GitPullRequest,
 } from "lucide-react";
 import Link from "next/link";
 import type { Thread } from "@/lib/storage";
@@ -785,6 +786,13 @@ export function WorkspaceSidebar({
               <RailTooltip label="Task Tracking">
                 <Link href={`/projects/${collapsedSlug}/tracking`} className={`workspace-sidebar__rail-icon${(activeProjectView === "linear" || activeProjectView === "tracking") ? " workspace-sidebar__rail-icon--active" : ""}`}>
                   <LinearIcon className="h-4 w-4" />
+                </Link>
+              </RailTooltip>
+            )}
+            {stageShow.tracking && (
+              <RailTooltip label="Pull Requests">
+                <Link href={`/projects/${collapsedSlug}/prs`} className={`workspace-sidebar__rail-icon${activeProjectView === "prs" ? " workspace-sidebar__rail-icon--active" : ""}`}>
+                  <GitPullRequest size={16} />
                 </Link>
               </RailTooltip>
             )}
