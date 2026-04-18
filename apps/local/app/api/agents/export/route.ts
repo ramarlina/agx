@@ -6,6 +6,7 @@ import { getAgents, getAgentSkills } from "@/lib/db";
 import { getAgentSkillBindings } from "@/lib/agent-skill-bindings";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import { logger } from "@/lib/logger";
+import { parseBody } from "@/lib/parse-body";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,7 +24,9 @@ function readSelfMd(agentId: string): string | null {
 /** POST /api/agents/export — returns bundle JSON for selected agent IDs */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => ({}));
+    const parsed = await parseBody(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const agentIds: string[] = Array.isArray(body.agentIds) ? body.agentIds : [];
 
     if (agentIds.length === 0) {

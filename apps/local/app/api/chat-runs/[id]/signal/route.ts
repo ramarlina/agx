@@ -3,6 +3,7 @@ import { getQueue, QUEUE_NAMES } from "@/lib/queue/boss";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import { updateChatRun } from "@/lib/history-store";
 import type { ChatRunJobData } from "@/lib/orchestrator/chat-types";
+import { parseBody } from "@/lib/parse-body";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +13,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const body = await request.json().catch(() => ({}));
+  const parsed = await parseBody(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
   const signal = typeof body?.signal === "string" ? body.signal.trim() : "";
 
   if (signal !== "cancel") {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import "@/lib/tracker"; // Ensure adapters are registered
+import { parseBody } from "@/lib/parse-body";
 import {
   listTrackerConnections,
   addTrackerConnection,
@@ -67,10 +68,12 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const body = (await req.json().catch(() => ({}))) as {
+  const parsed = await parseBody<{
     projectId?: string;
     defaultTracker?: string | null;
-  };
+  }>(req);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
 
   const projectId = body.projectId?.trim();
   if (!projectId) {
@@ -97,10 +100,12 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const body = (await req.json().catch(() => ({}))) as {
+  const parsed2 = await parseBody<{
     projectId?: string;
     type?: string;
-  };
+  }>(req);
+  if (!parsed2.ok) return parsed2.response;
+  const body = parsed2.body;
 
   const projectId = body.projectId?.trim();
   const type = body.type?.trim();
@@ -123,10 +128,12 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const body = (await req.json().catch(() => ({}))) as {
+  const parsed3 = await parseBody<{
     projectId?: string;
     type?: string;
-  };
+  }>(req);
+  if (!parsed3.ok) return parsed3.response;
+  const body = parsed3.body;
 
   const projectId = body.projectId?.trim();
   const type = body.type?.trim();

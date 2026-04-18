@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createDbServerClientWithRequest } from "@/lib/db-server";
 import { getProjectWithRepos, getTasks } from "@/lib/db";
+import { parseBody } from "@/lib/parse-body";
 import {
   backupProjectTasksForMigration,
   runV1ToV2MigrationJob,
@@ -22,7 +23,9 @@ export async function POST(
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
-  const body = await request.json().catch(() => ({}));
+  const parsed = await parseBody(request);
+  if (!parsed.ok) return parsed.response;
+  const body = parsed.body;
   const dryRun = body.dryRun ?? false;
 
   const tasks = await getTasks(user.id, { project: project.slug });

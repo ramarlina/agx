@@ -3,6 +3,7 @@ import { pollSchedules, executeScheduleTick } from '@/src/graph/schedule-runner'
 import { createDispatchFunction } from '@/src/graph/function-executor';
 import { createDispatchWork } from '@/src/graph/work-dispatcher';
 import { logger } from "@/lib/logger";
+import { parseBody } from "@/lib/parse-body";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,7 +19,9 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => ({}));
+    const parsed = await parseBody(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const dispatchFunction = createDispatchFunction();
     const dispatchWork = createDispatchWork();
 

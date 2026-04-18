@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import "@/lib/tracker"; // Ensure adapters are registered
 import { logger } from "@/lib/logger";
+import { parseBody } from "@/lib/parse-body";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,7 +16,9 @@ export async function POST(
 ) {
   const { tracker } = await params;
   try {
-    const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await parseBody<Record<string, unknown>>(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const issueId = toOptionalString(body.issueId);
     const issueIdentifier = toOptionalString(body.issueIdentifier);
     const issueTitle = toOptionalString(body.issueTitle);

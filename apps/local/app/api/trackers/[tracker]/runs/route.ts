@@ -4,6 +4,7 @@ import { badRequest } from "@/lib/tracker/route-helpers";
 import { createTrackerRun, listTrackerRuns } from "@/lib/tracker/tracker-run-store";
 import type { TrackerRunMode } from "@/lib/tracker/types";
 import { logger } from "@/lib/logger";
+import { parseBody } from "@/lib/parse-body";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,7 +52,9 @@ export async function POST(
 ) {
   const { tracker } = await params;
   try {
-    const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
+    const parsed = await parseBody<Record<string, unknown>>(req);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const issueId = toOptionalString(body.issueId);
     const issueIdentifier = toOptionalString(body.issueIdentifier);
     const issueTitle = toOptionalString(body.issueTitle);

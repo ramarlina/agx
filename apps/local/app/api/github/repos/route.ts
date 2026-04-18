@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { parseBody } from "@/lib/parse-body";
 import {
   listGithubRepos,
   upsertGithubRepo,
@@ -23,7 +24,9 @@ export async function GET() {
 /** POST /api/github/repos — attach or update a repo. */
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => ({}));
+    const parsed = await parseBody(request);
+    if (!parsed.ok) return parsed.response;
+    const body = parsed.body;
     const owner = typeof body.owner === "string" ? body.owner.trim() : "";
     const name = typeof body.name === "string" ? body.name.trim() : "";
     const defaultBranch =
@@ -50,7 +53,9 @@ export async function POST(request: NextRequest) {
 /** DELETE /api/github/repos — detach a repo by id. */
 export async function DELETE(request: NextRequest) {
   try {
-    const body = await request.json().catch(() => ({}));
+    const parsed2 = await parseBody(request);
+    if (!parsed2.ok) return parsed2.response;
+    const body = parsed2.body;
     const id = typeof body.id === "string" ? body.id.trim() : "";
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });

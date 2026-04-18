@@ -32,7 +32,19 @@ export async function parseJsonBody<T extends z.ZodTypeAny>(
   | { ok: true; data: z.infer<T> }
   | { ok: false; response: NextResponse }
 > {
-  const rawBody = await request.json().catch(() => ({}));
+  let rawBody: unknown;
+  try {
+    rawBody = await request.json();
+  } catch {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "Invalid or missing request body" },
+        { status: 400 },
+      ),
+    };
+  }
+
   const parsed = schema.safeParse(rawBody);
   if (!parsed.success) {
     return {
