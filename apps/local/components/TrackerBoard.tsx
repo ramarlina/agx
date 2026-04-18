@@ -64,6 +64,7 @@ import { GroupPanel } from "@/components/tracker/GroupPanel";
 import { GroupNamePrompt, PENDING_GROUP_DROP_ID } from "@/components/tracker/GroupNamePrompt";
 import { StatusGroupRow, STATUS_GROUP_PREFIX } from "@/components/tracker/StatusGroupRow";
 import { SelectionBar } from "@/components/tracker/SelectionBar";
+import { JumpToLatestButton } from "@/components/chat-ui/JumpToLatestButton";
 import { useTrackerItemsMetadata } from "@/hooks/useTrackerItemsMetadata";
 import { useTrackerLabels } from "@/hooks/useTrackerLabels";
 import {
@@ -1439,6 +1440,26 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
   );
 
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const desktopScrollRef = useRef<HTMLDivElement | null>(null);
+  const touchScrollRef = useRef<HTMLDivElement | null>(null);
+  const [showBackToTop, setShowBackToTop] = useState(false);
+
+  useEffect(() => {
+    const containers = [desktopScrollRef.current, touchScrollRef.current].filter(Boolean) as HTMLDivElement[];
+    if (containers.length === 0) return;
+    const handler = (e: Event) => {
+      const el = e.currentTarget as HTMLDivElement;
+      setShowBackToTop(el.scrollTop > 400);
+    };
+    containers.forEach((c) => c.addEventListener("scroll", handler, { passive: true }));
+    return () => containers.forEach((c) => c.removeEventListener("scroll", handler));
+  }, [isTouchLayout]);
+
+  const backToTop = useCallback(() => {
+    const el = desktopScrollRef.current ?? touchScrollRef.current;
+    el?.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel || !hasMore) return;
@@ -1576,7 +1597,8 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto">
+            <div className="relative flex-1 min-h-0 flex flex-col">
+            <div ref={touchScrollRef} className="flex-1 overflow-y-auto">
               {itemsLoading && items.length === 0 ? (
                 <div className="px-3 py-4 text-xs text-[var(--muted-foreground)]">
                   Loading tickets...
@@ -1683,6 +1705,8 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                   ) : null}
                 </>
               )}
+            </div>
+            <JumpToLatestButton visible={showBackToTop && items.length > 20} direction="top" onClick={backToTop} />
             </div>
           </div>
 
@@ -2000,7 +2024,8 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
-        <div className="relative flex-1 overflow-y-auto">
+        <div className="relative flex-1 min-h-0 flex flex-col">
+        <div ref={desktopScrollRef} className="flex-1 overflow-y-auto">
           {itemsLoading && items.length === 0 ? (
             <div className="px-3 py-4 text-xs text-[var(--muted-foreground)]">
               Loading tickets...
@@ -2353,6 +2378,8 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
             selectedMetadata={selectedMetadata}
             statusUpdating={bulkStatusUpdating}
           />
+        </div>
+        <JumpToLatestButton visible={showBackToTop && items.length > 20} direction="top" onClick={backToTop} />
         </div>
         <DragOverlay dropAnimation={null}>
           {dragActiveId && (() => {
