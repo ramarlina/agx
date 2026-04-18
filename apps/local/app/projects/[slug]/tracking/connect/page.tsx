@@ -145,7 +145,7 @@ export default function TrackingConnectPage({
               {TRACKER_TYPES.map((tracker) => {
                 const isAlreadyConnected = connectedTypes.has(tracker.type);
                 const isDefault = defaultTracker === tracker.type;
-                const canMakeDefault = isAlreadyConnected && connectedCount > 1 && !isDefault;
+                const canMakeDefault = isAlreadyConnected && connectedCount > 1 && !isDefault && tracker.type !== "github";
                 return (
                   <div
                     key={tracker.type}

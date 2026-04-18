@@ -209,9 +209,14 @@ export function useTrackerConnection(
     await fetch(`${basePath}/status?projectId=${encodeURIComponent(projectId)}`, {
       method: "DELETE",
     });
+    if (typeof window !== "undefined" && trackerType === "github") {
+      Object.keys(sessionStorage)
+        .filter((k) => k.startsWith("github_"))
+        .forEach((k) => sessionStorage.removeItem(k));
+    }
     setConnected(false);
     setUser(null);
-  }, [projectId, basePath, cacheKey]);
+  }, [projectId, basePath, cacheKey, trackerType]);
 
   const configureMcp = useCallback(async (cli: string): Promise<{ ok: boolean; error?: string }> => {
     try {

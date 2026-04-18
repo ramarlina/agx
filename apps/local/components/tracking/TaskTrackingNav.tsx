@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { Plus, AlertTriangle } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Plus, AlertTriangle, ChevronRight, Book, Lock } from "lucide-react";
 import { TrackerIcon } from "./TrackerIcon";
+import type { GithubRepo } from "@/lib/github-types";
 
 interface TrackerEntry {
   type: string;
@@ -25,7 +27,7 @@ const TRACKER_LABELS: Record<string, string> = {
   jira: "Jira",
   intercom: "Intercom",
   freshdesk: "Freshdesk",
-  github: "GitHub Issues",
+  github: "GitHub",
 };
 
 function getTrackerLabel(type: string): string {
@@ -55,6 +57,28 @@ export function TaskTrackingNav({
   const connectedTrackers = sorted.filter((t) => t.connected);
   const disconnectedTrackers = sorted.filter((t) => !t.connected);
   const showConnectLink = true;
+  const hasGithub = connectedTrackers.some((t) => t.type === "github");
+
+  const [githubRepos, setGithubRepos] = useState<GithubRepo[]>([]);
+  const [githubExpanded, setGithubExpanded] = useState(true);
+  useEffect(() => {
+    if (!hasGithub) {
+      setGithubRepos([]);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/github/repos", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : { repos: [] }))
+      .then((data: { repos?: GithubRepo[] }) => {
+        if (!cancelled) setGithubRepos(data.repos ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setGithubRepos([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasGithub]);
 
   return (
     <>
@@ -77,15 +101,53 @@ export function TaskTrackingNav({
         const isActive = isTrackingActive && activeTrackerType === tracker.type;
         return (
           <div key={tracker.type} className="workspace-sidebar__workspace-item">
-            <Link
-              href={`/projects/${projectSlug}/tracking/${tracker.type}`}
-              onClick={onLinkClick}
-              className={`workspace-sidebar__nav-item ${isActive ? "workspace-sidebar__nav-item--active" : ""}`}
-              aria-current={isActive ? "page" : undefined}
-            >
-              <TrackerIcon trackerType={tracker.type} className="flex-shrink-0 h-3.5 w-3.5 text-[var(--muted-foreground)]" />
-              <span className="workspace-sidebar__workspace-title text-sm">{getTrackerLabel(tracker.type)}</span>
-            </Link>
+            <div className="flex items-center">
+              <Link
+                href={`/projects/${projectSlug}/tracking/${tracker.type}`}
+                onClick={onLinkClick}
+                className={`workspace-sidebar__nav-item flex-1 ${isActive ? "workspace-sidebar__nav-item--active" : ""}`}
+                aria-current={isActive ? "page" : undefined}
+              >
+                <TrackerIcon trackerType={tracker.type} className="flex-shrink-0 h-3.5 w-3.5 text-[var(--muted-foreground)]" />
+                <span className="workspace-sidebar__workspace-title text-sm">{getTrackerLabel(tracker.type)}</span>
+              </Link>
+              {tracker.type === "github" && githubRepos.length > 0 && (
+                <button
+                  type="button"
+                  aria-label={githubExpanded ? "Collapse GitHub repos" : "Expand GitHub repos"}
+                  aria-expanded={githubExpanded}
+                  onClick={() => setGithubExpanded((v) => !v)}
+                  className="p-1 rounded hover:bg-[var(--item-hover-bg)] text-[var(--muted-foreground)]"
+                >
+                  <ChevronRight
+                    size={12}
+                    className={`transition-transform ${githubExpanded ? "rotate-90" : ""}`}
+                  />
+                </button>
+              )}
+            </div>
+            {tracker.type === "github" && githubExpanded && githubRepos.length > 0 && (
+              <div className="flex flex-col gap-0.5 mt-0.5 pl-5">
+                {githubRepos.map((repo) => (
+                  <Link
+                    key={repo.id}
+                    href={`/projects/${projectSlug}/tracking/github?repo=${encodeURIComponent(repo.id)}`}
+                    onClick={onLinkClick}
+                    className="workspace-sidebar__nav-item"
+                    title={repo.id}
+                  >
+                    {repo.private ? (
+                      <Lock size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                    ) : (
+                      <Book size={12} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                    )}
+                    <span className="workspace-sidebar__workspace-title text-xs text-[var(--muted-foreground)] truncate">
+                      {repo.name}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         );
       })}
