@@ -32,6 +32,7 @@ import {
   autoMigrateLegacyWorkspacesToProjects,
   getWorkspaceTeamTableState,
 } from "./workspaces-to-projects-migration";
+import { runTaskIdentifierMigration } from "./migrations/task-identifier-migration";
 
 const AGX_DATA_DIR = process.env.AGX_DATA_DIR || path.join(os.homedir(), ".agx");
 
@@ -163,6 +164,9 @@ function runMigrations(db: DatabaseSync): void {
       db.exec("ALTER TABLE execution_graphs ADD COLUMN schedule JSON");
     }
   }
+
+  // Add identifier_prefix/next_identifier to projects and identifier to tasks
+  runTaskIdentifierMigration(db);
 
   // Add archived_at column to projects for soft delete
   const projectTables = db

@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS projects (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     workflow_id TEXT REFERENCES workflows(id),
+    identifier_prefix TEXT,
+    next_identifier INTEGER NOT NULL DEFAULT 1,
     CHECK (json_valid(metadata))
 );
 
@@ -172,6 +174,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     next_action TEXT,
     swarm INTEGER,
     graph_id TEXT,
+    identifier TEXT,
     CHECK (created_by IN ('user', 'ai')),
     CHECK (status IN ('queued', 'in_progress', 'blocked', 'completed', 'failed')),
     CHECK (json_valid(depends_on)),
@@ -472,6 +475,7 @@ CREATE INDEX IF NOT EXISTS idx_graph_nodes_graph_id ON graph_nodes (graph_id);
 CREATE INDEX IF NOT EXISTS idx_graph_edges_graph_id ON graph_edges (graph_id);
 CREATE INDEX IF NOT EXISTS idx_graph_events_graph_id_timestamp ON graph_events (graph_id, "timestamp");
 CREATE INDEX IF NOT EXISTS idx_tasks_graph_id ON tasks (graph_id) WHERE graph_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_identifier ON tasks (project_id, identifier) WHERE identifier IS NOT NULL;
 
 -- ── Triggers ────────────────────────────────────────────────────────────────
 
