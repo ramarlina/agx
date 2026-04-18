@@ -6,6 +6,7 @@ import { useGroupChat } from "@/hooks/useGroupChat";
 import { useProcessPolling } from "@/hooks/useProcessPolling";
 import { TicketRecapSection } from "./TicketRecapSection";
 import { TicketSessionList } from "./TicketSessionList";
+import { LinkedPrsSection } from "./LinkedPrsSection";
 import { IssueStatusSelect, type FilterOption } from "./TrackerBoardFilters";
 import type { TrackerItem } from "@/lib/tracker/types";
 import type { TrackerRunRecord } from "@/lib/tracker/tracker-run-store";
@@ -250,6 +251,13 @@ export function TicketPanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto pb-64">
         <TicketRecapSection issueId={item.id} trackerType={trackerType} projectId={projectId} />
+        {projectSlug && (
+          <LinkedPrsSection
+            targetType="linear_issue"
+            targetId={item.identifier}
+            projectSlug={projectSlug}
+          />
+        )}
         <TicketSessionList runs={runs} onSelect={onSelectRun} />
       </div>
 
