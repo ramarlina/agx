@@ -3,6 +3,7 @@ import { loadHistory, saveMessages } from "@/lib/history-store";
 import { filterActiveParticipants, loadDbParticipants } from "@/lib/agent-participants";
 import { runCliResponse } from "@/lib/cli-runner";
 import type { GroupMessage } from "@/lib/types";
+import { logger } from "@/lib/logger";
 
 export async function POST(req: Request) {
   try {
@@ -70,7 +71,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, summary });
   } catch (error) {
-    console.error("Summarize error:", error);
+    logger.error("Summarize error", logger.formatError(error));
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }

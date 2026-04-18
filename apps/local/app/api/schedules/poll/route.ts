@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { pollSchedules, executeScheduleTick } from '@/src/graph/schedule-runner';
 import { createDispatchFunction } from '@/src/graph/function-executor';
 import { createDispatchWork } from '@/src/graph/work-dispatcher';
+import { logger } from "@/lib/logger";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
         : undefined,
     });
   } catch (error) {
-    console.error('Schedule poll error:', error);
+    logger.error('Schedule poll error', logger.formatError(error));
     return NextResponse.json(
       { error: 'Failed to poll schedules', message: error instanceof Error ? error.message : String(error) },
       { status: 500 },
@@ -89,7 +90,7 @@ export async function GET() {
       })),
     });
   } catch (error) {
-    console.error('Failed to list schedules:', error);
+    logger.error('Failed to list schedules', logger.formatError(error));
     return NextResponse.json(
       { error: 'Failed to list schedules' },
       { status: 500 },

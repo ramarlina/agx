@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTeam, getTeamAgents, updateTeam, deleteTeam } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const agents = await getTeamAgents(teamId);
     return NextResponse.json({ team: { ...team, agents } });
   } catch (error) {
-    console.error("Error fetching team:", error);
+    logger.error("Error fetching team", logger.formatError(error));
     return NextResponse.json({ error: "Failed to fetch team" }, { status: 500 });
   }
 }
@@ -45,7 +46,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const agents = await getTeamAgents(teamId);
     return NextResponse.json({ team: { ...team, agents } });
   } catch (error) {
-    console.error("Error updating team:", error);
+    logger.error("Error updating team", logger.formatError(error));
     return NextResponse.json({ error: "Failed to update team" }, { status: 500 });
   }
 }
@@ -57,7 +58,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
     await deleteTeam(teamId);
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting team:", error);
+    logger.error("Error deleting team", logger.formatError(error));
     return NextResponse.json({ error: "Failed to delete team" }, { status: 500 });
   }
 }

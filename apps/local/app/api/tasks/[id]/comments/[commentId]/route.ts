@@ -3,6 +3,7 @@ import { db } from "@/lib/db-instance";
 import { resolveTaskConfig } from "@/lib/db";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import { buildTaskContext } from "@/lib/task-context";
+import { logger } from "@/lib/logger";
 
 export async function DELETE(
   request: NextRequest,
@@ -26,7 +27,7 @@ export async function DELETE(
     const resolvedConfig = resolveTaskConfig(task, stage_config, context.user_settings);
     return NextResponse.json({ success: true, comments_digest: commentsDigest });
   } catch (error) {
-    console.error("Error deleting comment:", error);
+    logger.error("Error deleting comment", logger.formatError(error));
     return NextResponse.json({ error: "Failed to delete comment" }, { status: 500 });
   }
 }

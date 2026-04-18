@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminDbClient } from "@/lib/db-adapter";
 import { getGraph } from "@/src/graph/store";
 import type { ExecutionLifecycleState } from "@/src/graph/types";
+import { logger } from "@/lib/logger";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -69,7 +70,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       executionState: 'paused' as ExecutionLifecycleState,
     });
   } catch (error) {
-    console.error("Error pausing execution:", error);
+    logger.error("Error pausing execution", logger.formatError(error));
     return NextResponse.json(
       { error: "Failed to pause execution" },
       { status: 500 }

@@ -11,6 +11,7 @@ import {
   computePrevRun,
   parseCadence,
 } from "@/src/prompt-scheduler/cron";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,7 +38,7 @@ export async function GET(
 
     return NextResponse.json({ job: { ...job, prevScheduledAt } });
   } catch (error) {
-    console.error("Failed to get task worker:", error);
+    logger.error("Failed to get task worker", logger.formatError(error));
     return NextResponse.json(
       { error: "Failed to get task worker", message: error instanceof Error ? error.message : String(error) },
       { status: 500 }
@@ -124,7 +125,7 @@ export async function POST(
 
     return NextResponse.json({ job }, { status: 201 });
   } catch (error) {
-    console.error("Failed to create/update task worker:", error);
+    logger.error("Failed to create/update task worker", logger.formatError(error));
     return NextResponse.json(
       { error: "Failed to create/update task worker", message: error instanceof Error ? error.message : String(error) },
       { status: 500 }
@@ -154,7 +155,7 @@ export async function DELETE(
     const job = store.updateJob(existing.id, { state: "paused" });
     return NextResponse.json({ success: true, job });
   } catch (error) {
-    console.error("Failed to disable task worker:", error);
+    logger.error("Failed to disable task worker", logger.formatError(error));
     return NextResponse.json(
       { error: "Failed to disable task worker", message: error instanceof Error ? error.message : String(error) },
       { status: 500 }

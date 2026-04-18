@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSQLiteDb } from "@/lib/sqlite-query-adapter";
 import { assignTasksToGroup, removeTaskFromGroup } from "@/lib/task-groups-db";
+import { logger } from "@/lib/logger";
 
 export async function POST(
   request: NextRequest,
@@ -17,7 +18,7 @@ export async function POST(
     assignTasksToGroup(db, id, task_ids);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("Error assigning tasks to group:", error);
+    logger.error("Error assigning tasks to group", logger.formatError(error));
     return NextResponse.json({ error: "Failed to assign tasks" }, { status: 500 });
   }
 }
@@ -36,7 +37,7 @@ export async function DELETE(
     removeTaskFromGroup(db, id, taskId);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("Error removing task from group:", error);
+    logger.error("Error removing task from group", logger.formatError(error));
     return NextResponse.json({ error: "Failed to remove task" }, { status: 500 });
   }
 }

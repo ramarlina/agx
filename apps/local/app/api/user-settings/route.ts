@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import { db } from "@/lib/db-instance";
+import { logger } from "@/lib/logger";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -34,7 +35,7 @@ export async function GET(_request: NextRequest) {
     const settings = await db.getUserSettings(userId);
     return NextResponse.json({ settings });
   } catch (error) {
-    console.error("Error fetching user settings:", error);
+    logger.error("Error fetching user settings", logger.formatError(error));
     const e: any = error;
     const code = typeof e?.code === "string" ? e.code : "";
     const msg = typeof e?.message === "string" ? e.message : "";
@@ -58,7 +59,7 @@ export async function GET(_request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const userId = LOCAL_USER.id;
-    const body = await request.json().catch((err) => { console.error('[user-settings] body parse failed:', err); return null; });
+    const body = await request.json().catch((err) => { logger.error('[user-settings] body parse failed', logger.formatError(err)); return null; });
     if (!isRecord(body)) {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
@@ -89,7 +90,7 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({ settings, updated });
   } catch (error) {
-    console.error("Error saving user settings:", error);
+    logger.error("Error saving user settings", logger.formatError(error));
     const e: any = error;
     const code = typeof e?.code === "string" ? e.code : "";
     const msg = typeof e?.message === "string" ? e.message : "";

@@ -11,6 +11,7 @@ import {
 import {
   type PromptJobState,
 } from '@/src/prompt-scheduler/types';
+import { logger } from "@/lib/logger";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -88,7 +89,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ count: enriched.length, jobs: enriched });
   } catch (error) {
-    console.error('Failed to list prompt jobs:', error);
+    logger.error('Failed to list prompt jobs', logger.formatError(error));
     return NextResponse.json(
       { error: 'Failed to list prompt jobs', message: error instanceof Error ? error.message : String(error) },
       { status: 500 },
@@ -170,7 +171,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ job }, { status: 201 });
   } catch (error) {
-    console.error('Failed to create prompt job:', error);
+    logger.error('Failed to create prompt job', logger.formatError(error));
     return NextResponse.json(
       { error: 'Failed to create prompt job', message: error instanceof Error ? error.message : String(error) },
       { status: 500 },

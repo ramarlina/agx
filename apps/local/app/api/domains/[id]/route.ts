@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { logger } from "@/lib/logger";
 
 // Blockchain domain definitions
 const DOMAINS = [
@@ -172,7 +173,7 @@ export async function GET(
 
     return NextResponse.json({ domain });
   } catch (error) {
-    console.error("Error fetching domain:", error);
+    logger.error("Error fetching domain", logger.formatError(error));
     return NextResponse.json(
       { error: "Failed to fetch domain" },
       { status: 500 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminDbClient } from "@/lib/db-adapter";
 import { LOCAL_USER } from "@/lib/auth-mode";
+import { logger } from "@/lib/logger";
 
 // POST /api/tasks/[id]/heartbeat - temporal no-op keepalive for daemon compatibility
 export async function POST(
@@ -34,7 +35,7 @@ export async function POST(
 
     return NextResponse.json({ ok: true, task: { id: task.id, status: task.status } });
   } catch (error) {
-    console.error("Error updating task heartbeat:", error);
+    logger.error("Error updating task heartbeat", logger.formatError(error));
     return NextResponse.json({ error: "Failed to update heartbeat" }, { status: 500 });
   }
 }

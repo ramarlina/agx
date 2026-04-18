@@ -9,6 +9,7 @@ import {
 } from "@/lib/history-store";
 import { getAttachmentsForMessages } from "@/lib/attachment-store";
 import type { GroupMessage } from "@/lib/types";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const rawBody = await request.json().catch((err) => { console.error('[history] body parse failed:', err); return null; });
+  const rawBody = await request.json().catch((err) => { logger.error('[history] body parse failed', logger.formatError(err)); return null; });
   const body = rawBody && typeof rawBody === "object"
     ? (rawBody as { threadId?: unknown; messages?: unknown })
     : {};

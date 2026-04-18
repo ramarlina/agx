@@ -11,6 +11,7 @@ import {
 import { applyNodeStatusMutation } from "@/src/graph/node-ops";
 import { getGraph } from "@/src/graph/store";
 import { syncTaskProgressForGraphExecution } from "@/src/graph/task-lifecycle";
+import { logger } from "@/lib/logger";
 
 interface RouteParams {
   params: Promise<{ id: string; nodeId: string }>;
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         })
         .eq("task_id", normalizedTaskId);
     } catch (error) {
-      console.error("Failed to requeue task after node start:", error);
+      logger.error("Failed to requeue task after node start", logger.formatError(error));
     }
   }
 

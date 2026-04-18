@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db-instance";
 import type { LearningScope } from "@/lib/db-adapter.interface";
 import { LOCAL_USER } from "@/lib/auth-mode";
+import { logger } from "@/lib/logger";
 
 // GET /api/learnings - Get learnings by scope
 export async function GET(request: NextRequest) {
@@ -15,7 +16,7 @@ export async function GET(request: NextRequest) {
     const learnings = await db.getLearnings(scope, scopeId, userId);
     return NextResponse.json({ learnings });
   } catch (error) {
-    console.error("Error fetching learnings:", error);
+    logger.error("Error fetching learnings", logger.formatError(error));
     return NextResponse.json({ error: "Failed to fetch learnings" }, { status: 500 });
   }
 }
@@ -39,7 +40,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ learning }, { status: 201 });
   } catch (error) {
-    console.error("Error adding learning:", error);
+    logger.error("Error adding learning", logger.formatError(error));
     return NextResponse.json({ error: "Failed to add learning" }, { status: 500 });
   }
 }
@@ -59,7 +60,7 @@ export async function DELETE(request: NextRequest) {
     await db.deleteLearning(id, userId);
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting learning:", error);
+    logger.error("Error deleting learning", logger.formatError(error));
     return NextResponse.json({ error: "Failed to delete learning" }, { status: 500 });
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProjectThreads, addProjectThread, removeProjectThread } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const threads = await getProjectThreads(projectId);
     return NextResponse.json({ threads });
   } catch (error) {
-    console.error("Error fetching project threads:", error);
+    logger.error("Error fetching project threads", logger.formatError(error));
     return NextResponse.json({ error: "Failed to fetch project threads" }, { status: 500 });
   }
 }
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const thread = await addProjectThread(projectId, threadId);
     return NextResponse.json({ thread }, { status: 201 });
   } catch (error) {
-    console.error("Error adding thread to project:", error);
+    logger.error("Error adding thread to project", logger.formatError(error));
     return NextResponse.json({ error: "Failed to add thread to project" }, { status: 500 });
   }
 }
@@ -49,7 +50,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     await removeProjectThread(projectId, threadId);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("Error removing thread from project:", error);
+    logger.error("Error removing thread from project", logger.formatError(error));
     return NextResponse.json({ error: "Failed to remove thread from project" }, { status: 500 });
   }
 }

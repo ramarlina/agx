@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import "@/lib/tracker"; // Ensure adapters are registered
 import { getTrackerRun, updateTrackerRun } from "@/lib/tracker/tracker-run-store";
 import type { TrackerRunStatus } from "@/lib/tracker/types";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,7 +46,7 @@ export async function GET(
     }
     return NextResponse.json({ run });
   } catch (error) {
-    console.error("Failed to load tracker run:", error);
+    logger.error("Failed to load tracker run", logger.formatError(error));
     return NextResponse.json(
       {
         error: "Failed to load tracker run",
@@ -77,7 +78,7 @@ export async function PATCH(
 
     return NextResponse.json({ run });
   } catch (error) {
-    console.error("Failed to update tracker run:", error);
+    logger.error("Failed to update tracker run", logger.formatError(error));
     return NextResponse.json(
       {
         error: "Failed to update tracker run",

@@ -11,6 +11,7 @@ import { LOCAL_USER } from "@/lib/auth-mode";
 import { loadDbParticipants } from "@/lib/agent-participants";
 import type { ChatProvider, Participant, Skill, SkillBinding } from "@/lib/types";
 import { ensureAgent } from "@/lib/mesh-core/agent";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -172,7 +173,7 @@ export async function POST(request: NextRequest) {
       seed: toOptionalString(body.seed),
     });
   } catch (e) {
-    console.error("Failed to create agent in DB:", e);
+    logger.error("Failed to create agent in DB", logger.formatError(e));
     return Response.json({ error: "Failed to create agent" }, { status: 500 });
   }
 
@@ -207,7 +208,7 @@ export async function POST(request: NextRequest) {
         "INSERT OR IGNORE INTO project_agents (project_id, agent_id, routing_order) VALUES (?, ?, (SELECT COALESCE(MAX(routing_order), -1) + 1 FROM project_agents WHERE project_id = ?))"
       ).run(projectId, created.id, projectId);
     } catch (e) {
-      console.error("Failed to assign agent to project:", e);
+      logger.error("Failed to assign agent to project", logger.formatError(e));
     }
   }
 
@@ -242,7 +243,7 @@ export async function PATCH(request: NextRequest) {
       seed: toOptionalString(body.seed),
     });
   } catch (e) {
-    console.error("Failed to update agent in DB:", e);
+    logger.error("Failed to update agent in DB", logger.formatError(e));
     return Response.json({ error: "Failed to update agent" }, { status: 500 });
   }
 
@@ -300,7 +301,7 @@ export async function DELETE(request: NextRequest) {
   try {
     await deleteAgent(id, LOCAL_USER.id);
   } catch (e) {
-    console.error("Failed to delete agent from DB:", e);
+    logger.error("Failed to delete agent from DB", logger.formatError(e));
   }
 
   return Response.json({ ok: true });

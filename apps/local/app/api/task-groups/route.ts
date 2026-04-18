@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSQLiteDb } from "@/lib/sqlite-query-adapter";
 import { createTaskGroup, listTaskGroups } from "@/lib/task-groups-db";
+import { logger } from "@/lib/logger";
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,7 +13,7 @@ export async function GET(request: NextRequest) {
     const groups = listTaskGroups(db, projectId);
     return NextResponse.json({ groups });
   } catch (error) {
-    console.error("Error listing task groups:", error);
+    logger.error("Error listing task groups", logger.formatError(error));
     return NextResponse.json({ error: "Failed to list task groups" }, { status: 500 });
   }
 }
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest) {
     });
     return NextResponse.json({ group }, { status: 201 });
   } catch (error) {
-    console.error("Error creating task group:", error);
+    logger.error("Error creating task group", logger.formatError(error));
     return NextResponse.json({ error: "Failed to create task group" }, { status: 500 });
   }
 }

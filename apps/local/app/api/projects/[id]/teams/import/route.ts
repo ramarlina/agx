@@ -7,6 +7,7 @@ import {
   addTeamAgent,
 } from "@/lib/db";
 import { deserializeTeams } from "@/lib/team-yaml";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ success: true, teams: createdTeams });
   } catch (error) {
-    console.error("Error importing teams:", error);
+    logger.error("Error importing teams", logger.formatError(error));
     return NextResponse.json({ error: "Failed to import teams" }, { status: 500 });
   }
 }

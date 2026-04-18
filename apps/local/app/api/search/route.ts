@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { searchMessages } from "@/lib/history-store";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest) {
     if (error instanceof Error && /fts5|MATCH|syntax/i.test(error.message)) {
       return Response.json({ error: "Invalid search query syntax" }, { status: 400 });
     }
-    console.error("Search failed", error);
+    logger.error("Search failed", logger.formatError(error));
     return Response.json({ error: "Search failed" }, { status: 500 });
   }
 }

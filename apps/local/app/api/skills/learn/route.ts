@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { installSkill } from "@/lib/skills-library";
 import type { ChatProvider } from "@/lib/types";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ ok: true, result });
   } catch (error) {
-    console.error("Error installing skill:", error);
+    logger.error("Error installing skill", logger.formatError(error));
     return NextResponse.json({ error: "Failed to install skill" }, { status: 500 });
   }
 }

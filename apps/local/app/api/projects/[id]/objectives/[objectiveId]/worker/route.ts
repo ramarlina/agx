@@ -3,6 +3,7 @@ import { loadProjectObjectiveContext } from "../../_shared";
 import { ensureObjectiveWorkerJob } from "@/src/prompt-scheduler/objective-worker-job";
 import { getPromptJobStore } from "@/src/prompt-scheduler/get-store";
 import { requestPromptJobPump } from "@/src/prompt-scheduler/processor";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,7 +43,7 @@ export async function POST(_request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ job });
   } catch (error) {
-    console.error("Failed to ensure objective worker job:", error);
+    logger.error("Failed to ensure objective worker job", logger.formatError(error));
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to ensure worker job" },
       { status: 500 },
@@ -80,7 +81,7 @@ export async function PUT(_request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ job, run });
   } catch (error) {
-    console.error("Failed to trigger objective worker:", error);
+    logger.error("Failed to trigger objective worker", logger.formatError(error));
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to trigger worker" },
       { status: 500 },

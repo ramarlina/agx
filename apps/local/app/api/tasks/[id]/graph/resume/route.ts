@@ -5,6 +5,7 @@ import { LOCAL_USER } from "@/lib/auth-mode";
 import { getGraph } from "@/src/graph/store";
 import type { ExecutionLifecycleState } from "@/src/graph/types";
 import { syncTaskProgressForGraphExecution } from "@/src/graph/task-lifecycle";
+import { logger } from "@/lib/logger";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -94,7 +95,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       executionState: 'running' as ExecutionLifecycleState,
     });
   } catch (error) {
-    console.error("Error resuming execution:", error);
+    logger.error("Error resuming execution", logger.formatError(error));
     return NextResponse.json(
       { error: "Failed to resume execution" },
       { status: 500 }

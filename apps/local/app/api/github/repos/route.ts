@@ -4,6 +4,7 @@ import {
   upsertGithubRepo,
   removeGithubRepo,
 } from "@/lib/github-repo-store";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +15,7 @@ export async function GET() {
     const repos = listGithubRepos();
     return NextResponse.json({ repos });
   } catch (error) {
-    console.error("Error listing github repos:", error);
+    logger.error("Error listing github repos", logger.formatError(error));
     return NextResponse.json({ error: "Failed to list repos" }, { status: 500 });
   }
 }
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
     const repo = upsertGithubRepo({ owner, name, defaultBranch, private: isPrivate });
     return NextResponse.json({ repo }, { status: 201 });
   } catch (error) {
-    console.error("Error upserting github repo:", error);
+    logger.error("Error upserting github repo", logger.formatError(error));
     return NextResponse.json({ error: "Failed to save repo" }, { status: 500 });
   }
 }
@@ -57,7 +58,7 @@ export async function DELETE(request: NextRequest) {
     removeGithubRepo(id);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("Error removing github repo:", error);
+    logger.error("Error removing github repo", logger.formatError(error));
     return NextResponse.json({ error: "Failed to remove repo" }, { status: 500 });
   }
 }

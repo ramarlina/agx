@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loadProjectObjectiveContext } from "../../../_shared";
 import { getNoteRepository } from "@/src/objectives/notes";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,7 +46,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ note });
   } catch (error) {
-    console.error("Failed to load note:", error);
+    logger.error("Failed to load note", logger.formatError(error));
     return NextResponse.json({ error: "Failed to load note" }, { status: 500 });
   }
 }
@@ -96,7 +97,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ note: updated });
   } catch (error) {
-    console.error("Failed to update note:", error);
+    logger.error("Failed to update note", logger.formatError(error));
     return NextResponse.json({ error: "Failed to update note" }, { status: 500 });
   }
 }
@@ -127,7 +128,7 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
 
     return new NextResponse(null, { status: 204 });
   } catch (error) {
-    console.error("Failed to delete note:", error);
+    logger.error("Failed to delete note", logger.formatError(error));
     return NextResponse.json({ error: "Failed to delete note" }, { status: 500 });
   }
 }

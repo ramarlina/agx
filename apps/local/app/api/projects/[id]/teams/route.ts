@@ -18,6 +18,7 @@ import { setAgentSkillBindings } from "@/lib/agent-skill-bindings";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import type { TeamTemplateId, AgentPresetId, AgentPreset } from "@/lib/team-catalog";
 import type { Skill, SkillBinding } from "@/lib/types";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,7 +51,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ teams: teamsWithAgents });
   } catch (error) {
-    console.error("Error fetching teams:", error);
+    logger.error("Error fetching teams", logger.formatError(error));
     return NextResponse.json({ error: "Failed to fetch teams" }, { status: 500 });
   }
 }
@@ -251,7 +252,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const agents = await getTeamAgents(team.id);
     return NextResponse.json({ team: { ...team, agents } }, { status: 201 });
   } catch (error) {
-    console.error("Error creating team:", error);
+    logger.error("Error creating team", logger.formatError(error));
     return NextResponse.json({ error: "Failed to create team" }, { status: 500 });
   }
 }

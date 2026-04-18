@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { loadProjectObjectiveContext } from "../../_shared";
 import { getActivityRepository } from "@/src/objectives/activities";
 import type { ObjectiveActivityType, ObjectiveActivityFile } from "@/src/objectives/activities";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error("Failed to load activities:", error);
+    logger.error("Failed to load activities", logger.formatError(error));
     return NextResponse.json({ error: "Failed to load activities" }, { status: 500 });
   }
 }
@@ -108,7 +109,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json(activity, { status: 201 });
   } catch (error) {
-    console.error("Failed to create activity:", error);
+    logger.error("Failed to create activity", logger.formatError(error));
     return NextResponse.json({ error: "Failed to create activity" }, { status: 500 });
   }
 }

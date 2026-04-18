@@ -5,6 +5,7 @@ import {
   removeProjectAgent,
   reorderProjectAgents,
 } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const agents = await getProjectAgents(projectId);
     return NextResponse.json({ agents });
   } catch (error) {
-    console.error("Error fetching project agents:", error);
+    logger.error("Error fetching project agents", logger.formatError(error));
     return NextResponse.json({ error: "Failed to fetch project agents" }, { status: 500 });
   }
 }
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const agents = await getProjectAgents(projectId);
     return NextResponse.json({ agents }, { status: 201 });
   } catch (error) {
-    console.error("Error adding agent to project:", error);
+    logger.error("Error adding agent to project", logger.formatError(error));
     return NextResponse.json({ error: "Failed to add agent to project" }, { status: 500 });
   }
 }
@@ -57,7 +58,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     const agents = await getProjectAgents(projectId);
     return NextResponse.json({ agents });
   } catch (error) {
-    console.error("Error removing agent from project:", error);
+    logger.error("Error removing agent from project", logger.formatError(error));
     return NextResponse.json({ error: "Failed to remove agent from project" }, { status: 500 });
   }
 }
@@ -76,7 +77,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const agents = await reorderProjectAgents(projectId, orderedIds);
     return NextResponse.json({ agents });
   } catch (error) {
-    console.error("Error reordering project agents:", error);
+    logger.error("Error reordering project agents", logger.formatError(error));
     return NextResponse.json({ error: "Failed to reorder agents" }, { status: 500 });
   }
 }

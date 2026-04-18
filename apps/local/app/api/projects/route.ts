@@ -3,6 +3,7 @@ import { db } from "@/lib/db-instance";
 import { buildProjectInput } from "./payload";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import { hydrateProjectsObjectiveMetadata } from "./objective-metadata";
+import { logger } from "@/lib/logger";
 
 function isMissingProjectsSchemaError(error: unknown): boolean {
 // ... (rest of helper)
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
       projects: hydrateProjectsObjectiveMetadata(projects),
     });
   } catch (error) {
-    console.error("Error fetching projects:", error);
+    logger.error("Error fetching projects", logger.formatError(error));
     return NextResponse.json({ error: "Failed to fetch projects" }, { status: 500 });
   }
 }
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
     const project = await db.createProject(userId, projectInput);
     return NextResponse.json({ project }, { status: 201 });
   } catch (error) {
-    console.error("Error creating project:", error);
+    logger.error("Error creating project", logger.formatError(error));
     if (isMissingProjectsSchemaError(error)) {
       return NextResponse.json(
         {

@@ -12,6 +12,7 @@ import {
 import { authorizeGraphMutation } from "@/src/graph/middleware/authz";
 import { recordRollback } from "@/src/graph/observability";
 import { appendEvent, getGraph, GraphVersionConflictError, updateGraphStructure } from "@/src/graph/store";
+import { logger } from "@/lib/logger";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -93,7 +94,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return graphConflictResponse(error);
     }
 
-    console.error("Error handling graph rollback:", error);
+    logger.error("Error handling graph rollback", logger.formatError(error));
     return jsonWithSchema(ErrorResponseSchema, { error: "Failed to rollback graph" }, { status: 500 });
   }
 }

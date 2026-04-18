@@ -5,6 +5,7 @@ import { homedir } from "os";
 import { getAgents, getAgentSkills } from "@/lib/db";
 import { getAgentSkillBindings } from "@/lib/agent-skill-bindings";
 import { LOCAL_USER } from "@/lib/auth-mode";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,7 +81,7 @@ export async function POST(request: NextRequest) {
     const data = await res.json();
     return Response.json(data);
   } catch (error) {
-    console.error("Error sharing agent spec:", error);
+    logger.error("Error sharing agent spec", logger.formatError(error));
     return Response.json({ error: "Failed to share" }, { status: 500 });
   }
 }

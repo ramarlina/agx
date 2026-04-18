@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db-instance";
 import { LOCAL_USER } from "@/lib/auth-mode";
+import { logger } from "@/lib/logger";
 
 function normalizeTaskId(rawId: unknown): string | null {
   if (typeof rawId === "string") {
@@ -56,7 +57,7 @@ export async function GET(
     const entries = await db.getTaskCostEntries(taskId);
     return NextResponse.json({ entries });
   } catch (error) {
-    console.error("Error fetching task costs:", error);
+    logger.error("Error fetching task costs", logger.formatError(error));
     return NextResponse.json({ error: "Failed to fetch task costs" }, { status: 500 });
   }
 }
@@ -112,7 +113,7 @@ export async function POST(
 
     return NextResponse.json({ entry }, { status: 201 });
   } catch (error) {
-    console.error("Error recording task cost:", error);
+    logger.error("Error recording task cost", logger.formatError(error));
     return NextResponse.json({ error: "Failed to record task cost" }, { status: 500 });
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import "@/lib/tracker"; // Ensure adapters are registered
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,7 +52,7 @@ export async function POST(
 
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
-    console.error("Failed to start scripted tracker session:", error);
+    logger.error("Failed to start scripted tracker session", logger.formatError(error));
     return NextResponse.json(
       {
         error:

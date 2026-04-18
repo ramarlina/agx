@@ -9,6 +9,7 @@ import { getQueue, QUEUE_NAMES } from "@/lib/queue/boss";
 import { appendWorkflowEvent } from "@/lib/orchestrator/events";
 import { requireUserId } from "@/lib/api/auth";
 import type { TaskJobData } from "@/lib/orchestrator/processor";
+import { logger } from "@/lib/logger";
 
 export async function POST(
     request: NextRequest,
@@ -51,7 +52,7 @@ export async function POST(
 
         return NextResponse.json({ ok: true, jobId });
     } catch (error) {
-        console.error("Failed to cancel task:", error);
+        logger.error("Failed to cancel task", logger.formatError(error));
         return NextResponse.json({ error: "Failed to cancel task" }, { status: 500 });
     }
 }

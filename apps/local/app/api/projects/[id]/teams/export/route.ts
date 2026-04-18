@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTeams, getTeamAgents } from "@/lib/db";
 import { serializeTeams } from "@/lib/team-yaml";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,7 +31,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       },
     });
   } catch (error) {
-    console.error("Error exporting teams:", error);
+    logger.error("Error exporting teams", logger.formatError(error));
     return NextResponse.json({ error: "Failed to export teams" }, { status: 500 });
   }
 }

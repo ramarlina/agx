@@ -8,6 +8,7 @@ import {
   readOptionalString,
 } from "../../_shared";
 import { requestPromptJobPump } from "@/src/prompt-scheduler/processor";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,7 +51,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ jobs });
   } catch (error) {
-    console.error("Failed to load objective scheduled tasks:", error);
+    logger.error("Failed to load objective scheduled tasks", logger.formatError(error));
     return NextResponse.json(
       { error: "Failed to load objective scheduled tasks" },
       { status: 500 }
@@ -170,7 +171,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ job, objective: nextObjective }, { status: 201 });
   } catch (error) {
-    console.error("Failed to create objective scheduled task:", error);
+    logger.error("Failed to create objective scheduled task", logger.formatError(error));
     return NextResponse.json(
       {
         error:

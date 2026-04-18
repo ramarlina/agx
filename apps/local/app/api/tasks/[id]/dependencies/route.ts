@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { loadTaskDependencyGraph } from "@/lib/dependency-manager";
 import { LOCAL_USER } from "@/lib/auth-mode";
+import { logger } from "@/lib/logger";
 
 export async function GET(
   _request: NextRequest,
@@ -16,7 +17,7 @@ export async function GET(
     const graph = await loadTaskDependencyGraph(taskId, LOCAL_USER.id);
     return NextResponse.json(graph);
   } catch (error) {
-    console.error("Error loading dependency graph", error);
+    logger.error("Error loading dependency graph", logger.formatError(error));
     return NextResponse.json({ error: "Failed to load dependency graph" }, { status: 500 });
   }
 }
