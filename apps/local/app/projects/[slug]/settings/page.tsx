@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { useProjectsWithAgents } from "@/hooks/useProjects";
@@ -198,14 +197,6 @@ function ProjectSettingsView({
         )}
       </section>
 
-      <section className="text-sm">
-        <Link
-          href="./settings/github"
-          className="text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 underline underline-offset-2"
-        >
-          GitHub integration
-        </Link>
-      </section>
     </div>
   );
 }
