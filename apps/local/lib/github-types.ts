@@ -52,6 +52,25 @@ export interface GithubPr {
   lastSyncedAt: number;
 }
 
+export type GithubIssueState = "open" | "closed";
+
+export interface GithubIssue {
+  id: string; // "owner/repo!123" (! distinguishes from PR "#")
+  repoId: string;
+  number: number;
+  title: string;
+  body: string;
+  state: GithubIssueState;
+  authorLogin: string;
+  url: string;
+  assignees: string[];
+  labels: string[];
+  createdAt: number;
+  updatedAt: number;
+  closedAt: number | null;
+  lastSyncedAt: number;
+}
+
 export type PrLinkSource = "branch" | "title" | "body" | "manual";
 export type TrackerTargetType = "agx_task" | "linear_issue" | "jira_issue";
 

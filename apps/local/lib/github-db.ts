@@ -62,6 +62,27 @@ CREATE INDEX IF NOT EXISTS idx_github_prs_repo_updated
 CREATE INDEX IF NOT EXISTS idx_github_prs_state
   ON github_prs (state, updated_at DESC);
 
+CREATE TABLE IF NOT EXISTS github_issues (
+  id TEXT PRIMARY KEY,
+  repo_id TEXT NOT NULL,
+  number INTEGER NOT NULL,
+  title TEXT NOT NULL DEFAULT '',
+  body TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL,
+  author_login TEXT NOT NULL DEFAULT '',
+  url TEXT NOT NULL DEFAULT '',
+  assignees_json TEXT NOT NULL DEFAULT '[]',
+  labels_json TEXT NOT NULL DEFAULT '[]',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  closed_at INTEGER,
+  last_synced_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_github_issues_repo_updated
+  ON github_issues (repo_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_github_issues_state
+  ON github_issues (state, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS pr_links (
   pr_id TEXT NOT NULL,
   target_type TEXT NOT NULL,
