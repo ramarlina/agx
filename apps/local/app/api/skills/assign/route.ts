@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAgentSkillBindings, setAgentSkillBindings } from "@/lib/agent-skill-bindings";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
     await setAgentSkillBindings(agentId, next);
     return NextResponse.json({ ok: true, skillBinding: { repo, skillId, condition } });
   } catch (error) {
-    console.error("Error assigning skill to agent:", error);
+    logger.error("Error assigning skill to agent", logger.formatError(error));
     return NextResponse.json({ error: "Failed to assign skill to agent" }, { status: 500 });
   }
 }

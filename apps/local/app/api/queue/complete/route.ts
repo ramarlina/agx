@@ -10,6 +10,7 @@ import {
 import { getQueue, QUEUE_NAMES } from "@/lib/queue/boss";
 import type { TaskJobData } from "@/lib/orchestrator/processor";
 import { LOCAL_USER } from "@/lib/auth-mode";
+import { logger } from "@/lib/logger";
 
 // POST /api/queue/complete - Mark current stage complete and advance
 export async function POST(request: NextRequest) {
@@ -169,7 +170,7 @@ export async function POST(request: NextRequest) {
       signaled: true,
     });
   } catch (error) {
-    console.error("Error completing stage:", error);
+    logger.error("Error completing stage", logger.formatError(error));
     return NextResponse.json(
       { error: "Failed to complete stage" },
       { status: 500 }

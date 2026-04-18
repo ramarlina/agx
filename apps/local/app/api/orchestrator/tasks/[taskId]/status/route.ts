@@ -10,6 +10,7 @@ import { db } from "@/lib/db-instance";
 import { requireUserId } from "@/lib/api/auth";
 import type { WorkflowStatus } from "@/lib/orchestrator/types";
 import type { StageDecision } from "@/lib/orchestration/stage-machine";
+import { logger } from "@/lib/logger";
 
 export async function GET(
     request: NextRequest,
@@ -64,7 +65,7 @@ async function handleQuery(
 
         return NextResponse.json({ status, result: status });
     } catch (error) {
-        console.error("Failed to query task status:", error);
+        logger.error("Failed to query task status", logger.formatError(error));
         return NextResponse.json({ error: "Failed to query task status" }, { status: 500 });
     }
 }

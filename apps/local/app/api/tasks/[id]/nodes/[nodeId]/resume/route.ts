@@ -10,6 +10,7 @@ import {
 } from "@/src/graph/api-route-utils";
 import { applyNodeStatusMutation } from "@/src/graph/node-ops";
 import { syncTaskProgressForGraphExecution } from "@/src/graph/task-lifecycle";
+import { logger } from "@/lib/logger";
 
 interface RouteParams {
   params: Promise<{ id: string; nodeId: string }>;
@@ -71,7 +72,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         })
         .eq("task_id", normalizedTaskId);
     } catch (error) {
-      console.error("Failed to requeue task after node resume:", error);
+      logger.error("Failed to requeue task after node resume", logger.formatError(error));
     }
   }
 

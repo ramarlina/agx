@@ -3,6 +3,7 @@ import { db } from "@/lib/db-instance";
 import { resolveTaskConfig } from "@/lib/db";
 import { buildTaskContext } from "@/lib/task-context";
 import { LOCAL_USER } from "@/lib/auth-mode";
+import { logger } from "@/lib/logger";
 
 // GET /api/tasks/[id]/comments - Get comments for a task
 export async function GET(
@@ -21,7 +22,7 @@ export async function GET(
     const comments = await db.getTaskComments(id);
     return NextResponse.json({ comments });
   } catch (error) {
-    console.error("Error fetching comments:", error);
+    logger.error("Error fetching comments", logger.formatError(error));
     return NextResponse.json({ error: "Failed to fetch comments" }, { status: 500 });
   }
 }
@@ -63,7 +64,7 @@ export async function POST(
       { status: 201 }
     );
   } catch (error) {
-    console.error("Error adding comment:", error);
+    logger.error("Error adding comment", logger.formatError(error));
     return NextResponse.json({ error: "Failed to add comment" }, { status: 500 });
   }
 }

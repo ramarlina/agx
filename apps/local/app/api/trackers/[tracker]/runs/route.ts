@@ -3,6 +3,7 @@ import "@/lib/tracker"; // Ensure adapters are registered
 import { badRequest } from "@/lib/tracker/route-helpers";
 import { createTrackerRun, listTrackerRuns } from "@/lib/tracker/tracker-run-store";
 import type { TrackerRunMode } from "@/lib/tracker/types";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,7 +37,7 @@ export async function GET(
     });
     return NextResponse.json({ count: runs.length, runs });
   } catch (error) {
-    console.error("Failed to list tracker runs:", error);
+    logger.error("Failed to list tracker runs", logger.formatError(error));
     return NextResponse.json(
       { error: "Failed to list tracker runs", message: error instanceof Error ? error.message : String(error) },
       { status: 500 }
@@ -78,7 +79,7 @@ export async function POST(
 
     return NextResponse.json({ run }, { status: 201 });
   } catch (error) {
-    console.error("Failed to create tracker run:", error);
+    logger.error("Failed to create tracker run", logger.formatError(error));
     return NextResponse.json(
       { error: "Failed to create tracker run", message: error instanceof Error ? error.message : String(error) },
       { status: 500 }

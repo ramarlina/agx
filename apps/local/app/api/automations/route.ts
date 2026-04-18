@@ -9,6 +9,7 @@ import {
 import type { GraphSchedule } from '@/src/graph/types';
 import { resolveAutomationTitle } from '@/lib/project-overview-titles';
 import { computePrevRun } from '@/src/prompt-scheduler/cron';
+import { logger } from "@/lib/logger";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -161,7 +162,7 @@ export async function GET(request: NextRequest) {
       automations: automations.map(enrichPrevScheduledAt),
     });
   } catch (error) {
-    console.error('Failed to list automations:', error);
+    logger.error('Failed to list automations', logger.formatError(error));
     return NextResponse.json(
       { error: 'Failed to list automations', message: error instanceof Error ? error.message : String(error) },
       { status: 500 },

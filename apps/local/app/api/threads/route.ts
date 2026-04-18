@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { listRootMessages, getWorkspaceNames, updateMessageStatus, getMessageThread, getProjectThreadIds, loadHistory } from "@/lib/history-store";
 import type { ThreadStatus } from "@/lib/storage";
 import { extractKnowledgeFromThreadTransition } from "@/lib/thread-knowledge";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -133,7 +134,7 @@ export async function PATCH(request: NextRequest) {
 
     return Response.json({ ok: true, rootMessageId, status, outcomeNote: outcomeNote ?? null });
   } catch (error) {
-    console.error("Error updating thread status:", error);
+    logger.error("Error updating thread status", logger.formatError(error));
     return Response.json({ error: "Failed to update thread status" }, { status: 500 });
   }
 }
@@ -201,7 +202,7 @@ export async function GET(request: NextRequest) {
       headers: { "Content-Type": "text/markdown; charset=utf-8" },
     });
   } catch (error) {
-    console.error("Error fetching threads:", error);
+    logger.error("Error fetching threads", logger.formatError(error));
     return Response.json({ error: "Failed to fetch threads" }, { status: 500 });
   }
 }

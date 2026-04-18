@@ -13,6 +13,7 @@ import { getQueue, QUEUE_NAMES } from "@/lib/queue/boss";
 import { appendWorkflowEvent } from "@/lib/orchestrator/events";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import type { TaskJobData } from "@/lib/orchestrator/processor";
+import { logger } from "@/lib/logger";
 
 export async function POST(
     request: NextRequest,
@@ -62,7 +63,7 @@ export async function POST(
 
         return NextResponse.json({ jobId, taskId, started: true }, { status: 202 });
     } catch (error) {
-        console.error("Failed to start task:", error);
+        logger.error("Failed to start task", logger.formatError(error));
         return NextResponse.json({ error: "Failed to start task" }, { status: 500 });
     }
 }

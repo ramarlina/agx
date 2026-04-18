@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProjectVariables, setProjectVariable, deleteProjectVariable } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +18,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       variables: variables.map((v) => ({ key: v.key, isSet: true })),
     });
   } catch (error) {
-    console.error("Error fetching project variables:", error);
+    logger.error("Error fetching project variables", logger.formatError(error));
     return NextResponse.json({ error: "Failed to fetch project variables" }, { status: 500 });
   }
 }
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const variable = await setProjectVariable(projectId, key, value);
     return NextResponse.json({ variable }, { status: 201 });
   } catch (error) {
-    console.error("Error setting project variable:", error);
+    logger.error("Error setting project variable", logger.formatError(error));
     return NextResponse.json({ error: "Failed to set project variable" }, { status: 500 });
   }
 }
@@ -61,7 +62,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     await deleteProjectVariable(projectId, key);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("Error deleting project variable:", error);
+    logger.error("Error deleting project variable", logger.formatError(error));
     return NextResponse.json({ error: "Failed to delete project variable" }, { status: 500 });
   }
 }

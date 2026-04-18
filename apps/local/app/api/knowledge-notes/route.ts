@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getKnowledgeNote, upsertKnowledgeNote, type KnowledgeNoteScope } from "@/lib/knowledge-notes";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
     const note = getKnowledgeNote(scope, subjectId);
     return NextResponse.json({ note });
   } catch (error) {
-    console.error("Error fetching knowledge note:", error);
+    logger.error("Error fetching knowledge note", logger.formatError(error));
     return NextResponse.json({ error: "Failed to fetch knowledge note" }, { status: 500 });
   }
 }
@@ -47,7 +48,7 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json({ note, changed });
   } catch (error) {
-    console.error("Error updating knowledge note:", error);
+    logger.error("Error updating knowledge note", logger.formatError(error));
     return NextResponse.json({ error: "Failed to update knowledge note" }, { status: 500 });
   }
 }

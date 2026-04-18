@@ -6,6 +6,7 @@ import { PROJECT_OBJECTIVES_METADATA_KEY, readProjectObjectivesWorkspace } from 
 import { getObjectiveRepository } from "@/src/objectives/repository";
 import { ensureObjectiveWorkerJob } from "@/src/prompt-scheduler/objective-worker-job";
 import { hydrateProjectObjectiveMetadata } from "../objective-metadata";
+import { logger } from "@/lib/logger";
 
 type ParamsArg = Promise<{ id: string }>;
 
@@ -39,7 +40,7 @@ export async function GET(request: NextRequest, { params }: { params: ParamsArg 
 
     return NextResponse.json({ project: hydrateProjectObjectiveMetadata(project) });
   } catch (err) {
-    console.error("Error fetching project:", err);
+    logger.error("Error fetching project", logger.formatError(err));
     return NextResponse.json({ error: "Failed to fetch project" }, { status: 500 });
   }
 }
@@ -91,13 +92,13 @@ export async function PATCH(request: NextRequest, { params }: { params: ParamsAr
           }
         }
       } catch (error) {
-        console.error("[objectives] failed to sync to files:", error);
+        logger.error("[objectives] failed to sync to files", logger.formatError(error));
       }
     }
 
     return NextResponse.json({ project: hydrateProjectObjectiveMetadata(project) });
   } catch (err) {
-    console.error("Error updating project:", err);
+    logger.error("Error updating project", logger.formatError(err));
     return NextResponse.json({ error: "Failed to update project" }, { status: 500 });
   }
 }
@@ -117,7 +118,7 @@ export async function DELETE(request: NextRequest, { params }: { params: ParamsA
     await db.deleteProject(projectId, user.id);
     return NextResponse.json({ success: true });
   } catch (err) {
-    console.error("Error deleting project:", err);
+    logger.error("Error deleting project", logger.formatError(err));
     return NextResponse.json({ error: "Failed to delete project" }, { status: 500 });
   }
 }

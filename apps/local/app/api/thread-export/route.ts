@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { exportThreadToMarkdown } from "@/lib/thread-export";
+import { logger } from "@/lib/logger";
 
 export async function POST(req: Request) {
   try {
@@ -19,7 +20,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(ref);
   } catch (error) {
-    console.error("Thread export failed:", error);
+    logger.error("Thread export failed", logger.formatError(error));
     return NextResponse.json(
       { error: "Failed to export thread" },
       { status: 500 }

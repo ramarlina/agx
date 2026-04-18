@@ -10,6 +10,7 @@ import {
 import { activateGraphSchedule } from "@/src/graph/scheduler";
 import { createThreadMonitorSchedule } from "@/src/graph/schedule";
 import type { ExecutionGraph, FunctionNode, ConditionalNode, WorkNode } from "@/src/graph/types";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -229,7 +230,7 @@ export async function POST(request: NextRequest) {
       schedule: graph.schedule,
     });
   } catch (error) {
-    console.error("Schedule API error:", error);
+    logger.error("Schedule API error", logger.formatError(error));
     return NextResponse.json(
       { error: "Failed to manage schedule", message: error instanceof Error ? error.message : String(error) },
       { status: 500 },

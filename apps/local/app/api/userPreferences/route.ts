@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { loadUserPreferences, saveUserPreferences } from "@/lib/userPreferences";
 import { sanitizePartialUserPreferences } from "@/types/userPreferences";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const rawBody = await request.json().catch((err) => { console.error('[userPreferences] body parse failed:', err); return null; });
+  const rawBody = await request.json().catch((err) => { logger.error('[userPreferences] body parse failed', logger.formatError(err)); return null; });
   const payload = sanitizePartialUserPreferences(readPreferencesBody(rawBody));
 
   if (Object.keys(payload).length === 0) {

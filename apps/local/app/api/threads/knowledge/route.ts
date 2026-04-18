@@ -8,6 +8,7 @@ import {
   startThreadKnowledgeRun,
   type ThreadKnowledgeScope,
 } from "@/lib/thread-knowledge-runs";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -85,7 +86,7 @@ export async function POST(request: NextRequest) {
       run,
     });
   } catch (error) {
-    console.error("Error starting manual thread knowledge extraction:", error);
+    logger.error("Error starting manual thread knowledge extraction", logger.formatError(error));
     return Response.json({ error: "Failed to start manual knowledge extraction" }, { status: 500 });
   }
 }

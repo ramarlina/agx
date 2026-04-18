@@ -7,6 +7,7 @@ import {
   getAgentSkills,
 } from "@/lib/db";
 import { LOCAL_USER } from "@/lib/auth-mode";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,7 +58,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       agents: agents.filter(Boolean),
     });
   } catch (error) {
-    console.error("Error fetching unassigned agents:", error);
+    logger.error("Error fetching unassigned agents", logger.formatError(error));
     return NextResponse.json(
       { error: "Failed to fetch unassigned agents" },
       { status: 500 }

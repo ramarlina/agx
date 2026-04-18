@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getPromptJobStore } from '@/src/prompt-scheduler/get-store';
 import { pollDueJobs } from '@/src/prompt-scheduler/engine';
 import { requestPromptJobPump } from '@/src/prompt-scheduler/processor';
+import { logger } from "@/lib/logger";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,16 +17,16 @@ async function readPollRequestBody(req: NextRequest): Promise<{ jobId?: string }
   try {
     const parsed = JSON.parse(rawBody) as unknown;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      console.error('[prompt-jobs/poll] unexpected request body:', parsed);
+      logger.error('[prompt-jobs/poll] unexpected request body', { body: parsed });
       return {};
     }
     if ('jobId' in parsed && parsed.jobId != null && typeof parsed.jobId !== 'string') {
-      console.error('[prompt-jobs/poll] unexpected request body:', parsed);
+      logger.error('[prompt-jobs/poll] unexpected request body', { body: parsed });
       return {};
     }
     return parsed as { jobId?: string };
   } catch (err) {
-    console.error('[prompt-jobs/poll] failed to parse request body:', err);
+    logger.error('[prompt-jobs/poll] failed to parse request body', logger.formatError(err));
     return {};
   }
 }
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest) {
     requestPromptJobPump();
     return NextResponse.json({ queued: result.queued, skipped: result.skipped });
   } catch (error) {
-    console.error('Failed to poll prompt jobs:', error);
+    logger.error('Failed to poll prompt jobs', logger.formatError(error));
     return NextResponse.json(
       { error: 'Failed to poll prompt jobs', message: error instanceof Error ? error.message : String(error) },
       { status: 500 },

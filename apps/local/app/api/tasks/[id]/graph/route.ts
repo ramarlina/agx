@@ -54,6 +54,7 @@ import type {
 } from "@/src/graph/types";
 import { createRootOnlyGraph } from "@/src/graph/migrate";
 import { validateGraph } from "@/src/graph/validate";
+import { logger } from "@/lib/logger";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -346,7 +347,7 @@ async function appendRejectedTransitionEvent(input: {
       }),
     );
   } catch (error) {
-    console.error("Failed to append rejected transition event", error);
+    logger.error("Failed to append rejected transition event", logger.formatError(error));
   }
 }
 
@@ -487,7 +488,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    console.error("Error creating execution graph:", error);
+    logger.error("Error creating execution graph", logger.formatError(error));
     return jsonWithSchema(ErrorResponseSchema, { error: "Failed to create graph" }, { status: 500 });
   }
 }
@@ -674,7 +675,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    console.error("Error updating graph runtime:", error);
+    logger.error("Error updating graph runtime", logger.formatError(error));
     return jsonWithSchema(ErrorResponseSchema, { error: "Failed to patch graph runtime" }, { status: 500 });
   }
 }
@@ -747,7 +748,7 @@ async function handleDaemonGraphPatch(
       return graphConflictResponse(error);
     }
 
-    console.error("Error updating graph (daemon patch):", error);
+    logger.error("Error updating graph (daemon patch)", logger.formatError(error));
     return jsonWithSchema(ErrorResponseSchema, { error: "Failed to patch graph" }, { status: 500 });
   }
 }

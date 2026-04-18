@@ -4,6 +4,7 @@ import { createAdminDbClient } from "@/lib/db-adapter";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import { getGraph } from "@/src/graph/store";
 import type { ExecutionLifecycleState } from "@/src/graph/types";
+import { logger } from "@/lib/logger";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       executionState: 'stopped' as ExecutionLifecycleState,
     });
   } catch (error) {
-    console.error("Error stopping execution:", error);
+    logger.error("Error stopping execution", logger.formatError(error));
     return NextResponse.json(
       { error: "Failed to stop execution" },
       { status: 500 }

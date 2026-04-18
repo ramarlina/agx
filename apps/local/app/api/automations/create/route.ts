@@ -8,6 +8,7 @@ import {
 import { activateGraphSchedule, type CreateGraphScheduleInput } from '@/src/graph/scheduler';
 import type { ExecutionGraph, FunctionNode } from '@/src/graph/types';
 import { createThreadMonitorSchedule } from '@/src/graph/schedule';
+import { logger } from "@/lib/logger";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -163,7 +164,7 @@ export async function POST(request: NextRequest) {
       parsedCron: cronResult,
     });
   } catch (error) {
-    console.error('Create automation error:', error);
+    logger.error('Create automation error', logger.formatError(error));
     return NextResponse.json(
       { error: 'Failed to create automation', message: error instanceof Error ? error.message : String(error) },
       { status: 500 },

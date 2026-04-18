@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPromptJobStore } from '@/src/prompt-scheduler/get-store';
+import { logger } from "@/lib/logger";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -21,7 +22,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     const runs = store.listRuns(id);
     return NextResponse.json({ count: runs.length, runs });
   } catch (error) {
-    console.error('Failed to list prompt runs:', error);
+    logger.error('Failed to list prompt runs', logger.formatError(error));
     return NextResponse.json(
       { error: 'Failed to list prompt runs', message: error instanceof Error ? error.message : String(error) },
       { status: 500 },

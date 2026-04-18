@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTeamAgents, addTeamAgent, removeTeamAgent } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const agents = await getTeamAgents(teamId);
     return NextResponse.json({ agents });
   } catch (error) {
-    console.error("Error fetching team agents:", error);
+    logger.error("Error fetching team agents", logger.formatError(error));
     return NextResponse.json({ error: "Failed to fetch team agents" }, { status: 500 });
   }
 }
@@ -34,7 +35,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const agents = await getTeamAgents(teamId);
     return NextResponse.json({ agents }, { status: 201 });
   } catch (error) {
-    console.error("Error adding agent to team:", error);
+    logger.error("Error adding agent to team", logger.formatError(error));
     return NextResponse.json({ error: "Failed to add agent to team" }, { status: 500 });
   }
 }
@@ -53,7 +54,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     const agents = await getTeamAgents(teamId);
     return NextResponse.json({ agents });
   } catch (error) {
-    console.error("Error removing agent from team:", error);
+    logger.error("Error removing agent from team", logger.formatError(error));
     return NextResponse.json({ error: "Failed to remove agent from team" }, { status: 500 });
   }
 }

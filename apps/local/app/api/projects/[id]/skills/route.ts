@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProjectSkills, addProjectSkill, removeProjectSkill } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     const skills = await getProjectSkills(projectId);
     return NextResponse.json({ skills });
   } catch (error) {
-    console.error("Error fetching project skills:", error);
+    logger.error("Error fetching project skills", logger.formatError(error));
     return NextResponse.json({ error: "Failed to fetch project skills" }, { status: 500 });
   }
 }
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const skill = await addProjectSkill(projectId, file, condition);
     return NextResponse.json({ skill }, { status: 201 });
   } catch (error) {
-    console.error("Error adding project skill:", error);
+    logger.error("Error adding project skill", logger.formatError(error));
     return NextResponse.json({ error: "Failed to add project skill" }, { status: 500 });
   }
 }
@@ -49,7 +50,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     await removeProjectSkill(skillId);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("Error removing project skill:", error);
+    logger.error("Error removing project skill", logger.formatError(error));
     return NextResponse.json({ error: "Failed to remove project skill" }, { status: 500 });
   }
 }

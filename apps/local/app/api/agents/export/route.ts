@@ -5,6 +5,7 @@ import { homedir } from "os";
 import { getAgents, getAgentSkills } from "@/lib/db";
 import { getAgentSkillBindings } from "@/lib/agent-skill-bindings";
 import { LOCAL_USER } from "@/lib/auth-mode";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
 
     return Response.json({ agents });
   } catch (error) {
-    console.error("Error exporting agents:", error);
+    logger.error("Error exporting agents", logger.formatError(error));
     return Response.json({ error: "Failed to export" }, { status: 500 });
   }
 }

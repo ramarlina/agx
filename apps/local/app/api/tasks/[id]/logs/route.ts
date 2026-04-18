@@ -3,6 +3,7 @@ import { db } from "@/lib/db-instance";
 import { createAdminDbClient } from "@/lib/db-adapter";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import { getGraph } from "@/src/graph/store";
+import { logger } from "@/lib/logger";
 
 const LEGACY_NODE_LOG_FALLBACK_TAIL = 2000;
 const LEGACY_NODE_LOG_WINDOW_BUFFER_MS = 2 * 60 * 1000;
@@ -95,7 +96,7 @@ export async function GET(
 
     return NextResponse.json({ logs });
   } catch (error) {
-    console.error("Error fetching logs:", error);
+    logger.error("Error fetching logs", logger.formatError(error));
     return NextResponse.json({ error: "Failed to fetch logs" }, { status: 500 });
   }
 }
@@ -146,7 +147,7 @@ export async function POST(
     const log = await db.addTaskLog(id, content, normalizedLogType, normalizedNodeId);
     return NextResponse.json({ log }, { status: 201 });
   } catch (error) {
-    console.error("Error adding log:", error);
+    logger.error("Error adding log", logger.formatError(error));
     return NextResponse.json({ error: "Failed to add log" }, { status: 500 });
   }
 }

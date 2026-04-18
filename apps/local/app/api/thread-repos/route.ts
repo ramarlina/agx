@@ -3,6 +3,7 @@ import {
   loadThreadRepoSelections,
   saveThreadRepoSelections,
 } from "@/lib/history-store";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +18,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const body = await request.json().catch((err) => { console.error('[thread-repos] body parse failed:', err); return null; });
+  const body = await request.json().catch((err) => { logger.error('[thread-repos] body parse failed', logger.formatError(err)); return null; });
   if (!body || typeof body !== "object") {
     return Response.json({ error: "invalid body" }, { status: 400 });
   }

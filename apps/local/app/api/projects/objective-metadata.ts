@@ -1,5 +1,6 @@
 import { writeProjectObjectivesWorkspace } from "@/lib/project-objectives";
 import { getObjectiveRepository } from "@/src/objectives/repository";
+import { logger } from "@/lib/logger";
 
 type ProjectWithMetadata = {
   id: string;
@@ -22,7 +23,7 @@ export function hydrateProjectObjectiveMetadata<T extends ProjectWithMetadata>(p
       metadata: writeProjectObjectivesWorkspace(project.metadata ?? {}, workspace),
     };
   } catch (error) {
-    console.error("[objectives] failed to hydrate project metadata from files:", error);
+    logger.error("[objectives] failed to hydrate project metadata from files", logger.formatError(error));
     return project;
   }
 }

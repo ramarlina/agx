@@ -13,6 +13,7 @@ import {
 } from "../_shared";
 import { getNoteRepository } from "@/src/objectives/notes";
 import type { ObjectiveNoteFile } from "@/src/objectives/notes";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,7 +58,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ objective: objectiveContext.objective });
   } catch (error) {
-    console.error("Failed to load objective:", error);
+    logger.error("Failed to load objective", logger.formatError(error));
     return NextResponse.json({ error: "Failed to load objective" }, { status: 500 });
   }
 }
@@ -191,7 +192,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json({ objective: nextObjective });
   } catch (error) {
-    console.error("Failed to update objective:", error);
+    logger.error("Failed to update objective", logger.formatError(error));
     return NextResponse.json({ error: "Failed to update objective" }, { status: 500 });
   }
 }

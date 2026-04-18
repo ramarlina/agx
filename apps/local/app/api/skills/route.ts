@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchSkillsCatalog, listAvailableSkills, listInstalledSkillIds } from "@/lib/skills-library";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ export async function GET(_request: NextRequest) {
     ]);
     return NextResponse.json({ skills, installed: installedIds, available });
   } catch (error) {
-    console.error("Error fetching skills catalog:", error);
+    logger.error("Error fetching skills catalog", logger.formatError(error));
     return NextResponse.json({ error: "Failed to fetch skills catalog" }, { status: 500 });
   }
 }

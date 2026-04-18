@@ -5,6 +5,7 @@ import {
   getLegacyWorkspaceMigrationStatus,
   migrateLegacyWorkspacesToProjects,
 } from "@/lib/workspaces-to-projects-migration";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +15,7 @@ export async function POST() {
     const result = migrateLegacyWorkspacesToProjects(getSQLiteDb());
     return NextResponse.json({ message: "Workspace to project migration complete", result });
   } catch (error) {
-    console.error("Workspace migration error:", error);
+    logger.error("Workspace migration error", logger.formatError(error));
     return NextResponse.json(
       { error: "Migration failed", details: String(error) },
       { status: 500 }

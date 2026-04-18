@@ -15,6 +15,7 @@ import type {
     DaemonStepSignalPayload,
     HumanInputSignalPayload,
 } from "@/lib/orchestrator/types";
+import { logger } from "@/lib/logger";
 
 export async function POST(
     request: NextRequest,
@@ -136,7 +137,7 @@ export async function POST(
 
         return NextResponse.json({ ok: true, jobId });
     } catch (error) {
-        console.error("Failed to signal task:", error);
+        logger.error("Failed to signal task", logger.formatError(error));
         return NextResponse.json({ error: "Failed to signal task" }, { status: 500 });
     }
 }

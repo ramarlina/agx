@@ -4,6 +4,7 @@ import {
   normalizeLegacyConditionSchedule,
   parseCadence,
 } from '@/src/prompt-scheduler/cron';
+import { logger } from "@/lib/logger";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -46,7 +47,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     }
     return NextResponse.json({ job });
   } catch (error) {
-    console.error('Failed to get prompt job:', error);
+    logger.error('Failed to get prompt job', logger.formatError(error));
     return NextResponse.json(
       { error: 'Failed to get prompt job', message: error instanceof Error ? error.message : String(error) },
       { status: 500 },
@@ -94,7 +95,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const job = store.updateJob(id, updates);
     return NextResponse.json({ job });
   } catch (error) {
-    console.error('Failed to update prompt job:', error);
+    logger.error('Failed to update prompt job', logger.formatError(error));
     return NextResponse.json(
       { error: 'Failed to update prompt job', message: error instanceof Error ? error.message : String(error) },
       { status: 500 },
@@ -119,7 +120,7 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     store.deleteJob(id);
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Failed to delete prompt job:', error);
+    logger.error('Failed to delete prompt job', logger.formatError(error));
     return NextResponse.json(
       { error: 'Failed to delete prompt job', message: error instanceof Error ? error.message : String(error) },
       { status: 500 },

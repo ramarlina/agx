@@ -4,6 +4,7 @@ import { execFile } from "child_process";
 import { promisify } from "util";
 import { stat } from "fs/promises";
 import path from "path";
+import { logger } from "@/lib/logger";
 
 const execFileAsync = promisify(execFile);
 const TIMEOUT = 10_000;
@@ -99,7 +100,7 @@ export async function POST(request: NextRequest) {
     const analysis: RepoAnalysis = { ...git, languages };
     return NextResponse.json({ analysis });
   } catch (error) {
-    console.error("Error analyzing directory:", error);
+    logger.error("Error analyzing directory", logger.formatError(error));
     return NextResponse.json({ error: "Analysis failed" }, { status: 500 });
   }
 }

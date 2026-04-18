@@ -6,6 +6,7 @@ import { getAgent, getAgentSkills } from "@/lib/db";
 import { getAgentSkillBindings } from "@/lib/agent-skill-bindings";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import { getSQLiteDb } from "@/lib/sqlite-query-adapter";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,7 +59,7 @@ export async function GET(
   let identity: Record<string, unknown> = {};
   const identityPath = join(agentDir, "identity.json");
   if (existsSync(identityPath)) {
-    try { identity = JSON.parse(readFileSync(identityPath, "utf-8")); } catch (err) { console.error('[agent-profile] failed to load identity.json:', err); }
+    try { identity = JSON.parse(readFileSync(identityPath, "utf-8")); } catch (err) { logger.error('[agent-profile] failed to load identity.json', logger.formatError(err)); }
   }
 
   // Read self.md (the evolving bio)

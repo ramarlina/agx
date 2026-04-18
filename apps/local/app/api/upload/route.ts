@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { createAttachment, gcOrphanedAttachments } from "@/lib/attachment-store";
 import { validateFile, validateMessageAttachments, sanitizeFilename } from "@/lib/attachments";
 import crypto from "crypto";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,10 +13,10 @@ let gcRan = false;
 export async function POST(request: NextRequest) {
   if (!gcRan) {
     gcRan = true;
-    gcOrphanedAttachments().catch((err) => console.error('[upload] gcOrphanedAttachments failed:', err));
+    gcOrphanedAttachments().catch((err) => logger.error('[upload] gcOrphanedAttachments failed', logger.formatError(err)));
   }
 
-  const formData = await request.formData().catch((err) => { console.error('[upload] formData parse failed:', err); return null; });
+  const formData = await request.formData().catch((err) => { logger.error('[upload] formData parse failed', logger.formatError(err)); return null; });
   if (!formData) {
     return Response.json({ error: "Invalid form data" }, { status: 400 });
   }

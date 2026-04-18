@@ -6,6 +6,7 @@ import { buildTaskContext } from "@/lib/task-context";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import { getMissingDependencies } from "@/lib/dependency-manager";
 import { syncTaskProgressForGraphExecution } from "@/src/graph/task-lifecycle";
+import { logger } from "@/lib/logger";
 
 function formatDependencyBlockedReason(missingDependencies: Array<{ id?: string; title?: string; slug?: string; status?: string }>): string {
   if (!missingDependencies.length) return "";
@@ -153,7 +154,7 @@ export async function GET(request: NextRequest) {
       stagePrompts: taskPayload.stagePrompts,
     });
   } catch (error) {
-    console.error("Error pulling from queue:", error);
+    logger.error("Error pulling from queue", logger.formatError(error));
     return NextResponse.json({ error: "Failed to pull from queue" }, { status: 500 });
   }
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash, randomUUID } from "crypto";
 import { getSQLiteDb } from "@/lib/sqlite-query-adapter";
+import { logger } from "@/lib/logger";
 
 const VALID_MEMORY_TYPES = new Set(["outcome", "decision", "pattern", "gotcha"]);
 
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ inserted });
   } catch (err) {
-    console.error("[api/memories] POST error:", err);
+    logger.error("[api/memories] POST error", logger.formatError(err));
     return NextResponse.json({ error: "Failed to store memories" }, { status: 500 });
   }
 }
@@ -94,7 +95,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ memories: rows });
   } catch (err) {
-    console.error("[api/memories] GET error:", err);
+    logger.error("[api/memories] GET error", logger.formatError(err));
     return NextResponse.json({ error: "Failed to fetch memories" }, { status: 500 });
   }
 }

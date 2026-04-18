@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getProjectVariables } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
     }
     return NextResponse.json({ key: variable.key, value: variable.value });
   } catch (error) {
-    console.error("Error fetching variable:", error);
+    logger.error("Error fetching variable", logger.formatError(error));
     return NextResponse.json({ error: "Failed to fetch variable" }, { status: 500 });
   }
 }

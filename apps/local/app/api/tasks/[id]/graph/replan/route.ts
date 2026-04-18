@@ -19,6 +19,7 @@ import {
 } from "@/src/graph/store";
 import type { Edge, GraphNode, NodeStatus } from "@/src/graph/types";
 import { validateGraph } from "@/src/graph/validate";
+import { logger } from "@/lib/logger";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -298,7 +299,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return graphConflictResponse(error);
     }
 
-    console.error("Error handling graph replan:", error);
+    logger.error("Error handling graph replan", logger.formatError(error));
     return jsonWithSchema(ErrorResponseSchema, { error: "Failed to replan graph" }, { status: 500 });
   }
 }

@@ -11,6 +11,7 @@ import {
   resolveMemoryAgentId,
 } from "@/lib/memory-extractor";
 import { projectTaskReadModel } from "@/src/graph/read-path";
+import { logger } from "@/lib/logger";
 
 const ALLOWED_STATUSES = new Set(["queued", "in_progress", "blocked", "completed", "failed"]);
 
@@ -155,7 +156,7 @@ export async function GET(
       stagePrompts: taskPayload.stagePrompts,
     });
   } catch (error) {
-    console.error("Error fetching task:", error);
+    logger.error("Error fetching task", logger.formatError(error));
     return NextResponse.json({ error: "Failed to fetch task" }, { status: 500 });
   }
 }
@@ -184,7 +185,7 @@ export async function PUT(
     const task = await db.updateTask(id, content, userId);
     return NextResponse.json({ task });
   } catch (error) {
-    console.error("Error updating task:", error);
+    logger.error("Error updating task", logger.formatError(error));
     return NextResponse.json({ error: "Failed to update task" }, { status: 500 });
   }
 }
@@ -414,7 +415,7 @@ export async function PATCH(
       stagePrompts: taskPayload.stagePrompts,
     });
   } catch (error) {
-    console.error("Error patching task:", error);
+    logger.error("Error patching task", logger.formatError(error));
     return NextResponse.json({
       error: "Failed to patch task",
       details: error instanceof Error ? error.message : String(error)
@@ -439,7 +440,7 @@ export async function DELETE(
     await db.deleteTask(id, userId);
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Error deleting task:", error);
+    logger.error("Error deleting task", logger.formatError(error));
     return NextResponse.json({ error: "Failed to delete task" }, { status: 500 });
   }
 }

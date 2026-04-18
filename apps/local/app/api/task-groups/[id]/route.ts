@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSQLiteDb } from "@/lib/sqlite-query-adapter";
 import { updateTaskGroup, deleteTaskGroup } from "@/lib/task-groups-db";
+import { logger } from "@/lib/logger";
 
 export async function PATCH(
   request: NextRequest,
@@ -17,7 +18,7 @@ export async function PATCH(
     const group = updateTaskGroup(db, id, updates);
     return NextResponse.json({ group });
   } catch (error) {
-    console.error("Error updating task group:", error);
+    logger.error("Error updating task group", logger.formatError(error));
     return NextResponse.json({ error: "Failed to update task group" }, { status: 500 });
   }
 }
@@ -32,7 +33,7 @@ export async function DELETE(
     deleteTaskGroup(db, id);
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("Error deleting task group:", error);
+    logger.error("Error deleting task group", logger.formatError(error));
     return NextResponse.json({ error: "Failed to delete task group" }, { status: 500 });
   }
 }

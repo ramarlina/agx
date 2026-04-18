@@ -22,6 +22,7 @@ import {
 import { applyNodeStatusMutation } from "@/src/graph/node-ops";
 import { getGraph } from "@/src/graph/store";
 import type { ExecutionGraph, NodeStatus } from "@/src/graph/types";
+import { logger } from "@/lib/logger";
 
 interface RouteParams {
   params: Promise<{ id: string; nodeId: string }>;
@@ -257,7 +258,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     await reconcileTaskAfterApproval(normalizedTaskId);
   } catch (error) {
     // Keep gate mutation response successful even if wake/complete sync fails.
-    console.error("Failed to reconcile task after gate approval:", error);
+    logger.error("Failed to reconcile task after gate approval", logger.formatError(error));
   }
 
   return mutationResponse;

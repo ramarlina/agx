@@ -13,6 +13,7 @@ import { attemptStartTask } from "@/lib/dependency-manager";
 import { notifyTaskEvent } from "@/lib/notifications";
 import { dualWriteTaskCreation } from "@/src/graph/dual-write";
 import { projectTaskReadModel, projectTaskReadModels } from "@/src/graph/read-path";
+import { logger } from "@/lib/logger";
 
 // GET /api/tasks - List all tasks
 export async function GET(request: NextRequest) {
@@ -56,7 +57,7 @@ export async function GET(request: NextRequest) {
     const projected = await projectTaskReadModels(tasks);
     return NextResponse.json({ tasks: projected });
   } catch (error) {
-    console.error("Error fetching tasks:", error);
+    logger.error("Error fetching tasks", logger.formatError(error));
     return NextResponse.json({ error: "Failed to fetch tasks" }, { status: 500 });
   }
 }
@@ -106,7 +107,7 @@ export async function POST(request: NextRequest) {
 
     const dualWriteResult = await dualWriteTaskCreation(task);
     if (dualWriteResult.result === "failed") {
-      console.error("Task dual-write graph creation failed", {
+      logger.error("Task dual-write graph creation failed", {
         taskId: task.id,
         error: dualWriteResult.error,
       });
@@ -187,7 +188,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(response, { status: 201 });
   } catch (error) {
-    console.error("Error creating task:", error);
+    logger.error("Error creating task", logger.formatError(error));
     return NextResponse.json({ error: "Failed to create task" }, { status: 500 });
   }
 }

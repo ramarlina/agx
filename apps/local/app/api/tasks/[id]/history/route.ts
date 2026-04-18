@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createAdminDbClient } from "@/lib/db-adapter";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import { db } from "@/lib/db-instance";
+import { logger } from "@/lib/logger";
 
 // DELETE /api/tasks/[id]/history - Clear task comments and logs
 export async function DELETE(
@@ -57,7 +58,7 @@ export async function DELETE(
       },
     });
   } catch (error) {
-    console.error("Error clearing task history:", error);
+    logger.error("Error clearing task history", logger.formatError(error));
     return NextResponse.json({ error: "Failed to clear task history" }, { status: 500 });
   }
 }

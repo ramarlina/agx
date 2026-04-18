@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
       created_at: data.created_at,
     });
   } catch (error) {
-    console.error("Error pulling agent spec:", error);
+    logger.error("Error pulling agent spec", logger.formatError(error));
     return Response.json({ error: "Failed to pull" }, { status: 500 });
   }
 }

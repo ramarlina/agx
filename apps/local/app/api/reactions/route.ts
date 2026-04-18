@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { ReactionStoreError, setReaction } from "@/lib/history-store";
 import type { ReactionType } from "@/lib/types";
+import { logger } from "@/lib/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ interface ReactionRequestBody {
 }
 
 export async function POST(request: NextRequest) {
-  const rawBody = await request.json().catch((err) => { console.error('[reactions] body parse failed:', err); return null; });
+  const rawBody = await request.json().catch((err) => { logger.error('[reactions] body parse failed', logger.formatError(err)); return null; });
   const body: ReactionRequestBody =
     rawBody && typeof rawBody === "object" ? (rawBody as ReactionRequestBody) : {};
 

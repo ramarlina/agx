@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPromptJobStore } from '@/src/prompt-scheduler/get-store';
+import { logger } from "@/lib/logger";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -35,7 +36,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
 
     return NextResponse.json({ run: updatedRun });
   } catch (error) {
-    console.error('Failed to cancel prompt run:', error);
+    logger.error('Failed to cancel prompt run', logger.formatError(error));
     return NextResponse.json(
       { error: 'Failed to cancel prompt run', message: error instanceof Error ? error.message : String(error) },
       { status: 500 },

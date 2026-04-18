@@ -5,6 +5,7 @@ import { LOCAL_USER } from "@/lib/auth-mode";
 import { getGraph } from "@/src/graph/store";
 import type { ExecutionLifecycleState, GraphNode } from "@/src/graph/types";
 import { syncTaskProgressForGraphExecution } from "@/src/graph/task-lifecycle";
+import { logger } from "@/lib/logger";
 
 interface RouteParams {
   params: Promise<{ id: string }>;
@@ -112,7 +113,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       graphVersion: graph.graphVersion + 1,
     });
   } catch (error) {
-    console.error("Error restarting execution:", error);
+    logger.error("Error restarting execution", logger.formatError(error));
     return NextResponse.json(
       { error: "Failed to restart execution" },
       { status: 500 }
