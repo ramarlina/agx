@@ -5,7 +5,7 @@
 **Spec:** `docs/superpowers/specs/2026-04-17-github-integration-design.md`
 **Plan:** `docs/superpowers/plans/2026-04-17-github-integration-phase1.md` (Phase 1)
 
-## Status: Phase 1 + Phase 2a + 2b skeleton + 2c local-side scaffolding — COMPLETE ✅
+## Status: Phase 1 + 2a + 2b + 2c + 3a + 3b — COMPLETE ✅
 
 ### Phase 1 — Backend foundations ✅
 - Types, SQLite schema, per-project token store
@@ -25,6 +25,20 @@
 - `POST /api/github/prs/seed` — dev-only seeder (gated on `NODE_ENV !== "production"`)
 - `/projects/[slug]/prs/page.tsx` — two-panel page with seed button, filter tabs, repo dropdown, row list, detail pane
 - Sidebar nav entry (GitPullRequest icon) added in `WorkspaceSidebar.tsx`
+
+### Phase 3a — CI + review fetch ✅
+- `GithubClient.getCombinedStatus({ owner, name, sha })` aggregates check-runs → `"success" | "failure" | "pending" | null`
+- `GithubClient.getReviewDecision({ owner, name, number })` → `"approved" | "changes_requested" | "review_required" | null` (dedupes per reviewer by latest)
+- `GithubClient.enrichPrStatus(pr)` merges both onto a PR
+- Orchestrator calls `enrichPrStatus` when client implements it (backward-compatible)
+- **38/38 tests green**
+
+### Phase 3b — Linked PRs on tracker detail ✅
+- `GET /api/github/prs/for-target?targetType&targetId` → `{ prs }` hydrated
+- `POST /api/github/prs/link` → creates manual `pr_links` row; 404 `pr_not_cached` if PR not in store
+- `DELETE /api/github/prs/link` → removes a specific link
+- `deletePrLink(prId, targetType, targetId)` helper in the store
+- `<LinkedPrsSection>` component shown inside `TicketPanel.tsx` between recap and sessions; deep-links to `/projects/{slug}/prs?pr=…`
 
 ### Phase 2c — Settings pane + OAuth scaffolding (local side) ✅
 - `github-oauth-sessions.ts` — in-memory session store, 10-min TTL
