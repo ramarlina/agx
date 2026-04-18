@@ -24,46 +24,37 @@ export default function SelectReposPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const sessionId = searchParams.get('session');
-    const apiBase = searchParams.get('api_base') || '/api';
+    const urlToken = searchParams.get('access_token');
     const storedToken = typeof window !== 'undefined' ? sessionStorage.getItem('github_token') : null;
+    const token = urlToken || storedToken;
 
-    if (!sessionId && !storedToken) {
-      setError('Missing session or access token');
+    if (!token) {
+      setError('Missing access token');
       setLoading(false);
       return;
     }
 
-    if (sessionId) {
-      fetch(`${apiBase}/integrations/github/token-session?session=${encodeURIComponent(sessionId)}`)
-        .then((res) => {
-          if (!res.ok) throw new Error(`Failed to retrieve tokens: ${res.status}`);
-          return res.json();
-        })
-        .then((data) => {
-          setAccessToken(data.access_token);
-          setRefreshToken(data.refresh_token || null);
-          setExpiresIn(data.expires_in ? String(data.expires_in) : null);
-          setScope(data.scope || null);
+    if (urlToken) {
+      const refresh = searchParams.get('refresh_token');
+      const expires = searchParams.get('expires_in');
+      const scopes = searchParams.get('scope');
 
-          sessionStorage.setItem('github_token', data.access_token);
-          if (data.refresh_token) sessionStorage.setItem('github_refresh_token', data.refresh_token);
-          if (data.expires_in) sessionStorage.setItem('github_expires_in', String(data.expires_in));
-          if (data.scope) sessionStorage.setItem('github_scope', data.scope);
+      setAccessToken(urlToken);
+      setRefreshToken(refresh);
+      setExpiresIn(expires);
+      setScope(scopes);
 
-          window.history.replaceState({}, '', '/integrations/github/select-repos');
-          setLoading(false);
-        })
-        .catch((err) => {
-          setError(err instanceof Error ? err.message : 'Failed to retrieve tokens');
-          setLoading(false);
-        });
+      sessionStorage.setItem('github_token', urlToken);
+      if (refresh) sessionStorage.setItem('github_refresh_token', refresh);
+      if (expires) sessionStorage.setItem('github_expires_in', expires);
+      if (scopes) sessionStorage.setItem('github_scope', scopes);
+
+      window.history.replaceState({}, '', '/integrations/github/select-repos');
     } else {
-      setAccessToken(storedToken);
+      setAccessToken(token);
       setRefreshToken(sessionStorage.getItem('github_refresh_token'));
       setExpiresIn(sessionStorage.getItem('github_expires_in'));
       setScope(sessionStorage.getItem('github_scope'));
-      setLoading(false);
     }
   }, [searchParams]);
 
