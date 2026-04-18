@@ -1,4 +1,5 @@
 import { listCachedTrackerItems } from "./tracker/tracker-item-store";
+import { findAgxTaskByIdentifier } from "./task-identifier-store";
 import type { TrackerResolver } from "./github-link-resolver";
 
 /**
@@ -15,19 +16,19 @@ export const linearIssueResolver: TrackerResolver = async (id) => {
 };
 
 /**
- * Resolver for agx task identifiers.
+ * Resolver for agx task identifiers (e.g. "TSK-42", "AGX-7").
  *
- * BLOCKER: agx tasks currently have no stable `PREFIX-N` identifier column in
- * the `tasks` table — they're keyed by UUID + mutable slug. Until a schema
- * migration adds a stable identifier, this resolver always returns null.
- *
- * To unblock:
- *   1. Add `identifier TEXT UNIQUE` to the `tasks` table (e.g. `AGX-123`).
- *   2. Populate it on task creation with a monotonic per-project counter.
- *   3. Replace the body of this resolver with an exact lookup.
+ * Looks up the `tasks.identifier` column, which is populated on creation when
+ * the parent project has an `identifier_prefix` set. Matches are
+ * case-insensitive. The returned `targetId` is the identifier string itself
+ * (mirroring Linear's resolver), so downstream `pr_links` store a stable
+ * user-visible key.
  */
-export const agxTaskResolver: TrackerResolver = async (_id) => {
-  return null;
+export const agxTaskResolver: TrackerResolver = async (id) => {
+  const needle = id.toUpperCase();
+  const hit = await findAgxTaskByIdentifier(needle);
+  if (!hit) return null;
+  return { targetType: "agx_task", targetId: needle };
 };
 
 /**

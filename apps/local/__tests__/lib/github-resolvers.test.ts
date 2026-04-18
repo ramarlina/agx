@@ -4,7 +4,12 @@ jest.mock("@/lib/tracker/tracker-item-store", () => ({
   listCachedTrackerItems: jest.fn(),
 }));
 
+jest.mock("@/lib/task-identifier-store", () => ({
+  findAgxTaskByIdentifier: jest.fn(),
+}));
+
 import { listCachedTrackerItems } from "@/lib/tracker/tracker-item-store";
+import { findAgxTaskByIdentifier } from "@/lib/task-identifier-store";
 import {
   linearIssueResolver,
   agxTaskResolver,
@@ -13,9 +18,13 @@ import {
 const listMock = listCachedTrackerItems as jest.MockedFunction<
   typeof listCachedTrackerItems
 >;
+const findAgxMock = findAgxTaskByIdentifier as jest.MockedFunction<
+  typeof findAgxTaskByIdentifier
+>;
 
 beforeEach(() => {
   listMock.mockReset();
+  findAgxMock.mockReset();
 });
 
 describe("linearIssueResolver", () => {
@@ -62,8 +71,22 @@ describe("linearIssueResolver", () => {
 });
 
 describe("agxTaskResolver", () => {
-  test("always returns null until PREFIX-N identifiers land on tasks", async () => {
-    expect(await agxTaskResolver("AGX-1")).toBeNull();
-    expect(await agxTaskResolver("ANYTHING-42")).toBeNull();
+  test("returns agx_task target on identifier match", async () => {
+    findAgxMock.mockResolvedValueOnce({ id: "uuid-task-1" });
+    const result = await agxTaskResolver("TSK-42");
+    expect(result).toEqual({ targetType: "agx_task", targetId: "TSK-42" });
+    expect(findAgxMock).toHaveBeenCalledWith("TSK-42");
+  });
+
+  test("is case-insensitive — normalizes to upper-case for lookup and target id", async () => {
+    findAgxMock.mockResolvedValueOnce({ id: "uuid-task-2" });
+    const result = await agxTaskResolver("tsk-7");
+    expect(result).toEqual({ targetType: "agx_task", targetId: "TSK-7" });
+    expect(findAgxMock).toHaveBeenCalledWith("TSK-7");
+  });
+
+  test("returns null when there is no matching task", async () => {
+    findAgxMock.mockResolvedValueOnce(null);
+    expect(await agxTaskResolver("TSK-404")).toBeNull();
   });
 });
