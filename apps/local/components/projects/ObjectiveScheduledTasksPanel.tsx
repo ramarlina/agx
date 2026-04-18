@@ -88,12 +88,14 @@ function ScheduleEditModal({
   const handleSave = async () => {
     if (!isValid) return;
     setSaving(true);
-    await onUpdate({
+    const ok = await onUpdate({
       cadence: scheduleValue.cadence,
       condition: scheduleValue.condition,
     } as Partial<PromptJob>);
     setSaving(false);
-    onClose();
+    if (ok) {
+      onClose();
+    }
   };
 
   return (
@@ -161,14 +163,10 @@ function ObjectiveScheduledTaskDetailModal({
   const [saving, setSaving] = useState(false);
 
   const savePrompt = async () => {
-    if (promptDraft === job.prompt) {
-      onClose();
-      return;
-    }
+    if (promptDraft === job.prompt) return;
     setSaving(true);
     await onUpdate({ prompt: promptDraft } as Partial<PromptJob>);
     setSaving(false);
-    onClose();
   };
 
   return (
@@ -356,6 +354,18 @@ export function ObjectiveScheduledTasksPanel({
     [scheduleEditJobId, visibleJobs]
   );
 
+  const handleJobUpdate = useCallback(
+    async (jobId: string, updates: Partial<PromptJob>) => {
+      const ok = await updateJob(jobId, updates);
+      if (ok) {
+        setSelectedJobId(jobId);
+        await refresh();
+      }
+      return ok;
+    },
+    [refresh, updateJob]
+  );
+
   return (
     <>
       {showCreate ? (
@@ -372,22 +382,14 @@ export function ObjectiveScheduledTasksPanel({
         <ObjectiveScheduledTaskDetailModal
           job={selectedJob}
           onClose={() => setSelectedJobId(null)}
-          onUpdate={async (updates) => {
-            const ok = await updateJob(selectedJob.id, updates);
-            if (ok) await refresh();
-            return ok;
-          }}
+          onUpdate={(updates) => handleJobUpdate(selectedJob.id, updates)}
         />
       ) : null}
       {scheduleEditJob ? (
         <ScheduleEditModal
           job={scheduleEditJob}
           onClose={() => setScheduleEditJobId(null)}
-          onUpdate={async (updates) => {
-            const ok = await updateJob(scheduleEditJob.id, updates);
-            if (ok) await refresh();
-            return ok;
-          }}
+          onUpdate={(updates) => handleJobUpdate(scheduleEditJob.id, updates)}
         />
       ) : null}
 
@@ -502,6 +504,7 @@ export function ObjectiveScheduledTasksPanel({
                       title="Run now"
                       onClick={async (event) => {
                         event.stopPropagation();
+                        setSelectedJobId(job.id);
                         setBusyId(job.id);
                         await runNow(job.id);
                         setBusyId(null);
