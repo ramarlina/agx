@@ -89,6 +89,7 @@ export function getSQLiteDb(): DatabaseSync {
   // Drop legacy teams tables after migration is complete
   dropLegacyTeamsTables(_db);
   ensureProjectScopedTeamTables(_db);
+  ensureWorkspaceEntriesTable(_db);
 
   return _db;
 }
@@ -150,6 +151,31 @@ function ensureProjectScopedTeamTables(db: DatabaseSync): void {
       FOR EACH ROW
       BEGIN
         UPDATE teams SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE rowid = NEW.rowid;
+      END;
+  `);
+}
+
+function ensureWorkspaceEntriesTable(db: DatabaseSync): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workspace_entries (
+      id TEXT NOT NULL PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      category TEXT NOT NULL,
+      name TEXT NOT NULL,
+      path TEXT DEFAULT NULL,
+      purpose TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      UNIQUE(project_id, category, name)
+    );
+    CREATE INDEX IF NOT EXISTS idx_workspace_entries_project_id ON workspace_entries(project_id);
+
+    CREATE TRIGGER IF NOT EXISTS workspace_entries_updated_at
+      AFTER UPDATE ON workspace_entries
+      FOR EACH ROW
+      BEGIN
+        UPDATE workspace_entries SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE rowid = NEW.rowid;
       END;
   `);
 }
@@ -250,6 +276,7 @@ function runMigrations(db: DatabaseSync): void {
   `);
 
   ensureProjectScopedTeamTables(db);
+  ensureWorkspaceEntriesTable(db);
 
   // Create project_agents table
   db.exec(`
