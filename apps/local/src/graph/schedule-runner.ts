@@ -1,6 +1,5 @@
 import { logger } from '@/lib/logger';
 import { getSQLiteDb } from '@/lib/sqlite-query-adapter';
-import { logger } from '@/lib/logger';
 import {
   automationRecordToGraphSchedule,
   getAutomationRepository,
