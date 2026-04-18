@@ -34,6 +34,7 @@ import { ObjectiveScheduledTasksPanel } from "@/components/projects/ObjectiveSch
 import { ObjectiveActivityTimeline } from "@/components/projects/ObjectiveActivityTimeline";
 import { ObjectiveHealthTrend } from "@/components/projects/ObjectiveHealthTrend";
 import { TrackerIcon } from "@/components/tracking/TrackerIcon";
+import { JumpToLatestButton } from "@/components/chat-ui/JumpToLatestButton";
 import { usePromptJobs } from "@/hooks/usePromptJobs";
 import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { threadService } from "@/services/threadService";
@@ -1725,6 +1726,20 @@ export function ProjectObjectiveDetail({
   const [availableTrackers, setAvailableTrackers] = useState<{ type: string; displayName: string }[]>([]);
   const [defaultTrackerType, setDefaultTrackerType] = useState<string | null>(null);
   const [workingOnObjective, setWorkingOnObjective] = useState(false);
+  const detailScrollRef = useRef<HTMLDivElement | null>(null);
+  const [showBackToTop, setShowBackToTop] = useState(false);
+
+  useEffect(() => {
+    const el = detailScrollRef.current;
+    if (!el) return;
+    const handler = () => setShowBackToTop(el.scrollTop > 400);
+    el.addEventListener("scroll", handler, { passive: true });
+    return () => el.removeEventListener("scroll", handler);
+  }, [objectiveId]);
+
+  const backToTop = useCallback(() => {
+    detailScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
 
   const { jobs: scheduledJobs } = usePromptJobs(project?.id ?? null, {
     requireProjectId: true,
@@ -2189,7 +2204,8 @@ export function ProjectObjectiveDetail({
     <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.1),transparent_28%),var(--background)] text-[var(--foreground)]">
       <div className="flex-1 min-h-0 overflow-hidden">
         <div className="flex h-full min-h-0 flex-col xl:flex-row">
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="relative min-h-0 flex-1 flex flex-col">
+          <div ref={detailScrollRef} className="min-h-0 flex-1 overflow-y-auto">
             <div className="max-w-5xl mx-auto pt-16 px-8 pb-20">
               <ErrorBanner message={saveError} />
 
@@ -2699,6 +2715,8 @@ export function ProjectObjectiveDetail({
                 </section>
               </div>
             </div>
+          </div>
+          <JumpToLatestButton visible={showBackToTop} direction="top" onClick={backToTop} />
           </div>
 
           <ObjectiveChatPanel
