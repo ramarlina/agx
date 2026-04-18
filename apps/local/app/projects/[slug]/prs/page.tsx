@@ -2,6 +2,8 @@
 
 import { use, useCallback, useEffect, useMemo, useState } from "react";
 import type { GithubPr, GithubRepo } from "@/lib/github-types";
+import { useProjectsWithAgents } from "@/hooks/useProjects";
+import { PrComposerPanel } from "@/components/prs/PrComposerPanel";
 
 type QuickFilter = "all" | "mine" | "awaiting_review";
 
@@ -55,7 +57,11 @@ export default function ProjectPrsPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = use(params);
-  void slug;
+  const { projects } = useProjectsWithAgents();
+  const currentProjectId = useMemo(
+    () => projects.find((p) => p.slug === slug)?.id,
+    [projects, slug],
+  );
 
   const [prs, setPrs] = useState<GithubPr[]>([]);
   const [repos, setRepos] = useState<GithubRepo[]>([]);
@@ -221,62 +227,66 @@ export default function ProjectPrsPage({
         {/* Detail panel */}
         <div className="hidden w-[380px] shrink-0 flex-col border-l border-neutral-800 md:flex">
           {selectedPr ? (
-            <div className="flex flex-col gap-3 overflow-y-auto p-4 text-sm">
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs text-neutral-500">
-                  {selectedPr.repoId}#{selectedPr.number}
-                </span>
-                <span
-                  className={`rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${statePillClasses(selectedPr)}`}
-                >
-                  {stateLabel(selectedPr)}
-                </span>
-                <span
-                  className={`text-xs ${ciIcon(selectedPr.ciStatus).color}`}
-                >
-                  {ciIcon(selectedPr.ciStatus).symbol}
-                </span>
-              </div>
-              <div className="text-base font-semibold text-neutral-100">
-                {selectedPr.title}
-              </div>
-              <div className="whitespace-pre-wrap text-xs text-neutral-400">
-                {selectedPr.body.length > 500
-                  ? selectedPr.body.slice(0, 500) + "…"
-                  : selectedPr.body || "(no description)"}
-              </div>
-              <div>
-                <div className="text-[11px] uppercase tracking-wide text-neutral-500">
-                  Reviewers
+            <>
+              <div className="flex shrink-0 flex-col gap-3 border-b border-neutral-800 p-4 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs text-neutral-500">
+                    {selectedPr.repoId}#{selectedPr.number}
+                  </span>
+                  <span
+                    className={`rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${statePillClasses(selectedPr)}`}
+                  >
+                    {stateLabel(selectedPr)}
+                  </span>
+                  <span
+                    className={`text-xs ${ciIcon(selectedPr.ciStatus).color}`}
+                  >
+                    {ciIcon(selectedPr.ciStatus).symbol}
+                  </span>
                 </div>
-                {selectedPr.reviewers.length === 0 ? (
-                  <div className="text-xs text-neutral-500">None</div>
-                ) : (
-                  <ul className="mt-1 flex flex-col gap-0.5">
-                    {selectedPr.reviewers.map((r) => (
-                      <li
-                        key={r.login}
-                        className="flex items-center justify-between text-xs"
-                      >
-                        <span>@{r.login}</span>
-                        <span className="text-neutral-500">{r.state}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                <div className="text-base font-semibold text-neutral-100">
+                  {selectedPr.title}
+                </div>
+                <div className="whitespace-pre-wrap text-xs text-neutral-400">
+                  {selectedPr.body.length > 500
+                    ? selectedPr.body.slice(0, 500) + "…"
+                    : selectedPr.body || "(no description)"}
+                </div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-neutral-500">
+                    Reviewers
+                  </div>
+                  {selectedPr.reviewers.length === 0 ? (
+                    <div className="text-xs text-neutral-500">None</div>
+                  ) : (
+                    <ul className="mt-1 flex flex-col gap-0.5">
+                      {selectedPr.reviewers.map((r) => (
+                        <li
+                          key={r.login}
+                          className="flex items-center justify-between text-xs"
+                        >
+                          <span>@{r.login}</span>
+                          <span className="text-neutral-500">{r.state}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <a
+                  href={selectedPr.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-block self-start rounded border border-neutral-700 bg-neutral-800 px-2.5 py-1 text-xs hover:bg-neutral-700"
+                >
+                  Open on GitHub ↗
+                </a>
               </div>
-              <a
-                href={selectedPr.url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-block rounded border border-neutral-700 bg-neutral-800 px-2.5 py-1 text-xs hover:bg-neutral-700"
-              >
-                Open on GitHub ↗
-              </a>
-              <div className="mt-auto rounded border border-dashed border-neutral-700 p-3 text-xs text-neutral-500">
-                Composer coming soon
-              </div>
-            </div>
+              <PrComposerPanel
+                pr={selectedPr}
+                projectId={currentProjectId}
+                projectSlug={slug}
+              />
+            </>
           ) : (
             <div className="flex h-full items-center justify-center p-4 text-xs text-neutral-500">
               Select a PR to see details.
