@@ -138,7 +138,7 @@ export default function GraphDetailSidebar({ graph, task, style, className, task
       {/* Task Properties */}
       <SidebarSection title="Task" collapsed={collapsed["task"]} onToggle={() => toggle("task")}>
         <div className="text-xs space-y-1.5">
-          <PropRow label="ID" value={task.slug || task.id.slice(0, 8)} mono />
+          <PropRow label="ID" value={task.identifier || task.slug || task.id.slice(0, 8)} mono />
           <PropRow label="Stage" value={task.stage || "N/A"} />
           <PropRow label="Status" value={task.status || "queued"} />
           <PropRow label="Created" value={formatTimestamp(task.created_at)} />

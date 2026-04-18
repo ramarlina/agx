@@ -29,6 +29,7 @@ export interface Task {
   // Extracted/indexed fields:
   title?: string;
   slug?: string;
+  identifier?: string | null;
   status?: TaskStatus;
   stage?: TaskStage;
   depends_on?: string[];
