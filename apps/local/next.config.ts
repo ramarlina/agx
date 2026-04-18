@@ -56,7 +56,7 @@ const nextConfig: NextConfig = {
               "default-src 'self'",
               "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://us-assets.i.posthog.com", // Next.js needs unsafe-eval in dev
               "style-src 'self' 'unsafe-inline'",
-              `connect-src 'self' ${getConfiguredBoardBaseUrl()} https://www.google-analytics.com https://us.i.posthog.com https://us-assets.i.posthog.com`,
+              `connect-src 'self' ${getConfiguredBoardBaseUrl()} https://api.github.com https://www.google-analytics.com https://us.i.posthog.com https://us-assets.i.posthog.com`,
               "img-src 'self' data: https:",
               "font-src 'self' data:",
               "frame-ancestors 'self'",
