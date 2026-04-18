@@ -4,6 +4,7 @@ import React from "react";
 import { CheckCircle2, Key, Globe, Loader2, AlertCircle, Terminal, LogOut } from "lucide-react";
 import { TrackerIcon } from "./TrackerIcon";
 import GithubRepoManager from "./GithubRepoManager";
+import ConfirmDialog from "../ConfirmDialog";
 
 interface TrackerSetupProps {
   trackerType: string;
@@ -46,6 +47,7 @@ export default function TrackerSetup({
   const [saving, setSaving] = React.useState(false);
   const [installingCli, setInstallingCli] = React.useState<string | null>(null);
   const [mcpErrors, setMcpErrors] = React.useState<Record<string, string>>({});
+  const [confirmDisconnect, setConfirmDisconnect] = React.useState(false);
 
   const installMcp = async (cli: string) => {
     if (!onConfigureMcp) return;
@@ -89,7 +91,7 @@ export default function TrackerSetup({
           </div>
           {onDisconnect && (
             <button
-              onClick={onDisconnect}
+              onClick={() => setConfirmDisconnect(true)}
               className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-destructive transition-colors mt-1"
             >
               <LogOut className="h-3.5 w-3.5" />
@@ -98,7 +100,27 @@ export default function TrackerSetup({
           )}
         </div>
 
-        {trackerType === "github" && <GithubRepoManager />}
+        {trackerType === "github" && <GithubRepoManager projectId={projectId} />}
+
+        {onDisconnect && (
+          <ConfirmDialog
+            isOpen={confirmDisconnect}
+            title={`Disconnect ${trackerType}?`}
+            message={
+              trackerType === "github"
+                ? "This revokes the stored credentials. Your attached repositories and synced history stay — reconnecting will resume where you left off."
+                : `This revokes the stored credentials for ${trackerType}. Project settings and synced history stay.`
+            }
+            confirmLabel="Disconnect"
+            cancelLabel="Cancel"
+            variant="danger"
+            onConfirm={() => {
+              setConfirmDisconnect(false);
+              onDisconnect();
+            }}
+            onCancel={() => setConfirmDisconnect(false)}
+          />
+        )}
 
         {trackerType !== "github" && activeClis.length > 0 && (
           <div className="w-full max-w-md">
