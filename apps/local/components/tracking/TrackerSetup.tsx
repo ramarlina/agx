@@ -3,6 +3,7 @@
 import React from "react";
 import { CheckCircle2, Key, Globe, Loader2, AlertCircle, Terminal, LogOut } from "lucide-react";
 import { TrackerIcon } from "./TrackerIcon";
+import GithubRepoManager from "./GithubRepoManager";
 
 interface TrackerSetupProps {
   trackerType: string;
@@ -97,7 +98,9 @@ export default function TrackerSetup({
           )}
         </div>
 
-        {activeClis.length > 0 && (
+        {trackerType === "github" && <GithubRepoManager />}
+
+        {trackerType !== "github" && activeClis.length > 0 && (
           <div className="w-full max-w-md">
             <div className="border rounded-xl p-5 flex flex-col gap-4">
               <div className="flex items-center gap-2">
@@ -200,16 +203,18 @@ export default function TrackerSetup({
           Connect with OAuth
         </button>
 
-        <button
-          onClick={() => {
-            setShowKeyInput(!showKeyInput);
-            setKeyError(null);
-          }}
-          className="flex items-center justify-center gap-2 w-full px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors font-medium"
-        >
-          <Key className="h-3.5 w-3.5" />
-          {showKeyInput ? "Use OAuth instead" : "Connect with API key"}
-        </button>
+        {trackerType !== "github" && (
+          <button
+            onClick={() => {
+              setShowKeyInput(!showKeyInput);
+              setKeyError(null);
+            }}
+            className="flex items-center justify-center gap-2 w-full px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors font-medium"
+          >
+            <Key className="h-3.5 w-3.5" />
+            {showKeyInput ? "Use OAuth instead" : "Connect with API key"}
+          </button>
+        )}
 
         {/* Animated API Key Section */}
         <div className={`grid transition-all duration-300 ease-in-out ${showKeyInput ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0 pointer-events-none'}`}>

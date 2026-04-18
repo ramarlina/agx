@@ -3,11 +3,13 @@
 import type { ComponentType } from "react";
 import { LinearIcon } from "@/lib/tracker/adapters/linear/linear-icon";
 import { JiraIcon } from "@/lib/tracker/adapters/jira/jira-icon";
+import { GitHubIcon } from "@/lib/tracker/adapters/github/github-icon";
 
 /** Client-side icon map — the adapter registry is server-only. */
 const TRACKER_ICONS: Record<string, ComponentType<{ className?: string }>> = {
   linear: LinearIcon,
   jira: JiraIcon,
+  github: GitHubIcon,
 };
 
 interface TrackerIconProps {
