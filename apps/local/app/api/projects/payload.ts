@@ -62,12 +62,28 @@ function parseProjectRepos(value: unknown): ProjectRepoInput[] | undefined {
   return repos;
 }
 
+function parseIdentifierPrefix(value: unknown): string | null | undefined {
+  if (value === null) return null;
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.toUpperCase();
+}
+
 export function buildProjectInput(body: Record<string, unknown>): ProjectInput {
-  return {
+  const input: ProjectInput = {
     name: String(body.name ?? "").trim(),
     description: typeof body.description === "string" ? body.description.trim() : undefined,
     repos: parseProjectRepos(body.repos),
   };
+  if (Object.prototype.hasOwnProperty.call(body, "identifier_prefix")) {
+    const prefix = parseIdentifierPrefix(body.identifier_prefix);
+    if (prefix !== undefined) {
+      input.identifier_prefix = prefix;
+    }
+  }
+  return input;
 }
 
 export function buildProjectUpdatePayload(body: Record<string, unknown>): ProjectUpdatePayload {
@@ -100,6 +116,12 @@ export function buildProjectUpdatePayload(body: Record<string, unknown>): Projec
   if (Object.prototype.hasOwnProperty.call(body, "repos")) {
     const normalizedRepos = parseProjectRepos(body.repos);
     payload.repos = normalizedRepos ?? [];
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "identifier_prefix")) {
+    const prefix = parseIdentifierPrefix(body.identifier_prefix);
+    if (prefix !== undefined) {
+      payload.identifier_prefix = prefix;
+    }
   }
 
   return payload;

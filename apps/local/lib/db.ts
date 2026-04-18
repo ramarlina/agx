@@ -147,6 +147,24 @@ export interface ProjectInput {
   description?: string;
   repos?: ProjectRepoInput[];
   workflow_id?: string;
+  identifier_prefix?: string | null;
+}
+
+/** Prefix validation for per-project task identifiers (e.g. "TSK", "AGX"). */
+export const IDENTIFIER_PREFIX_REGEX = /^[A-Z]{2,10}$/;
+
+export function validateIdentifierPrefix(prefix: unknown): string | null {
+  if (prefix === null || prefix === undefined || prefix === "") return null;
+  if (typeof prefix !== "string") {
+    throw new Error("identifier_prefix must be a string");
+  }
+  const trimmed = prefix.trim().toUpperCase();
+  if (!IDENTIFIER_PREFIX_REGEX.test(trimmed)) {
+    throw new Error(
+      "identifier_prefix must be 2-10 uppercase ASCII letters (e.g. 'TSK', 'AGX')"
+    );
+  }
+  return trimmed;
 }
 
 // ============ WORKFLOWS ============
@@ -201,6 +219,7 @@ export interface ProjectUpdatePayload {
   ci_cd_info?: string | null;
   workflow_id?: string | null;
   repos?: ProjectRepoInput[];
+  identifier_prefix?: string | null;
 }
 
 function isMissingRelationError(error: any, relation: string): boolean {
@@ -832,6 +851,29 @@ export async function createTask(
   const optionDepends = normalizeDependsOnInput(options?.dependsOn);
   const dependsOn = optionDepends.length > 0 ? optionDepends : frontmatterDepends;
 
+  // Allocate a user-visible identifier like "TSK-42" if the project has a prefix set.
+  let identifier: string | null = null;
+  if (projectId) {
+    try {
+      const { data: projectRow } = await db
+        .from("projects")
+        .select("identifier_prefix, next_identifier")
+        .eq("id", projectId)
+        .single();
+      if (projectRow && typeof projectRow.identifier_prefix === "string" && projectRow.identifier_prefix) {
+        const n = typeof projectRow.next_identifier === "number" ? projectRow.next_identifier : 1;
+        identifier = `${projectRow.identifier_prefix}-${n}`;
+        await db
+          .from("projects")
+          .update({ next_identifier: n + 1 })
+          .eq("id", projectId);
+      }
+    } catch {
+      // If the columns don't exist yet (pre-migration) or the project is missing, skip.
+      identifier = null;
+    }
+  }
+
   const insertPayload: any = {
     id: randomUUID(),
     content,
@@ -843,6 +885,7 @@ export async function createTask(
     project: projectSlug || null,
     ...(projectId !== undefined ? { project_id: projectId } : {}),
     ...(workflowId !== undefined ? { workflow_id: workflowId } : {}),
+    ...(identifier !== null ? { identifier } : {}),
     priority: frontmatter.priority,
     engine,
     provider,
@@ -872,7 +915,7 @@ export async function createTask(
     const {
       swarm_models, swarm, workflow_id,
       current_plan, open_blockers, next_action, version,
-      depends_on,
+      depends_on, identifier: _identifier,
       ...fallbackPayload
     } = insertPayload;
     ({ data, error } = await db
@@ -1271,15 +1314,29 @@ export async function createProject(
   const baseSlug = input.name.trim() || "project";
   const slug = await generateUniqueProjectSlug(baseSlug, userId, db);
 
-  const payload = {
+  const identifierPrefix = validateIdentifierPrefix(input.identifier_prefix);
+
+  const payload: Record<string, unknown> = {
     user_id: userId,
     name: input.name.trim(),
     slug,
     description: input.description ?? null,
     workflow_id: input.workflow_id ?? null,
   };
+  if (identifierPrefix !== null) {
+    payload.identifier_prefix = identifierPrefix;
+  }
 
-  const { data: project, error } = await db.from("projects").insert(payload).select("*").single();
+  let { data: project, error } = await db.from("projects").insert(payload).select("*").single();
+  if (error && error.code === "42703") {
+    // Older schemas may not have identifier_prefix yet.
+    const { identifier_prefix: _ignored, ...fallback } = payload;
+    ({ data: project, error } = await db
+      .from("projects")
+      .insert(fallback)
+      .select("*")
+      .single());
+  }
   if (error) throw error;
 
   const repos = await insertProjectRepos(project.id, input.repos ?? [], db);
@@ -1322,6 +1379,9 @@ export async function updateProject(
   if (typeof updates.metadata !== "undefined") updatePayload.metadata = updates.metadata;
   if (typeof updates.ci_cd_info !== "undefined") updatePayload.ci_cd_info = updates.ci_cd_info;
   if (typeof updates.workflow_id !== "undefined") updatePayload.workflow_id = updates.workflow_id;
+  if (typeof updates.identifier_prefix !== "undefined") {
+    updatePayload.identifier_prefix = validateIdentifierPrefix(updates.identifier_prefix);
+  }
 
   if (Object.keys(updatePayload).length) {
     const { error } = await db
