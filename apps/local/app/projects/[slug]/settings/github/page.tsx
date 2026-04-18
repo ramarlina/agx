@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { Loader2, Plus, X } from "lucide-react";
 import { useProjectsWithAgents } from "@/hooks/useProjects";
@@ -183,7 +184,13 @@ function GithubSettingsView({
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-8">
       <header>
-        <h1 className="text-xl font-semibold">GitHub</h1>
+        <Link
+          href="../settings"
+          className="text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+        >
+          ← Project settings
+        </Link>
+        <h1 className="text-xl font-semibold mt-1">GitHub</h1>
         <p className="text-sm text-zinc-500 mt-1">
           Connect {projectName} to GitHub to sync pull requests and review comments.
         </p>

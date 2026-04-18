@@ -1146,6 +1146,16 @@ export function WorkspaceSidebar({
                         </Link>
                       </div>
                     )}
+                    <div className="workspace-sidebar__workspace-item">
+                      <Link
+                        href={`/projects/${selectedProject.slug}/settings`}
+                        onClick={closeTouchDrawer}
+                        className="workspace-sidebar__nav-item"
+                      >
+                        <Settings size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                        <span className="workspace-sidebar__workspace-title text-sm">Settings</span>
+                      </Link>
+                    </div>
                   </div>
                 </div>
               )}
