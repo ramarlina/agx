@@ -191,6 +191,9 @@ agx deps <task> [--depends-on <task> ... | --clear]    # Manage dependencies
 agx project list                           # List projects
 agx repo add . --project my-project        # Analyze current repo and attach it
 agx repo add ../service --project my-project --name API
+agx workspace list --project my-project    # Show workspace map entries by category
+agx workspace add repos backend /code/api --project my-project
+agx workspace remove repos backend --project my-project
 ```
 
 ### Environment Variables
