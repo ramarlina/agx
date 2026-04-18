@@ -114,7 +114,7 @@ export interface ListGithubPrsInput {
 export function listGithubPrs(input: ListGithubPrsInput = {}): GithubPr[] {
   return withGithubDatabase((db) => {
     const clauses: string[] = [];
-    const params: unknown[] = [];
+    const params: (string | number | null)[] = [];
     if (input.repoId) {
       clauses.push("repo_id = ?");
       params.push(input.repoId);
