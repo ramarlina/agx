@@ -16,12 +16,15 @@
   <a href="https://www.npmjs.com/package/@mndrk/agx"><img src="https://img.shields.io/npm/v/@mndrk/agx?color=orange&style=flat-square" alt="NPM Version"></a>
   <a href="https://github.com/ramarlina/agx/stargazers"><img src="https://img.shields.io/github/stars/ramarlina/agx?color=blue&style=flat-square" alt="GitHub Stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="License"></a>
-  <a href="https://github.com/ramarlina/agx/pulls?q=is%3Apr+is%3Amerged"><img src="https://img.shields.io/badge/PRs_merged_by_agents-167-blueviolet?style=flat-square" alt="Agent PRs"></a>
 </p>
 
 ```bash
 npm install -g @mndrk/agx && agx init
 ```
+
+<p align="center">
+  AGX is a local workspace for running coding agents across your tickets, repos, and PRs — you stay the author.
+</p>
 
 <!-- 🎬 Terminal demo — drop a GIF or mp4 here showing: agx new → agent runs → checkpoint → resume -->
 <p align="center">
@@ -53,8 +56,6 @@ AGX is my attempt to solve that. It's an exploration of what it would take to us
 
 Ships as a CLI, a local web dashboard, and a macOS desktop app — all from one repo.
 
-> **Dogfooded hard:** 133 PRs and 500+ commits merged by AGX agents building AGX itself. [Read more →](https://runagx.com/blog)
-
 ### What staying in control looks like
 
 | | Ad-hoc agent usage | AGX |
@@ -64,6 +65,7 @@ Ships as a CLI, a local web dashboard, and a macOS desktop app — all from one 
 | **Multi-session tasks** | Manual context stitching | Wake / work / sleep loop, picks up where it left off |
 | **Crash recovery** | Lost work | Checkpointed state survives restarts |
 | **Human gates** | Whatever you remember to check | Built-in approve/reject before anything irreversible |
+| **PR review** | Read the diff cold, guess at intent | First pass from a reviewer agent — you review what actually needs your judgment |
 | **Provider lock-in** | One provider per session | Switch Claude ↔ Codex ↔ Gemini ↔ Ollama freely |
 | **Observability** | Terminal scrollback | Dashboard, live presence, execution logs |
 
@@ -80,6 +82,8 @@ agx run 1                  # Watch the agent work
 # ...close your laptop, come back tomorrow...
 agx run 1                  # Resumes instantly from the last checkpoint
 ```
+
+For the full ticket → agent → PR loop (Jira or Linear in, PR out), use the board: `agx board start`.
 
 ## Get AGX
 
@@ -135,21 +139,11 @@ Resuming is constant-cost. A task that ran for a week resumes as fast as one tha
 
 ### Architecture
 
-```
-┌──────────────┐   ┌──────────────┐   ┌────────────┐
-│ Dashboard    │◄─►│ SQLite       │◄─►│ Task Queue │
-│ (Next.js)    │   │ Durable State│   │            │
-└──────────────┘   └──────────────┘   └────────────┘
-
-┌──────────────┐   ┌──────────────┐   ┌────────────┐
-│ AI Provider  │◄─►│ AGX CLI      │◄─►│ AGX Daemon │
-│ C/Codex/G/O  │   │              │   │            │
-└──────────────┘   └──────────────┘   └────────────┘
-```
-
 - **State layer** — SQLite (WAL mode), durable checkpoints, task queueing
 - **Execution layer** — CLI + daemon, provider tool calls, filesystem edits
 - **Decision layer** — Execution graph runtime + human gate transitions
+
+Everything runs locally. Your code never leaves your machine.
 
 ---
 
@@ -222,7 +216,7 @@ agx config                     # Reconfigure providers, models, backend URL
 
 - **Node.js** >= 22.16.0 (CLI install only; desktop app bundles its own runtime)
 - **At least one AI provider CLI:**
-  [Claude Code](https://docs.anthropic.com/claude/docs/claude-cli) ·
+  [Claude Code](https://claude.com/claude-code) ·
   [Codex CLI](https://www.npmjs.com/package/@openai/codex) ·
   [Gemini CLI](https://ai.google.dev/gemini-api/docs/cli) ·
   [Ollama](https://ollama.ai/)
@@ -327,6 +321,6 @@ MIT
 ---
 
 <p align="center">
-  <strong>Stop re-explaining context. Let your agents remember.</strong><br><br>
+  <strong>Direct the work. Let agents handle the busywork. Stay the author.</strong><br><br>
   <a href="https://github.com/ramarlina/agx/stargazers">⭐ Star this repo</a> if AGX saves you time · <a href="https://github.com/ramarlina/agx/issues">Report a bug</a> · <a href="https://runagx.com">runagx.com</a>
 </p>
