@@ -14,6 +14,7 @@ export interface Task {
   content: string;
   description?: string;
   title?: string;
+  identifier?: string | null;
   status?: TaskStatus;
   stage?: TaskStage;
   depends_on?: string[];
@@ -166,6 +167,11 @@ export default function TaskCard({
         <h3 className={`text-sm font-medium text-[var(--foreground)] leading-snug line-clamp-2 sm:line-clamp-3
           ${task.status === 'completed' ? 'text-[var(--muted-foreground)] line-through' : ''}
         `}>
+          {task.identifier ? (
+            <span className="mr-1.5 inline-block rounded bg-[var(--secondary)] px-1.5 py-0.5 align-middle font-mono text-[10px] font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+              {task.identifier}
+            </span>
+          ) : null}
           {task.title || "Untitled Task"}
         </h3>
 
@@ -211,7 +217,7 @@ export default function TaskCard({
               </span>
             )
           )}
-          {task.id !== 'draft' && (
+          {task.id !== 'draft' && !task.identifier && (
             <span className="opacity-0 group-hover:opacity-100 transition-opacity font-mono text-[9px]">
               {task.id.slice(0, 5)}
             </span>

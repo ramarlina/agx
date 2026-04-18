@@ -22,6 +22,8 @@ export interface Project {
   metadata: Record<string, unknown>;
   ci_cd_info?: string;
   workflow_id?: string | null;
+  identifier_prefix?: string | null;
+  next_identifier?: number;
   created_at: string;
   updated_at: string;
 }
@@ -71,6 +73,7 @@ export interface UpdateProjectPayload {
   metadata?: Record<string, unknown>;
   ci_cd_info?: string;
   repos?: ProjectRepoInput[];
+  identifier_prefix?: string | null;
 }
 
 interface ProjectAgentData {

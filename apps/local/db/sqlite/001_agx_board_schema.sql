@@ -66,7 +66,9 @@ CREATE TABLE IF NOT EXISTS projects (
     ci_cd_info TEXT,
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
-    workflow_id TEXT REFERENCES workflows(id)
+    workflow_id TEXT REFERENCES workflows(id),
+    identifier_prefix TEXT,
+    next_identifier INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS project_repos (
@@ -177,6 +179,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     next_action TEXT,
     swarm INTEGER,
     graph_id TEXT,
+    identifier TEXT,
     CHECK (created_by IN ('user', 'ai')),
     CHECK (status IN ('queued', 'in_progress', 'blocked', 'completed', 'failed'))
 );
@@ -536,6 +539,8 @@ CREATE INDEX IF NOT EXISTS idx_graph_nodes_graph_id ON graph_nodes (graph_id);
 CREATE INDEX IF NOT EXISTS idx_graph_edges_graph_id ON graph_edges (graph_id);
 CREATE INDEX IF NOT EXISTS idx_graph_events_graph_id_timestamp ON graph_events (graph_id, "timestamp");
 CREATE INDEX IF NOT EXISTS idx_tasks_graph_id ON tasks (graph_id) WHERE graph_id IS NOT NULL;
+-- Note: idx_tasks_identifier is created by runTaskIdentifierMigration() after
+-- ensuring the identifier column exists on pre-existing DBs.
 
 -- ── Triggers ────────────────────────────────────────────────────────────────
 -- SQLite BEFORE triggers cannot modify NEW values. We use AFTER UPDATE triggers
