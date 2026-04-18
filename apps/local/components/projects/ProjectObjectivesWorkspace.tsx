@@ -25,7 +25,9 @@ import { useGroupChat } from "@/hooks/useGroupChat";
 import { useProcessPolling } from "@/hooks/useProcessPolling";
 import { Composer } from "@/components/chat-ui/Composer";
 import { Markdown } from "@/components/chat-ui/Markdown";
+import { StreamingSegments } from "@/components/chat-ui/StreamingSegments";
 import { agentAvatarUrl } from "@/components/chat-ui/ParticipantBar";
+import { stripMarkers } from "@/lib/chat-utils";
 import RichTextEditor from "@/components/RichTextEditor";
 import SearchCombo, { type ComboOption } from "@/components/SearchCombo";
 import { ObjectiveScheduledTasksPanel } from "@/components/projects/ObjectiveScheduledTasksPanel";
@@ -1232,8 +1234,12 @@ function ObjectiveChatPanel({
                           })}
                         </span>
                       </div>
-                      <div className="mt-2 rounded-2xl border border-[var(--border)] bg-[var(--overlay-panel-muted)] px-4 py-3 text-sm text-[var(--foreground)]">
-                        <Markdown content={message.content} isUser={message.role === "user"} />
+                      <div className="mt-2 rounded-2xl border border-[var(--border)] bg-[var(--overlay-panel-muted)] px-4 py-3 text-[15px] leading-relaxed text-[var(--foreground)]">
+                        {message.role === "user" ? (
+                          <Markdown content={stripMarkers(message.content)} isUser />
+                        ) : (
+                          <StreamingSegments content={stripMarkers(message.content)} />
+                        )}
                       </div>
                     </div>
                   </div>
