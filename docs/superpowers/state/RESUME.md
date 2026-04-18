@@ -5,7 +5,31 @@
 **Spec:** `docs/superpowers/specs/2026-04-17-github-integration-design.md`
 **Plan:** `docs/superpowers/plans/2026-04-17-github-integration-phase1.md` (Phase 1)
 
-## Status: Phase 1 + 2a + 2b + 2c + 3a + 3b — COMPLETE ✅
+## Status: Phase 1 + 2a + 2b + 2c + 3a + 3b + 4a + 4b + 4c — COMPLETE ✅
+
+### Phase 4a — Task identifier backend ✅
+- `projects.identifier_prefix TEXT`, `projects.next_identifier INTEGER` (validation `/^[A-Z]{2,10}$/`)
+- `tasks.identifier TEXT` with partial unique index per project
+- Idempotent migration via `runTaskIdentifierMigration` (called from `runMigrations`)
+- `createTask` allocates `{PREFIX}-{N}` when project has prefix; counter bumped atomically
+- `createProject` / `updateProject` / API payload builder accept `identifier_prefix`
+- `agxTaskResolver` does real lookup via `findAgxTaskByIdentifier`
+- **47/47 tests green**, no regressions
+
+### Phase 4b — Task identifier UI ✅
+- `/projects/[slug]/settings/page.tsx` — general settings page with prefix input (upper-case auto, blur validation, Save + Clear)
+- Sidebar Settings link added
+- `TaskCard` shows `identifier` as mono pill left of title
+- `GraphDetailSidebar` prefers `task.identifier` over slug/uuid
+- `Task` interface + `Project` / `UpdateProjectPayload` hooks updated
+
+### Phase 4c — Composer on PR detail ✅
+- `PrComposerPanel` reuses `Composer`, `useGroupChat`, `useProcessPolling`, `useTrackerParticipants`
+- Deterministic `threadId` per PR via `uuidv5(pr.id, NAMESPACE)` — reopening the same PR continues the same conversation
+- First-send prompt prefix injects PR context (`repoId#N`, title, URL)
+- Small in-file `PrSessionList` groups messages by `rootMessageId` (no PR-runs table needed)
+- Detail pane restructured: header fixed, composer flex-1 at bottom
+
 
 ### Phase 1 — Backend foundations ✅
 - Types, SQLite schema, per-project token store
