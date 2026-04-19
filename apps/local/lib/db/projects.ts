@@ -479,7 +479,7 @@ export async function setProjectVariable(
   const db = createAdminDbClient();
   const { data, error } = await db
     .from("project_variables")
-    .upsert({ project_id: projectId, key, value })
+    .upsert({ project_id: projectId, key, value }, { onConflict: "project_id,key" })
     .select()
     .single();
 
