@@ -7,6 +7,7 @@ import {
 } from './constants';
 
 type NotificationWebhookRaw = Record<string, any>;
+const WEBHOOK_DELIVERY_TIMEOUT_MS = 10_000;
 
 export interface NotificationWebhookRecord {
   id: string;
@@ -49,6 +50,30 @@ export interface NotificationEventPayload {
 }
 
 export class SchemaNotReadyError extends Error {}
+
+function normalizeWebhookUrl(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new Error('Webhook URL is required');
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error('Webhook URL is required');
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw new Error('Webhook URL must be a valid URL');
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Webhook URL must use http or https');
+  }
+
+  return parsed.toString();
+}
 
 function isMissingRelationError(error: unknown, relation: string): boolean {
   if (!error || typeof error !== 'object') return false;
@@ -149,10 +174,7 @@ export async function createNotificationWebhook(
   userId: string,
   input: NotificationWebhookCreateInput
 ): Promise<NotificationWebhookRecord> {
-  const url = typeof input.url === 'string' ? input.url.trim() : '';
-  if (!url) {
-    throw new Error('Webhook URL is required');
-  }
+  const url = normalizeWebhookUrl(input.url);
 
   const events = normalizeEvents(input.events);
   if (!events.length) {
@@ -193,11 +215,7 @@ export async function updateNotificationWebhook(
   const updates: Record<string, unknown> = {};
 
   if (input.url !== undefined) {
-    const url = input.url ? input.url.trim() : '';
-    if (!url) {
-      throw new Error('Webhook URL cannot be empty');
-    }
-    updates.url = url;
+    updates.url = normalizeWebhookUrl(input.url);
   }
 
   if (input.name !== undefined) {
@@ -292,11 +310,14 @@ export async function notifyTaskEvent(payload: NotificationEventPayload): Promis
 
   await Promise.all(
     targets.map(async (endpoint) => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), WEBHOOK_DELIVERY_TIMEOUT_MS);
       try {
         const response = await fetch(endpoint.url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
+          signal: controller.signal,
         });
         if (!response.ok) {
           logger.error(
@@ -305,6 +326,8 @@ export async function notifyTaskEvent(payload: NotificationEventPayload): Promis
         }
       } catch (error) {
         logger.error(`[notifications] failed to send to ${endpoint.url}`, logger.formatError(error));
+      } finally {
+        clearTimeout(timeout);
       }
     })
   );
