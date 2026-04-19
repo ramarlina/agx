@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPromptJobStore } from '@/src/prompt-scheduler/get-store';
+import { PromptJobDeleteError } from '@/src/prompt-scheduler/store';
 import {
   normalizeLegacyConditionSchedule,
   parseCadence,
@@ -120,6 +121,10 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     store.deleteJob(id);
     return NextResponse.json({ success: true });
   } catch (error) {
+    if (error instanceof PromptJobDeleteError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
+
     logger.error('Failed to delete prompt job', logger.formatError(error));
     return NextResponse.json(
       { error: 'Failed to delete prompt job', message: error instanceof Error ? error.message : String(error) },

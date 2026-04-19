@@ -162,6 +162,16 @@ interface PromptJobListFilter {
   includeObjectiveJobs?: boolean;
 }
 
+export class PromptJobDeleteError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "PromptJobDeleteError";
+  }
+}
+
 function rowToJob(row: PromptJobRow): PromptJob {
   const executionMode: PromptJobExecutionMode =
     row.execution_mode === "objective_linear_ticket" || row.execution_mode === "objective_worker"
@@ -444,7 +454,14 @@ export class PromptJobStore {
   deleteJob(id: string): void {
     const job = this.getJob(id);
     if (job?.builtIn) {
-      throw new Error('Cannot delete built-in job. Use pause instead.');
+      throw new PromptJobDeleteError("Cannot delete built-in job. Use pause instead.", 400);
+    }
+
+    if (this.hasRunningRun(id)) {
+      throw new PromptJobDeleteError(
+        "Cannot delete a scheduled task while a run is queued or running. Cancel the active run first.",
+        409,
+      );
     }
 
     if (isAutomationFrontmatterEnabled()) {

@@ -81,7 +81,7 @@ function makeJob(overrides: Partial<PromptJob> = {}): PromptJob {
 
 describe("ObjectiveScheduledTasksPanel", () => {
   const refresh = jest.fn().mockResolvedValue(undefined);
-  const deleteJob = jest.fn().mockResolvedValue(true);
+  const deleteJob = jest.fn().mockResolvedValue({ ok: true });
   const toggleJob = jest.fn().mockResolvedValue(true);
   const updateJob = jest.fn().mockResolvedValue(true);
   const fetchRuns = jest.fn<Promise<PromptRun[]>, [string]>().mockResolvedValue([]);

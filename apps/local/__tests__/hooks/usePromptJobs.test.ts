@@ -61,4 +61,31 @@ describe("usePromptJobs", () => {
       "/api/prompt-jobs?projectId=project-1&includeObjectiveJobs=true"
     );
   });
+
+  test("surfaces server delete errors instead of collapsing them to false", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ jobs: [{ id: "job-1", name: "Objective job" }] }),
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error:
+          "Cannot delete a scheduled task while a run is queued or running. Cancel the active run first.",
+      }),
+    });
+
+    const { result } = renderHook(() => usePromptJobs("project-1", { requireProjectId: true }));
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    await expect(result.current.deleteJob("job-1")).resolves.toEqual({
+      ok: false,
+      error:
+        "Cannot delete a scheduled task while a run is queued or running. Cancel the active run first.",
+    });
+  });
 });

@@ -25,11 +25,18 @@ function createTestDb(): DatabaseSync {
     path.join(process.cwd(), 'db/sqlite/004_prompt_runs_host_pid.sql'),
     'utf8',
   );
+  const schema4 = fs.readFileSync(
+    path.join(process.cwd(), 'db/sqlite/006_prompt_jobs_execution_mode.sql'),
+    'utf8',
+  );
 
   // Schema 1 has PRAGMA journal_mode = WAL which doesn't apply to :memory: but is safe to exec
   db.exec(schema1);
   db.exec(schema2);
   for (const stmt of schema3.replace(/^\s*--.*$/gm, '').split(';').map(s => s.trim()).filter(Boolean)) {
+    db.exec(stmt);
+  }
+  for (const stmt of schema4.replace(/^\s*--.*$/gm, '').split(';').map(s => s.trim()).filter(Boolean)) {
     db.exec(stmt);
   }
 
@@ -409,8 +416,22 @@ Check the inbox
     it('cascades to runs on delete', () => {
       const job = store.createJob(makeInput());
       const run = store.createRun(job.id);
+      store.updateRun(run.id, {
+        status: 'success',
+        finishedAt: new Date().toISOString(),
+      });
       store.deleteJob(job.id);
       expect(store.getRun(run.id)).toBeNull();
+    });
+
+    it('rejects deleting a job while work is queued or running', () => {
+      const job = store.createJob(makeInput());
+      store.createRun(job.id);
+
+      expect(() => store.deleteJob(job.id)).toThrow(
+        'Cannot delete a scheduled task while a run is queued or running. Cancel the active run first.',
+      );
+      expect(store.getJob(job.id)).not.toBeNull();
     });
   });
 

@@ -328,10 +328,10 @@ export function ObjectiveScheduledTasksPanel({
   const handleHide = async (job: PromptJob) => {
     setBusyId(job.id);
     setError(null);
-    const ok = await deleteJob(job.id);
+    const result = await deleteJob(job.id);
     setBusyId(null);
-    if (!ok) {
-      setError(`Failed to hide "${job.name}".`);
+    if (!result.ok) {
+      setError(result.error ?? `Failed to hide "${job.name}".`);
       return;
     }
     if (selectedJobId === job.id) {
