@@ -1,16 +1,15 @@
 "use client";
 
+import type { ChangeEvent } from "react";
 import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Settings,
   FolderGit2,
   Download,
   Upload,
   Trash2,
   AlertTriangle,
   Plus,
-  X,
 } from "lucide-react";
 import type { ProjectWithAgents, ProjectRepoInput } from "@/hooks/useProjects";
 
@@ -106,15 +105,17 @@ export function ProjectSettings({ project, onUpdate, onDelete }: ProjectSettings
   );
 
   // --- Team Config ---
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const teamFileInputRef = useRef<HTMLInputElement>(null);
   const [teamStatus, setTeamStatus] = useState<string | null>(null);
+  const workspaceFileInputRef = useRef<HTMLInputElement>(null);
+  const [workspaceStatus, setWorkspaceStatus] = useState<string | null>(null);
 
   const handleExportYaml = useCallback(() => {
     window.open(`/api/projects/${project.id}/teams/export`, "_blank");
   }, [project.id]);
 
   const handleImportYaml = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
+    async (e: ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
 
@@ -137,10 +138,44 @@ export function ProjectSettings({ project, onUpdate, onDelete }: ProjectSettings
       }
 
       // Reset file input
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      if (teamFileInputRef.current) teamFileInputRef.current.value = "";
       setTimeout(() => setTeamStatus(null), 4000);
     },
     [project.id],
+  );
+
+  const handleExportWorkspaceYaml = useCallback(() => {
+    window.open(`/api/projects/${project.id}/workspace/export`, "_blank");
+  }, [project.id]);
+
+  const handleImportWorkspaceYaml = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      try {
+        const content = await file.text();
+        const res = await fetch(`/api/projects/${project.id}/workspace/import`, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-yaml" },
+          body: content,
+        });
+
+        if (res.ok) {
+          setWorkspaceStatus("Import successful");
+          router.refresh();
+        } else {
+          const body = await res.json().catch(() => ({}));
+          setWorkspaceStatus(`Import failed: ${body.error || res.statusText}`);
+        }
+      } catch {
+        setWorkspaceStatus("Import failed");
+      }
+
+      if (workspaceFileInputRef.current) workspaceFileInputRef.current.value = "";
+      setTimeout(() => setWorkspaceStatus(null), 4000);
+    },
+    [project.id, router],
   );
 
   // --- Danger Zone ---
@@ -309,7 +344,7 @@ export function ProjectSettings({ project, onUpdate, onDelete }: ProjectSettings
               <Upload className="w-4 h-4" />
               Import YAML
               <input
-                ref={fileInputRef}
+                ref={teamFileInputRef}
                 type="file"
                 accept=".yaml,.yml"
                 onChange={handleImportYaml}
@@ -319,7 +354,46 @@ export function ProjectSettings({ project, onUpdate, onDelete }: ProjectSettings
           </div>
         </section>
 
-        {/* Section 4: Danger Zone */}
+        {/* Section 4: Workspace Map YAML */}
+        <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 p-6 space-y-4">
+          <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+            <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-400">
+              Workspace Map YAML
+            </h2>
+            {workspaceStatus && (
+              <span className="text-xs text-zinc-500">{workspaceStatus}</span>
+            )}
+          </div>
+
+          <p className="text-sm text-zinc-500">
+            Export the portable workspace map structure without local paths, or import a shared YAML skeleton that
+            teammates can map on this machine.
+          </p>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleExportWorkspaceYaml}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-zinc-700 bg-zinc-800/50 hover:bg-zinc-800 transition-colors text-sm text-zinc-300"
+            >
+              <Download className="w-4 h-4" />
+              Export YAML
+            </button>
+
+            <label className="flex items-center gap-2 px-4 py-2 rounded-xl border border-zinc-700 bg-zinc-800/50 hover:bg-zinc-800 transition-colors text-sm text-zinc-300 cursor-pointer">
+              <Upload className="w-4 h-4" />
+              Import YAML
+              <input
+                ref={workspaceFileInputRef}
+                type="file"
+                accept=".yaml,.yml"
+                onChange={handleImportWorkspaceYaml}
+                className="hidden"
+              />
+            </label>
+          </div>
+        </section>
+
+        {/* Section 5: Danger Zone */}
         <section className="rounded-2xl border border-red-900/50 bg-zinc-900/50 p-6 space-y-4">
           <div className="flex items-center gap-2 border-b border-red-900/30 pb-3">
             <AlertTriangle className="w-4 h-4 text-red-500" />
