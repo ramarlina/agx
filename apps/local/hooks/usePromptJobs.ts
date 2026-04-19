@@ -9,6 +9,11 @@ interface UsePromptJobsOptions {
   objectiveId?: string | null;
 }
 
+interface PromptJobMutationResult {
+  ok: boolean;
+  error?: string;
+}
+
 export function usePromptJobs(projectId?: string | null, options: UsePromptJobsOptions = {}) {
   const [jobs, setJobs] = useState<PromptJob[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,10 +88,18 @@ export function usePromptJobs(projectId?: string | null, options: UsePromptJobsO
     return res.ok;
   }, [fetchJobs]);
 
-  const deleteJob = useCallback(async (id: string) => {
+  const deleteJob = useCallback(async (id: string): Promise<PromptJobMutationResult> => {
     const res = await fetch(`/api/prompt-jobs/${id}`, { method: 'DELETE' });
-    if (res.ok) await fetchJobs();
-    return res.ok;
+    if (res.ok) {
+      await fetchJobs();
+      return { ok: true };
+    }
+
+    const payload = await res.json().catch(() => ({})) as { error?: string; message?: string };
+    return {
+      ok: false,
+      error: payload.error || payload.message || `Failed to delete scheduled task (${res.status})`,
+    };
   }, [fetchJobs]);
 
   const toggleJob = useCallback(async (job: PromptJob) => {

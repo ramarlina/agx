@@ -3,6 +3,7 @@
  */
 
 import { NextRequest } from 'next/server';
+import { PromptJobDeleteError } from '@/src/prompt-scheduler/store';
 
 const mockGetPromptJobStore = jest.fn();
 
@@ -220,5 +221,55 @@ describe('/api/prompt-jobs routes', () => {
       cronExpr: '*/5 * * * *',
       condition: 'there are unread emails',
     }));
+  });
+
+  test('DELETE returns 409 when a queued or running run still exists', async () => {
+    const deleteJob = jest
+      .fn()
+      .mockImplementation(() => {
+        throw new PromptJobDeleteError(
+          'Cannot delete a scheduled task while a run is queued or running. Cancel the active run first.',
+          409,
+        );
+      });
+    mockGetPromptJobStore.mockReturnValue({
+      getJob: jest.fn().mockReturnValue({ id: 'job-1', name: 'Daily review' }),
+      deleteJob,
+    });
+
+    const { DELETE } = await import('@/app/api/prompt-jobs/[id]/route');
+
+    const response = await DELETE(
+      new NextRequest('http://localhost/api/prompt-jobs/job-1', { method: 'DELETE' }),
+      { params: Promise.resolve({ id: 'job-1' }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(payload.error).toContain('Cancel the active run first');
+    expect(deleteJob).toHaveBeenCalledWith('job-1');
+  });
+
+  test('DELETE returns 400 for built-in jobs that cannot be removed', async () => {
+    const deleteJob = jest
+      .fn()
+      .mockImplementation(() => {
+        throw new PromptJobDeleteError('Cannot delete built-in job. Use pause instead.', 400);
+      });
+    mockGetPromptJobStore.mockReturnValue({
+      getJob: jest.fn().mockReturnValue({ id: 'job-1', builtIn: true }),
+      deleteJob,
+    });
+
+    const { DELETE } = await import('@/app/api/prompt-jobs/[id]/route');
+
+    const response = await DELETE(
+      new NextRequest('http://localhost/api/prompt-jobs/job-1', { method: 'DELETE' }),
+      { params: Promise.resolve({ id: 'job-1' }) },
+    );
+    const payload = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(payload.error).toContain('Use pause instead');
   });
 });

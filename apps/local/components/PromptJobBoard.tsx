@@ -113,6 +113,10 @@ function promptTarget(prompt: string): string {
   return firstLine.replace(/^execute\s+/i, "");
 }
 
+export function hasActivePromptRun(runs: PromptRun[]): boolean {
+  return runs.some((run) => run.status === "queued" || run.status === "running");
+}
+
 function stateDotClass(state: PromptJob["state"]): string {
   if (state === "active") return "bg-emerald-400";
   if (state === "paused") return "bg-amber-400";
@@ -1000,7 +1004,7 @@ function JobDetailView({
   }, [replaceSelection, runs, runsLoaded, selectedRunId]);
 
   const selectedRun = runs.find((r) => r.id === selectedRunId) ?? null;
-  const isRunning = job.lastOutcome === "running";
+  const hasActiveRun = hasActivePromptRun(runs);
   const scheduleLabel =
     (job.cronExpr && cronToHuman(job.cronExpr)) || job.cadence || job.cronExpr;
   const targetLabel = promptTarget(job.prompt);
@@ -1040,7 +1044,7 @@ function JobDetailView({
                 </button>
                 <button
                   onClick={onRunNow}
-                  disabled={isRunning}
+                  disabled={hasActiveRun}
                   title="Run now"
                   className="rounded-md border border-[var(--card-border)] p-1.5 text-[var(--muted-foreground)] transition-colors hover:border-[var(--foreground)] hover:text-[var(--foreground)] disabled:opacity-50"
                 >
@@ -1055,8 +1059,9 @@ function JobDetailView({
                 </button>
                 <button
                   onClick={onDelete}
-                  title="Delete"
-                  className="p-1.5 rounded-md border border-[var(--card-border)] text-[var(--muted-foreground)] hover:text-red-400 hover:border-red-400/30 transition-colors"
+                  disabled={hasActiveRun}
+                  title={hasActiveRun ? "Cancel the live run before deleting this task" : "Delete"}
+                  className="p-1.5 rounded-md border border-[var(--card-border)] text-[var(--muted-foreground)] transition-colors hover:text-red-400 hover:border-red-400/30 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[var(--card-border)] disabled:hover:text-[var(--muted-foreground)]"
                 >
                   <Trash2 size={12} />
                 </button>
@@ -1186,13 +1191,18 @@ function JobDetailView({
 
               <div className="border-t border-[var(--card-border)] px-6 py-4">
                 <div className="flex flex-wrap items-center gap-2">
-                  {isRunning ? (
+                  {hasActiveRun ? (
                     <button
                       onClick={onCancelRun}
                       className="inline-flex items-center gap-1.5 rounded-md border border-red-400/30 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.05em] text-red-400 transition-colors hover:bg-red-500/10"
                     >
                       Cancel run
                     </button>
+                  ) : null}
+                  {hasActiveRun ? (
+                    <span className="text-[11px] text-amber-300">
+                      Delete is blocked while a run is queued or running. Cancel the live run first.
+                    </span>
                   ) : null}
                   {job.condition ? (
                     <span className="rounded-md border border-blue-400/20 bg-blue-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-blue-400">
@@ -1356,13 +1366,16 @@ export default function PromptJobBoard({
   };
 
   const handleDelete = async (id: string) => {
-    const ok = await deleteJob(id);
-    if (ok) {
+    const result = await deleteJob(id);
+    if (result.ok) {
       if (selectedId === id) {
         pushSelection({ job: null, run: null });
       }
       showToast("Job deleted");
+      return;
     }
+
+    showToast(result.error ?? "Failed to delete scheduled task");
   };
 
   const handleCancelRun = async (id: string) => {
@@ -1676,7 +1689,7 @@ export default function PromptJobBoard({
       <ConfirmDialog
         isOpen={Boolean(deleteTarget)}
         title="Delete scheduled task?"
-        message="This permanently removes the task and all its run history. This cannot be undone."
+        message="This permanently removes the task and all of its run history. Delete is only allowed when no run is queued or running."
         preview={deleteTarget?.name}
         confirmLabel="Delete"
         variant="danger"
