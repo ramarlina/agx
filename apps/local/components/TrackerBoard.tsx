@@ -1207,11 +1207,17 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
     (item: TrackerItem) => ({
       statusOptions: itemStatusOptions,
       onRecap: () => {
-        void startScriptedForItem(
-          item,
-          "Recap",
-          "Summarize recent activity and current state of this ticket. Focus on: what was done, what's outstanding, and any blockers."
-        );
+        const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+        void fetch(
+          `/api/trackers/${encodeURIComponent(trackerType)}/items/${encodeURIComponent(item.id)}/recap${qs}`,
+          { method: "POST" }
+        ).then(() => {
+          window.dispatchEvent(
+            new CustomEvent("tracker:recap-triggered", {
+              detail: { trackerType, issueId: item.id },
+            })
+          );
+        });
       },
       onPrompt: (prompt: string, agentId: string) => {
         void startScriptedForItem(item, "Prompt", prompt, agentId);
@@ -1227,7 +1233,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
         void handleItemStatusChange(item, status);
       },
     }),
-    [itemStatusOptions, startScriptedForItem, handleItemStatusChange]
+    [itemStatusOptions, startScriptedForItem, handleItemStatusChange, trackerType, projectId]
   );
 
   const selectedMetadata = useMemo(() => {
