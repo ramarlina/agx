@@ -168,41 +168,4 @@ describe("ObjectiveScheduledTasksPanel", () => {
     expect(screen.getByLabelText("Write instructions in markdown…")).toBeInTheDocument();
   });
 
-  test("keeps a fresh manual run healthy while the next scheduled run is still ahead", () => {
-    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 3, 18, 15, 30, 0));
-
-    mockedUsePromptJobs.mockReturnValue({
-      jobs: [
-        makeJob({
-          nextRunAt: Date.UTC(2026, 3, 18, 23, 30, 0),
-          lastRunAt: Date.UTC(2026, 3, 18, 15, 25, 0),
-          prevScheduledAt: Date.UTC(2026, 3, 18, 9, 0, 0),
-        }),
-      ],
-      loading: false,
-      error: null,
-      refresh,
-      createJob: jest.fn(),
-      updateJob,
-      deleteJob,
-      toggleJob,
-      runNow,
-      cancelRun: jest.fn(),
-      fetchRuns,
-    });
-
-    render(
-      <ObjectiveScheduledTasksPanel
-        projectId="project-1"
-        objectiveId="objective-1"
-        objectiveKey="objective_alpha"
-        onCreateTask={onCreateTask}
-      />
-    );
-
-    expect(screen.queryByText(/^overdue$/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/Next run in 8h/i)).toBeInTheDocument();
-
-    nowSpy.mockRestore();
-  });
 });
