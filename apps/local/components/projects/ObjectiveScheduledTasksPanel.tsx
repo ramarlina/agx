@@ -1,14 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Check, Clock, Pause, Play, Plus, Trash2, X, XCircle } from "lucide-react";
+import { Check, Clock, Pause, Pencil, Play, Plus, Terminal, Trash2, XCircle } from "lucide-react";
 import { usePromptJobs } from "@/hooks/usePromptJobs";
 import { cronToHuman } from "@/src/graph/nl-schedule";
 import type { PromptJob, PromptRun } from "@/src/prompt-scheduler/types";
-import { CreateJobModal, type CreateJobData } from "@/components/PromptJobBoard";
+import {
+  CreateJobModal,
+  agentAvatar,
+  type AgentOption,
+  type CreateJobData,
+} from "@/components/PromptJobBoard";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import RichTextEditor from "@/components/RichTextEditor";
-import { ScheduleConditionPicker } from "@/components/scheduling/ScheduleConditionPicker";
 
 export type ObjectiveScheduledTaskDraft = CreateJobData;
 
@@ -51,14 +54,6 @@ function formatNextRun(epochMs: number | null, state: PromptJob["state"]): strin
   return `in ${Math.round(diff / 86_400_000)}d`;
 }
 
-function promptSummary(prompt: string): string {
-  const firstLine = prompt
-    .split("\n")
-    .map((line) => line.trim())
-    .find(Boolean);
-  return firstLine || "No instructions yet";
-}
-
 function formatDateTime(value: string): string {
   const date = new Date(value);
   return date.toLocaleString(undefined, {
@@ -67,186 +62,6 @@ function formatDateTime(value: string): string {
     hour: "numeric",
     minute: "2-digit",
   });
-}
-
-function ScheduleEditModal({
-  job,
-  onClose,
-  onUpdate,
-}: {
-  job: PromptJob;
-  onClose: () => void;
-  onUpdate: (updates: Partial<PromptJob>) => Promise<boolean>;
-}) {
-  const [scheduleValue, setScheduleValue] = useState({
-    cadence: job.cronExpr || job.cadence || "",
-    condition: job.condition || "",
-  });
-  const [isValid, setIsValid] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  const handleSave = async () => {
-    if (!isValid) return;
-    setSaving(true);
-    const ok = await onUpdate({
-      cadence: scheduleValue.cadence,
-      condition: scheduleValue.condition,
-    } as Partial<PromptJob>);
-    setSaving(false);
-    if (ok) {
-      onClose();
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6">
-      <div className="flex w-full max-w-md max-h-[85vh] flex-col rounded-[28px] border border-[var(--border)] bg-[var(--card-bg)] shadow-2xl">
-        <div className="flex shrink-0 items-center justify-between border-b border-[var(--border)] px-6 py-4">
-          <div className="flex items-center gap-2.5">
-            <Clock className="h-4 w-4 text-[var(--muted-foreground)]" />
-            <p className="text-sm font-semibold text-[var(--foreground)]">{job.name}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-[var(--border)] p-2 text-[var(--muted-foreground)] transition-colors hover:border-[var(--card-hover-border)] hover:text-[var(--foreground)]"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-          <ScheduleConditionPicker
-            value={scheduleValue}
-            onChange={(next, meta) => {
-              setScheduleValue(next);
-              setIsValid(meta.isScheduleValid);
-            }}
-            scheduleLabel="Schedule"
-            conditionLabel="Condition"
-            conditionHelpText="Scheduled runs and Run now will check this condition before executing."
-          />
-        </div>
-
-        <div className="flex shrink-0 items-center justify-end gap-3 border-t border-[var(--border)] px-6 py-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--card-hover-border)]"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={saving || !isValid}
-            className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:opacity-50"
-          >
-            {saving ? "Saving..." : "Save"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ObjectiveScheduledTaskDetailModal({
-  job,
-  onClose,
-  onUpdate,
-}: {
-  job: PromptJob;
-  onClose: () => void;
-  onUpdate: (updates: Partial<PromptJob>) => Promise<boolean>;
-}) {
-  const [promptDraft, setPromptDraft] = useState(job.prompt || "");
-  const [saving, setSaving] = useState(false);
-
-  const savePrompt = async () => {
-    if (promptDraft === job.prompt) return;
-    setSaving(true);
-    await onUpdate({ prompt: promptDraft } as Partial<PromptJob>);
-    setSaving(false);
-  };
-
-  return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 px-4 py-6">
-      <div className="flex w-full max-w-6xl max-h-[85vh] flex-col rounded-[28px] border border-[var(--border)] bg-[var(--card-bg)] shadow-2xl">
-        {/* Header */}
-        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-[var(--border)] px-6 py-5">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <p className="truncate text-lg font-semibold text-[var(--foreground)]">
-                {job.name}
-              </p>
-              <span
-                className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] ${stateClasses(job.state)}`}
-              >
-                {formatState(job.state)}
-              </span>
-              {job.condition ? (
-                <span className="rounded-md border border-blue-400/20 bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-blue-400">
-                  gated
-                </span>
-              ) : null}
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[var(--muted-foreground)]">
-              <span className="inline-flex items-center gap-1.5">
-                <Clock className="h-3.5 w-3.5" />
-                {formatCadence(job)}
-              </span>
-              <span>Next run {formatNextRun(job.nextRunAt, job.state)}</span>
-              <span>Updated {formatDateTime(job.updatedAt)}</span>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-[var(--border)] p-2 text-[var(--muted-foreground)] transition-colors hover:border-[var(--card-hover-border)] hover:text-[var(--foreground)]"
-            aria-label="Close scheduled task details"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* Scrollable editor area */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 space-y-5">
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
-              Instructions
-            </p>
-            <div className="rounded-2xl border border-[var(--card-hover-border)] bg-[var(--overlay-panel-muted)] px-1 py-1 text-sm leading-6 text-[var(--foreground)]">
-              <RichTextEditor
-                content={promptDraft}
-                editable
-                onChange={setPromptDraft}
-                placeholder="Write instructions in markdown…"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Sticky footer */}
-        <div className="flex shrink-0 items-center justify-end gap-3 border-t border-[var(--border)] px-6 py-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-[var(--border)] px-4 py-2.5 text-sm text-[var(--foreground)] transition-colors hover:border-[var(--card-hover-border)]"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => void savePrompt()}
-            disabled={saving}
-            className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:opacity-50"
-          >
-            {saving ? "Saving..." : "Save"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 }
 
 function formatState(state: PromptJob["state"]): string {
@@ -280,10 +95,21 @@ export function ObjectiveScheduledTasksPanel({
   const [showCreate, setShowCreate] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [editingJobId, setEditingJobId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<PromptJob | null>(null);
-  const [scheduleEditJobId, setScheduleEditJobId] = useState<string | null>(null);
   const [recentRuns, setRecentRuns] = useState<(PromptRun & { jobName: string })[]>([]);
+  const [agentMap, setAgentMap] = useState<Record<string, AgentOption>>({});
+
+  useEffect(() => {
+    fetch("/api/prompt-jobs/agents")
+      .then((r) => r.json())
+      .then((d) => {
+        const map: Record<string, AgentOption> = {};
+        for (const a of (d.agents ?? []) as AgentOption[]) map[a.id] = a;
+        setAgentMap(map);
+      })
+      .catch((err) => console.warn("[ObjectiveScheduledTasksPanel] fetch agents failed:", err));
+  }, []);
 
   const visibleJobs = useMemo(() => {
     const filtered = jobs.filter((job) => job.objectiveId === objectiveId);
@@ -294,9 +120,10 @@ export function ObjectiveScheduledTasksPanel({
       return aPin - bPin;
     });
   }, [jobs, objectiveId]);
-  const selectedJob = useMemo(
-    () => visibleJobs.find((job) => job.id === selectedJobId) ?? null,
-    [selectedJobId, visibleJobs]
+
+  const editingJob = useMemo(
+    () => visibleJobs.find((job) => job.id === editingJobId) ?? null,
+    [editingJobId, visibleJobs]
   );
 
   const loadRecentRuns = useCallback(async () => {
@@ -334,9 +161,6 @@ export function ObjectiveScheduledTasksPanel({
       setError(result.error ?? `Failed to hide "${job.name}".`);
       return;
     }
-    if (selectedJobId === job.id) {
-      setSelectedJobId(null);
-    }
     await refresh();
   };
 
@@ -349,16 +173,10 @@ export function ObjectiveScheduledTasksPanel({
     return ok;
   };
 
-  const scheduleEditJob = useMemo(
-    () => visibleJobs.find((job) => job.id === scheduleEditJobId) ?? null,
-    [scheduleEditJobId, visibleJobs]
-  );
-
-  const handleJobUpdate = useCallback(
-    async (jobId: string, updates: Partial<PromptJob>) => {
-      const ok = await updateJob(jobId, updates);
+  const handleEditSubmit = useCallback(
+    async (jobId: string, data: CreateJobData) => {
+      const ok = await updateJob(jobId, data as Partial<PromptJob>);
       if (ok) {
-        setSelectedJobId(jobId);
         await refresh();
       }
       return ok;
@@ -369,28 +187,32 @@ export function ObjectiveScheduledTasksPanel({
   return (
     <>
       {showCreate ? (
-        <CreateJobModal
-          onClose={() => setShowCreate(false)}
-          onSubmit={async (data) => {
-            await handleCreate(data);
-          }}
-          createDefaults={createDefaults}
-          contextLabel={objectiveKey}
-        />
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6">
+          <div className="w-full max-w-5xl h-[85vh] overflow-hidden rounded-[28px] border border-[var(--border)] bg-[var(--card-bg)] shadow-2xl">
+            <CreateJobModal
+              onClose={() => setShowCreate(false)}
+              onSubmit={async (data) => {
+                await handleCreate(data);
+              }}
+              createDefaults={createDefaults}
+              contextLabel={objectiveKey}
+            />
+          </div>
+        </div>
       ) : null}
-      {selectedJob ? (
-        <ObjectiveScheduledTaskDetailModal
-          job={selectedJob}
-          onClose={() => setSelectedJobId(null)}
-          onUpdate={(updates) => handleJobUpdate(selectedJob.id, updates)}
-        />
-      ) : null}
-      {scheduleEditJob ? (
-        <ScheduleEditModal
-          job={scheduleEditJob}
-          onClose={() => setScheduleEditJobId(null)}
-          onUpdate={(updates) => handleJobUpdate(scheduleEditJob.id, updates)}
-        />
+      {editingJob ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6">
+          <div className="w-full max-w-5xl h-[85vh] overflow-hidden rounded-[28px] border border-[var(--border)] bg-[var(--card-bg)] shadow-2xl">
+            <CreateJobModal
+              onClose={() => setEditingJobId(null)}
+              onSubmit={async (data) => {
+                await handleEditSubmit(editingJob.id, data);
+              }}
+              editingJob={editingJob}
+              contextLabel={objectiveKey}
+            />
+          </div>
+        </div>
       ) : null}
 
       <div className="px-1">
@@ -431,11 +253,11 @@ export function ObjectiveScheduledTasksPanel({
             visibleJobs.map((job) => (
               <div
                 key={job.id}
-                onClick={() => setSelectedJobId(job.id)}
+                onClick={() => setEditingJobId(job.id)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
-                    setSelectedJobId(job.id);
+                    setEditingJobId(job.id);
                   }
                 }}
                 role="button"
@@ -488,9 +310,27 @@ export function ObjectiveScheduledTasksPanel({
                         </span>
                       ) : null}
                     </div>
-                    <p className="mt-3 line-clamp-2 text-sm leading-6 text-[var(--muted-foreground)]">
-                      {promptSummary(job.prompt)}
-                    </p>
+                    <div className="mt-3 flex items-center gap-2 min-w-0 text-xs text-[var(--muted-foreground)]">
+                      {job.agentId && agentMap[job.agentId] ? (
+                        <img
+                          src={agentAvatar(job.agentId, agentMap[job.agentId].color, 20)}
+                          alt=""
+                          className="size-5 rounded-full shrink-0"
+                        />
+                      ) : (
+                        <Terminal className="h-3.5 w-3.5 shrink-0" />
+                      )}
+                      <span className="truncate font-medium text-[var(--foreground)]">
+                        {job.agentId && agentMap[job.agentId]
+                          ? agentMap[job.agentId].name
+                          : job.provider}
+                      </span>
+                      {job.model ? (
+                        <span className="truncate font-mono text-[11px]">
+                          {job.model}
+                        </span>
+                      ) : null}
+                    </div>
                     {job.condition ? (
                       <p className="mt-2 text-xs text-[var(--muted-foreground)]">
                         Condition: {job.condition}
@@ -504,7 +344,6 @@ export function ObjectiveScheduledTasksPanel({
                       title="Run now"
                       onClick={async (event) => {
                         event.stopPropagation();
-                        setSelectedJobId(job.id);
                         setBusyId(job.id);
                         await runNow(job.id);
                         setBusyId(null);
@@ -518,14 +357,14 @@ export function ObjectiveScheduledTasksPanel({
                     </button>
                     <button
                       type="button"
-                      title="Edit schedule"
+                      title="Edit"
                       onClick={(event) => {
                         event.stopPropagation();
-                        setScheduleEditJobId(job.id);
+                        setEditingJobId(job.id);
                       }}
                       className="rounded-lg border border-[var(--border)] p-2 text-[var(--muted-foreground)] transition-colors hover:border-sky-400/40 hover:text-sky-300"
                     >
-                      <Clock className="h-3.5 w-3.5" />
+                      <Pencil className="h-3.5 w-3.5" />
                     </button>
                     <button
                       type="button"
