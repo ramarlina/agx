@@ -4,7 +4,6 @@ import { OBJECTIVE_WORKER_DEFAULT_PROMPT } from '@/src/prompt-scheduler/objectiv
 import { TASK_WORKER_DEFAULT_PROMPT as LINEAR_WORKER_DEFAULT_PROMPT } from '@/src/prompt-scheduler/task-worker-job';
 import {
   computeNextRun,
-  computePrevRun,
   normalizeLegacyConditionSchedule,
   parseCadence,
 } from '@/src/prompt-scheduler/cron';
@@ -81,13 +80,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const enriched = jobs.map((job) => {
-      const cronExpr = job.cronExpr || job.cadence;
-      const prevScheduledAt = cronExpr ? computePrevRun(cronExpr) : null;
-      return { ...job, prevScheduledAt };
-    });
-
-    return NextResponse.json({ count: enriched.length, jobs: enriched });
+    return NextResponse.json({ count: jobs.length, jobs });
   } catch (error) {
     logger.error('Failed to list prompt jobs', logger.formatError(error));
     return NextResponse.json(

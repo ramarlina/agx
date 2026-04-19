@@ -45,6 +45,9 @@ jest.mock("@/components/scheduling/ScheduleConditionPicker", () => ({
 }));
 
 const mockedUsePromptJobs = jest.mocked(usePromptJobs);
+const mockFetch = jest.fn();
+
+global.fetch = mockFetch as typeof fetch;
 
 function makeJob(overrides: Partial<PromptJob> = {}): PromptJob {
   return {
@@ -90,6 +93,10 @@ describe("ObjectiveScheduledTasksPanel", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ agents: [] }),
+    });
     mockedUsePromptJobs.mockReturnValue({
       jobs: [
         makeJob(),
@@ -160,4 +167,5 @@ describe("ObjectiveScheduledTasksPanel", () => {
     expect(screen.getByDisplayValue("Summarize the week")).toBeInTheDocument();
     expect(screen.getByLabelText("Write instructions in markdown…")).toBeInTheDocument();
   });
+
 });

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, Clock, Pause, Pencil, Play, Plus, Terminal, Trash2, XCircle } from "lucide-react";
 import { usePromptJobs } from "@/hooks/usePromptJobs";
+import { isScheduledRunOverdue } from "@/src/scheduling/status";
 import { cronToHuman } from "@/src/graph/nl-schedule";
 import type { PromptJob, PromptRun } from "@/src/prompt-scheduler/types";
 import {
@@ -30,16 +31,12 @@ function formatCadence(job: Pick<PromptJob, "cadence" | "cronExpr">): string {
   return cronToHuman(job.cronExpr || source) ?? source;
 }
 
-function isJobOverdue(job: Pick<PromptJob, "nextRunAt" | "lastRunAt" | "prevScheduledAt" | "state">): boolean {
-  if (job.state !== "active") return false;
-  if (job.nextRunAt !== null && job.nextRunAt - Date.now() < 0) {
-    if (job.lastRunAt && job.lastRunAt >= job.nextRunAt) return false;
-    return true;
-  }
-  if (job.prevScheduledAt && job.lastRunAt) {
-    return job.lastRunAt > job.prevScheduledAt + 5 * 60_000;
-  }
-  return false;
+function isJobOverdue(job: Pick<PromptJob, "nextRunAt" | "lastRunAt" | "state">): boolean {
+  return isScheduledRunOverdue({
+    state: job.state,
+    nextScheduledAt: job.nextRunAt,
+    lastCompletedAt: job.lastRunAt,
+  });
 }
 
 function formatNextRun(epochMs: number | null, state: PromptJob["state"]): string {
