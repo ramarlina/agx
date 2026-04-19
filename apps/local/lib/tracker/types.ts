@@ -23,6 +23,8 @@ export interface TrackerItem {
   createdAt: string;
   updatedAt: string;
   url: string;
+  /** The tracker-native group this item belongs to (e.g. GitHub repo). */
+  group?: { id: string; name: string };
 }
 
 export interface TrackerItemDetail extends TrackerItem {

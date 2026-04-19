@@ -1534,6 +1534,15 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                 </button>
               </div>
               <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2">
+                {showGroupFilter ? (
+                  <FilterSelect
+                    label={groupLabel}
+                    value={selectedGroupId}
+                    options={groupOptions}
+                    activeClasses="border-purple-500/30 bg-purple-500/10 text-purple-400"
+                    onChange={setSelectedGroupId}
+                  />
+                ) : null}
                 {showStatusFilter ? (
                   <MultiFilterPopdown
                     label="Status"
@@ -1569,15 +1578,6 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                     options={workspaceOptions}
                     activeClasses="border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
                     onChange={setSelectedWorkspaceId}
-                  />
-                ) : null}
-                {showGroupFilter ? (
-                  <FilterSelect
-                    label={groupLabel}
-                    value={selectedGroupId}
-                    options={groupOptions}
-                    activeClasses="border-purple-500/30 bg-purple-500/10 text-purple-400"
-                    onChange={setSelectedGroupId}
                   />
                 ) : null}
                 <FilterSelect
@@ -1661,6 +1661,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                                 }}
                                 onTogglePin={() => togglePin(item.id)}
                                 rowActions={rowActionsFor(item)}
+                                showGroup={!selectedGroupId}
                               />
                             ))}
                         </React.Fragment>
@@ -1697,6 +1698,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                           }}
                           onTogglePin={() => togglePin(item.id)}
                           rowActions={rowActionsFor(item)}
+                          showGroup={!selectedGroupId}
                         />
                       </React.Fragment>
                     ))
@@ -1929,6 +1931,15 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
             </button>
           </div>
           <div className="flex items-center gap-1.5 px-3 pb-2">
+            {showGroupFilter ? (
+              <FilterSelect
+                label={groupLabel}
+                value={selectedGroupId}
+                options={groupOptions}
+                activeClasses="border-purple-500/30 bg-purple-500/10 text-purple-400"
+                onChange={setSelectedGroupId}
+              />
+            ) : null}
             {showStatusFilter ? (
               <MultiFilterPopdown
                 label="Status"
@@ -1964,15 +1975,6 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                 options={workspaceOptions}
                 activeClasses="border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
                 onChange={setSelectedWorkspaceId}
-              />
-            ) : null}
-            {showGroupFilter ? (
-              <FilterSelect
-                label={groupLabel}
-                value={selectedGroupId}
-                options={groupOptions}
-                activeClasses="border-purple-500/30 bg-purple-500/10 text-purple-400"
-                onChange={setSelectedGroupId}
               />
             ) : null}
             <FilterSelect
@@ -2154,6 +2156,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                                       }}
                                       onTogglePin={() => togglePin(gi.id)}
                                       rowActions={rowActionsFor(gi)}
+                                      showGroup={!selectedGroupId}
                                     />
                                   ))}
                               </React.Fragment>
@@ -2196,6 +2199,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                               }}
                               onTogglePin={() => togglePin(item.id)}
                               rowActions={rowActionsFor(item)}
+                              showGroup={!selectedGroupId}
                             />
                           );
                         });
@@ -2304,6 +2308,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                               }}
                               onTogglePin={() => togglePin(gi.id)}
                               rowActions={rowActionsFor(gi)}
+                              showGroup={!selectedGroupId}
                             />
                           ))}
                       </React.Fragment>
@@ -2352,6 +2357,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                         }}
                         onTogglePin={() => togglePin(item.id)}
                         rowActions={rowActionsFor(item)}
+                        showGroup={!selectedGroupId}
                       />
                     </React.Fragment>
                   );
