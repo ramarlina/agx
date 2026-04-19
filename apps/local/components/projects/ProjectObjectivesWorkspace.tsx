@@ -35,6 +35,7 @@ import { ObjectiveActivityTimeline } from "@/components/projects/ObjectiveActivi
 import { ObjectiveHealthTrend } from "@/components/projects/ObjectiveHealthTrend";
 import { TrackerIcon } from "@/components/tracking/TrackerIcon";
 import { JumpToLatestButton } from "@/components/chat-ui/JumpToLatestButton";
+import { ResizeHandle } from "@/components/ui/ResizeHandle";
 import { usePromptJobs } from "@/hooks/usePromptJobs";
 import { useInputCapabilities } from "@/hooks/useInputCapabilities";
 import { threadService } from "@/services/threadService";
@@ -155,33 +156,11 @@ function ObjectiveChatResizeHandle({
   }
 
   return (
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize objective chat panel"
-      className="group relative z-10 hidden w-0 shrink-0 cursor-col-resize xl:block"
-      onMouseDown={(event) => {
-        event.preventDefault();
-        let lastX = event.clientX;
-        document.body.style.cursor = "col-resize";
-        document.body.style.userSelect = "none";
-        const onMouseMove = (ev: MouseEvent) => {
-          const delta = lastX - ev.clientX;
-          lastX = ev.clientX;
-          onResize(delta);
-        };
-        const onMouseUp = () => {
-          document.body.style.cursor = "";
-          document.body.style.userSelect = "";
-          window.removeEventListener("mousemove", onMouseMove);
-          window.removeEventListener("mouseup", onMouseUp);
-        };
-        window.addEventListener("mousemove", onMouseMove);
-        window.addEventListener("mouseup", onMouseUp);
-      }}
-    >
-      <div className="absolute inset-y-0 -left-0.5 w-1 transition-colors group-hover:bg-[var(--primary)]/40" />
-    </div>
+    <ResizeHandle
+      onResize={onResize}
+      className="hidden xl:block"
+      ariaLabel="Resize objective chat panel"
+    />
   );
 }
 
@@ -1107,7 +1086,7 @@ function ObjectiveChatPanel({
     setChatPanelWidth((currentWidth) => {
       const nextWidth = Math.max(
         OBJECTIVE_CHAT_MIN_WIDTH,
-        Math.min(OBJECTIVE_CHAT_MAX_WIDTH, currentWidth + delta)
+        Math.min(OBJECTIVE_CHAT_MAX_WIDTH, currentWidth - delta)
       );
       persistObjectiveChatPanelWidth(nextWidth);
       return nextWidth;
@@ -1376,35 +1355,7 @@ function ObjectiveListResizeHandle({
     return null;
   }
 
-  return (
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      aria-label="Resize objective list panel"
-      className="group relative z-10 w-0 shrink-0 cursor-col-resize"
-      onMouseDown={(event) => {
-        event.preventDefault();
-        let lastX = event.clientX;
-        document.body.style.cursor = "col-resize";
-        document.body.style.userSelect = "none";
-        const onMouseMove = (ev: MouseEvent) => {
-          const delta = ev.clientX - lastX;
-          lastX = ev.clientX;
-          onResize(delta);
-        };
-        const onMouseUp = () => {
-          document.body.style.cursor = "";
-          document.body.style.userSelect = "";
-          window.removeEventListener("mousemove", onMouseMove);
-          window.removeEventListener("mouseup", onMouseUp);
-        };
-        window.addEventListener("mousemove", onMouseMove);
-        window.addEventListener("mouseup", onMouseUp);
-      }}
-    >
-      <div className="absolute inset-y-0 -left-0.5 w-1 transition-colors group-hover:bg-[var(--primary)]/40" />
-    </div>
-  );
+  return <ResizeHandle onResize={onResize} ariaLabel="Resize objective list panel" />;
 }
 
 function ObjectiveListCard({
