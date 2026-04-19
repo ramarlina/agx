@@ -103,6 +103,34 @@ const GROUP_RECAP_SYSTEM = [
   "Write in plain prose. No headings above h3.",
 ].join("\n");
 
+const PR_RECAP_SYSTEM = [
+  "You are writing a short recap of a GitHub pull request.",
+  "You will be given the PR description, review comments, and file diffs.",
+  "Output raw markdown only — no JSON, no fences around the whole response.",
+  "Keep it 120–280 words.",
+  "Cover: what the PR changes (inferred from the diff, not just the title), the motivation when stated, notable review feedback, and open concerns.",
+  "Ground claims in the diff. Do not invent files or behaviors that are not in the context.",
+  "Write in plain prose. No headings above h3.",
+].join("\n");
+
+const REPO_RECAP_SYSTEM = [
+  "You are writing a short recap of recent pull request activity in a GitHub repository.",
+  "Output raw markdown only — no JSON, no fences around the whole response.",
+  "Keep it 150–350 words.",
+  "Cover: themes across recent PRs, what has merged, what's open, and any notable drafts.",
+  "Reference PRs by their identifier (e.g. PR #231) when relevant.",
+  "Write in plain prose. No headings above h3.",
+].join("\n");
+
+export interface RepoPrSummary {
+  identifier: string;
+  title: string;
+  state: string;
+  draft: boolean;
+  author?: string;
+  updatedAt?: string;
+}
+
 export interface ItemContext {
   identifier: string;
   title: string;
@@ -110,6 +138,10 @@ export interface ItemContext {
   assignee?: string;
   description?: string;
   tickets?: TrackerItem[];
+  /** Preformatted PR context (title/body/comments/diff). When present, triggers PR recap mode. */
+  prContext?: string;
+  /** Summary of PRs in a repository. When present, triggers repo recap mode. */
+  repoPrs?: RepoPrSummary[];
 }
 
 export async function generateRecap(
@@ -117,7 +149,13 @@ export async function generateRecap(
   itemId: string,
   item: ItemContext
 ): Promise<void> {
-  const isGroup = !!item.tickets;
+  const mode: "pr" | "repo" | "group" | "item" = item.prContext
+    ? "pr"
+    : item.repoPrs
+      ? "repo"
+      : item.tickets
+        ? "group"
+        : "item";
 
   const priorRuns = await listTrackerRuns({
     issueId: itemId,
@@ -132,8 +170,36 @@ export async function generateRecap(
     .join("\n");
 
   let prompt: string;
+  let systemContext: string;
 
-  if (isGroup && item.tickets) {
+  if (mode === "pr" && item.prContext) {
+    prompt = [
+      item.prContext,
+      "",
+      priorRunLines ? `PRIOR SESSIONS\n${priorRunLines}` : "No prior sessions.",
+      "",
+      "Write the recap now.",
+    ].join("\n");
+    systemContext = PR_RECAP_SYSTEM;
+  } else if (mode === "repo" && item.repoPrs) {
+    const prLines = item.repoPrs
+      .map(
+        (p) =>
+          `- ${p.identifier}: ${p.title} [${p.draft ? "draft" : p.state}]${p.author ? ` (@${p.author})` : ""}`
+      )
+      .join("\n");
+    prompt = [
+      `Repository: ${item.title}`,
+      "",
+      `Recent pull requests (${item.repoPrs.length}):`,
+      prLines || "(none)",
+      "",
+      priorRunLines ? `Prior sessions:\n${priorRunLines}` : "No prior sessions.",
+      "",
+      "Write the recap now.",
+    ].join("\n");
+    systemContext = REPO_RECAP_SYSTEM;
+  } else if (mode === "group" && item.tickets) {
     const ticketLines = item.tickets
       .map(
         (t) =>
@@ -151,6 +217,7 @@ export async function generateRecap(
       "",
       "Write the recap now.",
     ].join("\n");
+    systemContext = GROUP_RECAP_SYSTEM;
   } else {
     prompt = [
       `Ticket: ${item.identifier} — ${item.title}`,
@@ -164,6 +231,7 @@ export async function generateRecap(
     ]
       .filter(Boolean)
       .join("\n");
+    systemContext = ITEM_RECAP_SYSTEM;
   }
 
   let output = "";
@@ -171,7 +239,7 @@ export async function generateRecap(
     provider: "claude",
     model: null,
     prompt,
-    systemContext: isGroup ? GROUP_RECAP_SYSTEM : ITEM_RECAP_SYSTEM,
+    systemContext,
     onDelta: (chunk) => {
       output += chunk;
     },

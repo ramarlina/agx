@@ -7,6 +7,9 @@ import {
   enqueueRecap,
 } from "@/lib/tracker/recap";
 import { getAdapter } from "@/lib/tracker/registry";
+import { ensurePrContext } from "@/lib/github-pr-context";
+import { listGithubPrs } from "@/lib/github-pr-store";
+import { listGithubRepos } from "@/lib/github-repo-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,37 +83,43 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const projectId = req.nextUrl.searchParams.get("projectId")?.trim();
 
   try {
-    const adapter = getAdapter(tracker);
+    let itemCtx: Parameters<typeof enqueueRecap>[2] | null = null;
 
-    let itemCtx: Parameters<typeof enqueueRecap>[2];
-    try {
-      const item = await adapter.getItem(projectId ?? "", id);
-      itemCtx = {
-        identifier: item.identifier,
-        title: item.title,
-        status: item.status,
-        assignee: item.assignee?.name,
-        description: item.description,
-      };
-    } catch {
-      // Not an item — likely a group (cycle/sprint). Fetch its tickets.
-      const { items } = await adapter.listItems(projectId ?? "", {
-        groupIds: [id],
-        limit: 50,
-      });
-      const runs = await listTrackerRuns({
-        issueId: id,
-        trackerType: tracker,
-        projectId: projectId ?? null,
-        limit: 1,
-      });
-      const run = runs[0];
-      itemCtx = {
-        identifier: run?.issueIdentifier ?? id,
-        title: run?.issueTitle ?? "Group",
-        status: run?.issueStatus ?? "unknown",
-        tickets: items,
-      };
+    if (tracker === "github") {
+      itemCtx = await buildGithubRecapContext(projectId ?? "", id);
+    }
+
+    if (!itemCtx) {
+      const adapter = getAdapter(tracker);
+      try {
+        const item = await adapter.getItem(projectId ?? "", id);
+        itemCtx = {
+          identifier: item.identifier,
+          title: item.title,
+          status: item.status,
+          assignee: item.assignee?.name,
+          description: item.description,
+        };
+      } catch {
+        // Not an item — likely a group (cycle/sprint). Fetch its tickets.
+        const { items } = await adapter.listItems(projectId ?? "", {
+          groupIds: [id],
+          limit: 50,
+        });
+        const runs = await listTrackerRuns({
+          issueId: id,
+          trackerType: tracker,
+          projectId: projectId ?? null,
+          limit: 1,
+        });
+        const run = runs[0];
+        itemCtx = {
+          identifier: run?.issueIdentifier ?? id,
+          title: run?.issueTitle ?? "Group",
+          status: run?.issueStatus ?? "unknown",
+          tickets: items,
+        };
+      }
     }
 
     const jobState = enqueueRecap(tracker, id, itemCtx);
@@ -122,4 +131,40 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     const message = err instanceof Error ? err.message : "Failed to enqueue recap";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+async function buildGithubRecapContext(
+  projectId: string,
+  id: string,
+): Promise<Parameters<typeof enqueueRecap>[2] | null> {
+  // PR id format: "owner/repo#number". Repo id format: "owner/repo".
+  if (id.includes("#")) {
+    const result = await ensurePrContext(projectId, id);
+    if (!result) return null;
+    return {
+      identifier: `PR #${result.pr.number}`,
+      title: result.pr.title,
+      status: result.pr.draft ? "draft" : result.pr.state,
+      assignee: result.pr.authorLogin,
+      prContext: result.context,
+    };
+  }
+
+  const repo = listGithubRepos().find((r) => r.id === id);
+  const prs = listGithubPrs({ repoId: id, limit: 30 });
+  if (!repo && prs.length === 0) return null;
+
+  return {
+    identifier: repo?.name ?? id,
+    title: repo?.name ?? id,
+    status: "active",
+    repoPrs: prs.map((pr) => ({
+      identifier: `PR #${pr.number}`,
+      title: pr.title,
+      state: pr.state,
+      draft: pr.draft,
+      author: pr.authorLogin,
+      updatedAt: new Date(pr.updatedAt).toISOString(),
+    })),
+  };
 }
