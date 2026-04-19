@@ -14,6 +14,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { useAutomations, type AutomationItem } from "@/hooks/useAutomations";
+import { isIntervalScheduleOverdue, isScheduledRunOverdue } from "@/src/scheduling/status";
 import type { GraphSchedule } from "@/src/graph/types";
 import { cronToHuman } from "@/src/graph/nl-schedule";
 
@@ -33,22 +34,21 @@ function formatCadence(schedule: GraphSchedule): string {
 }
 
 function isScheduleOverdue(schedule: GraphSchedule): boolean {
-  if (schedule.state !== "active" || schedule.tickInProgress) return false;
-  // Case 1: next tick is in the past and hasn't run yet
-  if (schedule.nextTickAt) {
-    if (schedule.nextTickAt - Date.now() >= 0) return false;
-    if (schedule.lastTickAt && schedule.lastTickAt >= schedule.nextTickAt) {
-      // Task ran, but check if it ran late vs previous scheduled time
-      if (schedule.prevScheduledAt && schedule.lastTickAt > schedule.prevScheduledAt + 5 * 60_000) {
-        return true;
-      }
-      return false;
-    }
-    return true;
+  if (schedule.nextTickAt != null) {
+    return isScheduledRunOverdue({
+      state: schedule.state,
+      nextScheduledAt: schedule.nextTickAt,
+      lastCompletedAt: schedule.lastTickAt,
+      inProgress: schedule.tickInProgress,
+    });
   }
-  // Case 2: interval-based — check if overdue
-  if (schedule.lastTickAt) return schedule.lastTickAt + schedule.intervalMs - Date.now() < 0;
-  return false;
+
+  return isIntervalScheduleOverdue({
+    state: schedule.state,
+    lastCompletedAt: schedule.lastTickAt,
+    intervalMs: schedule.intervalMs,
+    inProgress: schedule.tickInProgress,
+  });
 }
 
 function formatNextRun(schedule: GraphSchedule): string {

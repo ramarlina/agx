@@ -132,4 +132,35 @@ describe("PromptJobBoard", () => {
       screen.getByText("Delete is blocked while a run is queued or running. Cancel the live run first."),
     ).toBeInTheDocument();
   });
+
+  test("does not show overdue after a manual run when the next scheduled run is still ahead", async () => {
+    const nowSpy = jest.spyOn(Date, "now").mockReturnValue(Date.UTC(2026, 3, 19, 15, 30, 0));
+
+    mockedUsePromptJobs.mockReturnValue({
+      jobs: [
+        makeJob({
+          nextRunAt: Date.UTC(2026, 3, 19, 23, 30, 0),
+          lastRunAt: Date.UTC(2026, 3, 19, 15, 25, 0),
+          prevScheduledAt: Date.UTC(2026, 3, 19, 9, 0, 0),
+        }),
+      ],
+      loading: false,
+      error: null,
+      refresh: jest.fn(),
+      createJob: jest.fn(),
+      updateJob: jest.fn(),
+      deleteJob: jest.fn(),
+      toggleJob: jest.fn(),
+      runNow: jest.fn(),
+      cancelRun: jest.fn(),
+      fetchRuns: jest.fn<Promise<PromptRun[]>, [string]>().mockResolvedValue([]),
+    });
+
+    render(<PromptJobBoard projectId="project-1" requireProjectId />);
+
+    expect(screen.queryByText(/^overdue$/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Next run in 8h/i)).toBeInTheDocument();
+
+    nowSpy.mockRestore();
+  });
 });

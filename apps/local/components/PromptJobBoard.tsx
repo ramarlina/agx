@@ -36,6 +36,7 @@ import type {
   PromptJobExecutionMode,
 } from "@/src/prompt-scheduler/types";
 import { cronToHuman } from "@/src/graph/nl-schedule";
+import { isScheduledRunOverdue } from "@/src/scheduling/status";
 import { ScheduleConditionPicker } from "@/components/scheduling/ScheduleConditionPicker";
 import {
   TASK_WORKER_DEFAULT_PROMPT as LINEAR_WORKER_DEFAULT_PROMPT,
@@ -69,18 +70,12 @@ const RichTextEditor = dynamic(() => import("@/components/RichTextEditor"), {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function isJobOverdue(job: { nextRunAt: number | null; lastRunAt: number | null; prevScheduledAt?: number | null; state: string }): boolean {
-  if (job.state !== "active") return false;
-  // Case 1: next run is in the past and hasn't run yet
-  if (job.nextRunAt !== null && job.nextRunAt - Date.now() < 0) {
-    if (job.lastRunAt && job.lastRunAt >= job.nextRunAt) return false;
-    return true;
-  }
-  // Case 2: task ran, but late — compare last run against previous scheduled time
-  if (job.prevScheduledAt && job.lastRunAt) {
-    return job.lastRunAt > job.prevScheduledAt + 5 * 60_000; // 5 min grace
-  }
-  return false;
+function isJobOverdue(job: Pick<PromptJob, "nextRunAt" | "lastRunAt" | "state">): boolean {
+  return isScheduledRunOverdue({
+    state: job.state,
+    nextScheduledAt: job.nextRunAt,
+    lastCompletedAt: job.lastRunAt,
+  });
 }
 
 function formatNextRun(epochMs: number | null, state: string): string {
