@@ -10,14 +10,18 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
+export async function GET(
+  req: NextRequest,
+  { params }: { params: Promise<{ tracker: string }> }
+) {
+  const { tracker } = await params;
   const projectId = req.nextUrl.searchParams.get("projectId")?.trim();
   const issueIdsParam = req.nextUrl.searchParams.get("issueIds")?.trim();
   if (!projectId || !issueIdsParam) {
     return NextResponse.json({ error: "projectId and issueIds required" }, { status: 400 });
   }
   const issueIds: string[] = (issueIdsParam as string).split(",").map((s: string) => s.trim()).filter((s: string) => s.length > 0);
-  const metadata = await bulkGetItemMetadata(projectId, issueIds);
+  const metadata = await bulkGetItemMetadata(projectId, tracker, issueIds);
   const result: Record<string, { labels: string[]; estimate: number | null }> = {};
   for (const [id, meta] of metadata.entries()) {
     result[id] = meta;
@@ -25,8 +29,12 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(result);
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(
+  req: NextRequest,
+  { params }: { params: Promise<{ tracker: string }> }
+) {
   try {
+    const { tracker } = await params;
     const parsed = await parseBody<{
       projectId?: string;
       issueIds?: string[];
@@ -46,17 +54,17 @@ export async function POST(req: NextRequest) {
     switch (action) {
       case "set_estimate": {
         const estimate = (body.payload as { estimate?: number | null })?.estimate ?? null;
-        await bulkSetEstimate(projectId, issueIds, estimate);
+        await bulkSetEstimate(projectId, tracker, issueIds, estimate);
         break;
       }
       case "add_labels": {
         const labels = (body.payload as { labels?: string[] })?.labels ?? [];
-        await bulkAddLabels(projectId, issueIds, labels);
+        await bulkAddLabels(projectId, tracker, issueIds, labels);
         break;
       }
       case "remove_label": {
         const label = (body.payload as { label?: string })?.label ?? "";
-        await bulkRemoveLabel(projectId, issueIds, label);
+        await bulkRemoveLabel(projectId, tracker, issueIds, label);
         break;
       }
       default:
