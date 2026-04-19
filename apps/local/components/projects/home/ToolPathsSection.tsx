@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MessageSquare, TerminalSquare } from "lucide-react";
 import { useTrackerConnection } from "@/hooks/useTrackerConnection";
 import { TrackerIcon } from "@/components/tracking/TrackerIcon";
+import type { TerminalSession } from "@/lib/terminal-types";
+import { useTerminalTabsStore } from "@/state/terminalTabs";
 import { ToolPathCard } from "./ToolPathCard";
 
 interface ThreadEntry {
@@ -25,11 +27,37 @@ interface ToolPathsSectionProps {
   primaryThreadId: string | null;
 }
 
+function formatSavedSessionCount(count: number): string {
+  return `${count} saved session${count === 1 ? "" : "s"}`;
+}
+
+function getLatestTerminalSession(
+  sessions: TerminalSession[],
+): TerminalSession | null {
+  if (sessions.length === 0) {
+    return null;
+  }
+
+  return sessions.reduce((latest, session) =>
+    session.createdAt > latest.createdAt ? session : latest,
+  );
+}
+
 export function ToolPathsSection({ projectId, projectSlug, primaryThreadId }: ToolPathsSectionProps) {
   const router = useRouter();
   const { connected, loading: trackerLoading } = useTrackerConnection("linear", projectId);
   const [threads, setThreads] = useState<ThreadEntry[] | null>(null);
   const [threadCount, setThreadCount] = useState(0);
+  const projectTerminalSessions = useTerminalTabsStore((state) => state.sessions[projectSlug]);
+  const terminalSessions = projectTerminalSessions ?? [];
+  const [terminalSessionsHydrated, setTerminalSessionsHydrated] = useState(() =>
+    useTerminalTabsStore.persist.hasHydrated(),
+  );
+
+  const latestTerminalSession = useMemo(
+    () => getLatestTerminalSession(terminalSessions),
+    [terminalSessions],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -49,6 +77,14 @@ export function ToolPathsSection({ projectId, projectSlug, primaryThreadId }: To
       });
     return () => { cancelled = true; };
   }, [projectId]);
+
+  useEffect(() => {
+    setTerminalSessionsHydrated(useTerminalTabsStore.persist.hasHydrated());
+    const unsubscribe = useTerminalTabsStore.persist.onFinishHydration(() => {
+      setTerminalSessionsHydrated(true);
+    });
+    return unsubscribe;
+  }, []);
 
   const navigateToChat = () => {
     if (primaryThreadId) {
@@ -96,8 +132,30 @@ export function ToolPathsSection({ projectId, projectSlug, primaryThreadId }: To
         title="Terminal"
         accentClass="text-emerald-400"
         onClick={() => router.push(`/projects/${projectSlug}/terminal`)}
+        badge={
+          terminalSessionsHydrated && terminalSessions.length > 0 ? (
+            <span className="rounded-full bg-[var(--secondary)] px-2 py-0.5 text-xs text-[var(--muted-foreground)]">
+              {terminalSessions.length}
+            </span>
+          ) : undefined
+        }
       >
-        <p className="text-[var(--muted-foreground)]">No sessions yet</p>
+        {!terminalSessionsHydrated ? (
+          <div className="space-y-1.5">
+            {[1, 2].map((i) => <div key={i} className="h-5 animate-pulse rounded bg-[var(--muted)]" />)}
+          </div>
+        ) : terminalSessions.length === 0 ? (
+          <p className="text-[var(--muted-foreground)]">No sessions yet</p>
+        ) : (
+          <div className="space-y-1">
+            <p className="text-[var(--foreground)]">
+              {formatSavedSessionCount(terminalSessions.length)}
+            </p>
+            <p className="truncate text-[var(--muted-foreground)]">
+              Latest: {latestTerminalSession?.title ?? "Untitled terminal"}
+            </p>
+          </div>
+        )}
       </ToolPathCard>
 
       {/* Linear */}
