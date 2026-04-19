@@ -26,6 +26,7 @@ export interface SidebarStageResult {
     folders: boolean;
     scheduledTasks: boolean;
     envVars: boolean;
+    notifications: boolean;
   };
   /** Connected tracker types for sidebar sub-entries */
   trackerConnections: TrackerConnectionEntry[];
@@ -42,6 +43,7 @@ const ALL_VISIBLE_BASE = {
   folders: true,
   scheduledTasks: true,
   envVars: true,
+  notifications: true,
 };
 
 /**

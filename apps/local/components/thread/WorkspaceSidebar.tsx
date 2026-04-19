@@ -16,6 +16,7 @@ import {
   Trash2,
   X,
   Target,
+  Bell,
   Users,
   Home,
   MessageSquare,
@@ -72,7 +73,7 @@ interface WorkspaceSidebarProps {
   onUpdateParticipant?: (participant: Participant) => Promise<unknown>;
   onSelectProject?: (projectId: string) => void;
   activeProjectId?: string | null;
-  activeProjectView?: "home" | "objectives" | "teams" | "thread" | "automations" | "linear" | "tracking" | "terminal" | "env-vars" | "folders" | null;
+  activeProjectView?: "home" | "objectives" | "teams" | "thread" | "automations" | "linear" | "tracking" | "terminal" | "env-vars" | "folders" | "notifications" | null;
   onAddTeam?: (projectId: string) => void;
   stageShow?: SidebarStageResult["show"];
   trackerConnections?: TrackerConnectionEntry[];
@@ -576,7 +577,7 @@ export function WorkspaceSidebar({
   const stageShow = stageShowProp ?? {
     home: true, threads: true, terminal: true, objectives: false,
     objectivesIsNew: false, tracking: false, teams: false, folders: false,
-    scheduledTasks: false, envVars: false,
+    scheduledTasks: false, envVars: false, notifications: false,
   };
 
   useEffect(() => {
@@ -819,7 +820,7 @@ export function WorkspaceSidebar({
               </button>
             </RailTooltip>
 
-            {(stageShow.teams || stageShow.folders || stageShow.envVars) && (
+            {(stageShow.teams || stageShow.folders || stageShow.envVars || stageShow.notifications) && (
               <div className="workspace-sidebar__rail-separator" />
             )}
 
@@ -841,6 +842,13 @@ export function WorkspaceSidebar({
               <RailTooltip label="Env Variables">
                 <Link href={`/projects/${collapsedSlug}/env-vars`} className={`workspace-sidebar__rail-icon${activeProjectView === "env-vars" ? " workspace-sidebar__rail-icon--active" : ""}`}>
                   <KeyRound size={16} />
+                </Link>
+              </RailTooltip>
+            )}
+            {stageShow.notifications && (
+              <RailTooltip label="Notifications">
+                <Link href={`/projects/${collapsedSlug}/notifications`} className={`workspace-sidebar__rail-icon${activeProjectView === "notifications" ? " workspace-sidebar__rail-icon--active" : ""}`}>
+                  <Bell size={16} />
                 </Link>
               </RailTooltip>
             )}
@@ -950,10 +958,11 @@ export function WorkspaceSidebar({
           const isActiveProjectTeams = isActiveProject && activeProjectView === "teams";
           const isActiveProjectFolders = isActiveProject && activeProjectView === "folders";
           const isActiveProjectEnvVars = isActiveProject && activeProjectView === "env-vars";
+          const isActiveProjectNotifications = isActiveProject && activeProjectView === "notifications";
           const navActivity = navActivityByProject[selectedProject.id];
 
           const showWorkGroup = stageShow.objectives || stageShow.scheduledTasks;
-          const showSettingsGroup = stageShow.teams || stageShow.folders || stageShow.envVars;
+          const showSettingsGroup = stageShow.teams || stageShow.folders || stageShow.envVars || stageShow.notifications;
 
           return (
             <nav className="workspace-sidebar__section">
@@ -1137,6 +1146,19 @@ export function WorkspaceSidebar({
                         >
                           <KeyRound size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
                           <span className="workspace-sidebar__workspace-title text-sm">Environment Variables</span>
+                        </Link>
+                      </div>
+                    )}
+                    {stageShow.notifications && (
+                      <div className="workspace-sidebar__workspace-item">
+                        <Link
+                          href={`/projects/${selectedProject.slug}/notifications`}
+                          onClick={closeTouchDrawer}
+                          className={`workspace-sidebar__nav-item ${isActiveProjectNotifications ? "workspace-sidebar__nav-item--active" : ""}`}
+                          aria-current={isActiveProjectNotifications ? "page" : undefined}
+                        >
+                          <Bell size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                          <span className="workspace-sidebar__workspace-title text-sm">Notifications</span>
                         </Link>
                       </div>
                     )}
