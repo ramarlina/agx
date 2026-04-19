@@ -66,7 +66,7 @@ export default function TeamDetailPage({
 
   // Add agent
   const [showAddAgent, setShowAddAgent] = useState(false);
-  const [addMode, setAddMode] = useState<"existing" | "preset">("existing");
+  const [addMode, setAddMode] = useState<"existing" | "preset" | "scratch">("existing");
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [selectedExistingId, setSelectedExistingId] = useState<string | null>(null);
   const [addingAgent, setAddingAgent] = useState(false);
@@ -444,9 +444,65 @@ export default function TeamDetailPage({
                 >
                   From Preset
                 </button>
+                <button
+                  onClick={() => setAddMode("scratch")}
+                  className={`text-xs font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                    addMode === "scratch"
+                      ? "bg-[var(--primary)] text-white"
+                      : "bg-[var(--card-bg)] border border-[var(--border)] text-[var(--muted-foreground)]"
+                  }`}
+                >
+                  From Scratch
+                </button>
               </div>
 
-              {addMode === "existing" ? (
+              {addMode === "scratch" ? (
+                <AgentForm
+                  title="Create agent"
+                  initial={{ name: "", role: "", provider: "claude", model: "", identity: "", skills: [], skillBindings: [] }}
+                  submitLabel="Create & Add"
+                  onSubmit={async (data) => {
+                    if (!project) return;
+                    setAddingAgent(true);
+                    try {
+                      const createRes = await fetch("/api/participants", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          name: data.name,
+                          role: data.role || null,
+                          provider: data.provider,
+                          model: data.model || null,
+                          color: data.color,
+                          ...(data.identity ? { identity: data.identity } : {}),
+                          skills: data.skills ?? [],
+                          skillBindings: data.skillBindings ?? [],
+                        }),
+                      });
+                      if (!createRes.ok) throw new Error("Failed to create agent");
+                      const created = await createRes.json();
+                      const agentId = created.id ?? created.participant?.id;
+                      await fetch(`/api/projects/${project.id}/agents`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ agentId }),
+                      });
+                      await fetch(`/api/projects/${project.id}/teams/${teamId}/agents`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ agentId, roleKey: "member" }),
+                      });
+                      setShowAddAgent(false);
+                      await Promise.all([fetchTeam(), fetchParticipants()]);
+                    } catch {
+                      /* silent */
+                    } finally {
+                      setAddingAgent(false);
+                    }
+                  }}
+                  onCancel={() => setShowAddAgent(false)}
+                />
+              ) : addMode === "existing" ? (
                 <div className="space-y-3">
                   {existingAgentOptions.length === 0 ? (
                     <p className="text-xs text-[var(--muted-foreground)]">
