@@ -20,8 +20,8 @@ import {
   getProjectBySlug,
   getProjectMemory,
   getProjectRepos,
+  getWorkspaceMapForContext,
   getProjectWithRepos,
-
   TaskRunHistory,
   defaultStagePrompts,
   DEFAULT_WORKFLOW_ID,
@@ -64,6 +64,11 @@ export interface StageConfig {
 export interface ProjectContext {
   project: Project | null;
   repos: ProjectRepo[];
+  workspace_map: Array<{
+    location: string;
+    path: string | null;
+    purpose: string | null;
+  }>;
   learnings: string[];
 }
 
@@ -285,6 +290,31 @@ function formatRepoLines(repos: ProjectRepo[]): string {
     .join("\n");
 }
 
+function escapeMarkdownTableCell(value: string | null | undefined): string {
+  return String(value ?? "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\|/g, "\\|")
+    .replace(/\n/g, "<br />");
+}
+
+function formatWorkspaceMapSection(
+  workspaceMap: Array<{ location: string; path: string | null; purpose: string | null }>
+): string | null {
+  const mappedRows = workspaceMap.filter((entry) => entry.path);
+  if (!mappedRows.length) return null;
+
+  const rows = mappedRows.map((entry) =>
+    `| ${escapeMarkdownTableCell(entry.location)} | ${escapeMarkdownTableCell(entry.path)} | ${escapeMarkdownTableCell(entry.purpose)} |`
+  );
+
+  return [
+    "WORKSPACE MAP",
+    "| Location | Path | Purpose |",
+    "|----------|------|---------|",
+    ...rows,
+  ].join("\n");
+}
+
 async function resolveProjectContext(task: Task, _projectLearnings: Learning[]): Promise<ProjectContext | null> {
   const projectId = task.project_id;
   const projectSlug = task.project || undefined;
@@ -306,7 +336,10 @@ async function resolveProjectContext(task: Task, _projectLearnings: Learning[]):
     return null;
   }
 
-  const projectKnowledge = await getProjectMemory(projectWithRepos.id, "human");
+  const [projectKnowledge, workspace_map] = await Promise.all([
+    getProjectMemory(projectWithRepos.id, "human"),
+    getWorkspaceMapForContext(projectWithRepos.id),
+  ]);
   const projectSystemNote = getKnowledgeNote("project", projectWithRepos.id);
 
   if (projectWithRepos.repos.length > 0) {
@@ -337,6 +370,7 @@ async function resolveProjectContext(task: Task, _projectLearnings: Learning[]):
   return {
     project: projectWithRepos,
     repos: projectWithRepos.repos ?? [],
+    workspace_map,
     learnings: [
       ...projectKnowledge.map((entry) => entry.content),
       ...(projectSystemNote?.content ? [`[System-generated] ${projectSystemNote.content}`] : []),
@@ -404,18 +438,19 @@ export function buildTaskPrompt(args: {
   const projectContextSections = project_context?.project
     ? [
       `PROJECT CONTEXT\n${formatProjectMetadata(project_context.project)}`,
+      formatWorkspaceMapSection(project_context.workspace_map),
       `REPOSITORY MAP\n${formatRepoLines(project_context.repos)}`,
       `PROJECT KNOWLEDGE\n${formatList(project_context.learnings, "(none)")}`,
-    ]
+    ].filter(Boolean)
     : [];
 
   const sections = [
     stage_config.prompt ? `STAGE PROMPT\n${stage_config.prompt}` : null,
     "EXECUTION RULES\n- Do not use AGX MCP tools or AGX MCP servers for this task.\n- Complete work using local edits, shell commands, and allowed HTTP APIs only.",
     `TASK META\n${metaLines.join("\n")}`,
+    ...projectContextSections,
     `TASK\n${description || "(empty)"}`,
     `COMMENTS\n${formatList(commentLines, "(none)")}`,
-    ...projectContextSections,
     `TASK KNOWLEDGE\n${formatList(learnings.task.map((l) => l.content), "(none)")}`,
     `GLOBAL KNOWLEDGE\n${formatList(learnings.global.map((l) => l.content), "(none)")}`,
     agent_memories?.length ? `PAST LEARNINGS (from previous tasks)\n${formatList(agent_memories, "(none)")}` : null,

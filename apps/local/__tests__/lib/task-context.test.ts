@@ -98,6 +98,13 @@ describe("task context helpers", () => {
             updated_at: "2026-02-05T01:00:00.000Z",
           },
         ],
+        workspace_map: [
+          {
+            location: "Repositories/frontend",
+            path: "~/Projects/alpha/web",
+            purpose: "Primary frontend",
+          },
+        ],
         learnings: ["Keep Feature Flag X disabled in prod"],
       },
       user_settings: null,
@@ -110,12 +117,11 @@ describe("task context helpers", () => {
     expect(prompt).not.toContain("[execution/decision]");
     expect(prompt).toContain("Do not use AGX MCP tools or AGX MCP servers for this task.");
     expect(prompt).toContain("Task-level insight");
-    expect(prompt).toContain("Project-wide note");
     expect(prompt).toContain("Global wisdom");
     expect(prompt).toContain("PROJECT CONTEXT");
     expect(prompt).toContain("REPOSITORY MAP");
     expect(prompt).toContain("alpha-web");
-    expect(prompt).toContain("PROJECT LEARNINGS");
+    expect(prompt).toContain("PROJECT KNOWLEDGE");
     expect(prompt).toContain("Keep Feature Flag X disabled in prod");
   });
 
@@ -168,5 +174,130 @@ describe("task context helpers", () => {
 
     expect(prompt).toContain("description-priority-body");
     expect(prompt).not.toContain("legacy-content-body");
+  });
+
+  test("buildTaskPrompt renders workspace map before task content", () => {
+    const task: Task = {
+      id: "task-workspace",
+      content: "Use the mapped repo",
+      created_at: "2026-02-06T00:00:00.000Z",
+      updated_at: "2026-02-06T00:00:00.000Z",
+    };
+
+    const prompt = buildTaskPrompt({
+      task,
+      comments: [],
+      learnings: { task: [], project: [], global: [] },
+      stage_config: { prompt: null },
+      project_context: {
+        project: {
+          id: "proj-workspace",
+          name: "Workspace Demo",
+          slug: "workspace-demo",
+          description: "Workspace-aware project",
+          metadata: null,
+          ci_cd_info: null,
+          created_at: "2026-02-05T00:00:00.000Z",
+          updated_at: "2026-02-06T00:00:00.000Z",
+        },
+        repos: [],
+        workspace_map: [
+          {
+            location: "Repositories/frontend",
+            path: "~/Projects/alpha/web",
+            purpose: "Primary frontend",
+          },
+        ],
+        learnings: [],
+      },
+      user_settings: null,
+    });
+
+    expect(prompt).toContain("WORKSPACE MAP");
+    expect(prompt).toContain("| Location | Path | Purpose |");
+    expect(prompt).toContain("| Repositories/frontend | ~/Projects/alpha/web | Primary frontend |");
+    expect(prompt.indexOf("PROJECT CONTEXT")).toBeLessThan(prompt.indexOf("WORKSPACE MAP"));
+    expect(prompt.indexOf("WORKSPACE MAP")).toBeLessThan(prompt.indexOf("TASK\nUse the mapped repo"));
+  });
+
+  test("buildTaskPrompt omits workspace map when all entries are unmapped", () => {
+    const task: Task = {
+      id: "task-4",
+      content: "Task without mapped workspace entries",
+      created_at: "2026-02-06T00:00:00.000Z",
+      updated_at: "2026-02-06T00:00:00.000Z",
+    };
+
+    const prompt = buildTaskPrompt({
+      task,
+      comments: [],
+      learnings: { task: [], project: [], global: [] },
+      stage_config: { prompt: null },
+      project_context: {
+        project: {
+          id: "proj-456",
+          name: "Bravo",
+          slug: "bravo",
+          description: null,
+          metadata: null,
+          ci_cd_info: null,
+          created_at: "2026-02-05T00:00:00.000Z",
+          updated_at: "2026-02-06T00:00:00.000Z",
+        },
+        repos: [],
+        workspace_map: [
+          {
+            location: "Repositories/backend",
+            path: null,
+            purpose: "Backend API",
+          },
+        ],
+        learnings: [],
+      },
+      user_settings: null,
+    });
+
+    expect(prompt).not.toContain("WORKSPACE MAP");
+    expect(prompt).toContain("REPOSITORY MAP");
+  });
+
+  test("buildTaskPrompt escapes markdown-breaking workspace map values", () => {
+    const task: Task = {
+      id: "task-5",
+      content: "Task with markdown-sensitive workspace entries",
+      created_at: "2026-02-06T00:00:00.000Z",
+      updated_at: "2026-02-06T00:00:00.000Z",
+    };
+
+    const prompt = buildTaskPrompt({
+      task,
+      comments: [],
+      learnings: { task: [], project: [], global: [] },
+      stage_config: { prompt: null },
+      project_context: {
+        project: {
+          id: "proj-789",
+          name: "Charlie",
+          slug: "charlie",
+          description: null,
+          metadata: null,
+          ci_cd_info: null,
+          created_at: "2026-02-05T00:00:00.000Z",
+          updated_at: "2026-02-06T00:00:00.000Z",
+        },
+        repos: [],
+        workspace_map: [
+          {
+            location: "Docs|specs",
+            path: "~/Projects/charlie/specs",
+            purpose: "Architecture\nNotes | decisions",
+          },
+        ],
+        learnings: [],
+      },
+      user_settings: null,
+    });
+
+    expect(prompt).toContain("| Docs\\|specs | ~/Projects/charlie/specs | Architecture<br />Notes \\| decisions |");
   });
 });
