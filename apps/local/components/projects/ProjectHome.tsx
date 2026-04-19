@@ -22,10 +22,7 @@ interface ProjectHomeProps {
 export function ProjectHome({
   projectId,
   projectSlug,
-  projectName,
   projectDescription,
-  projectMetadata,
-  repos,
   threadIds,
 }: ProjectHomeProps) {
   const router = useRouter();
@@ -77,7 +74,10 @@ export function ProjectHome({
 
         {/* Project context — no label */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <FoldersSummaryCard projectId={projectId} repos={repos} />
+          <FoldersSummaryCard
+            projectId={projectId}
+            onViewAll={() => router.push(`/projects/${projectSlug}/folders`)}
+          />
           <TeamsSummaryCard
             projectId={projectId}
             onViewAll={() => router.push(`/projects/${projectSlug}/teams`)}

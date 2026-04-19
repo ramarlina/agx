@@ -832,7 +832,7 @@ export function WorkspaceSidebar({
               </RailTooltip>
             )}
             {stageShow.folders && (
-              <RailTooltip label="Folders">
+              <RailTooltip label="Workspace Map">
                 <Link href={`/projects/${collapsedSlug}/folders`} className={`workspace-sidebar__rail-icon${activeProjectView === "folders" ? " workspace-sidebar__rail-icon--active" : ""}`}>
                   <FolderGit2 size={16} />
                 </Link>
@@ -1132,7 +1132,7 @@ export function WorkspaceSidebar({
                           aria-current={isActiveProjectFolders ? "page" : undefined}
                         >
                           <FolderGit2 size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
-                          <span className="workspace-sidebar__workspace-title text-sm">Folders</span>
+                          <span className="workspace-sidebar__workspace-title text-sm">Workspace Map</span>
                         </Link>
                       </div>
                     )}
