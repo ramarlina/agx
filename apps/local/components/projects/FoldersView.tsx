@@ -1,855 +1,733 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import type { ChangeEvent } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
-  ChevronRight,
-  Copy,
-  Check,
-  ExternalLink,
+  Download,
   FileText,
+  Folder,
   FolderGit2,
-  FolderOpen,
-  FolderSearch,
-  GitBranch,
-  HardDrive,
+  FolderPlus,
+  Loader2,
   Pencil,
   Plus,
   Save,
+  Settings,
+  TerminalSquare,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
-import { useProjectsWithAgents, type ProjectRepoInput, type ProjectRepo } from "@/hooks/useProjects";
-import DirectoryBrowser from "@/components/DirectoryBrowser";
+import type { WorkspaceEntry } from "@/lib/db/types";
+import { useProjectWorkspace } from "@/hooks/useProjectWorkspace";
+import { buildWorkspaceCategoryGroups } from "@/lib/project-workspace";
+import { DEFAULT_WORKSPACE_CATEGORIES } from "@/lib/workspace-categories";
 
 interface FoldersViewProps {
   projectId: string;
 }
 
-type SystemNote = {
-  id: string;
-  content: string;
-  created_at?: string;
-  updated_at?: string;
-};
+type StatusTone = "success" | "error" | "neutral";
 
-interface RepoAnalysis {
-  isGit: boolean;
-  branch?: string;
-  status?: { modified: number; untracked: number; staged: number };
-  languages: Record<string, number>;
+interface EntryDraft {
+  category: string;
+  name: string;
+  path: string;
+  purpose: string;
+  error: string | null;
+  isSaving: boolean;
 }
 
-function mapNote(note: { id: string; content: string; createdAt?: string; updatedAt?: string } | null | undefined): SystemNote | null {
-  if (!note) return null;
-  return { id: note.id, content: note.content, created_at: note.createdAt, updated_at: note.updatedAt };
+function getCategoryEntryLabel(categoryId: string, label: string): string {
+  switch (categoryId) {
+    case "repositories":
+      return "Repository";
+    case "docs":
+      return "Doc";
+    case "config":
+      return "Config";
+    case "scripts":
+      return "Script";
+    default:
+      return label;
+  }
 }
 
-function CopyPathButton({ path }: { path: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      onClick={(e) => {
-        e.stopPropagation();
-        void navigator.clipboard.writeText(path);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 1500);
-      }}
-      className="rounded p-1 text-[var(--app-shell-soft-text)] transition-colors hover:text-[var(--foreground)]"
-      title="Copy path"
-    >
-      {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
-    </button>
-  );
+function createEntryDraft(category: string, entry?: WorkspaceEntry): EntryDraft {
+  return {
+    category,
+    name: entry?.name ?? "",
+    path: entry?.path ?? "",
+    purpose: entry?.purpose ?? "",
+    error: null,
+    isSaving: false,
+  };
 }
 
-function LanguageBadge({ lang, count }: { lang: string; count: number }) {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-md bg-[var(--secondary)] px-2 py-0.5 text-xs text-[var(--muted-foreground)]">
-      {lang}
-      <span className="text-[var(--app-shell-soft-text)]">{count}</span>
-    </span>
-  );
-}
-
-function AnalysisSummary({ analysis }: { analysis: RepoAnalysis }) {
-  const topLangs = Object.entries(analysis.languages)
-    .sort(([, a], [, b]) => b - a)
-    .slice(0, 5);
-
-  return (
-    <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card-bg)]">
-      <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-2.5">
-        <HardDrive className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
-        <span className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">Analysis</span>
-      </div>
-      <div className="px-4 py-3 space-y-3">
-        {/* Git info */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5">
-            <GitBranch className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
-            {analysis.isGit ? (
-              <span className="text-xs text-[var(--foreground)]">
-                {analysis.branch ?? "detached"}
-              </span>
-            ) : (
-              <span className="text-xs italic text-[var(--muted-foreground)]">Not a git repo</span>
-            )}
-          </div>
-          {analysis.isGit && analysis.status && (
-            <div className="flex items-center gap-2 text-xs text-[var(--muted-foreground)]">
-              {analysis.status.staged > 0 && (
-                <span className="text-[var(--status-completed-text)]">{analysis.status.staged} staged</span>
-              )}
-              {analysis.status.modified > 0 && (
-                <span className="text-[var(--status-blocked-text)]">{analysis.status.modified} modified</span>
-              )}
-              {analysis.status.untracked > 0 && (
-                <span className="text-[var(--muted-foreground)]">{analysis.status.untracked} untracked</span>
-              )}
-              {analysis.status.staged === 0 && analysis.status.modified === 0 && analysis.status.untracked === 0 && (
-                <span className="text-[var(--app-shell-soft-text)]">clean</span>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Languages */}
-        {topLangs.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {topLangs.map(([lang, count]) => (
-              <LanguageBadge key={lang} lang={lang} count={count} />
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function FolderRow({
-  repo,
-  isSelected,
-  onSelect,
-}: {
-  repo: ProjectRepo;
-  isSelected: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors group ${
-        isSelected
-          ? "border border-blue-500/20 bg-blue-500/10"
-          : "border border-transparent hover:bg-[var(--secondary)]"
-      }`}
-    >
-      {isSelected ? (
-        <FolderOpen className="w-4 h-4 text-blue-400 flex-shrink-0" />
-      ) : (
-        <FolderGit2 className="h-4 w-4 flex-shrink-0 text-[var(--muted-foreground)]" />
-      )}
-      <div className="min-w-0 flex-1">
-        <div className={`truncate text-sm font-medium ${isSelected ? "text-blue-500" : "text-[var(--foreground)]"}`}>
-          {repo.name}
-        </div>
-        <div className="truncate text-xs text-[var(--muted-foreground)]">
-          {repo.path || repo.git_url || "No path set"}
-        </div>
-      </div>
-      <ChevronRight
-        className={`w-3.5 h-3.5 flex-shrink-0 transition-colors ${
-          isSelected ? "text-blue-500" : "text-[var(--app-shell-soft-text)] group-hover:text-[var(--muted-foreground)]"
-        }`}
-      />
-    </button>
-  );
-}
-
-function FolderDetail({
-  repo,
-  systemNote,
-  analysis,
-  analysisLoading,
-  onNoteSave,
-  noteSaving,
-  onEdit,
-  onDelete,
-}: {
-  repo: ProjectRepo;
-  systemNote: SystemNote | null;
-  analysis: RepoAnalysis | null;
-  analysisLoading: boolean;
-  onNoteSave: (repoId: string, content: string) => Promise<void>;
-  noteSaving: boolean;
-  onEdit: (repo: ProjectRepo) => void;
-  onDelete: (repoId: string) => void;
-}) {
-  const [notes, setNotes] = useState(repo.notes ?? "");
-  const [editingNotes, setEditingNotes] = useState(false);
-  const [localNotes, setLocalNotes] = useState(notes);
-
-  useEffect(() => {
-    setNotes(repo.notes ?? "");
-    setLocalNotes(repo.notes ?? "");
-    setEditingNotes(false);
-  }, [repo.id, repo.notes]);
-
-  return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <FolderOpen className="w-5 h-5 text-blue-400 flex-shrink-0" />
-            <h3 className="truncate text-lg font-semibold text-[var(--foreground)]">{repo.name}</h3>
-          </div>
-          {repo.path && (
-            <div className="flex items-center gap-1.5 ml-7">
-              <code className="truncate font-mono text-xs text-[var(--muted-foreground)]">{repo.path}</code>
-              <CopyPathButton path={repo.path} />
-            </div>
-          )}
-          {repo.git_url && (
-            <div className="flex items-center gap-1.5 ml-7 mt-1">
-              <ExternalLink className="h-3 w-3 flex-shrink-0 text-[var(--app-shell-soft-text)]" />
-              <a
-                href={repo.git_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-blue-400/70 hover:text-blue-400 truncate"
-              >
-                {repo.git_url}
-              </a>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          <button
-            type="button"
-            onClick={() => onEdit(repo)}
-            className="rounded-lg p-1.5 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
-            title="Edit folder"
-          >
-            <Pencil className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => onDelete(repo.id)}
-            className="rounded-lg p-1.5 text-[var(--app-shell-soft-text)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--destructive)]"
-            title="Delete folder"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
-
-      {/* Analysis */}
-      {analysisLoading && (
-        <div className="rounded-xl border border-[var(--border)] bg-[var(--card-bg)] px-4 py-3">
-          <span className="animate-pulse text-xs text-[var(--muted-foreground)]">Analyzing folder...</span>
-        </div>
-      )}
-      {!analysisLoading && analysis && <AnalysisSummary analysis={analysis} />}
-
-      {/* Notes section */}
-      <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--card-bg)]">
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-2.5">
-          <div className="flex items-center gap-2">
-            <FileText className="h-3.5 w-3.5 text-[var(--muted-foreground)]" />
-            <span className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">Notes</span>
-          </div>
-          {!editingNotes ? (
-            <button
-              type="button"
-              onClick={() => {
-                setLocalNotes(notes);
-                setEditingNotes(true);
-              }}
-              className="flex items-center gap-1 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-            >
-              <Pencil className="w-3 h-3" />
-              Edit
-            </button>
-          ) : (
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] text-[var(--app-shell-soft-text)]">Cmd+Enter to save</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingNotes(false);
-                  setLocalNotes(notes);
-                }}
-                className="flex items-center gap-1 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-              >
-                <X className="w-3 h-3" />
-                Cancel
-              </button>
-              <button
-                type="button"
-                disabled={noteSaving}
-                onClick={async () => {
-                  await onNoteSave(repo.id, localNotes);
-                  setNotes(localNotes);
-                  setEditingNotes(false);
-                }}
-                className="flex items-center gap-1 text-xs text-blue-500 transition-colors hover:text-blue-600 disabled:opacity-50"
-              >
-                <Save className="w-3 h-3" />
-                Save
-              </button>
-            </div>
-          )}
-        </div>
-        <div className="px-4 py-3 min-h-[80px]">
-          {editingNotes ? (
-            <textarea
-              value={localNotes}
-              onChange={(e) => setLocalNotes(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault();
-                  void (async () => {
-                    await onNoteSave(repo.id, localNotes);
-                    setNotes(localNotes);
-                    setEditingNotes(false);
-                  })();
-                } else if (e.key === "Escape") {
-                  setEditingNotes(false);
-                  setLocalNotes(notes);
-                }
-              }}
-              className="min-h-[120px] w-full resize-none bg-transparent text-sm text-[var(--foreground)] outline-none placeholder:text-[var(--app-shell-soft-text)]"
-              placeholder="Add notes about this folder... (architecture, conventions, important files, etc.)"
-              autoFocus
-            />
-          ) : notes ? (
-            <p className="whitespace-pre-wrap text-sm text-[var(--foreground)]">{notes}</p>
-          ) : (
-            <p className="text-sm italic text-[var(--muted-foreground)]">No notes yet. Click edit to describe this folder.</p>
-          )}
-        </div>
-      </div>
-
-      {/* System-generated knowledge */}
-      {systemNote && (
-        <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--secondary)]">
-          <div className="flex items-center gap-2 border-b border-[var(--border)] px-4 py-2.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/60" />
-            <span className="text-xs font-medium uppercase tracking-wider text-[var(--muted-foreground)]">
-              Generated Knowledge
-            </span>
-            {systemNote.updated_at && (
-              <span className="ml-auto text-xs text-[var(--app-shell-soft-text)]">
-                {new Date(systemNote.updated_at).toLocaleDateString()}
-              </span>
-            )}
-          </div>
-          <div className="whitespace-pre-wrap px-4 py-3 text-sm leading-relaxed text-[var(--muted-foreground)]">
-            {systemNote.content}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Add-folder flow: name input + directory browser + native picker option */
-function AddFolderPanel({
-  onAdd,
-  onCancel,
-}: {
-  onAdd: (name: string, path: string) => Promise<void>;
-  onCancel: () => void;
-}) {
-  const [name, setName] = useState("");
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [pickingNative, setPickingNative] = useState(false);
-  const [analysis, setAnalysis] = useState<RepoAnalysis | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
-
-  const analyzePath = useCallback(async (dirPath: string) => {
-    setAnalyzing(true);
-    try {
-      const res = await fetch("/api/filesystem/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ path: dirPath }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setAnalysis(data.analysis);
-      }
-    } catch { /* ignore */ }
-    setAnalyzing(false);
-  }, []);
-
-  const handleSelectPath = useCallback((path: string) => {
-    setSelectedPath(path);
-    // Auto-fill name from last path segment if empty
-    if (!name.trim()) {
-      const segment = path.split("/").filter(Boolean).pop() ?? "";
-      setName(segment);
-    }
-    void analyzePath(path);
-  }, [name, analyzePath]);
-
-  const handleNativePick = useCallback(async () => {
-    setPickingNative(true);
-    try {
-      const res = await fetch("/api/filesystem/pick-folder", { method: "POST" });
-      const data = await res.json();
-      if (data.path) {
-        handleSelectPath(data.path);
-      }
-    } catch { /* ignore */ }
-    setPickingNative(false);
-  }, [handleSelectPath]);
-
-  const handleSave = useCallback(async () => {
-    if (!selectedPath || !name.trim()) return;
-    setSaving(true);
-    try {
-      await onAdd(name.trim(), selectedPath);
-    } finally {
-      setSaving(false);
-    }
-  }, [name, selectedPath, onAdd]);
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-[var(--foreground)]">Add Folder</h3>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-
-      {/* Name input */}
-      <div className="space-y-1.5">
-        <label className="text-xs font-medium text-[var(--muted-foreground)]">Name</label>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="input w-full text-sm"
-          placeholder="Auto-detected from path"
-        />
-      </div>
-
-      {/* Selected path preview */}
-      {selectedPath && (
-        <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 px-3 py-2 flex items-center gap-2">
-          <FolderOpen className="w-4 h-4 text-blue-400 flex-shrink-0" />
-          <code className="text-xs text-blue-300 font-mono truncate flex-1">{selectedPath}</code>
-          <button
-            type="button"
-            onClick={() => { setSelectedPath(null); setAnalysis(null); }}
-            className="p-0.5 rounded text-blue-400/50 hover:text-blue-300 transition-colors flex-shrink-0"
-          >
-            <X className="w-3 h-3" />
-          </button>
-        </div>
-      )}
-
-      {/* Analysis preview */}
-      {analyzing && (
-        <div className="px-1 text-xs text-[var(--muted-foreground)] animate-pulse">Analyzing...</div>
-      )}
-      {!analyzing && analysis && <AnalysisSummary analysis={analysis} />}
-
-      {/* Directory browser or native picker */}
-      {!selectedPath && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-[var(--muted-foreground)]">Choose a folder</span>
-            <button
-              type="button"
-              onClick={() => void handleNativePick()}
-              disabled={pickingNative}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)] px-2.5 py-1 text-xs font-medium text-[var(--muted-foreground)] transition-colors hover:border-[var(--card-hover-border)] hover:text-[var(--foreground)] disabled:opacity-50"
-            >
-              <FolderSearch className="w-3 h-3" />
-              {pickingNative ? "Opening..." : "System Picker"}
-            </button>
-          </div>
-          <DirectoryBrowser
-            initialPath=""
-            onSelect={handleSelectPath}
-            onCancel={onCancel}
-          />
-        </div>
-      )}
-
-      {/* Save action */}
-      {selectedPath && (
-        <div className="flex items-center gap-2 pt-1">
-          <button
-            type="button"
-            onClick={() => void handleSave()}
-            disabled={!name.trim() || saving}
-            className="btn-primary px-4 py-1.5 text-sm disabled:opacity-40"
-          >
-            {saving ? "Adding..." : "Add Folder"}
-          </button>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-4 py-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Edit-folder panel: name + path with directory browser */
-function EditFolderPanel({
-  repo,
-  onSave,
-  onCancel,
-}: {
-  repo: ProjectRepo;
-  onSave: (name: string, path: string) => Promise<void>;
-  onCancel: () => void;
-}) {
-  const [name, setName] = useState(repo.name);
-  const [selectedPath, setSelectedPath] = useState(repo.path ?? "");
-  const [showBrowser, setShowBrowser] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [pickingNative, setPickingNative] = useState(false);
-
-  const handleNativePick = useCallback(async () => {
-    setPickingNative(true);
-    try {
-      const res = await fetch("/api/filesystem/pick-folder", { method: "POST" });
-      const data = await res.json();
-      if (data.path) {
-        setSelectedPath(data.path);
-        setShowBrowser(false);
-      }
-    } catch { /* ignore */ }
-    setPickingNative(false);
-  }, []);
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-medium text-[var(--foreground)]">Edit Folder</h3>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-
-      <div className="space-y-1.5">
-        <label className="text-xs font-medium text-[var(--muted-foreground)]">Name</label>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="input w-full text-sm"
-          placeholder="Folder name"
-          autoFocus
-        />
-      </div>
-
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-medium text-[var(--muted-foreground)]">Path</label>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setShowBrowser(!showBrowser)}
-              className="text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-            >
-              {showBrowser ? "Type path" : "Browse"}
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleNativePick()}
-              disabled={pickingNative}
-              className="inline-flex items-center gap-1 text-xs text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)] disabled:opacity-50"
-            >
-              <FolderSearch className="w-3 h-3" />
-              {pickingNative ? "Opening..." : "System Picker"}
-            </button>
-          </div>
-        </div>
-        {showBrowser ? (
-          <DirectoryBrowser
-            initialPath={selectedPath}
-            onSelect={(path) => { setSelectedPath(path); setShowBrowser(false); }}
-            onCancel={() => setShowBrowser(false)}
-          />
-        ) : (
-          <input
-            value={selectedPath}
-            onChange={(e) => setSelectedPath(e.target.value)}
-            className="input w-full text-sm font-mono"
-            placeholder="/path/to/folder"
-          />
-        )}
-      </div>
-
-      <div className="flex items-center gap-2 pt-1">
-        <button
-          type="button"
-          onClick={async () => {
-            if (!name.trim() || !selectedPath.trim()) return;
-            setSaving(true);
-            try { await onSave(name.trim(), selectedPath.trim()); }
-            finally { setSaving(false); }
-          }}
-          disabled={!name.trim() || !selectedPath.trim() || saving}
-          className="btn-primary px-4 py-1.5 text-sm disabled:opacity-40"
-        >
-          {saving ? "Saving..." : "Save"}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="px-4 py-1.5 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
-  );
+function getCategoryIcon(categoryId: string) {
+  switch (categoryId) {
+    case "repositories":
+      return FolderGit2;
+    case "docs":
+      return FileText;
+    case "config":
+      return Settings;
+    case "scripts":
+      return TerminalSquare;
+    default:
+      return Folder;
+  }
 }
 
 export function FoldersView({ projectId }: FoldersViewProps) {
-  const { projects, updateProject } = useProjectsWithAgents();
-  const project = projects.find((p) => p.id === projectId);
+  const { workspace, entryCount, isLoading, error, refetch, createEntry, updateEntry, deleteEntry } = useProjectWorkspace(projectId);
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
+  const [addingCategoryId, setAddingCategoryId] = useState<string | null>(null);
+  const [addDraft, setAddDraft] = useState<EntryDraft>(createEntryDraft("repositories"));
+  const [editingEntryId, setEditingEntryId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<EntryDraft | null>(null);
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [categoryDraft, setCategoryDraft] = useState("");
+  const [status, setStatus] = useState<{ tone: StatusTone; message: string } | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
-  const [selectedRepoId, setSelectedRepoId] = useState<string | null>(null);
-  const [addingRepo, setAddingRepo] = useState(false);
-  const [editingRepo, setEditingRepo] = useState<ProjectRepo | null>(null);
-  const [repoStatus, setRepoStatus] = useState<string | null>(null);
-  const [noteSaving, setNoteSaving] = useState(false);
-  const [systemNotes, setSystemNotes] = useState<Record<string, SystemNote | null>>({});
-  const [analyses, setAnalyses] = useState<Record<string, RepoAnalysis>>({});
-  const [analysisLoading, setAnalysisLoading] = useState<Record<string, boolean>>({});
+  const groups = buildWorkspaceCategoryGroups(workspace, customCategories);
+  const showEmptyState = entryCount === 0 && customCategories.length === 0 && !addingCategoryId;
 
-  const repos = project?.repos ?? [];
-  const selectedRepo = repos.find((r) => r.id === selectedRepoId) ?? null;
-
-  // Auto-select first folder
-  useEffect(() => {
-    if (!selectedRepoId && repos.length > 0) {
-      setSelectedRepoId(repos[0].id);
-    }
-    if (selectedRepoId && !repos.find((r) => r.id === selectedRepoId) && repos.length > 0) {
-      setSelectedRepoId(repos[0].id);
-    }
-  }, [repos, selectedRepoId]);
-
-  // Load system notes for all repos
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      if (repos.length === 0) { setSystemNotes({}); return; }
-      try {
-        const entries = await Promise.all(
-          repos.map(async (repo) => {
-            const res = await fetch(`/api/knowledge-notes?scope=repo&subjectId=${encodeURIComponent(repo.id)}`);
-            const data = res.ok ? await res.json() : { note: null };
-            return [repo.id, mapNote(data.note)] as const;
-          })
-        );
-        if (!cancelled) setSystemNotes(Object.fromEntries(entries));
-      } catch {
-        if (!cancelled) setSystemNotes({});
-      }
-    }
-    void load();
-    return () => { cancelled = true; };
-  }, [repos]);
-
-  // Analyze selected repo on selection
-  useEffect(() => {
-    if (!selectedRepo?.path || analyses[selectedRepo.id]) return;
-    const repoId = selectedRepo.id;
-    const repoPath = selectedRepo.path;
-    setAnalysisLoading((prev) => ({ ...prev, [repoId]: true }));
-    fetch("/api/filesystem/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: repoPath }),
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.analysis) {
-          setAnalyses((prev) => ({ ...prev, [repoId]: data.analysis }));
-        }
-      })
-      .catch(() => {})
-      .finally(() => setAnalysisLoading((prev) => ({ ...prev, [repoId]: false })));
-  }, [selectedRepo?.id, selectedRepo?.path, analyses]);
-
-  const setFeedback = useCallback((msg: string) => {
-    setRepoStatus(msg);
-    setTimeout(() => setRepoStatus(null), 2500);
+  const setFeedback = useCallback((message: string, tone: StatusTone = "neutral") => {
+    setStatus({ tone, message });
+    window.setTimeout(() => setStatus(null), 3500);
   }, []);
 
-  const toInputs = useCallback((): ProjectRepoInput[] =>
-    repos.map((r) => ({ id: r.id, name: r.name, path: r.path, git_url: r.git_url, notes: r.notes })),
-    [repos]
-  );
-
-  const handleAdd = useCallback(async (name: string, path: string) => {
-    try {
-      await updateProject(projectId, { repos: [...toInputs(), { name, path }] });
-      setAddingRepo(false);
-      setFeedback("Folder added");
-    } catch { setFeedback("Failed to add"); }
-  }, [updateProject, projectId, toInputs, setFeedback]);
-
-  const handleEditSave = useCallback(async (name: string, path: string) => {
-    if (!editingRepo) return;
-    const updated = toInputs().map((r) =>
-      r.id === editingRepo.id ? { ...r, name, path } : r
-    );
-    try {
-      await updateProject(projectId, { repos: updated });
-      setEditingRepo(null);
-      // Invalidate analysis cache for this repo since path may have changed
-      setAnalyses((prev) => {
-        const next = { ...prev };
-        delete next[editingRepo.id];
-        return next;
-      });
-      setFeedback("Folder updated");
-    } catch { setFeedback("Failed to update"); }
-  }, [editingRepo, updateProject, projectId, toInputs, setFeedback]);
-
-  const handleDelete = useCallback(async (repoId: string) => {
-    try {
-      await updateProject(projectId, { repos: toInputs().filter((r) => r.id !== repoId) });
-      if (selectedRepoId === repoId) setSelectedRepoId(null);
-      setFeedback("Folder removed");
-    } catch { setFeedback("Failed to remove"); }
-  }, [updateProject, projectId, toInputs, selectedRepoId, setFeedback]);
-
-  const handleNoteSave = useCallback(async (repoId: string, content: string) => {
-    setNoteSaving(true);
-    const updated = toInputs().map((r) =>
-      r.id === repoId ? { ...r, notes: content } : r
-    );
-    try {
-      await updateProject(projectId, { repos: updated });
-      setFeedback("Notes saved");
-    } catch {
-      setFeedback("Failed to save notes");
-    } finally {
-      setNoteSaving(false);
+  const pickFolder = useCallback(async () => {
+    const response = await fetch("/api/filesystem/pick-folder", { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(typeof data.error === "string" ? data.error : "Failed to open folder picker");
     }
-  }, [updateProject, projectId, toInputs, setFeedback]);
+    return typeof data.path === "string" ? data.path : null;
+  }, []);
 
-  if (!project) {
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-[var(--muted-foreground)]">
-        Loading...
-      </div>
+  const closeAddForm = useCallback(() => {
+    setAddingCategoryId(null);
+    setAddDraft(createEntryDraft("repositories"));
+  }, []);
+
+  const openAddForm = useCallback((category: string) => {
+    setAddingCategoryId(category);
+    setAddDraft(createEntryDraft(category));
+    setEditingEntryId(null);
+    setEditDraft(null);
+  }, []);
+
+  const openEditForm = useCallback((entry: WorkspaceEntry) => {
+    setEditingEntryId(entry.id);
+    setEditDraft(createEntryDraft(entry.category, entry));
+    setAddingCategoryId(null);
+    setAddDraft(createEntryDraft(entry.category));
+  }, []);
+
+  const closeEditForm = useCallback(() => {
+    setEditingEntryId(null);
+    setEditDraft(null);
+  }, []);
+
+  const handleAddEntry = useCallback(async () => {
+    const name = addDraft.name.trim();
+    if (!name) {
+      setAddDraft((current) => ({ ...current, error: "Name is required" }));
+      return;
+    }
+
+    setAddDraft((current) => ({ ...current, isSaving: true, error: null }));
+    try {
+      await createEntry({
+        category: addDraft.category,
+        name,
+        path: addDraft.path.trim() || null,
+        purpose: addDraft.purpose.trim() || null,
+      });
+      closeAddForm();
+      setFeedback(`Added ${name} to ${groups.find((group) => group.id === addDraft.category)?.label ?? "workspace map"}`, "success");
+    } catch (err) {
+      setAddDraft((current) => ({
+        ...current,
+        isSaving: false,
+        error: err instanceof Error ? err.message : "Failed to add workspace entry",
+      }));
+    }
+  }, [addDraft, closeAddForm, createEntry, groups, setFeedback]);
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!editingEntryId || !editDraft) return;
+    const name = editDraft.name.trim();
+    if (!name) {
+      setEditDraft((current) => (current ? { ...current, error: "Name is required" } : current));
+      return;
+    }
+
+    setEditDraft((current) => (current ? { ...current, isSaving: true, error: null } : current));
+    try {
+      await updateEntry(editingEntryId, {
+        name,
+        path: editDraft.path.trim() || null,
+        purpose: editDraft.purpose.trim() || null,
+      });
+      closeEditForm();
+      setFeedback("Workspace entry updated", "success");
+    } catch (err) {
+      setEditDraft((current) => ({
+        ...(current ?? createEntryDraft("")),
+        isSaving: false,
+        error: err instanceof Error ? err.message : "Failed to update workspace entry",
+      }));
+    }
+  }, [closeEditForm, editDraft, editingEntryId, setFeedback, updateEntry]);
+
+  const handleDeleteEntry = useCallback(async (entry: WorkspaceEntry) => {
+    if (!window.confirm(`Delete ${entry.name} from ${entry.category}?`)) return;
+    try {
+      await deleteEntry(entry.id);
+      if (editingEntryId === entry.id) {
+        closeEditForm();
+      }
+      setFeedback(`Deleted ${entry.name}`, "success");
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : "Failed to delete workspace entry", "error");
+    }
+  }, [closeEditForm, deleteEntry, editingEntryId, setFeedback]);
+
+  const handleBrowseForAdd = useCallback(async () => {
+    try {
+      const path = await pickFolder();
+      if (path) {
+        setAddDraft((current) => ({ ...current, path, error: null }));
+      }
+    } catch (err) {
+      setAddDraft((current) => ({
+        ...current,
+        error: err instanceof Error ? err.message : "Failed to pick folder",
+      }));
+    }
+  }, [pickFolder]);
+
+  const handleBrowseForEdit = useCallback(async () => {
+    if (!editDraft) return;
+    try {
+      const path = await pickFolder();
+      if (path) {
+        setEditDraft((current) => (current ? { ...current, path, error: null } : current));
+      }
+    } catch (err) {
+      setEditDraft((current) => (
+        current
+          ? { ...current, error: err instanceof Error ? err.message : "Failed to pick folder" }
+          : current
+      ));
+    }
+  }, [editDraft, pickFolder]);
+
+  const handleQuickBrowse = useCallback(async (entry: WorkspaceEntry) => {
+    try {
+      const path = await pickFolder();
+      if (!path) return;
+      await updateEntry(entry.id, { path });
+      setFeedback(`Updated path for ${entry.name}`, "success");
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : "Failed to update path", "error");
+    }
+  }, [pickFolder, setFeedback, updateEntry]);
+
+  const handleCreateCategory = useCallback(() => {
+    const nextCategory = categoryDraft.trim();
+    if (!nextCategory) return;
+
+    const existingGroup = groups.find(
+      (group) =>
+        group.id.toLowerCase() === nextCategory.toLowerCase() ||
+        group.label.toLowerCase() === nextCategory.toLowerCase(),
     );
-  }
+
+    if (existingGroup) {
+      setCategoryDraft("");
+      setIsCreatingCategory(false);
+      openAddForm(existingGroup.id);
+      return;
+    }
+
+    setCustomCategories((current) => [...current, nextCategory]);
+    setCategoryDraft("");
+    setIsCreatingCategory(false);
+    openAddForm(nextCategory);
+  }, [categoryDraft, groups, openAddForm]);
+
+  const handleRemoveCustomCategory = useCallback((categoryId: string) => {
+    setCustomCategories((current) => current.filter((category) => category !== categoryId));
+    if (addingCategoryId === categoryId) {
+      closeAddForm();
+    }
+  }, [addingCategoryId, closeAddForm]);
+
+  const handleExportYaml = useCallback(() => {
+    window.open(`/api/projects/${projectId}/workspace/export`, "_blank");
+  }, [projectId]);
+
+  const handleImportYaml = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const content = await file.text();
+      const response = await fetch(`/api/projects/${projectId}/workspace/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-yaml" },
+        body: content,
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(typeof data.error === "string" ? data.error : "Failed to import workspace YAML");
+      }
+      await refetch();
+      setFeedback("Imported workspace YAML", "success");
+    } catch (err) {
+      setFeedback(err instanceof Error ? err.message : "Failed to import workspace YAML", "error");
+    } finally {
+      if (importInputRef.current) importInputRef.current.value = "";
+    }
+  }, [projectId, refetch, setFeedback]);
 
   return (
-    <div className="h-full flex overflow-hidden">
-      {/* Left panel: folder list */}
-      <div className="flex w-72 flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--app-shell-pane)]">
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
-          <div className="flex items-center gap-2">
-            <FolderGit2 className="h-4 w-4 text-[var(--muted-foreground)]" />
-            <span className="text-sm font-medium text-[var(--foreground)]">Folders</span>
-            {repos.length > 0 && (
-              <span className="rounded-full bg-[var(--secondary)] px-1.5 py-0.5 text-xs text-[var(--muted-foreground)]">
-                {repos.length}
-              </span>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => { setAddingRepo(true); setEditingRepo(null); }}
-            className="rounded-lg p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-blue-500"
-            title="Add folder"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-        </div>
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto flex max-w-5xl flex-col gap-6 px-6 py-8">
+        <section className="rounded-3xl border border-[var(--card-border)] bg-[var(--card-bg)] p-6 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="max-w-2xl">
+              <div className="mb-3 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--muted-foreground)]">
+                <FolderGit2 className="h-3.5 w-3.5" />
+                Project Setup
+              </div>
+              <h1 className="text-2xl font-semibold text-[var(--foreground)]">Workspace Map</h1>
+              <p className="mt-2 text-sm leading-6 text-[var(--muted-foreground)]">
+                Map your project&apos;s folders so agents know where things live. Group repositories, docs, config, and
+                scripts into a workspace that people and automation can navigate without guesswork.
+              </p>
+            </div>
 
-        <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
-          {repos.length === 0 && !addingRepo && (
-            <div className="px-3 py-8 text-center">
-              <FolderGit2 className="mx-auto mb-3 h-8 w-8 text-[var(--app-shell-soft-text)]" />
-              <p className="mb-1 text-sm text-[var(--muted-foreground)]">No folders yet</p>
-              <p className="mb-4 text-xs text-[var(--app-shell-soft-text)]">Link local repos or project directories</p>
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => setAddingRepo(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-blue-400 border border-blue-500/20 hover:bg-blue-500/10 transition-colors"
+                onClick={() => setIsCreatingCategory((current) => !current)}
+                className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]"
               >
-                <Plus className="w-3 h-3" />
-                Add Folder
+                <FolderPlus className="h-4 w-4" />
+                Add Category
               </button>
+              <button
+                type="button"
+                onClick={handleExportYaml}
+                className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]"
+              >
+                <Download className="h-4 w-4" />
+                Export YAML
+              </button>
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]">
+                <Upload className="h-4 w-4" />
+                Import YAML
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".yaml,.yml"
+                  onChange={handleImportYaml}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          </div>
+
+          {isCreatingCategory && (
+            <div className="mt-4 flex flex-col gap-2 rounded-2xl border border-[var(--border)] bg-[var(--secondary)]/30 p-4 md:flex-row md:items-center">
+              <input
+                value={categoryDraft}
+                onChange={(event) => setCategoryDraft(event.target.value)}
+                placeholder="Custom category name"
+                className="flex-1 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)]"
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleCreateCategory}
+                  disabled={!categoryDraft.trim()}
+                  className="rounded-xl bg-[var(--foreground)] px-4 py-2 text-sm font-medium text-[var(--background)] disabled:opacity-40"
+                >
+                  Create Category
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsCreatingCategory(false);
+                    setCategoryDraft("");
+                  }}
+                  className="rounded-xl px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
 
-          {repos.map((repo) => (
-            <FolderRow
-              key={repo.id}
-              repo={repo}
-              isSelected={selectedRepoId === repo.id}
-              onSelect={() => { setSelectedRepoId(repo.id); setAddingRepo(false); setEditingRepo(null); }}
-            />
-          ))}
-        </div>
+          {status && (
+            <p
+              className={`mt-4 text-sm ${
+                status.tone === "error"
+                  ? "text-[var(--destructive)]"
+                  : status.tone === "success"
+                    ? "text-emerald-500"
+                    : "text-[var(--muted-foreground)]"
+              }`}
+            >
+              {status.message}
+            </p>
+          )}
+        </section>
 
-        {repoStatus && (
-          <div className="border-t border-[var(--border)] px-4 py-2">
-            <span className="text-xs text-[var(--muted-foreground)]">{repoStatus}</span>
+        {isLoading && (
+          <section className="rounded-3xl border border-[var(--card-border)] bg-[var(--card-bg)] p-8">
+            <div className="flex items-center gap-3 text-sm text-[var(--muted-foreground)]">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading workspace map...
+            </div>
+          </section>
+        )}
+
+        {!isLoading && error && (
+          <section className="rounded-3xl border border-[var(--card-border)] bg-[var(--card-bg)] p-8">
+            <div className="space-y-3">
+              <p className="text-sm text-[var(--destructive)]">{error.message || "Failed to load workspace map"}</p>
+              <button
+                type="button"
+                onClick={() => void refetch()}
+                className="rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]"
+              >
+                Try Again
+              </button>
+            </div>
+          </section>
+        )}
+
+        {!isLoading && !error && showEmptyState && (
+          <section className="rounded-3xl border border-dashed border-[var(--border)] bg-[var(--card-bg)] p-10 text-center">
+            <div className="mx-auto max-w-2xl">
+              <h2 className="text-xl font-semibold text-[var(--foreground)]">Tell your agents where things live.</h2>
+              <p className="mt-3 text-sm leading-6 text-[var(--muted-foreground)]">
+                Add folders to your workspace so agents can find and work in the right places. Start with a repository,
+                docs, or config, or import a shared workspace definition.
+              </p>
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                {DEFAULT_WORKSPACE_CATEGORIES.slice(0, 3).map((category) => {
+                  const Icon = getCategoryIcon(category.id);
+                  return (
+                    <button
+                      key={category.id}
+                      type="button"
+                      onClick={() => openAddForm(category.id)}
+                      className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-2 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]"
+                    >
+                      <Icon className="h-4 w-4" />
+                      Add {getCategoryEntryLabel(category.id, category.label)}
+                    </button>
+                  );
+                })}
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-4 py-2 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]">
+                  <Upload className="h-4 w-4" />
+                  Import YAML
+                  <input
+                    type="file"
+                    accept=".yaml,.yml"
+                    onChange={handleImportYaml}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {!isLoading && !error && !showEmptyState && (
+          <div className="space-y-4">
+            {groups.map((group) => {
+              const Icon = getCategoryIcon(group.id);
+
+              return (
+                <section
+                  key={group.id}
+                  className="rounded-3xl border border-[var(--card-border)] bg-[var(--card-bg)] p-6"
+                >
+                  <div className="flex flex-col gap-4 border-b border-[var(--border)] pb-4 md:flex-row md:items-start md:justify-between">
+                    <div className="flex items-start gap-3">
+                      <div className="rounded-2xl border border-[var(--border)] bg-[var(--secondary)]/40 p-3">
+                        <Icon className="h-5 w-5 text-[var(--muted-foreground)]" />
+                      </div>
+                      <div>
+                        <h2 className="text-lg font-semibold text-[var(--foreground)]">{group.label}</h2>
+                        <p className="text-sm text-[var(--muted-foreground)]">
+                          {group.entries.length > 0
+                            ? `${group.entries.length} location${group.entries.length === 1 ? "" : "s"} mapped`
+                            : group.isPreset
+                              ? `No ${group.label.toLowerCase()} mapped yet`
+                              : "Custom category ready for entries"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {!group.isPreset && group.isEmpty && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCustomCategory(group.id)}
+                          className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--destructive)]"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          Remove Empty Category
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => openAddForm(group.id)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Add to {group.label}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 space-y-3">
+                    {group.entries.length === 0 && addingCategoryId !== group.id && (
+                      <p className="rounded-2xl border border-dashed border-[var(--border)] px-4 py-5 text-sm text-[var(--muted-foreground)]">
+                        {group.isPreset
+                          ? `Start this section by adding a ${getCategoryEntryLabel(group.id, group.label).toLowerCase()} and selecting a folder on disk.`
+                          : "This custom category is empty until you add its first folder."}
+                      </p>
+                    )}
+
+                    {group.entries.map((entry) => {
+                      const isEditing = editingEntryId === entry.id && editDraft;
+                      return (
+                        <div
+                          key={entry.id}
+                          className="rounded-2xl border border-[var(--border)] bg-[var(--secondary)]/20 p-4"
+                        >
+                          {!isEditing && (
+                            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="text-base font-medium text-[var(--foreground)]">{entry.name}</p>
+                                </div>
+                                <p className="mt-2 break-all font-mono text-xs text-[var(--muted-foreground)]">
+                                  {entry.path || "No path selected yet"}
+                                </p>
+                                <p className="mt-3 text-sm leading-6 text-[var(--muted-foreground)]">
+                                  {entry.purpose || "No purpose documented yet."}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void handleQuickBrowse(entry)}
+                                  className="rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]"
+                                >
+                                  Browse
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openEditForm(entry)}
+                                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]"
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => void handleDeleteEntry(entry)}
+                                  className="inline-flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--destructive)]"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {isEditing && editDraft && (
+                            <div className="space-y-3">
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <label className="block">
+                                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                                    Name
+                                  </span>
+                                  <input
+                                    value={editDraft.name}
+                                    onChange={(event) =>
+                                      setEditDraft((current) =>
+                                        current ? { ...current, name: event.target.value, error: null } : current,
+                                      )
+                                    }
+                                    className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)]"
+                                  />
+                                </label>
+                                <label className="block">
+                                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                                    Path
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      value={editDraft.path}
+                                      onChange={(event) =>
+                                        setEditDraft((current) =>
+                                          current ? { ...current, path: event.target.value, error: null } : current,
+                                        )
+                                      }
+                                      className="w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)]"
+                                      placeholder="/Users/you/Projects/repo"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleBrowseForEdit()}
+                                      className="rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]"
+                                    >
+                                      Browse
+                                    </button>
+                                  </div>
+                                </label>
+                              </div>
+                              <label className="block">
+                                <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                                  Purpose
+                                </span>
+                                <textarea
+                                  value={editDraft.purpose}
+                                  onChange={(event) =>
+                                    setEditDraft((current) =>
+                                      current ? { ...current, purpose: event.target.value, error: null } : current,
+                                    )
+                                  }
+                                  className="min-h-24 w-full rounded-xl border border-[var(--border)] bg-[var(--background)] px-3 py-3 text-sm text-[var(--foreground)]"
+                                  placeholder="What should agents or teammates expect in this folder?"
+                                />
+                              </label>
+                              {editDraft.error && (
+                                <p className="text-sm text-[var(--destructive)]">{editDraft.error}</p>
+                              )}
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => void handleSaveEdit()}
+                                  disabled={editDraft.isSaving}
+                                  className="inline-flex items-center gap-2 rounded-xl bg-[var(--foreground)] px-4 py-2 text-sm font-medium text-[var(--background)] disabled:opacity-40"
+                                >
+                                  {editDraft.isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                                  Save Changes
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={closeEditForm}
+                                  className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                                >
+                                  <X className="h-4 w-4" />
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {addingCategoryId === group.id && (
+                      <div className="rounded-2xl border border-[var(--border)] bg-[var(--background)] p-4">
+                        <div className="mb-3 flex items-center gap-2">
+                          <Plus className="h-4 w-4 text-[var(--muted-foreground)]" />
+                          <p className="text-sm font-medium text-[var(--foreground)]">Add to {group.label}</p>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <label className="block">
+                            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                              Name
+                            </span>
+                            <input
+                              value={addDraft.name}
+                              onChange={(event) =>
+                                setAddDraft((current) => ({ ...current, name: event.target.value, error: null }))
+                              }
+                              className="w-full rounded-xl border border-[var(--border)] bg-[var(--card-bg)] px-3 py-2 text-sm text-[var(--foreground)]"
+                              placeholder="backend, handbook, deploy"
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                              Path
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <input
+                                value={addDraft.path}
+                                onChange={(event) =>
+                                  setAddDraft((current) => ({ ...current, path: event.target.value, error: null }))
+                                }
+                                className="w-full rounded-xl border border-[var(--border)] bg-[var(--card-bg)] px-3 py-2 text-sm text-[var(--foreground)]"
+                                placeholder="/Users/you/Projects/repo"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => void handleBrowseForAdd()}
+                                className="rounded-xl border border-[var(--border)] bg-[var(--card-bg)] px-3 py-2 text-sm text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)]"
+                              >
+                                Browse
+                              </button>
+                            </div>
+                          </label>
+                        </div>
+                        <label className="mt-3 block">
+                          <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--muted-foreground)]">
+                            Purpose
+                          </span>
+                          <textarea
+                            value={addDraft.purpose}
+                            onChange={(event) =>
+                              setAddDraft((current) => ({ ...current, purpose: event.target.value, error: null }))
+                            }
+                            className="min-h-24 w-full rounded-xl border border-[var(--border)] bg-[var(--card-bg)] px-3 py-3 text-sm text-[var(--foreground)]"
+                            placeholder="Describe what lives here and why it matters."
+                          />
+                        </label>
+                        {addDraft.error && (
+                          <p className="mt-3 text-sm text-[var(--destructive)]">{addDraft.error}</p>
+                        )}
+                        <div className="mt-4 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => void handleAddEntry()}
+                            disabled={addDraft.isSaving}
+                            className="inline-flex items-center gap-2 rounded-xl bg-[var(--foreground)] px-4 py-2 text-sm font-medium text-[var(--background)] disabled:opacity-40"
+                          >
+                            {addDraft.isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                            Save Entry
+                          </button>
+                          <button
+                            type="button"
+                            onClick={closeAddForm}
+                            className="inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-[var(--muted-foreground)] transition-colors hover:text-[var(--foreground)]"
+                          >
+                            <X className="h-4 w-4" />
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              );
+            })}
           </div>
         )}
-      </div>
-
-      {/* Right panel: detail / form */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-2xl mx-auto px-6 py-6">
-          {addingRepo ? (
-            <AddFolderPanel onAdd={handleAdd} onCancel={() => setAddingRepo(false)} />
-          ) : editingRepo ? (
-            <EditFolderPanel
-              repo={editingRepo}
-              onSave={handleEditSave}
-              onCancel={() => setEditingRepo(null)}
-            />
-          ) : selectedRepo ? (
-            <FolderDetail
-              repo={selectedRepo}
-              systemNote={systemNotes[selectedRepo.id] ?? null}
-              analysis={analyses[selectedRepo.id] ?? null}
-              analysisLoading={analysisLoading[selectedRepo.id] ?? false}
-              onNoteSave={handleNoteSave}
-              noteSaving={noteSaving}
-              onEdit={(r) => setEditingRepo(r)}
-              onDelete={handleDelete}
-            />
-          ) : repos.length > 0 ? (
-            <div className="flex h-64 items-center justify-center text-sm text-[var(--muted-foreground)]">
-              Select a folder to view details
-            </div>
-          ) : null}
-        </div>
       </div>
     </div>
   );

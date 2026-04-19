@@ -232,7 +232,7 @@ function ProjectLayoutContent({
                   onClick={() => router.push(`/projects/${slug}/${activeProjectView === "thread" ? "" : activeProjectView}`)}
                   className="text-xs text-[var(--foreground)] hover:text-[var(--muted-foreground)] transition-colors"
                 >
-                  {{ objectives: "Objectives", teams: "Teams", folders: "Folders", "env-vars": "Environment Variables", notifications: "Notifications", linear: "Tasks", automations: "Scheduled Jobs", thread: "Chat", terminal: "Terminal" }[activeProjectView] ?? activeProjectView}
+                  {{ objectives: "Objectives", teams: "Teams", folders: "Workspace Map", "env-vars": "Environment Variables", notifications: "Notifications", linear: "Tasks", automations: "Scheduled Jobs", thread: "Chat", terminal: "Terminal" }[activeProjectView] ?? activeProjectView}
                 </button>
                 <span id="topbar-breadcrumb" className="contents" />
               </>

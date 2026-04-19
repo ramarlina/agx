@@ -31,49 +31,39 @@ jest.mock("@/components/projects/FoldersSummaryCard", () => ({
   FoldersSummaryCard: () => <div data-testid="folders-summary-card" />,
 }));
 
-jest.mock("@/components/projects/RecentThreadsSummaryCard", () => ({
-  RecentThreadsSummaryCard: ({
-    onSelectThread,
+jest.mock("@/components/projects/WorkingNowCard", () => ({
+  WorkingNowCard: () => <div data-testid="working-now-card" />,
+}));
+
+jest.mock("@/components/projects/RecentlyCompletedCard", () => ({
+  RecentlyCompletedCard: ({
+    projectSlug,
   }: {
-    onSelectThread?: (thread: {
-      id: string;
-      threadId: string;
-      title: string;
-      status: string;
-      lastActivity: number;
-    }) => void;
+    projectSlug: string;
   }) => (
     <div>
       <button
         type="button"
-        onClick={() =>
-          onSelectThread?.({
-            id: "root-objective",
-            threadId: "objective-chat:objective_growth",
-            title: "How should we get there?",
-            status: "active",
-            lastActivity: 100,
-          })
-        }
+        onClick={() => pushMock(`/projects/${projectSlug}/objectives/objective_growth`)}
       >
         Open objective thread
       </button>
       <button
         type="button"
-        onClick={() =>
-          onSelectThread?.({
-            id: "root-general",
-            threadId: "thread-general",
-            title: "General project thread",
-            status: "active",
-            lastActivity: 50,
-          })
-        }
+        onClick={() => pushMock(`/projects/${projectSlug}/thread/thread-general?open=root-general`)}
       >
         Open general thread
       </button>
     </div>
   ),
+}));
+
+jest.mock("@/components/projects/home/ObjectivesSection", () => ({
+  ObjectivesSection: () => <div data-testid="objectives-section" />,
+}));
+
+jest.mock("@/components/projects/home/ToolPathsSection", () => ({
+  ToolPathsSection: () => <div data-testid="tool-paths-section" />,
 }));
 
 function buildProjectMetadata() {

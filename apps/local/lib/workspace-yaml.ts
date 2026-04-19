@@ -19,7 +19,7 @@ export interface WorkspaceYamlDocument {
   entries: WorkspaceYamlEntry[];
 }
 
-const knownCategoryLabels = new Map(
+const knownCategoryLabels = new Map<string, string>(
   listWorkspaceCategories().map((category) => [category.id, category.label]),
 );
 

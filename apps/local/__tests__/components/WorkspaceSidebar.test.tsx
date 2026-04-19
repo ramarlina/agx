@@ -207,7 +207,7 @@ describe("WorkspaceSidebar", () => {
       expect(screen.queryByRole("link", { name: "Tasks" })).not.toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Scheduled Jobs" })).toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "Teams" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: "Folders" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Workspace Map" })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "Environment Variables" })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "Notifications" })).not.toBeInTheDocument();
     });
@@ -230,6 +230,7 @@ describe("WorkspaceSidebar", () => {
       expect(screen.queryByText("NEW")).not.toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Connect Tracker" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Teams" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Workspace Map" })).toBeInTheDocument();
 
       expect(screen.getByRole("link", { name: "Scheduled Jobs" })).toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "Environment Variables" })).not.toBeInTheDocument();
@@ -243,6 +244,7 @@ describe("WorkspaceSidebar", () => {
       expect(screen.getByRole("link", { name: "Connect Tracker" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Scheduled Jobs" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Teams" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Workspace Map" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Environment Variables" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Notifications" })).toBeInTheDocument();
     });
