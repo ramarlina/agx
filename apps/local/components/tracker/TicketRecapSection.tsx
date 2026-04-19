@@ -69,10 +69,20 @@ export function TicketRecapSection({ issueId, trackerType, projectId }: Props) {
       const data = await fetchRecap();
       scheduleIfBusy(data);
     })();
+    const handleTriggered = (e: Event) => {
+      const detail = (e as CustomEvent<{ trackerType: string; issueId: string }>).detail;
+      if (detail?.trackerType !== trackerType || detail?.issueId !== issueId) return;
+      void (async () => {
+        const data = await fetchRecap();
+        scheduleIfBusy(data);
+      })();
+    };
+    window.addEventListener("tracker:recap-triggered", handleTriggered);
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
+      window.removeEventListener("tracker:recap-triggered", handleTriggered);
     };
-  }, [issueId, fetchRecap, scheduleIfBusy]);
+  }, [issueId, trackerType, fetchRecap, scheduleIfBusy]);
 
   const regenerate = useCallback(async () => {
     setLoading(true);
@@ -112,7 +122,7 @@ export function TicketRecapSection({ issueId, trackerType, projectId }: Props) {
             className="flex items-center gap-1 rounded border border-[var(--card-border)] px-2 py-1 text-[11px] text-[var(--muted-foreground)] transition-colors hover:bg-[var(--card-bg)] hover:text-[var(--foreground)] disabled:opacity-50"
           >
             <RefreshCw size={10} />
-            Regenerate
+            Recap
           </button>
         </div>
       </div>
@@ -121,7 +131,7 @@ export function TicketRecapSection({ issueId, trackerType, projectId }: Props) {
           <Markdown content={recap.content} isUser={false} />
         ) : (
           <p className="text-[var(--muted-foreground)]">
-            No recap yet. Click Regenerate to create one.
+            No recap yet. Click Recap to create one.
           </p>
         )}
         {recap?.error ? (
