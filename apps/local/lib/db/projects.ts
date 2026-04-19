@@ -582,6 +582,15 @@ export async function getProjectForThread(threadId: string): Promise<string | nu
 }
 
 export async function getProjectWorkspace(projectId: string): Promise<Record<string, WorkspaceEntry[]>> {
+  const entries = await getProjectWorkspaceEntries(projectId);
+  return entries.reduce<Record<string, WorkspaceEntry[]>>((acc, entry) => {
+    if (!acc[entry.category]) acc[entry.category] = [];
+    acc[entry.category].push(entry);
+    return acc;
+  }, {});
+}
+
+export async function getProjectWorkspaceEntries(projectId: string): Promise<WorkspaceEntry[]> {
   const db = createAdminDbClient();
   const { data, error } = await db
     .from("workspace_entries")
@@ -592,20 +601,15 @@ export async function getProjectWorkspace(projectId: string): Promise<Record<str
     .order("name", { ascending: true });
 
   if (error) {
-    if (isMissingRelationError(error, "workspace_entries")) return {};
+    if (isMissingRelationError(error, "workspace_entries")) return [];
     throw error;
   }
-  const entries = (data || []) as WorkspaceEntry[];
-  return entries.reduce<Record<string, WorkspaceEntry[]>>((acc, entry) => {
-    if (!acc[entry.category]) acc[entry.category] = [];
-    acc[entry.category].push(entry);
-    return acc;
-  }, {});
+  return (data || []) as WorkspaceEntry[];
 }
 
 export async function createWorkspaceEntry(
   projectId: string,
-  entry: { category: string; name: string; path?: string; purpose?: string }
+  entry: { category: string; name: string; path?: string | null; purpose?: string | null; sort_order?: number }
 ): Promise<WorkspaceEntry> {
   const db = createAdminDbClient();
   const id = randomUUID();
@@ -619,7 +623,7 @@ export async function createWorkspaceEntry(
       name: entry.name,
       path: entry.path || null,
       purpose: entry.purpose || null,
-      sort_order: 0,
+      sort_order: entry.sort_order ?? 0,
       created_at: now,
       updated_at: now,
     })
@@ -641,6 +645,7 @@ export async function updateWorkspaceEntry(
   if (updates.path !== undefined) payload.path = updates.path;
   if (updates.purpose !== undefined) payload.purpose = updates.purpose;
   if (updates.sort_order !== undefined) payload.sort_order = updates.sort_order;
+  payload.updated_at = new Date().toISOString();
 
   const { data, error } = await db
     .from("workspace_entries")
@@ -689,4 +694,3 @@ export async function getWorkspaceMapForContext(
     purpose: (row.purpose as string) || null,
   }));
 }
-
