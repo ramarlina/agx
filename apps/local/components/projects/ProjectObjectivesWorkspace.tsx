@@ -551,6 +551,9 @@ function ObjectiveChatPanel({
   const [chatError, setChatError] = useState<string | null>(null);
   const wasWorkingRef = useRef(false);
   const legacyChatMigrationAttemptedRef = useRef(false);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement | null>(null);
+  const [showChatJump, setShowChatJump] = useState(false);
   const appOrigin =
     typeof window !== "undefined" && window.location?.origin
       ? window.location.origin
@@ -579,6 +582,22 @@ function ObjectiveChatPanel({
       setThreadId(objective.threadId);
     }
   }, [objective.threadId, threadId]);
+
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    const handler = () => {
+      const d = el.scrollHeight - el.scrollTop - el.clientHeight;
+      setShowChatJump(d > 200);
+    };
+    handler();
+    el.addEventListener("scroll", handler, { passive: true });
+    return () => el.removeEventListener("scroll", handler);
+  }, [chatView, selectedSessionId]);
+
+  const jumpChatToLatest = useCallback(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, []);
 
   useEffect(() => {
     setChatView("list");
@@ -1137,6 +1156,7 @@ function ObjectiveChatPanel({
         )}
 
         <div
+          ref={chatScrollRef}
           className={`min-h-0 flex-1 overflow-y-auto pb-[calc(15rem+env(safe-area-inset-bottom))] ${
             isDetailView ? "px-4 py-4" : "px-0 py-0"
           }`}
@@ -1259,9 +1279,17 @@ function ObjectiveChatPanel({
                   </div>
                 );
               })}
+              <div ref={chatBottomRef} />
             </div>
           )}
         </div>
+
+        <JumpToLatestButton
+          visible={isDetailView && showChatJump && visibleMessages.length > 10}
+          onClick={jumpChatToLatest}
+          direction="bottom"
+          offsetClassName="bottom-[calc(15rem+env(safe-area-inset-bottom))]"
+        />
 
         <div className="absolute bottom-0 left-0 right-0 bg-[var(--overlay-panel)] p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           <Composer
