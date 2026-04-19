@@ -7,14 +7,16 @@ interface Props {
     onClick: () => void;
     direction?: "top" | "bottom";
     label?: string;
+    offsetClassName?: string;
 }
 
-export function JumpToLatestButton({ visible, onClick, direction = "bottom", label }: Props) {
+export function JumpToLatestButton({ visible, onClick, direction = "bottom", label, offsetClassName }: Props) {
     if (!visible) return null;
     const Icon = direction === "top" ? ChevronUp : ChevronDown;
     const resolvedLabel = label ?? (direction === "top" ? "Back to top" : "Jump to latest");
+    const offset = offsetClassName ?? (direction === "top" ? "top-3" : "bottom-3");
     return (
-        <div className={`pointer-events-none absolute inset-x-0 ${direction === "top" ? "top-3" : "bottom-3"} z-10 flex justify-center`}>
+        <div className={`pointer-events-none absolute inset-x-0 ${offset} z-10 flex justify-center`}>
             <button
                 type="button"
                 onClick={onClick}
