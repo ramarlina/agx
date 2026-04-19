@@ -57,6 +57,7 @@ function prToTrackerItem(pr: GithubPr): TrackerItem {
     createdAt: new Date(pr.createdAt).toISOString(),
     updatedAt: new Date(pr.updatedAt).toISOString(),
     url: pr.url,
+    group: { id: pr.repoId, name: pr.repoId },
   };
 }
 
@@ -80,6 +81,7 @@ function issueToTrackerItem(issue: GithubIssue): TrackerItem {
     createdAt: new Date(issue.createdAt).toISOString(),
     updatedAt: new Date(issue.updatedAt).toISOString(),
     url: issue.url,
+    group: { id: issue.repoId, name: issue.repoId },
   };
 }
 
@@ -89,6 +91,7 @@ export class GitHubAdapter implements TrackerAdapter {
   type = "github" as const;
   displayName = "GitHub";
   icon = GitHubIcon;
+  groupLabel = "Repo";
 
   getAuthUrl(projectId: string): string {
     const session = createOAuthSession(projectId);

@@ -33,6 +33,7 @@ export function TicketRow({
   onToggleLabel,
   onAddLabel,
   rowActions,
+  showGroup,
 }: {
   item: TrackerItem;
   selected: boolean;
@@ -60,6 +61,7 @@ export function TicketRow({
     onEstimate: () => void;
     onStatus: (status: string) => void;
   };
+  showGroup?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const copyResetTimeoutRef = useRef<number | null>(null);
@@ -240,6 +242,14 @@ export function TicketRow({
       <span className={`min-w-0 flex-1 truncate text-xs ${selected ? "font-medium text-[var(--foreground)]" : "text-[var(--muted-foreground)]"}`}>
         {item.title}
       </span>
+      {showGroup && item.group && (
+        <span
+          className="shrink-0 rounded-full border border-[var(--card-border)] px-1.5 py-0.5 text-[10px] text-[var(--muted-foreground)]"
+          title={item.group.name}
+        >
+          <span className="block max-w-[140px] truncate">{item.group.name}</span>
+        </span>
+      )}
       {estimate != null && (
         <span className="shrink-0 rounded-full bg-[var(--card-bg)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--muted-foreground)]">
           {estimate}
