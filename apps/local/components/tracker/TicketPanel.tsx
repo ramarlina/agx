@@ -237,13 +237,15 @@ export function TicketPanel({
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <IssueStatusSelect
-            status={item.status}
-            options={itemStatusOptions}
-            disabled={itemStatusOptions.length === 0}
-            updating={itemStatusUpdating}
-            onChange={(status) => onItemStatusChange(item, status)}
-          />
+          {trackerType !== "github" && (
+            <IssueStatusSelect
+              status={item.status}
+              options={itemStatusOptions}
+              disabled={itemStatusOptions.length === 0}
+              updating={itemStatusUpdating}
+              onChange={(status) => onItemStatusChange(item, status)}
+            />
+          )}
           {metadata.estimate != null && (
             <span
               className="flex items-center gap-1 rounded-md border border-[var(--card-border)] px-2 py-1 text-xs font-medium text-[var(--foreground)]"
