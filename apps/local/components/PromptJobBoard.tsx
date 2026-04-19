@@ -16,6 +16,7 @@ import {
   Pencil,
   User,
   Sparkles,
+  Search,
 } from "lucide-react";
 import { useUrlSelection } from "@/hooks/useUrlSelection";
 import { usePromptJobs } from "@/hooks/usePromptJobs";
@@ -133,7 +134,7 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
 
 // ── Create/Edit Modal ────────────────────────────────────────────────────────
 
-interface AgentOption {
+export interface AgentOption {
   id: string;
   name: string;
   provider: string;
@@ -163,12 +164,12 @@ function Label({ children }: { children: React.ReactNode }) {
   );
 }
 
-function agentAvatar(id: string, color: string, size = 24) {
+export function agentAvatar(id: string, color: string, size = 24) {
   const bg = color ? color.replace("#", "") : "e2e8f0";
   return `https://api.dicebear.com/9.x/bottts-neutral/svg?seed=${encodeURIComponent(id)}&size=${size}&backgroundColor=${bg}`;
 }
 
-function AgentDropdown({
+export function AgentDropdown({
   agents,
   value,
   onChange,
@@ -178,7 +179,22 @@ function AgentDropdown({
   onChange: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const selected = agents.find((a) => a.id === value);
+
+  useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
+
+  const q = query.trim().toLowerCase();
+  const filteredAgents = q
+    ? agents.filter(
+        (a) =>
+          a.name.toLowerCase().includes(q) ||
+          a.provider.toLowerCase().includes(q) ||
+          (a.model ?? "").toLowerCase().includes(q)
+      )
+    : agents;
 
   return (
     <div className="relative">
@@ -217,38 +233,62 @@ function AgentDropdown({
       </button>
 
       {open && (
-        <div className="absolute z-20 mt-1 w-full rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] shadow-lg max-h-[280px] overflow-y-auto">
-          {agents.map((a) => (
-            <button
-              key={a.id}
-              type="button"
-              onClick={() => {
-                onChange(a.id);
-                setOpen(false);
-              }}
-              className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-[var(--muted)] ${value === a.id ? "bg-[var(--muted)]" : ""}`}
-            >
-              <img
-                src={agentAvatar(a.id, a.color)}
-                alt=""
-                className="size-6 rounded-full shrink-0"
+        <div className="absolute z-20 mt-1 w-full rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)] shadow-lg flex flex-col max-h-[320px]">
+          <div className="sticky top-0 shrink-0 border-b border-[var(--card-border)] bg-[var(--card-bg)] px-2 py-2">
+            <div className="relative">
+              <Search
+                size={12}
+                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]"
               />
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-medium text-[var(--foreground)] truncate">
-                  {a.name}
-                </div>
-                <div className="text-[10px] text-[var(--muted-foreground)]">
-                  {a.provider}
-                  {a.model ? ` / ${a.model}` : ""}
-                </div>
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                autoFocus
+                placeholder="Search agents..."
+                className="w-full rounded-md border border-[var(--card-border)] bg-[var(--muted)] pl-7 pr-2 py-1.5 text-xs text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:border-[var(--foreground)]"
+              />
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {filteredAgents.length === 0 ? (
+              <div className="px-3 py-4 text-center text-[11px] text-[var(--muted-foreground)]">
+                No agents match "{query}"
               </div>
-              {value === a.id && (
-                <span className="text-xs text-[var(--foreground)]">
-                  &#10003;
-                </span>
-              )}
-            </button>
-          ))}
+            ) : (
+              filteredAgents.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  onClick={() => {
+                    onChange(a.id);
+                    setOpen(false);
+                  }}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-[var(--muted)] ${value === a.id ? "bg-[var(--muted)]" : ""}`}
+                >
+                  <img
+                    src={agentAvatar(a.id, a.color)}
+                    alt=""
+                    className="size-6 rounded-full shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-medium text-[var(--foreground)] truncate">
+                      {a.name}
+                    </div>
+                    <div className="text-[10px] text-[var(--muted-foreground)]">
+                      {a.provider}
+                      {a.model ? ` / ${a.model}` : ""}
+                    </div>
+                  </div>
+                  {value === a.id && (
+                    <span className="text-xs text-[var(--foreground)]">
+                      &#10003;
+                    </span>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
         </div>
       )}
     </div>

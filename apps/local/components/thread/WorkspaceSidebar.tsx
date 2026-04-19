@@ -981,11 +981,11 @@ export function WorkspaceSidebar({
                 </div>
               </div>
 
-              {/* Work group — visible from stage 2+ */}
+              {/* Automation group — visible from stage 2+ */}
               {showWorkGroup && (
                 <div className="mb-3">
                   <div className="workspace-sidebar__section-header">
-                    <p className="workspace-sidebar__section-label">Work</p>
+                    <p className="workspace-sidebar__section-label">Automation</p>
                   </div>
                   <div className="px-2 flex flex-col gap-0.5">
                     {stageShow.objectives && (
