@@ -71,6 +71,7 @@ interface ProjectObjectivesWorkspaceProps {
 interface ProjectObjectiveDetailProps extends ProjectObjectivesWorkspaceProps {
   objectiveId: string;
   onObjectiveDeleted?: () => void;
+  onBack?: () => void;
 }
 
 interface ObjectiveEditorDraft {
@@ -1653,6 +1654,7 @@ export function ProjectObjectivesOverview({
             projectSlug={projectSlug}
             objectiveId={selectedObjectiveId}
             onObjectiveDeleted={() => setSelectedObjectiveId(null)}
+            onBack={() => setSelectedObjectiveId(null)}
           />
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-[var(--muted-foreground)]">
@@ -1682,6 +1684,7 @@ export function ProjectObjectiveDetail({
   projectSlug,
   objectiveId,
   onObjectiveDeleted,
+  onBack,
 }: ProjectObjectiveDetailProps) {
   const router = useRouter();
   const { isLoading, project, workspace, teams, persistWorkspace, refetchProject } =
@@ -2240,6 +2243,17 @@ export function ProjectObjectiveDetail({
           <div ref={detailScrollRef} className="min-h-0 flex-1 overflow-y-auto">
             <div className="max-w-5xl mx-auto pt-16 px-8 pb-20">
               <ErrorBanner message={saveError} />
+
+              {onBack ? (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  className="md:hidden mb-4 inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--card-bg)] px-2.5 py-1 text-xs text-[var(--muted-foreground)] transition-colors hover:bg-[var(--secondary)] hover:text-[var(--foreground)]"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Back to objectives
+                </button>
+              ) : null}
 
               <div className="flex items-center gap-3 mb-4">
                 <span className="rounded-full border border-[var(--tone-neutral-border)] bg-[var(--tone-neutral-bg)] px-2.5 py-0.5 text-[10px] font-mono uppercase tracking-wider text-[var(--tone-neutral)]">
