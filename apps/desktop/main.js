@@ -169,7 +169,7 @@ async function runAppUpdate({ source = "manual", quitWhenFinished = false } = {}
 function findAvailablePort(startPort) {
   return new Promise((resolve) => {
     const server = net.createServer();
-    server.listen(startPort, () => {
+    server.listen(startPort, "127.0.0.1", () => {
       server.close(() => resolve(startPort));
     });
     server.on("error", () => {
@@ -178,9 +178,63 @@ function findAvailablePort(startPort) {
   });
 }
 
+// If the preferred port is held by a leftover AGX server from a previous
+// session, reclaim it. We only kill when we can prove ownership via the
+// process's cwd matching our server directory.
+function reclaimPortIfAgxOrphan(port, serverDir) {
+  let pid;
+  try {
+    const out = execSync(`lsof -tiTCP:${port} -sTCP:LISTEN`, {
+      encoding: "utf-8",
+      timeout: 2000,
+    }).trim();
+    pid = out.split("\n")[0];
+  } catch {
+    return false; // lsof non-zero exit = port free
+  }
+  if (!pid) return false;
+
+  let info = "";
+  try {
+    info = execSync(`lsof -p ${pid} -Fn`, { encoding: "utf-8", timeout: 2000 });
+  } catch {
+    return false;
+  }
+
+  if (!info.includes(serverDir)) {
+    log(`[reclaim] port ${port} held by pid ${pid} but cwd does not match ${serverDir} — leaving alone`);
+    return false;
+  }
+
+  log(`[reclaim] port ${port} held by orphan AGX server pid ${pid} — killing`);
+  try {
+    process.kill(Number(pid), "SIGKILL");
+  } catch (err) {
+    log(`[reclaim] kill failed: ${err?.message || err}`);
+    return false;
+  }
+
+  // Give the kernel a moment to release the socket.
+  const deadline = Date.now() + 2000;
+  while (Date.now() < deadline) {
+    try {
+      execSync(`lsof -tiTCP:${port} -sTCP:LISTEN`, { encoding: "utf-8", timeout: 1000 });
+    } catch {
+      return true; // non-zero exit = port released
+    }
+  }
+  log(`[reclaim] port ${port} still held after kill`);
+  return false;
+}
+
 // --- Server lifecycle ---
 
 async function startNextServer() {
+  const expectedServerDir = isDev
+    ? LOCAL_APP_ROOT
+    : getResourcePath(path.join("server", "apps", "local"));
+  reclaimPortIfAgxOrphan(SERVER_PORT, expectedServerDir);
+
   const port = await findAvailablePort(SERVER_PORT);
 
   if (isDev) {
