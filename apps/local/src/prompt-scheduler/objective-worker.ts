@@ -7,6 +7,7 @@ import {
 import { getIssueActiveAgents, type IssueActiveAgent } from '@/lib/linear-run-store';
 import { getActivityRepository } from '@/src/objectives/activities/repository';
 import { getNoteRepository } from '@/src/objectives/notes';
+import { readProgram } from '@/src/objectives/program';
 import {
   loadProjectObjectiveContext,
   persistProjectObjectiveMetadata,
@@ -219,6 +220,17 @@ export async function buildObjectiveObservation(opts: {
     'CURRENT STATE',
     `Progress: ${objective.progress}% | Status: ${objective.status}`,
   );
+
+  // PROGRAM (objective-level prompt: goal / definition of better / blast radius / learnings)
+  const program = readProgram(projectSlug, objective.key);
+  sections.push('', 'PROGRAM', `path: ${program.path}`);
+  if (program.content && program.content.trim().length > 0) {
+    sections.push(program.content.trim());
+  } else {
+    sections.push(
+      '(empty) No program has been authored for this objective yet. Before committing to a direction, surface this to the user in chat: ask what "better" means for this objective (the success metric), what paths/systems are in-scope, and any constraints. Capture the answer by writing to the path above.',
+    );
+  }
 
   // NOTES
   if (notes.length > 0) {
