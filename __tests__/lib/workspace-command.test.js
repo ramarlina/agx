@@ -93,17 +93,29 @@ describe('maybeHandleWorkspaceCommand', () => {
   let tempDir;
   let exitSpy;
   let logSpy;
+  let writeSpy;
+  let originalFetch;
+  let stdinTtyDescriptor;
 
   beforeEach(async () => {
     originalCwd = process.cwd();
     tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'agx-workspace-cli-'));
     exitSpy = jest.spyOn(process, 'exit').mockImplementation((code) => exitWithCode(code));
     logSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    writeSpy = jest.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    originalFetch = global.fetch;
+    stdinTtyDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
   });
 
   afterEach(async () => {
     process.chdir(originalCwd);
     await fs.promises.rm(tempDir, { recursive: true, force: true });
+    global.fetch = originalFetch;
+    if (stdinTtyDescriptor) {
+      Object.defineProperty(process.stdin, 'isTTY', stdinTtyDescriptor);
+    } else {
+      delete process.stdin.isTTY;
+    }
     jest.restoreAllMocks();
   });
 
@@ -168,20 +180,178 @@ describe('maybeHandleWorkspaceCommand', () => {
     expect(cloudRequest).toHaveBeenNthCalledWith(2, 'DELETE', '/api/projects/project-1/workspace/entry-1');
   });
 
-  test('export is a recognized stub that exits with a not-implemented error', async () => {
+  test('export writes YAML to stdout by default', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => 'version: 1\nentries: []\n',
+    });
+
     await expect(maybeHandleWorkspaceCommand({
       cmd: 'workspace',
-      args: ['workspace', 'export'],
+      args: ['workspace', 'export', '--project', 'mesh'],
       ctx: {
         c: makeColors(),
         cloudRequest: jest.fn(),
-        loadCloudConfigFile: () => ({ apiUrl: 'http://localhost:41741' }),
-        resolveProjectByIdentifier: jest.fn(),
+        loadCloudConfigFile: () => ({ apiUrl: 'http://example.test', userId: 'user-1', token: 'token-1' }),
+        resolveProjectByIdentifier: jest.fn().mockResolvedValue({ id: 'project-1', name: 'Mesh' }),
+        prompt: jest.fn(),
+      },
+    })).rejects.toMatchObject({ exitCode: 0 });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://example.test/api/projects/project-1/workspace/export',
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          'x-user-id': 'user-1',
+          Authorization: 'Bearer token-1',
+        }),
+      }),
+    );
+    expect(writeSpy).toHaveBeenCalledWith('version: 1\nentries: []\n');
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('Exported workspace'));
+  });
+
+  test('export writes YAML to a file when --output is provided', async () => {
+    const outputPath = path.join(tempDir, '.agx', 'workspace.yaml');
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      text: async () => 'version: 1\nentries: []\n',
+    });
+
+    await expect(maybeHandleWorkspaceCommand({
+      cmd: 'workspace',
+      args: ['workspace', 'export', '--project', 'mesh', '--output', outputPath],
+      ctx: {
+        c: makeColors(),
+        cloudRequest: jest.fn(),
+        loadCloudConfigFile: () => ({ apiUrl: 'http://example.test', userId: 'user-1' }),
+        resolveProjectByIdentifier: jest.fn().mockResolvedValue({ id: 'project-1', name: 'Mesh' }),
+        prompt: jest.fn(),
+      },
+    })).rejects.toMatchObject({ exitCode: 0 });
+
+    expect(fs.readFileSync(outputPath, 'utf8')).toBe('version: 1\nentries: []\n');
+    expect(logSpy).toHaveBeenCalledWith(`✓ Exported workspace to ${outputPath}`);
+    expect(writeSpy).not.toHaveBeenCalledWith('version: 1\nentries: []\n');
+  });
+
+  test('import reads YAML from a file and prints the returned summary', async () => {
+    const importPath = path.join(tempDir, 'workspace.yaml');
+    await fs.promises.writeFile(importPath, 'version: 1\nentries: []\n', 'utf8');
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ summary: { created: 1, updated: 2, total: 3 } }),
+    });
+
+    await expect(maybeHandleWorkspaceCommand({
+      cmd: 'workspace',
+      args: ['workspace', 'import', importPath, '--project', 'mesh', '--yes'],
+      ctx: {
+        c: makeColors(),
+        cloudRequest: jest.fn(),
+        loadCloudConfigFile: () => ({ apiUrl: 'http://example.test', userId: 'user-1' }),
+        resolveProjectByIdentifier: jest.fn().mockResolvedValue({ id: 'project-1', name: 'Mesh' }),
+        prompt: jest.fn(),
+      },
+    })).rejects.toMatchObject({ exitCode: 0 });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://example.test/api/projects/project-1/workspace/import',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          'Content-Type': 'text/yaml',
+          'x-user-id': 'user-1',
+        }),
+        body: 'version: 1\nentries: []\n',
+      }),
+    );
+    expect(logSpy).toHaveBeenCalledWith(`✓ Imported workspace from ${importPath}`);
+    expect(logSpy).toHaveBeenCalledWith('  Created: 1');
+    expect(logSpy).toHaveBeenCalledWith('  Updated: 2');
+    expect(logSpy).toHaveBeenCalledWith('  Total: 3');
+  });
+
+  test('import from piped stdin requires --yes in non-interactive mode', async () => {
+    Object.defineProperty(process.stdin, 'isTTY', {
+      configurable: true,
+      value: false,
+    });
+    global.fetch = jest.fn();
+
+    await expect(maybeHandleWorkspaceCommand({
+      cmd: 'workspace',
+      args: ['workspace', 'import', '--project', 'mesh'],
+      ctx: {
+        c: makeColors(),
+        cloudRequest: jest.fn(),
+        loadCloudConfigFile: () => ({ apiUrl: 'http://example.test', userId: 'user-1' }),
+        resolveProjectByIdentifier: jest.fn().mockResolvedValue({ id: 'project-1', name: 'Mesh' }),
         prompt: jest.fn(),
       },
     })).rejects.toMatchObject({ exitCode: 1 });
 
-    expect(logSpy).toHaveBeenCalledWith('Not yet implemented - see ESO-380');
-    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(logSpy).toHaveBeenCalledWith('✗ Importing from stdin requires --yes in non-interactive mode.');
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('import accepts piped stdin when --yes is provided', async () => {
+    Object.defineProperty(process.stdin, 'isTTY', {
+      configurable: true,
+      value: false,
+    });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ summary: { created: 0, updated: 1, total: 1 } }),
+    });
+    const originalReadFileSync = fs.readFileSync;
+    jest.spyOn(fs, 'readFileSync').mockImplementation((target, encoding) => {
+      if (target === 0 && encoding === 'utf8') return 'version: 1\nentries: []\n';
+      return originalReadFileSync.call(fs, target, encoding);
+    });
+
+    await expect(maybeHandleWorkspaceCommand({
+      cmd: 'workspace',
+      args: ['workspace', 'import', '-', '--project', 'mesh', '--yes'],
+      ctx: {
+        c: makeColors(),
+        cloudRequest: jest.fn(),
+        loadCloudConfigFile: () => ({ apiUrl: 'http://example.test', userId: 'user-1' }),
+        resolveProjectByIdentifier: jest.fn().mockResolvedValue({ id: 'project-1', name: 'Mesh' }),
+        prompt: jest.fn(),
+      },
+    })).rejects.toMatchObject({ exitCode: 0 });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://example.test/api/projects/project-1/workspace/import',
+      expect.objectContaining({
+        body: 'version: 1\nentries: []\n',
+      }),
+    );
+    expect(logSpy).toHaveBeenCalledWith('✓ Imported workspace from stdin');
+  });
+
+  test('import surfaces API error messages cleanly', async () => {
+    const importPath = path.join(tempDir, 'workspace.yaml');
+    await fs.promises.writeFile(importPath, 'version: 1\nentries: []\n', 'utf8');
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: 'Invalid workspace YAML' }),
+    });
+
+    await expect(maybeHandleWorkspaceCommand({
+      cmd: 'workspace',
+      args: ['workspace', 'import', importPath, '--project', 'mesh', '--yes'],
+      ctx: {
+        c: makeColors(),
+        cloudRequest: jest.fn(),
+        loadCloudConfigFile: () => ({ apiUrl: 'http://example.test', userId: 'user-1' }),
+        resolveProjectByIdentifier: jest.fn().mockResolvedValue({ id: 'project-1', name: 'Mesh' }),
+        prompt: jest.fn(),
+      },
+    })).rejects.toMatchObject({ exitCode: 1 });
+
+    expect(logSpy).toHaveBeenCalledWith('✗ Import failed: Invalid workspace YAML');
   });
 });
