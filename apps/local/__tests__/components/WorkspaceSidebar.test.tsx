@@ -128,7 +128,7 @@ describe("WorkspaceSidebar", () => {
     expect(onSelectThread).toHaveBeenCalledWith("z-thread");
   });
 
-  test("does not expose a create-chat fallback when a project has no linked thread", () => {
+  test("always shows Chat even when the project has no linked thread", () => {
     const project: ProjectWithAgents = {
       ...baseProject,
       thread_ids: [],
@@ -141,7 +141,9 @@ describe("WorkspaceSidebar", () => {
       stageShow: stageShow(2),
     });
 
-    expect(screen.queryByRole("button", { name: "Chat" })).not.toBeInTheDocument();
+    const chatLink = screen.getByRole("link", { name: "Chat" });
+    expect(chatLink).toBeInTheDocument();
+    expect(chatLink).toHaveAttribute("href", `/projects/${project.slug}/thread`);
   });
 
   test("hides unassigned threads and deletes legacy duplicate objective chats", async () => {

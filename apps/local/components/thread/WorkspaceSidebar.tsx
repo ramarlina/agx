@@ -1098,7 +1098,17 @@ export function WorkspaceSidebar({
                           </span>
                         )}
                       </button>
-                    ) : null}
+                    ) : (
+                      <Link
+                        href={`/projects/${selectedProject.slug}/thread`}
+                        onClick={closeTouchDrawer}
+                        className={`workspace-sidebar__nav-item ${isActiveProjectThread ? "workspace-sidebar__nav-item--active" : ""}`}
+                        aria-current={isActiveProjectThread ? "page" : undefined}
+                      >
+                        <MessageSquare size={14} className="flex-shrink-0 text-[var(--muted-foreground)]" />
+                        <span className="workspace-sidebar__workspace-title text-sm">Chat</span>
+                      </Link>
+                    )}
                   </div>
                 </div>
               </div>
