@@ -234,9 +234,45 @@ export class GitHubAdapter implements TrackerAdapter {
     return [];
   }
 
-  async handleApiKeyConnect(_projectId: string, _apiKey: string): Promise<void> {
-    throw new Error(
-      "GitHub requires OAuth authentication — use the Connect button instead",
-    );
+  async handleApiKeyConnect(projectId: string, apiKey: string): Promise<void> {
+    const token = apiKey.trim();
+    if (!token) throw new Error("Personal Access Token is required");
+
+    const res = await fetch("https://api.github.com/user", {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+      },
+    });
+
+    if (res.status === 401) {
+      throw new Error("Invalid Personal Access Token");
+    }
+    if (res.status === 403) {
+      throw new Error("Token lacks required permissions or is rate-limited");
+    }
+    if (!res.ok) {
+      throw new Error(`GitHub API error (${res.status})`);
+    }
+
+    const user = (await res.json()) as { login?: string };
+    if (!user.login) {
+      throw new Error("Could not read user login from GitHub");
+    }
+
+    const scopeHeader = res.headers.get("x-oauth-scopes") ?? "";
+    const scopes = scopeHeader
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+
+    saveGithubTokens(projectId, {
+      accessToken: token,
+      refreshToken: null,
+      expiresAt: null,
+      login: user.login,
+      scopes,
+    });
   }
 }

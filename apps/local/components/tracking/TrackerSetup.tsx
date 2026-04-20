@@ -225,18 +225,20 @@ export default function TrackerSetup({
           Connect with OAuth
         </button>
 
-        {trackerType !== "github" && (
-          <button
-            onClick={() => {
-              setShowKeyInput(!showKeyInput);
-              setKeyError(null);
-            }}
-            className="flex items-center justify-center gap-2 w-full px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors font-medium"
-          >
-            <Key className="h-3.5 w-3.5" />
-            {showKeyInput ? "Use OAuth instead" : "Connect with API key"}
-          </button>
-        )}
+        <button
+          onClick={() => {
+            setShowKeyInput(!showKeyInput);
+            setKeyError(null);
+          }}
+          className="flex items-center justify-center gap-2 w-full px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors font-medium"
+        >
+          <Key className="h-3.5 w-3.5" />
+          {showKeyInput
+            ? "Use OAuth instead"
+            : trackerType === "github"
+              ? "Connect with Personal Access Token"
+              : "Connect with API key"}
+        </button>
 
         {/* Animated API Key Section */}
         <div className={`grid transition-all duration-300 ease-in-out ${showKeyInput ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0 pointer-events-none'}`}>
@@ -250,7 +252,11 @@ export default function TrackerSetup({
                     setApiKey(e.target.value);
                     if (keyError) setKeyError(null);
                   }}
-                  placeholder="Paste your API key here"
+                  placeholder={
+                    trackerType === "github"
+                      ? "ghp_… or github_pat_…"
+                      : "Paste your API key here"
+                  }
                   className={`w-full px-3 py-2 border rounded-lg text-sm bg-background transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 ${keyError ? 'border-destructive' : 'focus:border-primary'}`}
                   onKeyDown={(e) => e.key === "Enter" && handleKeyConnect()}
                 />
@@ -280,7 +286,9 @@ export default function TrackerSetup({
               </button>
 
               <p className="text-[10px] text-muted-foreground text-center px-2">
-                Your API key is stored securely and only used for {trackerType} integration.
+                {trackerType === "github"
+                  ? "Fine-grained PAT recommended. Needs repo access + read on issues/pull requests."
+                  : `Your API key is stored securely and only used for ${trackerType} integration.`}
               </p>
             </div>
           </div>
