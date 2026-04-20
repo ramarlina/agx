@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db-instance";
-import { buildProjectUpdatePayload } from "../payload";
+import { buildProjectUpdatePayload, InvalidProjectPayloadError } from "../payload";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import { PROJECT_OBJECTIVES_METADATA_KEY, readProjectObjectivesWorkspace } from "@/lib/project-objectives";
 import { getObjectiveRepository } from "@/src/objectives/repository";
@@ -98,6 +98,9 @@ export async function PATCH(request: NextRequest, { params }: { params: ParamsAr
 
     return NextResponse.json({ project: hydrateProjectObjectiveMetadata(project) });
   } catch (err) {
+    if (err instanceof InvalidProjectPayloadError) {
+      return NextResponse.json({ error: err.message }, { status: 400 });
+    }
     logger.error("Error updating project", logger.formatError(err));
     return NextResponse.json({ error: "Failed to update project" }, { status: 500 });
   }
