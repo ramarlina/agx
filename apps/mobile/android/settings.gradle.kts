@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "agx"
+rootProject.name = "Agx"
 include(":app")
