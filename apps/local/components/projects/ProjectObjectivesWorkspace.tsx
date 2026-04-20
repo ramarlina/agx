@@ -1574,7 +1574,9 @@ export function ProjectObjectivesOverview({
     <div className="flex h-full min-h-0 overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
       {/* Left panel: objective list */}
       <div
-        className="flex flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--background)]"
+        className={`flex-shrink-0 flex-col border-r border-[var(--border)] bg-[var(--background)] max-md:!w-full max-md:border-r-0 ${
+          selectedObjectiveId ? "hidden md:flex" : "flex"
+        }`}
         style={{ width: listPanelWidth }}
       >
         <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
@@ -1641,7 +1643,11 @@ export function ProjectObjectivesOverview({
       <ObjectiveListResizeHandle onResize={handleListPanelResize} />
 
       {/* Right panel: objective detail */}
-      <div className="flex-1 min-w-0 min-h-0 overflow-hidden">
+      <div
+        className={`flex-1 min-w-0 min-h-0 overflow-hidden ${
+          selectedObjectiveId ? "" : "max-md:hidden"
+        }`}
+      >
         {selectedObjectiveId ? (
           <ProjectObjectiveDetail
             projectSlug={projectSlug}
