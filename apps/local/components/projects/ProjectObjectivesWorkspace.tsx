@@ -1705,6 +1705,10 @@ export function ProjectObjectiveDetail({
   const [availableTrackers, setAvailableTrackers] = useState<{ type: string; displayName: string }[]>([]);
   const [defaultTrackerType, setDefaultTrackerType] = useState<string | null>(null);
   const [workingOnObjective, setWorkingOnObjective] = useState(false);
+  const [programContent, setProgramContent] = useState<string | null>(null);
+  const [programPath, setProgramPath] = useState<string | null>(null);
+  const [programDraft, setProgramDraft] = useState<string | null>(null);
+  const [isSavingProgram, setIsSavingProgram] = useState(false);
   const detailScrollRef = useRef<HTMLDivElement | null>(null);
   const [showBackToTop, setShowBackToTop] = useState(false);
 
@@ -1787,6 +1791,49 @@ export function ProjectObjectiveDetail({
   useEffect(() => {
     fetchNotes();
   }, [fetchNotes]);
+
+  const fetchProgram = useCallback(async () => {
+    if (!project?.id || !objective?.id) return;
+    try {
+      const res = await fetch(
+        `/api/projects/${project.id}/objectives/${objective.id}/program`,
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setProgramContent(data.program?.content ?? null);
+        setProgramPath(data.program?.path ?? null);
+      }
+    } catch {
+      // Silently fail — panel will show empty state
+    }
+  }, [project?.id, objective?.id]);
+
+  useEffect(() => {
+    fetchProgram();
+  }, [fetchProgram]);
+
+  const saveProgram = useCallback(async () => {
+    if (!project?.id || !objective?.id || programDraft === null) return;
+    setIsSavingProgram(true);
+    try {
+      const res = await fetch(
+        `/api/projects/${project.id}/objectives/${objective.id}/program`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: programDraft }),
+        },
+      );
+      if (res.ok) {
+        const data = await res.json();
+        setProgramContent(data.program?.content ?? null);
+        setProgramPath(data.program?.path ?? null);
+        setProgramDraft(null);
+      }
+    } finally {
+      setIsSavingProgram(false);
+    }
+  }, [project?.id, objective?.id, programDraft]);
 
   // Refetch when switching to notes tab (in case notes changed elsewhere)
   useEffect(() => {
@@ -2305,6 +2352,77 @@ export function ProjectObjectiveDetail({
                   />
                 ) : null}
 
+              </div>
+
+              {/* Program — objective-level prompt (goal / definition of better / blast radius) */}
+              <div className="mb-6 rounded-xl border border-[var(--border)] bg-[var(--card-bg)]">
+                <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <FileText size={14} className="text-[var(--muted-foreground)]" />
+                    <span className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                      Program
+                    </span>
+                    {programPath ? (
+                      <span className="font-mono text-[10px] text-[var(--muted-foreground)] opacity-70">
+                        {programPath.replace(/^.*\/\.agx\//, "~/.agx/")}
+                      </span>
+                    ) : null}
+                  </div>
+                  {programDraft === null ? (
+                    <button
+                      type="button"
+                      onClick={() => setProgramDraft(programContent ?? "")}
+                      className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)] hover:text-[var(--foreground)]"
+                      aria-label="Edit program"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                  ) : (
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => void saveProgram()}
+                        disabled={isSavingProgram}
+                        className="rounded-md p-1 text-[var(--primary)] transition-colors hover:bg-[var(--status-in-progress-bg)] disabled:opacity-50"
+                        aria-label="Save program"
+                      >
+                        <Check size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setProgramDraft(null)}
+                        className="rounded-md p-1 text-[var(--muted-foreground)] transition-colors hover:bg-[var(--muted)]"
+                        aria-label="Cancel editing"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="px-4 py-3">
+                  {programDraft !== null ? (
+                    <textarea
+                      autoFocus
+                      value={programDraft}
+                      onChange={(e) => setProgramDraft(e.target.value)}
+                      rows={8}
+                      placeholder={
+                        "Goal: why this exists\n\nDefinition of better: the metric or signal that says we're done\n\nBlast radius: paths/systems in scope, what's off-limits\n\nNotes: things we've learned"
+                      }
+                      className="w-full resize-y rounded-md border border-[var(--border)] bg-[var(--background)] px-3 py-2 font-mono text-xs text-[var(--foreground)] outline-none focus:border-[var(--primary)]"
+                    />
+                  ) : programContent && programContent.trim().length > 0 ? (
+                    <div className="prose prose-sm max-w-none text-sm text-[var(--foreground)]">
+                      <Markdown content={programContent} />
+                    </div>
+                  ) : (
+                    <p className="text-sm text-[var(--muted-foreground)]">
+                      No program yet. Define what <em>better</em> looks like for this
+                      objective — the metric, the scope, any constraints. Agents read this
+                      before every run, and will ask for it in chat if it&apos;s missing.
+                    </p>
+                  )}
+                </div>
               </div>
 
               {/* Work on objective */}
