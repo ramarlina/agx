@@ -165,6 +165,38 @@ function ThreadMessageList({
     [participants]
   );
 
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      setShowJumpToLatest(distanceFromBottom > 200);
+    };
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  const jumpToLatest = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+  }, []);
+
+  const prevMessageCountRef = useRef(0);
+  useEffect(() => {
+    if (messages.length > prevMessageCountRef.current) {
+      scrollContainerRef.current?.scrollTo({
+        top: scrollContainerRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+    prevMessageCountRef.current = messages.length;
+  }, [messages.length]);
+
   const activeRunStatuses = new Set(["queued", "running", "awaiting_user", "blocked"]);
   const isWorking =
     chatRuns.some((entry) => activeRunStatuses.has(entry.status)) ||
@@ -267,7 +299,7 @@ function ThreadMessageList({
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 pb-64">
+      <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-y-auto px-6 py-6 pb-64">
         {messages.length === 0 ? (
           <div className="py-8 text-center text-xs text-[var(--muted-foreground)]">
             {run.status === "queued" || run.status === "running"
@@ -358,6 +390,12 @@ function ThreadMessageList({
           </div>
         )}
       </div>
+
+      <JumpToLatestButton
+        visible={showJumpToLatest && messages.length > 10}
+        onClick={jumpToLatest}
+        offsetClassName="bottom-40"
+      />
 
       <div className="absolute bottom-3 left-3 right-3 p-2">
         {run.rootMessageId ? (
