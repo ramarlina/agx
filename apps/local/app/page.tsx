@@ -92,7 +92,7 @@ export default function Home() {
       <EmptyStateCard
         icon={<Users className="w-6 h-6 text-[var(--foreground)]" />}
         title={`Add a team to ${state.projectName}`}
-        description="Teams give your project the agents that will actually do the work. Add one to get started."
+        description="Teams are the agents that work through your tickets and PRs. Add one to start shipping."
         ctaLabel="Add a team"
         ctaHref={`/projects/${state.projectSlug}/teams/new`}
       />
