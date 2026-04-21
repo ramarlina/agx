@@ -5,6 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Layout from "@/components/Layout";
 import ProjectCard from "@/components/ProjectCard";
 import ProjectModal, { useProjectFormState, createProjectPayload } from "@/components/ProjectModal";
+import {
+  findInvalidProjectRepoDraft,
+  formatInvalidProjectRepoDraftMessage,
+} from "@/components/project-repo-validation";
 import TaskList from "@/components/TaskList";
 import { Task } from "@/components/TaskCard";
 import { useTasks } from "@/hooks/useTasks";
@@ -91,9 +95,9 @@ export default function ProjectsPage() {
       return;
     }
 
-    const invalidRepo = modalRepos.find(r => r.name.trim() && !r.path.trim());
+    const invalidRepo = findInvalidProjectRepoDraft(modalRepos);
     if (invalidRepo) {
-      setModalFormError(`Local path is required for folder "${invalidRepo.name}"`);
+      setModalFormError(formatInvalidProjectRepoDraftMessage(invalidRepo));
       return;
     }
 

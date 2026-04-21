@@ -141,6 +141,26 @@ describe("/api/projects/[id]", () => {
       expect(response.status).toBe(400);
       expect(mockUpdateProject).not.toHaveBeenCalled();
     });
+
+    test("returns 400 when a folder name is provided without a local path", async () => {
+      const { PATCH } = await import("@/app/api/projects/[id]/route");
+      const request = new NextRequest("http://localhost/api/projects/proj-1", {
+        method: "PATCH",
+        body: JSON.stringify({
+          repos: [{ name: "Backend", path: "" }],
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await PATCH(request, { params: Promise.resolve({ id: "proj-1" }) });
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error).toBe(
+        "Local path is required for repos[0] when a folder name is provided"
+      );
+      expect(mockUpdateProject).not.toHaveBeenCalled();
+    });
   });
 
   describe("DELETE", () => {

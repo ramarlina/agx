@@ -3,6 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ProjectWithRepos } from "@/hooks/useProjects";
 import DirectoryBrowser from "@/components/DirectoryBrowser";
+import {
+  findInvalidProjectRepoDraft,
+  formatInvalidProjectRepoDraftMessage,
+  getProjectRepoValidationIssue,
+  isCompleteProjectRepoDraft,
+} from "@/components/project-repo-validation";
 
 export interface ProjectFormState {
   name: string;
@@ -99,8 +105,13 @@ export function createProjectPayload(
   form: ProjectFormState,
   repos: RepoDraft[]
 ) {
+  const invalidRepo = findInvalidProjectRepoDraft(repos);
+  if (invalidRepo) {
+    throw new Error(formatInvalidProjectRepoDraftMessage(invalidRepo));
+  }
+
   const repoPayload = repos
-    .filter((repo) => repo.name.trim() && repo.path.trim())
+    .filter((repo) => isCompleteProjectRepoDraft(repo))
     .map((repo) => ({
       ...(repo.id ? { id: repo.id } : {}),
       name: repo.name.trim(),
@@ -229,107 +240,116 @@ function ProjectFormFields({
           </button>
         </div>
         <div className="space-y-4">
-          {repos.map((repo, index) => (
-            <div key={index} className="p-4 rounded-2xl border border-[var(--card-border)] bg-[var(--muted)]/20 space-y-3 relative group">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-bold text-[var(--foreground)] uppercase">Folder #{index + 1}</div>
-                  {isEditingProject && !isRepoExpanded(index) ? (
-                    <div className="mt-1 text-sm text-[var(--muted-foreground)]">
-                      <div>{repo.name || "Unnamed folder"}</div>
-                      <div className="truncate">{repo.path || "No local path set"}</div>
-                    </div>
-                  ) : null}
-                </div>
-                <div className="flex items-center gap-3">
-                  {isEditingProject && (
-                    <button
-                      type="button"
-                      onClick={() => toggleRepoExpanded(index)}
-                      className="text-xs font-semibold text-[var(--primary)] hover:underline"
-                      disabled={isSubmitting}
-                    >
-                      {isRepoExpanded(index) ? "Done" : "Edit"}
-                    </button>
-                  )}
-                  {repos.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => onRemoveRepo(index)}
-                      className="text-xs font-semibold text-[var(--destructive)] hover:underline"
-                      disabled={isSubmitting}
-                    >
-                      Remove
-                    </button>
-                  )}
-                </div>
-              </div>
-              {isRepoExpanded(index) ? (
-                <div className="grid gap-3 md:grid-cols-2">
-                  <input
-                    value={repo.name}
-                    onChange={(e) => onRepoChange(index, "name", e.target.value)}
-                    placeholder="Name (e.g. Frontend, API Docs, Design System)"
-                    className="input text-sm"
-                    disabled={isSubmitting}
-                  />
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <input
-                        value={repo.path}
-                        onChange={(e) => onRepoChange(index, "path", e.target.value)}
-                        placeholder="Local path to folder"
-                        className={`input text-sm flex-1${repo.name.trim() && !repo.path.trim() ? " border-[var(--destructive)]/50 ring-1 ring-[var(--destructive)]/20" : ""}`}
-                        disabled={isSubmitting}
-                      />
+          {repos.map((repo, index) => {
+            const validationIssue = getProjectRepoValidationIssue(repo);
+
+            return (
+              <div key={index} className="p-4 rounded-2xl border border-[var(--card-border)] bg-[var(--muted)]/20 space-y-3 relative group">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-xs font-bold text-[var(--foreground)] uppercase">Folder #{index + 1}</div>
+                    {isEditingProject && !isRepoExpanded(index) ? (
+                      <div className="mt-1 text-sm text-[var(--muted-foreground)]">
+                        <div>{repo.name || "Unnamed folder"}</div>
+                        <div className="truncate">{repo.path || "No local path set"}</div>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {isEditingProject && (
                       <button
                         type="button"
-                        onClick={async () => {
-                          try {
-                            const res = await fetch("/api/filesystem/pick-folder", { method: "POST" });
-                            const data = await res.json();
-                            if (data.path) {
-                              onRepoChange(index, "path", data.path);
-                            }
-                          } catch {
-                            setBrowsingRepoIndex(browsingRepoIndex === index ? null : index);
-                          }
-                        }}
-                        className="px-3 py-2 rounded-xl border border-[var(--card-border)] bg-[var(--muted)]/30 hover:bg-[var(--muted)]/60 transition-colors text-xs font-semibold text-[var(--muted-foreground)] whitespace-nowrap"
+                        onClick={() => toggleRepoExpanded(index)}
+                        className="text-xs font-semibold text-[var(--primary)] hover:underline"
                         disabled={isSubmitting}
                       >
-                        Browse
+                        {isRepoExpanded(index) ? "Done" : "Edit"}
                       </button>
-                    </div>
-                    {repo.name.trim() && !repo.path.trim() && (
-                      <p className="text-[11px] text-[var(--destructive)]">Local path is required</p>
+                    )}
+                    {repos.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => onRemoveRepo(index)}
+                        className="text-xs font-semibold text-[var(--destructive)] hover:underline"
+                        disabled={isSubmitting}
+                      >
+                        Remove
+                      </button>
                     )}
                   </div>
-                  {browsingRepoIndex === index && (
+                </div>
+                {isRepoExpanded(index) ? (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="space-y-1">
+                      <input
+                        value={repo.name}
+                        onChange={(e) => onRepoChange(index, "name", e.target.value)}
+                        placeholder="Name (e.g. Frontend, API Docs, Design System)"
+                        className={`input text-sm w-full${validationIssue === "missing_name" ? " border-[var(--destructive)]/50 ring-1 ring-[var(--destructive)]/20" : ""}`}
+                        disabled={isSubmitting}
+                      />
+                      {validationIssue === "missing_name" && (
+                        <p className="text-[11px] text-[var(--destructive)]">Folder name is required</p>
+                      )}
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={repo.path}
+                          onChange={(e) => onRepoChange(index, "path", e.target.value)}
+                          placeholder="Local path to folder"
+                          className={`input text-sm flex-1${validationIssue === "missing_path" ? " border-[var(--destructive)]/50 ring-1 ring-[var(--destructive)]/20" : ""}`}
+                          disabled={isSubmitting}
+                        />
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const res = await fetch("/api/filesystem/pick-folder", { method: "POST" });
+                              const data = await res.json();
+                              if (data.path) {
+                                onRepoChange(index, "path", data.path);
+                              }
+                            } catch {
+                              setBrowsingRepoIndex(browsingRepoIndex === index ? null : index);
+                            }
+                          }}
+                          className="px-3 py-2 rounded-xl border border-[var(--card-border)] bg-[var(--muted)]/30 hover:bg-[var(--muted)]/60 transition-colors text-xs font-semibold text-[var(--muted-foreground)] whitespace-nowrap"
+                          disabled={isSubmitting}
+                        >
+                          Browse
+                        </button>
+                      </div>
+                      {validationIssue === "missing_path" && (
+                        <p className="text-[11px] text-[var(--destructive)]">Local path is required</p>
+                      )}
+                    </div>
+                    {browsingRepoIndex === index && (
+                      <div className="md:col-span-2">
+                        <DirectoryBrowser
+                          initialPath={repo.path || ""}
+                          onSelect={(selectedPath) => {
+                            onRepoChange(index, "path", selectedPath);
+                            setBrowsingRepoIndex(null);
+                          }}
+                          onCancel={() => setBrowsingRepoIndex(null)}
+                        />
+                      </div>
+                    )}
                     <div className="md:col-span-2">
-                      <DirectoryBrowser
-                        initialPath={repo.path || ""}
-                        onSelect={(selectedPath) => {
-                          onRepoChange(index, "path", selectedPath);
-                          setBrowsingRepoIndex(null);
-                        }}
-                        onCancel={() => setBrowsingRepoIndex(null)}
+                      <textarea
+                        value={repo.notes}
+                        onChange={(e) => onRepoChange(index, "notes", e.target.value)}
+                        placeholder="Notes for this folder — e.g. coding conventions, deploy steps, ownership, doc standards..."
+                        className="input text-sm w-full min-h-24 resize-y"
+                        disabled={isSubmitting}
                       />
                     </div>
-                  )}
-                  <div className="md:col-span-2">
-                    <textarea
-                      value={repo.notes}
-                      onChange={(e) => onRepoChange(index, "notes", e.target.value)}
-                      placeholder="Notes for this folder — e.g. coding conventions, deploy steps, ownership, doc standards..."
-                      className="input text-sm w-full min-h-24 resize-y"
-                      disabled={isSubmitting}
-                    />
                   </div>
-                </div>
-              ) : null}
-            </div>
-          ))}
+                ) : null}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -408,7 +428,7 @@ export default function ProjectModal({
     };
   }, [editingProject]);
 
-  const hasIncompleteRepo = repos.some(r => r.name.trim() && !r.path.trim());
+  const hasIncompleteRepo = Boolean(findInvalidProjectRepoDraft(repos));
   const isFormInvalid = !form.name.trim() || hasIncompleteRepo;
 
   if (!isOpen) return null;

@@ -56,7 +56,10 @@ describe("/api/projects", () => {
 
     expect(response.status).toBe(200);
     expect(data.projects).toHaveLength(1);
-    expect(mockGetProjects).toHaveBeenCalledWith("2c3cc1ca-956d-4b62-b295-4d2d3374103f");
+    expect(mockGetProjects).toHaveBeenCalledWith(
+      "2c3cc1ca-956d-4b62-b295-4d2d3374103f",
+      false
+    );
   });
 
   test("GET hydrates objective metadata from frontmatter files when present", async () => {
@@ -108,5 +111,25 @@ describe("/api/projects", () => {
     expect(response.status).toBe(503);
     expect(data.code).toBe("SCHEMA_NOT_READY");
     expect(data.error).toContain("Run Db migrations");
+  });
+
+  test("POST returns 400 when a repo path is provided without a folder name", async () => {
+    const { POST } = await import("@/app/api/projects/route");
+    const request = new NextRequest("http://localhost/api/projects", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Test Project",
+        repos: [{ name: "", path: "/tmp/agx" }],
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.error).toBe(
+      "Folder name is required for repos[0] when a local path is provided"
+    );
+    expect(mockCreateProject).not.toHaveBeenCalled();
   });
 });

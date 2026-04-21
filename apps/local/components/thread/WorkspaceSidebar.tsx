@@ -35,6 +35,10 @@ import { useFocusManagement } from "@/hooks/useFocusManagement";
 import type { SidebarStageResult } from "@/hooks/useSidebarStage";
 import { agentAvatarUrl, AgentForm, type AgentFormData } from "@/components/chat-ui/ParticipantBar";
 import ProjectModal, { createProjectPayload, useProjectFormState } from "@/components/ProjectModal";
+import {
+  findInvalidProjectRepoDraft,
+  formatInvalidProjectRepoDraftMessage,
+} from "@/components/project-repo-validation";
 import { readProjectObjectivesWorkspace } from "@/lib/project-objectives";
 import { TaskTrackingNav } from "@/components/tracking/TaskTrackingNav";
 import { LinearIcon } from "@/lib/tracker/adapters/linear/linear-icon";
@@ -455,9 +459,9 @@ export function WorkspaceSidebar({
       projectFormState.setFormError("Project name is required");
       return;
     }
-    const invalidRepo = projectFormState.repos.find((repo) => repo.name.trim() && !repo.path.trim());
+    const invalidRepo = findInvalidProjectRepoDraft(projectFormState.repos);
     if (invalidRepo) {
-      projectFormState.setFormError(`Local path is required for folder "${invalidRepo.name}"`);
+      projectFormState.setFormError(formatInvalidProjectRepoDraftMessage(invalidRepo));
       return;
     }
     projectFormState.setFormError(null);

@@ -1,5 +1,12 @@
 import type { ProjectInput, ProjectRepoInput, ProjectUpdatePayload } from "@/lib/db-adapter.interface";
 
+export class InvalidProjectPayloadError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidProjectPayloadError";
+  }
+}
+
 function toOptionalString(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -23,16 +30,28 @@ function parseProjectRepos(value: unknown): ProjectRepoInput[] | undefined {
   if (!Array.isArray(value)) return undefined;
 
   const repos: ProjectRepoInput[] = [];
-  value.forEach((item) => {
+  value.forEach((item, index) => {
     if (!item || typeof item !== "object") return;
 
     const rawName = (item as Record<string, unknown>).name;
+    const rawPath = (item as Record<string, unknown>).path;
     const name = typeof rawName === "string" ? rawName.trim() : "";
-    if (!name) return;
+    const path = typeof rawPath === "string" ? rawPath.trim() : "";
+
+    if (!name && !path) return;
+    if (!name) {
+      throw new InvalidProjectPayloadError(
+        `Folder name is required for repos[${index}] when a local path is provided`
+      );
+    }
+    if (!path) {
+      throw new InvalidProjectPayloadError(
+        `Local path is required for repos[${index}] when a folder name is provided`
+      );
+    }
 
     const repo: Partial<ProjectRepoInput> = { name };
     const rawId = (item as Record<string, unknown>).id;
-    const rawPath = (item as Record<string, unknown>).path;
     const rawGitUrl = (item as Record<string, unknown>).git_url;
     const rawNotes = (item as Record<string, unknown>).notes;
 
@@ -40,12 +59,7 @@ function parseProjectRepos(value: unknown): ProjectRepoInput[] | undefined {
       repo.id = rawId.trim();
     }
 
-    if (typeof rawPath === "string" && rawPath.trim()) {
-      repo.path = rawPath.trim();
-    } else {
-      // Path is mandatory
-      return;
-    }
+    repo.path = path;
 
     if (typeof rawGitUrl === "string" && rawGitUrl.trim()) {
       repo.git_url = rawGitUrl.trim();

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db-instance";
-import { buildProjectInput } from "./payload";
+import { buildProjectInput, InvalidProjectPayloadError } from "./payload";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import { hydrateProjectsObjectiveMetadata } from "./objective-metadata";
 import { logger } from "@/lib/logger";
@@ -57,6 +57,9 @@ export async function POST(request: NextRequest) {
     const project = await db.createProject(userId, projectInput);
     return NextResponse.json({ project }, { status: 201 });
   } catch (error) {
+    if (error instanceof InvalidProjectPayloadError) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     logger.error("Error creating project", logger.formatError(error));
     if (isMissingProjectsSchemaError(error)) {
       return NextResponse.json(
