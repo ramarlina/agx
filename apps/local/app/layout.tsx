@@ -18,7 +18,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "AGX",
-  description: "Agent task orchestration and group chat",
+  description: "Workflow surface for AI-assisted dev work — tickets, repos, PRs, and agents in one window.",
 };
 
 const themeBootstrapScript = `
