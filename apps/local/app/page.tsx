@@ -79,7 +79,7 @@ export default function Home() {
         <EmptyStateCard
           icon={<FolderPlus className="w-6 h-6 text-[var(--foreground)]" />}
           title="Create your first project"
-          description="A project groups your repos, teams, and automations. Create one to start working with agents."
+          description="A project groups your tickets, repos, and PRs — plus the agent teams that work them. Create one to get started."
           ctaLabel="Create a project"
           ctaHref="/projects?new=1"
         />
