@@ -29,7 +29,7 @@ npm install -g @mndrk/agx && agx init
 <!-- 🎬 Terminal demo — drop a GIF or mp4 here showing: agx new → agent runs → checkpoint → resume -->
 <p align="center">
   <a href="https://github.com/ramarlina/agx">
-    <img src="agx-chat-to-tasks.gif" alt="AGX — chat with agents, create tasks, approve before they act" width="100%">
+    <img src="agx-chat-to-tasks.gif" alt="AGX — chat with agents, work through tickets, approve before they act" width="100%">
   </a>
 </p>
 
@@ -60,14 +60,13 @@ Ships as a CLI, a local web dashboard, and a macOS desktop app — all from one 
 
 | | Ad-hoc agent usage | AGX |
 |---|---|---|
-| **Parallel work** | Tabs, scrollback, mental bookkeeping | Every task has a home; see what's running at a glance |
-| **Resuming a task** | Re-explain everything from scratch | Instant — loads last checkpoint, constant cost |
-| **Multi-session tasks** | Manual context stitching | Wake / work / sleep loop, picks up where it left off |
-| **Crash recovery** | Lost work | Checkpointed state survives restarts |
+| **Tickets** | Live in Jira/Linear, separate from the agent | Ticket, code, PR, and review in one window |
+| **Parallel work** | Tabs, scrollback, mental bookkeeping | Every ticket has a home; see what's moving at a glance |
+| **Picking up where you left off** | Re-explain everything from scratch | Instant — the ticket remembers |
 | **Human gates** | Whatever you remember to check | Built-in approve/reject before anything irreversible |
 | **PR review** | Read the diff cold, guess at intent | First pass from a reviewer agent — you review what actually needs your judgment |
 | **Provider lock-in** | One provider per session | Switch Claude ↔ Codex ↔ Gemini ↔ Ollama freely |
-| **Observability** | Terminal scrollback | Dashboard, live presence, execution logs |
+| **Observability** | Terminal scrollback | Dashboard, live presence, activity log |
 
 ---
 
@@ -77,13 +76,8 @@ Ships as a CLI, a local web dashboard, and a macOS desktop app — all from one 
 npm install -g @mndrk/agx
 cd my-project
 agx init                   # Picks up your API keys automatically
-agx new "Add rate limiting to the API"   # Create your first task
-agx run 1                  # Watch the agent work
-# ...close your laptop, come back tomorrow...
-agx run 1                  # Resumes instantly from the last checkpoint
+agx board start            # Open the ticket → agent → PR board
 ```
-
-For the full ticket → agent → PR loop (Jira or Linear in, PR out), use the board: `agx board start`.
 
 ## Get AGX
 
@@ -117,12 +111,12 @@ npm run local:dev          # Run the dashboard in dev mode
 
 - **Ticket → agent → PR loop** — Point an agent at a Jira or Linear ticket, review the draft, ship the PR. Your tickets, repos, and PRs live in one window.
 - **Human-in-the-loop at every gate** — Agents pause for your explicit approve/reject before anything irreversible. PR review starts with a first-pass from a reviewer agent so you spend judgment where it matters.
-- **Chat with any provider** — Claude, Codex, Gemini, Ollama. Switch freely mid-task.
-- **A home for every task** — Objectives, scheduled jobs, chat threads, and terminal sessions all live under their project. Nothing is free-floating.
-- **Agent teams** — Group agents by role (engineering, research, ops). Tasks route automatically by tag.
-- **Durable tasks** — Survive restarts, crashes, and reboots. State is checkpointed, not rebuilt from conversation history.
-- **Live presence** — See which agents are active on which projects and tasks in real time.
-- **Fully local** — Runs on your machine. Your code never leaves. Full execution logs, task signing, destructive-command safeguards.
+- **Chat with any provider** — Claude, Codex, Gemini, Ollama. Switch freely mid-thread.
+- **A home for every ticket** — Objectives, scheduled jobs, chat threads, and terminal sessions all live under their project. Nothing is free-floating.
+- **Agent teams** — Group agents by role (engineering, research, ops). Work routes automatically by tag.
+- **Survives restarts** — Close your laptop, pick it up tomorrow. State is checkpointed, not rebuilt from conversation history.
+- **Live presence** — See which agents are active on which projects and tickets in real time.
+- **Fully local** — Runs on your machine. Your code never leaves. Full activity log, signed actions, destructive-command safeguards.
 
 ---
 
@@ -130,19 +124,13 @@ npm run local:dev          # Run the dashboard in dev mode
 
 AGX runs the **ticket → implementation → PR → review** loop. Tickets from Jira or Linear come in, agents draft the work, humans approve at every gate, and PRs go out.
 
-Under the hood, each task runs in a **Wake - Work - Sleep** loop so it survives restarts and picks up exactly where it left off:
-
-1. **Wake** — Load full context from the last checkpoint
-2. **Work** — Execute commands, edit files, validate output
-3. **Sleep** — Save state and yield, ready to resume anytime
-
-Resuming is constant-cost. A task that ran for a week resumes as fast as one that ran for a minute.
+Under the hood, work is checkpointed at every step — so closing your laptop, restarting the machine, or coming back tomorrow all pick up exactly where you left off. Resuming is constant-cost: a thread that's been running for a week resumes as fast as one that started a minute ago.
 
 ### Architecture
 
-- **State layer** — SQLite (WAL mode), durable checkpoints, task queueing
-- **Execution layer** — CLI + daemon, provider tool calls, filesystem edits
-- **Decision layer** — Execution graph runtime + human gate transitions
+- **State layer** — SQLite (WAL mode), durable checkpoints
+- **CLI + daemon** — Provider tool calls, filesystem edits, worktree isolation
+- **Decision layer** — Human gate transitions, review flow
 
 Everything runs locally. Your code never leaves your machine.
 
@@ -151,10 +139,9 @@ Everything runs locally. Your code never leaves your machine.
 ## CLI Quick Reference
 
 ```bash
-agx new "build login page"       # Create a task
-agx run <id>                     # Run it
-agx status                       # Check progress
-agx approve <id>                 # Approve a human gate
+agx init                         # First-time setup
+agx board start                  # Open the ticket → agent → PR board
+agx claude -p "..."              # Chat with Claude (or codex / gemini / ollama)
 ```
 
 | Provider | Alias | Command |
@@ -164,27 +151,8 @@ agx approve <id>                 # Approve a human gate
 | Gemini | `g` | `agx gemini -p "..."` |
 | Ollama | `o` | `agx ollama -p "..."` |
 
-| Flag | Purpose |
-|------|---------|
-| `-p` | Task goal / prompt |
-| `-a` | Autonomous mode (create + run until done) |
-| `-y` | Skip confirmations |
-| `--swarm` | Multi-agent execution |
-
 <details>
 <summary>Full CLI reference</summary>
-
-### Tasks
-
-```bash
-agx new "<goal>"                                 # Create a new task
-agx run <task_id>                               # Run a specific task
-agx status [task-id-or-slug]                    # Show status
-agx retry <task_id-or-slug> [--from <stage>]    # Reset + retry
-agx approve <task> [--node <node-id>] [-m "feedback"]  # Approve a gate
-agx reject <task> [--node <node-id>] [-m "feedback"]   # Reject a gate
-agx deps <task> [--depends-on <task> ... | --clear]    # Manage dependencies
-```
 
 ### Projects & Repos
 
