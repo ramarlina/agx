@@ -14,3 +14,4 @@ gradlew
 gradlew.bat
 *.keystore
 *.jks
+keystore.properties
