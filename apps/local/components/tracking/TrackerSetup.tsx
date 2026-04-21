@@ -130,7 +130,7 @@ export default function TrackerSetup({
                 <span className="text-sm font-medium">MCP Server</span>
               </div>
               <p className="text-xs text-muted-foreground leading-relaxed -mt-2">
-                Install the {trackerType} MCP server so agents can access {trackerType} directly.
+                Connect your {trackerType} workspace so your tickets show up in AGX and agents can work them through to a PR.
               </p>
               {activeClis.map((cli) => {
                 const label = CLI_LABELS[cli];
