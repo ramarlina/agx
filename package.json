@@ -1,7 +1,7 @@
 {
   "name": "@mndrk/agx",
   "version": "2.4.8",
-  "description": "Autonomous AI Agent Orchestrator for Claude, Gemini, and Ollama",
+  "description": "The workflow surface for AI-assisted dev work across Jira/Linear, GitHub, and Claude/Codex",
   "engines": {
     "node": ">=22.16.0"
   },
