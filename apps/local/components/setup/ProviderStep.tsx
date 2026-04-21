@@ -161,8 +161,8 @@ export function ProviderStep({ clis, readyState, authenticatedCount, totalCount,
       <div className="text-center mb-8">
         <h1 className="text-[24px] font-bold text-[var(--foreground)] tracking-tight">Connect a Provider</h1>
         <p className="mt-2 text-[14px] text-[var(--muted-foreground)] leading-relaxed">
-          AGX orchestrates AI agents across multiple providers.<br />
-          Connect at least one to get started.
+          AGX runs AI-assisted dev work across your tickets, repos, and PRs.<br />
+          Connect one or more providers to power the agents that do the work.
         </p>
       </div>
 
