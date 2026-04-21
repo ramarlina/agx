@@ -82,7 +82,7 @@ export default function TrackerSetup({
           <div className="space-y-2">
             <h3 className="text-xl font-bold text-foreground capitalize">{trackerType} Connected</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Your {trackerType} workspace is successfully connected. The agent can now sync issues and manage your backlog.
+              Your {trackerType} tickets now live in AGX. Assign them to agents, review the work, and ship PRs from one window.
             </p>
           </div>
           <div className="mt-2 px-4 py-1.5 rounded-full bg-background border text-xs font-medium text-muted-foreground flex items-center gap-2">
