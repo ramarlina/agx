@@ -17,7 +17,7 @@ const MCP_SERVERS: McpServer[] = [
   {
     id: "linear",
     name: "Linear",
-    description: "Read and update tickets so agents can track work in Linear during execution.",
+    description: "So your Linear tickets show up in AGX and agents can move them through to a PR.",
     docsUrl: "https://linear.app/docs/mcp",
   },
 ];
