@@ -1904,7 +1904,7 @@ export default function TrackerBoard({ trackerType, projectId, projectSlug, init
                   />
                 ) : isAwaitingRestore ? null : participants.length === 0 ? (
                   <div className="flex h-full items-center justify-center text-xs text-[var(--muted-foreground)]">
-                    Add at least one agent to this project to start a session.
+                    Add an agent team so you can pick a ticket and start shipping.
                   </div>
                 ) : (
                   <TicketPanel
