@@ -173,7 +173,7 @@ export default function ProjectsPage() {
             </div>
             <h2 className="text-2xl font-bold mb-2">You have no projects</h2>
             <p className="text-[var(--muted-foreground)] text-center max-w-sm mb-8 leading-relaxed">
-              Create your first project to start organizing your tasks and connecting your folders.
+              Create your first project to connect your tickets, repos, and agent teams — and start shipping PRs.
             </p>
             <button
               onClick={openNewProjectModal}
