@@ -1,6 +1,6 @@
 {
   "name": "@mndrk/agx",
-  "version": "2.4.9",
+  "version": "2.4.10",
   "description": "The workflow surface for AI-assisted dev work across Jira/Linear, GitHub, and Claude/Codex",
   "engines": {
     "node": ">=22.16.0"
