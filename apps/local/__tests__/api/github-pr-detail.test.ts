@@ -2,32 +2,22 @@
  * @jest-environment node
  */
 // apps/local/__tests__/api/github-pr-detail.test.ts
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import type { GithubPr } from "@/lib/github-types";
 
-let tmpDir: string;
+jest.mock("@/lib/gh-pr-cli", () => ({
+  fetchPrViaGh: jest.fn(),
+}));
 
-beforeAll(() => {
-  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agx-gh-pr-detail-"));
-  process.env.AGX_GITHUB_DIR = tmpDir;
-});
+import { fetchPrViaGh } from "@/lib/gh-pr-cli";
 
-afterAll(() => {
-  fs.rmSync(tmpDir, { recursive: true, force: true });
-  delete process.env.AGX_GITHUB_DIR;
-});
+const mockFetch = fetchPrViaGh as jest.MockedFunction<typeof fetchPrViaGh>;
 
-import { upsertGithubPr, upsertPrComments } from "@/lib/github-pr-store";
-import { upsertPrFiles } from "@/lib/github-pr-files-store";
-import type { GithubPr, GithubPrComment, GithubPrFile } from "@/lib/github-types";
-
-const pr: GithubPr = {
+const samplePr: GithubPr = {
   id: "foo/bar#7",
   repoId: "foo/bar",
   number: 7,
   title: "fix: race",
-  body: "closes AGX-1",
+  body: "",
   state: "open",
   draft: false,
   authorLogin: "alice",
@@ -40,62 +30,47 @@ const pr: GithubPr = {
   assignees: [],
   reviewers: [],
   labels: [],
-  createdAt: 1,
-  updatedAt: 2,
+  createdAt: 0,
+  updatedAt: 0,
   mergedAt: null,
   closedAt: null,
-  lastSyncedAt: 3,
+  lastSyncedAt: 0,
 };
 
-const file: GithubPrFile = {
-  prId: "foo/bar#7",
-  path: "a.ts",
-  status: "modified",
-  additions: 1,
-  deletions: 1,
-  changes: 2,
-  patch: "@@ -1,1 +1,1 @@\n-old\n+new",
-  lastSyncedAt: 3,
-};
-
-const comment: GithubPrComment = {
-  id: "c1",
-  prId: "foo/bar#7",
-  kind: "review_comment",
-  authorLogin: "bob",
-  body: "nit",
-  path: "a.ts",
-  line: 1,
-  createdAt: 1,
-  updatedAt: 1,
-};
-
-describe("GET /api/github/prs/[id]", () => {
-  beforeAll(() => {
-    upsertGithubPr(pr);
-    upsertPrFiles([file]);
-    upsertPrComments([comment]);
+describe("GET /api/github/prs/[id] (gh CLI)", () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
   });
 
-  it("returns pr + files + comments for a known id", async () => {
+  test("returns the gh-cli result on success", async () => {
+    mockFetch.mockResolvedValue({ pr: samplePr, files: [], comments: [] });
     const { GET } = await import("@/app/api/github/prs/[id]/route");
     const { NextRequest } = await import("next/server");
-    const req = new NextRequest("http://x/api/github/prs/foo%2Fbar%237");
+    const req = new NextRequest("http://localhost/api/github/prs/foo%2Fbar%237");
     const res = await GET(req, { params: Promise.resolve({ id: "foo%2Fbar%237" }) });
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.pr.id).toBe("foo/bar#7");
-    expect(body.files).toHaveLength(1);
-    expect(body.files[0].path).toBe("a.ts");
-    expect(body.comments).toHaveLength(1);
-    expect(body.comments[0].body).toBe("nit");
+    expect(mockFetch).toHaveBeenCalledWith("foo/bar#7");
   });
 
-  it("returns 404 for an unknown id", async () => {
+  test("returns 404 when gh-cli resolves null", async () => {
+    mockFetch.mockResolvedValue(null);
     const { GET } = await import("@/app/api/github/prs/[id]/route");
     const { NextRequest } = await import("next/server");
-    const req = new NextRequest("http://x/api/github/prs/missing");
-    const res = await GET(req, { params: Promise.resolve({ id: "missing" }) });
+    const req = new NextRequest("http://localhost/api/github/prs/missing%2Frepo%231");
+    const res = await GET(req, { params: Promise.resolve({ id: "missing%2Frepo%231" }) });
     expect(res.status).toBe(404);
+  });
+
+  test("returns 502 when gh-cli throws", async () => {
+    mockFetch.mockRejectedValue(new Error("gh: command not found"));
+    const { GET } = await import("@/app/api/github/prs/[id]/route");
+    const { NextRequest } = await import("next/server");
+    const req = new NextRequest("http://localhost/api/github/prs/foo%2Fbar%237");
+    const res = await GET(req, { params: Promise.resolve({ id: "foo%2Fbar%237" }) });
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.error).toMatch(/gh CLI failed/);
   });
 });
