@@ -21,6 +21,8 @@ export interface SidebarState {
   linearTicketPanelWidth: number;
   objectiveChatPanelWidth: number;
   objectiveListPanelWidth: number;
+  prReviewFilesPaneWidth: number;
+  prReviewRightPaneWidth: number;
 }
 
 export interface ScrollState {
@@ -42,6 +44,8 @@ const DEFAULT_SIDEBAR: SidebarState = {
   linearTicketPanelWidth: 576,
   objectiveChatPanelWidth: 440,
   objectiveListPanelWidth: 320,
+  prReviewFilesPaneWidth: 300,
+  prReviewRightPaneWidth: 380,
 };
 
 const DEFAULT_SCROLL: ScrollState = {
@@ -193,6 +197,22 @@ export function loadObjectiveChatPanelWidth(): number {
 
 export function persistObjectiveChatPanelWidth(width: number): void {
   persistSidebarState({ objectiveChatPanelWidth: width });
+}
+
+export function loadPrReviewFilesPaneWidth(): number {
+  return loadSidebarState().prReviewFilesPaneWidth;
+}
+
+export function persistPrReviewFilesPaneWidth(width: number): void {
+  persistSidebarState({ prReviewFilesPaneWidth: width });
+}
+
+export function loadPrReviewRightPaneWidth(): number {
+  return loadSidebarState().prReviewRightPaneWidth;
+}
+
+export function persistPrReviewRightPaneWidth(width: number): void {
+  persistSidebarState({ prReviewRightPaneWidth: width });
 }
 
 // Objective list panel width

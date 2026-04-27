@@ -30,7 +30,8 @@ export function CommitRail({
     <aside
       className={styles.commitSide}
       style={{
-        borderLeft: "1px solid var(--line)",
+        flex: 1,
+        minWidth: 0,
         background: "var(--bg-inset)",
         display: "flex",
         flexDirection: "column",

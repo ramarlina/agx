@@ -36,6 +36,7 @@ export function DiffPane({ file, comments }: Props) {
   return (
     <main
       style={{
+        flex: 1,
         display: "flex",
         flexDirection: "column",
         minWidth: 0,

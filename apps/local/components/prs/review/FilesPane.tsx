@@ -35,6 +35,7 @@ export function FilesPane({ files, selected, onSelect }: Props) {
     <aside
       className={styles.filesSide}
       style={{
+        flex: 1,
         borderRight: "1px solid var(--line)",
         background: "var(--bg-inset)",
         display: "flex",
