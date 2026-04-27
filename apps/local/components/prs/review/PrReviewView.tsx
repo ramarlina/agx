@@ -16,9 +16,10 @@ interface DetailResponse {
 
 interface Props {
   prId: string;
+  rightPane?: React.ReactNode;
 }
 
-export function PrReviewView({ prId }: Props) {
+export function PrReviewView({ prId, rightPane }: Props) {
   const [data, setData] = useState<DetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,5 +57,12 @@ export function PrReviewView({ prId }: Props) {
       </div>
     );
   }
-  return <ReviewLayout pr={data.pr} files={data.files} comments={data.comments} />;
+  return (
+    <ReviewLayout
+      pr={data.pr}
+      files={data.files}
+      comments={data.comments}
+      rightPane={rightPane}
+    />
+  );
 }

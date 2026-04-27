@@ -18,9 +18,10 @@ interface Props {
   pr: GithubPr;
   files: GithubPrFile[];
   comments: GithubPrComment[];
+  rightPane?: React.ReactNode;
 }
 
-export function ReviewLayout({ pr, files, comments }: Props) {
+export function ReviewLayout({ pr, files, comments, rightPane }: Props) {
   const [selected, setSelected] = useState<string | null>(
     files[0]?.path ?? null,
   );
@@ -65,12 +66,14 @@ export function ReviewLayout({ pr, files, comments }: Props) {
             No files in this PR.
           </main>
         )}
-        <CommitRail
-          pr={pr}
-          fileCount={files.length}
-          totalAdditions={totals.a}
-          totalDeletions={totals.d}
-        />
+        {rightPane ?? (
+          <CommitRail
+            pr={pr}
+            fileCount={files.length}
+            totalAdditions={totals.a}
+            totalDeletions={totals.d}
+          />
+        )}
       </div>
       <StatusBar
         pr={pr}
