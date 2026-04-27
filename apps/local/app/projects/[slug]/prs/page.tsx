@@ -1,6 +1,7 @@
 "use client";
 
 import { use, useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type { GithubPr, GithubRepo } from "@/lib/github-types";
 import { useProjectsWithAgents } from "@/hooks/useProjects";
 import { PrComposerPanel } from "@/components/prs/PrComposerPanel";
@@ -192,10 +193,10 @@ export default function ProjectPrsPage({
             const ci = ciIcon(pr.ciStatus);
             const isSelected = pr.id === selectedId;
             return (
-              <button
-                type="button"
+              <Link
                 key={pr.id}
-                onClick={() => setSelectedId(pr.id)}
+                href={`/projects/${slug}/prs/${encodeURIComponent(pr.id)}`}
+                onMouseEnter={() => setSelectedId(pr.id)}
                 className={`flex flex-col gap-0.5 border-b border-neutral-800/60 px-4 py-2 text-left text-sm hover:bg-neutral-800/50 ${
                   isSelected ? "bg-neutral-800/70" : ""
                 }`}
@@ -219,7 +220,7 @@ export default function ProjectPrsPage({
                   <span>·</span>
                   <span>{formatRelative(pr.updatedAt)}</span>
                 </div>
-              </button>
+              </Link>
             );
           })}
         </div>
