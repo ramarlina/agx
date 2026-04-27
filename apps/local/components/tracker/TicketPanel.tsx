@@ -303,7 +303,7 @@ export function TicketPanel({
 
       {isPullRequest && activeTab === "review" ? (
         <div className="min-h-0 flex-1 overflow-hidden">
-          <PrReviewView prId={item.id} projectId={projectId} />
+          <PrReviewView prId={item.id} />
         </div>
       ) : (
         <>
