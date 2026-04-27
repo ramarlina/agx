@@ -16,9 +16,10 @@ interface DetailResponse {
 
 interface Props {
   prId: string;
+  projectId?: string;
 }
 
-export function PrReviewView({ prId }: Props) {
+export function PrReviewView({ prId, projectId }: Props) {
   const [data, setData] = useState<DetailResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,8 +29,9 @@ export function PrReviewView({ prId }: Props) {
     setError(null);
     (async () => {
       try {
+        const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
         const res = await fetch(
-          `/api/github/prs/${encodeURIComponent(prId)}`,
+          `/api/github/prs/${encodeURIComponent(prId)}${qs}`,
         );
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const body = (await res.json()) as DetailResponse;
@@ -42,7 +44,7 @@ export function PrReviewView({ prId }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [prId]);
+  }, [prId, projectId]);
 
   if (error) {
     return (
