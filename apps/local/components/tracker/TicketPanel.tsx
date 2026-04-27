@@ -7,6 +7,7 @@ import { useProcessPolling } from "@/hooks/useProcessPolling";
 import { TicketRecapSection } from "./TicketRecapSection";
 import { TicketSessionList } from "./TicketSessionList";
 import { LinkedPrsSection } from "./LinkedPrsSection";
+import { PrReviewView } from "@/components/prs/review/PrReviewView";
 import { IssueStatusSelect, type FilterOption } from "./TrackerBoardFilters";
 import type { TrackerItem } from "@/lib/tracker/types";
 import type { TrackerRunRecord } from "@/lib/tracker/tracker-run-store";
@@ -82,6 +83,12 @@ export function TicketPanel({
 }: Props) {
   const defaultAgent = participants[0];
   const { metadata } = useTrackerItemMetadata(trackerType, projectId, item.id);
+  const isPullRequest =
+    trackerType === "github" && (item.labels ?? []).includes("pr");
+  const [activeTab, setActiveTab] = useState<"chat" | "review">("chat");
+  useEffect(() => {
+    setActiveTab("chat");
+  }, [item.id]);
   const sessionScriptButtonLabel =
     activeSessionScriptLabel === "AGX default" ? "Session script" : activeSessionScriptLabel;
 
@@ -275,32 +282,59 @@ export function TicketPanel({
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto pb-64">
-        <TicketRecapSection issueId={item.id} trackerType={trackerType} projectId={projectId} />
-        {projectSlug && (
-          <LinkedPrsSection
-            targetType="linear_issue"
-            targetId={item.identifier}
-            projectSlug={projectSlug}
-          />
-        )}
-        <TicketSessionList runs={runs} onSelect={onSelectRun} />
-      </div>
+      {isPullRequest && (
+        <div className="flex shrink-0 items-center gap-1 border-b border-[var(--card-border)] px-6">
+          {(["chat", "review"] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              className={`-mb-px border-b-2 px-3 py-2 text-xs font-medium capitalize transition-colors ${
+                activeTab === tab
+                  ? "border-[var(--foreground)] text-[var(--foreground)]"
+                  : "border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      )}
 
-      <div className="absolute bottom-3 left-3 right-3 p-2">
-        <Composer
-          onSend={handleSend}
-          onStop={() => {}}
-          participants={participants}
-          projectId={projectId ?? undefined}
-          projectSlug={projectSlug ?? undefined}
-          loading={activityStatus !== "ready"}
-          commands={[]}
-          activityStatus={activityStatus}
-          placeholder={`Ask about ${item.identifier}...`}
-          initialPinnedParticipantId={defaultAgent?.id}
-        />
-      </div>
+      {isPullRequest && activeTab === "review" ? (
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <PrReviewView prId={item.id} />
+        </div>
+      ) : (
+        <>
+          <div className="min-h-0 flex-1 overflow-y-auto pb-64">
+            <TicketRecapSection issueId={item.id} trackerType={trackerType} projectId={projectId} />
+            {projectSlug && (
+              <LinkedPrsSection
+                targetType="linear_issue"
+                targetId={item.identifier}
+                projectSlug={projectSlug}
+              />
+            )}
+            <TicketSessionList runs={runs} onSelect={onSelectRun} />
+          </div>
+
+          <div className="absolute bottom-3 left-3 right-3 p-2">
+            <Composer
+              onSend={handleSend}
+              onStop={() => {}}
+              participants={participants}
+              projectId={projectId ?? undefined}
+              projectSlug={projectSlug ?? undefined}
+              loading={activityStatus !== "ready"}
+              commands={[]}
+              activityStatus={activityStatus}
+              placeholder={`Ask about ${item.identifier}...`}
+              initialPinnedParticipantId={defaultAgent?.id}
+            />
+          </div>
+        </>
+      )}
     </div>
   );
 }
