@@ -1,5 +1,5 @@
 "use client";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useRef } from "react";
 import dynamic from "next/dynamic";
 import { FileText, Hash, Play } from "lucide-react";
 import { useGroupChat } from "@/hooks/useGroupChat";
@@ -85,10 +85,6 @@ export function TicketPanel({
   const { metadata } = useTrackerItemMetadata(trackerType, projectId, item.id);
   const isPullRequest =
     trackerType === "github" && (item.labels ?? []).includes("pr");
-  const [activeTab, setActiveTab] = useState<"chat" | "review">("chat");
-  useEffect(() => {
-    setActiveTab("chat");
-  }, [item.id]);
   const sessionScriptButtonLabel =
     activeSessionScriptLabel === "AGX default" ? "Session script" : activeSessionScriptLabel;
 
@@ -282,28 +278,37 @@ export function TicketPanel({
         </div>
       </header>
 
-      {isPullRequest && (
-        <div className="flex shrink-0 items-center gap-1 border-b border-[var(--card-border)] px-6">
-          {(["chat", "review"] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setActiveTab(tab)}
-              className={`-mb-px border-b-2 px-3 py-2 text-xs font-medium capitalize transition-colors ${
-                activeTab === tab
-                  ? "border-[var(--foreground)] text-[var(--foreground)]"
-                  : "border-transparent text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {isPullRequest && activeTab === "review" ? (
+      {isPullRequest ? (
         <div className="min-h-0 flex-1 overflow-hidden">
-          <PrReviewView prId={item.id} />
+          <PrReviewView
+            prId={item.id}
+            rightPane={
+              <div className="flex h-full min-h-0 flex-col bg-[var(--bg-card)]">
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <TicketRecapSection
+                    issueId={item.id}
+                    trackerType={trackerType}
+                    projectId={projectId}
+                  />
+                  <TicketSessionList runs={runs} onSelect={onSelectRun} />
+                </div>
+                <div className="shrink-0 border-t border-[var(--card-border)] p-2">
+                  <Composer
+                    onSend={handleSend}
+                    onStop={() => {}}
+                    participants={participants}
+                    projectId={projectId ?? undefined}
+                    projectSlug={projectSlug ?? undefined}
+                    loading={activityStatus !== "ready"}
+                    commands={[]}
+                    activityStatus={activityStatus}
+                    placeholder={`Ask about ${item.identifier}...`}
+                    initialPinnedParticipantId={defaultAgent?.id}
+                  />
+                </div>
+              </div>
+            }
+          />
         </div>
       ) : (
         <>
