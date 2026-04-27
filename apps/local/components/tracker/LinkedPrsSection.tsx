@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Plus, X } from "lucide-react";
 import type { GithubPr, TrackerTargetType } from "@/lib/github-types";
 
@@ -45,6 +46,7 @@ function reviewDecisionChip(decision: GithubPr["reviewDecision"]): { label: stri
 }
 
 export function LinkedPrsSection({ targetType, targetId, projectSlug }: Props) {
+  const router = useRouter();
   const [prs, setPrs] = useState<GithubPr[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
@@ -79,10 +81,9 @@ export function LinkedPrsSection({ targetType, targetId, projectSlug }: Props) {
 
   const handleRowClick = useCallback(
     (pr: GithubPr) => {
-      const href = `/projects/${encodeURIComponent(projectSlug)}/prs?pr=${encodeURIComponent(pr.id)}`;
-      window.location.href = href;
+      router.push(`/projects/${projectSlug}/prs/${encodeURIComponent(pr.id)}`);
     },
-    [projectSlug],
+    [router, projectSlug],
   );
 
   const handleSubmit = useCallback(
