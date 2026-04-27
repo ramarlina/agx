@@ -20,8 +20,8 @@
   --del: #d86a6a;
   --del-bg: rgba(216, 106, 106, 0.10);
   --del-gut: rgba(216, 106, 106, 0.22);
-  --font-sans: 'Inter Tight', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+  --font-sans: var(--font-inter-tight), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, Menlo, monospace;
 
   background: var(--bg);
   color: var(--fg);
