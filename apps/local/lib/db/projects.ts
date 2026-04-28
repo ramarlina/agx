@@ -24,6 +24,7 @@ import {
 } from "./types";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const REPOSITORY_WORKSPACE_CATEGORY = "repositories";
 
 async function insertProjectRepos(
   projectId: string,
@@ -51,6 +52,185 @@ async function insertProjectRepos(
     throw error;
   }
   return data || [];
+}
+
+function normalizeNullable(value: string | null | undefined): string | null {
+  return value ?? null;
+}
+
+function repoWorkspacePurpose(repo: Pick<ProjectRepo, "notes">): string | null {
+  const notes = repo.notes?.trim();
+  return notes || null;
+}
+
+function workspaceEntryMatchesRepoLocation(entry: WorkspaceEntry, repo: ProjectRepo): boolean {
+  return (
+    entry.category === REPOSITORY_WORKSPACE_CATEGORY &&
+    entry.name === repo.name &&
+    normalizeNullable(entry.path) === normalizeNullable(repo.path)
+  );
+}
+
+function repoInputMatchesRepo(input: ProjectRepoInput, repo: ProjectRepo): boolean {
+  return (
+    input.name === repo.name &&
+    normalizeNullable(input.path) === normalizeNullable(repo.path) &&
+    normalizeNullable(input.git_url) === normalizeNullable(repo.git_url) &&
+    normalizeNullable(input.notes) === normalizeNullable(repo.notes)
+  );
+}
+
+function orderReposLikeInput(repos: ProjectRepo[], inputs: ProjectRepoInput[]): ProjectRepo[] {
+  const remaining = repos.slice();
+  const ordered: ProjectRepo[] = [];
+
+  for (const input of inputs) {
+    const index = input.id
+      ? remaining.findIndex((repo) => repo.id === input.id)
+      : remaining.findIndex((repo) => repoInputMatchesRepo(input, repo));
+    if (index === -1) continue;
+    ordered.push(remaining[index]);
+    remaining.splice(index, 1);
+  }
+
+  return [...ordered, ...remaining];
+}
+
+async function syncProjectReposToWorkspaceEntries(
+  projectId: string,
+  repos: ProjectRepo[],
+  db: any,
+  previousRepos: ProjectRepo[] = []
+): Promise<void> {
+  const { data: existingEntries, error: entriesError } = await db
+    .from("workspace_entries")
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("category", REPOSITORY_WORKSPACE_CATEGORY);
+
+  if (entriesError) {
+    if (isMissingRelationError(entriesError, "workspace_entries")) return;
+    throw entriesError;
+  }
+
+  const workspaceEntries = ((existingEntries || []) as WorkspaceEntry[]).slice();
+  const consumedEntryIds = new Set<string>();
+  const previousById = new Map(previousRepos.map((repo) => [repo.id, repo]));
+
+  const claimedEntriesByRepoId = new Map<string, WorkspaceEntry>();
+  for (const repo of repos) {
+    const previousRepo = previousById.get(repo.id);
+    const entry =
+      (previousRepo &&
+        workspaceEntries.find((candidate) => workspaceEntryMatchesRepoLocation(candidate, previousRepo))) ||
+      workspaceEntries.find((candidate) => workspaceEntryMatchesRepoLocation(candidate, repo)) ||
+      workspaceEntries.find(
+        (candidate) =>
+          candidate.category === REPOSITORY_WORKSPACE_CATEGORY &&
+          candidate.name === repo.name &&
+          !Array.from(claimedEntriesByRepoId.values()).some((claimed) => claimed.id === candidate.id)
+      );
+    if (entry) claimedEntriesByRepoId.set(repo.id, entry);
+  }
+
+  const claimedEntries = Array.from(claimedEntriesByRepoId.entries());
+  const originalNamesByEntryId = new Map(claimedEntries.map(([, entry]) => [entry.id, entry.name]));
+
+  for (const [repoId, entry] of claimedEntries) {
+    const repo = repos.find((candidate) => candidate.id === repoId);
+    if (!repo || entry.name === repo.name) continue;
+    const nameConflict = claimedEntries.some(
+      ([, candidate]) => candidate.id !== entry.id && originalNamesByEntryId.get(candidate.id) === repo.name
+    );
+    if (!nameConflict) continue;
+
+    const temporaryName = `__agx_repo_sync_${entry.id}`;
+    const { error: updateError } = await db
+      .from("workspace_entries")
+      .update({
+        name: temporaryName,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", entry.id)
+      .eq("project_id", projectId);
+    if (updateError && !isMissingRelationError(updateError, "workspace_entries")) {
+      throw updateError;
+    }
+    entry.name = temporaryName;
+  }
+
+  for (const [index, repo] of repos.entries()) {
+    const previousRepo = previousById.get(repo.id);
+    const claimedEntry = claimedEntriesByRepoId.get(repo.id) ?? null;
+    const existingByPrevious = !claimedEntry && previousRepo
+      ? workspaceEntries.find(
+          (entry) => !consumedEntryIds.has(entry.id) && workspaceEntryMatchesRepoLocation(entry, previousRepo)
+        )
+      : null;
+    const existingByCurrent =
+      !claimedEntry &&
+      workspaceEntries.find(
+        (entry) => !consumedEntryIds.has(entry.id) && workspaceEntryMatchesRepoLocation(entry, repo)
+      );
+    const nameConflict = workspaceEntries.find(
+      (entry) =>
+        !consumedEntryIds.has(entry.id) &&
+        entry.category === REPOSITORY_WORKSPACE_CATEGORY &&
+        entry.name === repo.name
+    );
+    const existingEntry = claimedEntry || existingByPrevious || existingByCurrent || nameConflict;
+
+    if (existingEntry) {
+      consumedEntryIds.add(existingEntry.id);
+      const previousPurpose = previousRepo ? repoWorkspacePurpose(previousRepo) : null;
+      const currentPurpose = repoWorkspacePurpose(repo);
+      const purpose =
+        normalizeNullable(existingEntry.purpose) === previousPurpose
+          ? currentPurpose
+          : existingEntry.purpose ?? currentPurpose;
+      const { error: updateError } = await db
+        .from("workspace_entries")
+        .update({
+          name: repo.name,
+          path: normalizeNullable(repo.path),
+          purpose,
+          sort_order: index,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existingEntry.id)
+        .eq("project_id", projectId);
+      if (updateError && !isMissingRelationError(updateError, "workspace_entries")) {
+        throw updateError;
+      }
+      existingEntry.name = repo.name;
+      existingEntry.path = normalizeNullable(repo.path);
+      existingEntry.purpose = purpose;
+      continue;
+    }
+
+    const now = new Date().toISOString();
+    const { data: inserted, error: insertError } = await db
+      .from("workspace_entries")
+      .insert({
+        id: randomUUID(),
+        project_id: projectId,
+        category: REPOSITORY_WORKSPACE_CATEGORY,
+        name: repo.name,
+        path: normalizeNullable(repo.path),
+        purpose: repoWorkspacePurpose(repo),
+        sort_order: index,
+        created_at: now,
+        updated_at: now,
+      })
+      .select()
+      .single();
+
+    if (insertError) {
+      if (isMissingRelationError(insertError, "workspace_entries")) return;
+      throw insertError;
+    }
+    if (inserted) workspaceEntries.push(inserted as WorkspaceEntry);
+  }
 }
 
 export async function getProjects(userId?: string, includeArchived = false): Promise<ProjectWithRepos[]> {
@@ -176,6 +356,7 @@ export async function createProject(
   if (error) throw error;
 
   const repos = await insertProjectRepos(project.id, input.repos ?? [], db);
+  await syncProjectReposToWorkspaceEntries(project.id, repos, db);
 
   return { ...project, repos };
 }
@@ -228,7 +409,7 @@ export async function updateProject(
     if (error) throw error;
   }
 
-  if (updates.repos) {
+  if (typeof updates.repos !== "undefined") {
     const { data: existingRepos, error: existingReposError } = await db
       .from("project_repos")
       .select("*")
@@ -286,6 +467,20 @@ export async function updateProject(
         throw repoInsertError;
       }
     }
+
+    const nextReposResult = await db
+      .from("project_repos")
+      .select("*")
+      .eq("project_id", projectId);
+    if (nextReposResult.error && !isMissingRelationError(nextReposResult.error, "project_repos")) {
+      throw nextReposResult.error;
+    }
+    await syncProjectReposToWorkspaceEntries(
+      projectId,
+      orderReposLikeInput((nextReposResult.data || []) as ProjectRepo[], updates.repos),
+      db,
+      existingRepoList
+    );
   }
 
   return getProjectWithRepos(projectId, userId);
