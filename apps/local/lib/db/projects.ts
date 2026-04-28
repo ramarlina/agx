@@ -71,13 +71,6 @@ function workspaceEntryMatchesRepoLocation(entry: WorkspaceEntry, repo: ProjectR
   );
 }
 
-function workspaceEntryOwnedByRepo(entry: WorkspaceEntry, repo: ProjectRepo): boolean {
-  return (
-    workspaceEntryMatchesRepoLocation(entry, repo) &&
-    normalizeNullable(entry.purpose) === repoWorkspacePurpose(repo)
-  );
-}
-
 function repoInputMatchesRepo(input: ProjectRepoInput, repo: ProjectRepo): boolean {
   return (
     input.name === repo.name &&
@@ -127,9 +120,16 @@ async function syncProjectReposToWorkspaceEntries(
   const claimedEntriesByRepoId = new Map<string, WorkspaceEntry>();
   for (const repo of repos) {
     const previousRepo = previousById.get(repo.id);
-    const entry = previousRepo
-      ? workspaceEntries.find((candidate) => workspaceEntryMatchesRepoLocation(candidate, previousRepo))
-      : workspaceEntries.find((candidate) => workspaceEntryMatchesRepoLocation(candidate, repo));
+    const entry =
+      (previousRepo &&
+        workspaceEntries.find((candidate) => workspaceEntryMatchesRepoLocation(candidate, previousRepo))) ||
+      workspaceEntries.find((candidate) => workspaceEntryMatchesRepoLocation(candidate, repo)) ||
+      workspaceEntries.find(
+        (candidate) =>
+          candidate.category === REPOSITORY_WORKSPACE_CATEGORY &&
+          candidate.name === repo.name &&
+          !Array.from(claimedEntriesByRepoId.values()).some((claimed) => claimed.id === candidate.id)
+      );
     if (entry) claimedEntriesByRepoId.set(repo.id, entry);
   }
 
