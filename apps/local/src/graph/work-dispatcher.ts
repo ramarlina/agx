@@ -47,6 +47,7 @@ function resolveProvider(raw: string): ChatProvider {
     case 'ollama':
     case 'codex':
     case 'zai':
+    case 'kimi':
       return raw;
     default:
       return 'claude';

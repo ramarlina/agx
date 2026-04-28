@@ -44,6 +44,7 @@ function buildFilesystemAccessContext(p: Participant): string | null {
     case "codex":
     case "gemini":
     case "zai":
+    case "kimi":
       return `<filesystem-access>
 Current CLI access includes the project working directory and ${homeDir}.
 Treat ~/.agx as accessible from this chat because it lives under ${homeDir}.

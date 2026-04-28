@@ -1,4 +1,4 @@
-export type ProviderId = "claude" | "gemini" | "ollama" | "codex" | "zai";
+export type ProviderId = "claude" | "gemini" | "ollama" | "codex" | "zai" | "kimi";
 
 export interface ProviderCliDefinition {
   id: ProviderId;
@@ -64,6 +64,17 @@ export const PROVIDER_CLIS: ProviderCliDefinition[] = [
     docsUrl: "https://ollama.com/download",
     statusLabel: "Installed",
     authCheck: { cmd: "ollama list 2>/dev/null", timeout: 5_000 },
+  },
+  {
+    id: "kimi",
+    label: "Kimi Code",
+    bin: "kimi",
+    description: "Moonshot's Kimi Code CLI.",
+    installCmd: "npm install -g @moonshot/kimi-code",
+    docsUrl: "https://www.kimi.com/code/docs/en/kimi-code-cli/core-operations.html",
+    statusLabel: "Installed",
+    authCheck: { cmd: "kimi --version 2>/dev/null", timeout: 5_000 },
+    authCmd: { cmd: "kimi", description: "Opens Kimi login flow" },
   },
   {
     id: "zai",

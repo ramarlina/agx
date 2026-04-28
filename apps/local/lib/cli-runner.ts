@@ -337,6 +337,7 @@ const AGX_WRAPPED_PROVIDERS: ReadonlySet<ChatProvider> = new Set([
   "gemini",
   "ollama",
   "codex",
+  "kimi",
 ]);
 
 function providerNativeCommand({
@@ -410,6 +411,19 @@ function providerNativeCommand({
         parser: "codex-json",
       };
     }
+    case "kimi": {
+      // Kimi Code CLI mirrors Claude Code's flag surface (--print, -p, --output-format=stream-json).
+      const kimiArgs = [
+        "--print",
+        "-p",
+        prompt,
+        "--output-format",
+        "stream-json",
+      ];
+      if (model) kimiArgs.push("--model", model);
+      if (systemPrompt) kimiArgs.push("--system-prompt", systemPrompt);
+      return { command: "kimi", args: kimiArgs, parser: "claude-stream-json" };
+    }
     case "zai": {
       // Z.AI exposes an Anthropic-compatible endpoint at https://api.z.ai/api/anthropic.
       // Runs `claude` with ANTHROPIC_BASE_URL override (same pattern as Ollama through agx).
@@ -448,6 +462,7 @@ function providerAccessPassthrough(provider: ChatProvider): string[] {
     case "claude":
     case "zai":
     case "codex":
+    case "kimi":
       return ["--add-dir", homeDir];
     case "gemini":
       return ["--include-directories", homeDir];
@@ -464,6 +479,11 @@ function agxStreamingPassthrough(provider: ChatProvider): {
     case "claude":
       return {
         args: ["--verbose", "--output-format", "stream-json", "--include-partial-messages"],
+        parser: "claude-stream-json",
+      };
+    case "kimi":
+      return {
+        args: ["--print", "--output-format", "stream-json"],
         parser: "claude-stream-json",
       };
     case "gemini":
