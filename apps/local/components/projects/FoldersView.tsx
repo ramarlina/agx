@@ -20,11 +20,109 @@ import {
 } from "lucide-react";
 import type { WorkspaceEntry } from "@/lib/db/types";
 import { useProjectWorkspace } from "@/hooks/useProjectWorkspace";
+import { useSuggestedRepos } from "@/hooks/useSuggestedRepos";
 import { buildWorkspaceCategoryGroups } from "@/lib/project-workspace";
 import { DEFAULT_WORKSPACE_CATEGORIES } from "@/lib/workspace-categories";
+import type { SuggestedRepo } from "@/lib/repo-suggestions";
 
 interface FoldersViewProps {
   projectId: string;
+  projectSlug?: string;
+  projectName?: string;
+}
+
+interface SuggestedReposPanelProps {
+  projectSlug?: string;
+  projectName?: string;
+  existingPaths: Set<string>;
+  onAdd: (repo: SuggestedRepo) => Promise<void>;
+}
+
+function SuggestedReposPanel({
+  projectSlug,
+  projectName,
+  existingPaths,
+  onAdd,
+}: SuggestedReposPanelProps) {
+  const { repos, scanning } = useSuggestedRepos({
+    projectSlug: projectSlug ?? null,
+    projectName: projectName ?? null,
+    limit: 20,
+  });
+  const [addingPath, setAddingPath] = useState<string | null>(null);
+
+  const visible = repos.filter((repo) => !existingPaths.has(repo.path));
+
+  if (visible.length === 0 && !scanning) {
+    return null;
+  }
+
+  return (
+    <div className="mb-3 rounded-2xl border border-[var(--card-border)] bg-[var(--card-bg)] p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <FolderGit2 className="h-4 w-4 text-[var(--muted-foreground)]" />
+          <p className="text-sm font-medium text-[var(--foreground)]">
+            Suggested repositories
+          </p>
+        </div>
+        {scanning && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border)] bg-[var(--secondary)]/40 px-2 py-0.5 text-[11px] text-[var(--muted-foreground)]">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Indexing...
+          </span>
+        )}
+      </div>
+
+      {visible.length === 0 && scanning && (
+        <p className="rounded-xl border border-dashed border-[var(--border)] px-3 py-4 text-xs text-[var(--muted-foreground)]">
+          Scanning your machine for git repositories...
+        </p>
+      )}
+
+      <ul className="space-y-2">
+        {visible.map((repo) => {
+          const isAdding = addingPath === repo.path;
+          return (
+            <li
+              key={repo.path}
+              className="flex items-center gap-3 rounded-xl border border-[var(--border)] bg-[var(--secondary)]/20 px-3 py-2"
+            >
+              <Folder className="h-4 w-4 flex-shrink-0 text-[var(--muted-foreground)]" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-[var(--foreground)]">
+                  {repo.basename}
+                </p>
+                <p className="truncate font-mono text-[11px] text-[var(--muted-foreground)]">
+                  {repo.path}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  setAddingPath(repo.path);
+                  try {
+                    await onAdd(repo);
+                  } finally {
+                    setAddingPath((current) => (current === repo.path ? null : current));
+                  }
+                }}
+                disabled={isAdding}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] px-2.5 py-1.5 text-xs font-medium text-[var(--foreground)] transition-colors hover:bg-[var(--secondary)] disabled:opacity-50"
+              >
+                {isAdding ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Plus className="h-3.5 w-3.5" />
+                )}
+                Add
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
 }
 
 type StatusTone = "success" | "error" | "neutral";
@@ -79,7 +177,7 @@ function getCategoryIcon(categoryId: string) {
   }
 }
 
-export function FoldersView({ projectId }: FoldersViewProps) {
+export function FoldersView({ projectId, projectSlug, projectName }: FoldersViewProps) {
   const { workspace, entryCount, isLoading, error, refetch, createEntry, updateEntry, deleteEntry } = useProjectWorkspace(projectId);
   const [customCategories, setCustomCategories] = useState<string[]>([]);
   const [addingCategoryId, setAddingCategoryId] = useState<string | null>(null);
@@ -501,6 +599,35 @@ export function FoldersView({ projectId }: FoldersViewProps) {
                   </div>
 
                   <div className="mt-4 space-y-3">
+                    {group.id === "repositories" && (
+                      <SuggestedReposPanel
+                        projectSlug={projectSlug}
+                        projectName={projectName}
+                        existingPaths={
+                          new Set(
+                            group.entries
+                              .map((entry) => entry.path)
+                              .filter((p): p is string => typeof p === "string" && p.length > 0),
+                          )
+                        }
+                        onAdd={async (repo) => {
+                          try {
+                            await createEntry({
+                              category: "repositories",
+                              name: repo.basename,
+                              path: repo.path,
+                              purpose: null,
+                            });
+                            setFeedback(`Added ${repo.basename} to Repositories`, "success");
+                          } catch (err) {
+                            setFeedback(
+                              err instanceof Error ? err.message : "Failed to add repository",
+                              "error",
+                            );
+                          }
+                        }}
+                      />
+                    )}
                     {group.entries.length === 0 && addingCategoryId !== group.id && (
                       <p className="rounded-2xl border border-dashed border-[var(--border)] px-4 py-5 text-sm text-[var(--muted-foreground)]">
                         {group.isPreset

@@ -21,5 +21,11 @@ export default function FoldersPage({
     );
   }
 
-  return <FoldersView projectId={project.id} />;
+  return (
+    <FoldersView
+      projectId={project.id}
+      projectSlug={project.slug}
+      projectName={project.name}
+    />
+  );
 }
