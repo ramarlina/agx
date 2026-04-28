@@ -1,6 +1,6 @@
 import type { ThreadStatus } from "./storage/thread-adapter";
 
-export type ChatProvider = "claude" | "gemini" | "ollama" | "codex" | "zai";
+export type ChatProvider = "claude" | "gemini" | "ollama" | "codex" | "zai" | "kimi";
 
 export interface Conversation {
   id: string;

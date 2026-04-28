@@ -8,6 +8,7 @@ const FALLBACK: Provider[] = [
   { id: "ollama", label: "Ollama" },
   { id: "codex", label: "Codex" },
   { id: "zai", label: "Z.AI" },
+  { id: "kimi", label: "Kimi Code" },
 ];
 
 export function useProviders() {
