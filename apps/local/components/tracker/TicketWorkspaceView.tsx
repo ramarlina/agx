@@ -36,6 +36,7 @@ interface WorkspacesPayload {
   workspaces: GitWorkspace[];
   stale: boolean;
   scannedAt: number | null;
+  scanning?: boolean;
 }
 
 function basename(p: string): string {
@@ -82,6 +83,7 @@ export function TicketWorkspaceView({ ticketId, rightPane, fallback }: Props) {
   const [stale, setStale] = useState(false);
   const [_scannedAt, setScannedAt] = useState<number | null>(null);
   const [rescanning, setRescanning] = useState(false);
+  const [scanning, setScanning] = useState(false);
 
   const [selected, setSelected] = useState<{
     repoPath: string;
@@ -106,11 +108,13 @@ export function TicketWorkspaceView({ ticketId, rightPane, fallback }: Props) {
       setWorkspaces(payload.workspaces ?? []);
       setStale(Boolean(payload.stale));
       setScannedAt(payload.scannedAt ?? null);
+      setScanning(Boolean(payload.scanning));
     } catch (err) {
       console.warn("Failed to load workspaces", err);
       setWorkspaces([]);
       setStale(false);
       setScannedAt(null);
+      setScanning(false);
     } finally {
       setLoading(false);
     }
@@ -121,6 +125,16 @@ export function TicketWorkspaceView({ ticketId, rightPane, fallback }: Props) {
     setDiff(null);
     void loadWorkspaces();
   }, [loadWorkspaces]);
+
+  // Poll while a background scan is running
+  useEffect(() => {
+    if (!scanning) return;
+    if (workspaces.length > 0) return;
+    const id = setInterval(() => {
+      void loadWorkspaces();
+    }, 3000);
+    return () => clearInterval(id);
+  }, [scanning, workspaces.length, loadWorkspaces]);
 
   // Pick a default selection once workspaces load
   useEffect(() => {
@@ -272,29 +286,48 @@ export function TicketWorkspaceView({ ticketId, rightPane, fallback }: Props) {
           <div style={{ fontSize: 13, marginBottom: 12 }}>
             Workspace index not yet built (or older than 24h).
           </div>
-          <button
-            type="button"
-            onClick={handleRescan}
-            disabled={rescanning}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "6px 12px",
-              borderRadius: 6,
-              border: "1px solid var(--card-border)",
-              background: "var(--background)",
-              color: "var(--foreground)",
-              fontSize: 12,
-              cursor: rescanning ? "default" : "pointer",
-            }}
-          >
-            <RefreshCw
-              size={12}
-              className={rescanning ? "animate-spin" : undefined}
-            />
-            Rescan ~
-          </button>
+          {scanning ? (
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "6px 12px",
+                borderRadius: 6,
+                border: "1px solid var(--card-border)",
+                background: "var(--background)",
+                color: "var(--muted-foreground)",
+                fontSize: 12,
+              }}
+            >
+              <RefreshCw size={12} className="animate-spin" />
+              Indexing...
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleRescan}
+              disabled={rescanning}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "6px 12px",
+                borderRadius: 6,
+                border: "1px solid var(--card-border)",
+                background: "var(--background)",
+                color: "var(--foreground)",
+                fontSize: 12,
+                cursor: rescanning ? "default" : "pointer",
+              }}
+            >
+              <RefreshCw
+                size={12}
+                className={rescanning ? "animate-spin" : undefined}
+              />
+              Rescan ~
+            </button>
+          )}
         </div>
       </div>
     );

@@ -2,6 +2,7 @@ import { createServer } from "http";
 import { parse } from "url";
 import next from "next";
 import { createTerminalServerBridge } from "./lib/terminal-server";
+import { ensureFreshRepoIndex } from "./lib/git-repo-index";
 
 const dev = process.env.NODE_ENV !== "production";
 const port = parseInt(process.env.PORT || "41741", 10);
@@ -30,6 +31,19 @@ app.prepare().then(() => {
 
   server.listen(port, host, () => {
     console.log(`> AGX Local ready on http://${host}:${port}`);
+  });
+
+  // Kick off background repo index refresh (non-blocking)
+  setImmediate(() => {
+    ensureFreshRepoIndex()
+      .then((res) => {
+        console.log(
+          `> Repo index ensure-fresh: ${res.scanning ? "scan started" : "fresh"}`,
+        );
+      })
+      .catch((err) => {
+        console.error("Repo index ensure-fresh failed:", err);
+      });
   });
 
   // Cleanup on exit
