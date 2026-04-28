@@ -75,6 +75,42 @@ export async function saveRepoIndex(idx: RepoIndex): Promise<void> {
   await fs.rename(tmp, REPO_INDEX_PATH);
 }
 
+export const RESCAN_TTL_MS = 24 * 60 * 60 * 1000;
+
+let scanning: Promise<RepoIndex> | null = null;
+
+export function isScanning(): boolean {
+  return scanning !== null;
+}
+
+export async function ensureFreshRepoIndex(opts?: {
+  ttlMs?: number;
+  scanner?: () => Promise<RepoIndex>;
+}): Promise<{ index: RepoIndex | null; scanning: boolean }> {
+  const ttlMs = opts?.ttlMs ?? RESCAN_TTL_MS;
+  const scanner = opts?.scanner ?? (() => scanForRepos());
+  const index = await loadRepoIndex();
+  const isStale = !index || Date.now() - index.scannedAt > ttlMs;
+
+  if (isStale && !scanning) {
+    const p = (async () => {
+      try {
+        const fresh = await scanner();
+        await saveRepoIndex(fresh);
+        return fresh;
+      } finally {
+        scanning = null;
+      }
+    })();
+    scanning = p;
+    p.catch((err) => {
+      console.error("Background repo index scan failed:", err);
+    });
+  }
+
+  return { index, scanning: scanning !== null };
+}
+
 export async function scanForRepos(opts?: {
   root?: string;
   maxDepth?: number;

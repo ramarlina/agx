@@ -1,12 +1,10 @@
 // apps/local/app/api/git/workspaces/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { loadRepoIndex } from "@/lib/git-repo-index";
+import { ensureFreshRepoIndex, RESCAN_TTL_MS } from "@/lib/git-repo-index";
 import { listMatchingWorkspaces } from "@/lib/git-workspaces";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const STALE_MS = 24 * 60 * 60 * 1000;
 
 export async function GET(req: NextRequest) {
   const ticketId = req.nextUrl.searchParams.get("ticketId")?.trim() ?? "";
@@ -15,23 +13,28 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const idx = await loadRepoIndex();
-    if (!idx || Date.now() - idx.scannedAt > STALE_MS) {
+    const { index, scanning } = await ensureFreshRepoIndex();
+    const stale =
+      index === null || Date.now() - index.scannedAt > RESCAN_TTL_MS;
+
+    if (!index || stale) {
       return NextResponse.json({
         workspaces: [],
         stale: true,
-        scannedAt: idx?.scannedAt ?? null,
+        scannedAt: index?.scannedAt ?? null,
+        scanning,
       });
     }
 
     const workspaces = await listMatchingWorkspaces({
-      repoPaths: idx.entries.map((e) => e.path),
+      repoPaths: index.entries.map((e) => e.path),
       ticketId,
     });
     return NextResponse.json({
       workspaces,
       stale: false,
-      scannedAt: idx.scannedAt,
+      scannedAt: index.scannedAt,
+      scanning,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

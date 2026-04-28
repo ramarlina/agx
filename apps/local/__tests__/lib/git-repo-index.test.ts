@@ -94,6 +94,94 @@ describe("scanForRepos", () => {
   });
 });
 
+describe("ensureFreshRepoIndex", () => {
+  let origHome: string | undefined;
+
+  beforeEach(() => {
+    origHome = process.env.HOME;
+    process.env.HOME = fixtureRoot;
+    jest.resetModules();
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+  });
+
+  test("returns { index: null, scanning: true } when no index exists, kicks off a scan", async () => {
+    const mod = await import("@/lib/git-repo-index");
+    let calls = 0;
+    const scanner = async () => {
+      calls += 1;
+      return { entries: [], scannedAt: Date.now() };
+    };
+    const res = await mod.ensureFreshRepoIndex({ scanner });
+    expect(res.index).toBeNull();
+    expect(res.scanning).toBe(true);
+    // Wait for in-flight scan to complete to avoid leaking state
+    await new Promise<void>((r) => setTimeout(r, 10));
+    expect(calls).toBe(1);
+    expect(mod.isScanning()).toBe(false);
+  });
+
+  test("returns { index: <fresh>, scanning: false } when index is fresh", async () => {
+    const mod = await import("@/lib/git-repo-index");
+    const fresh: RepoIndex = {
+      entries: [{ path: "/a", discoveredAt: Date.now() }],
+      scannedAt: Date.now(),
+    };
+    await mod.saveRepoIndex(fresh);
+    let calls = 0;
+    const scanner = async () => {
+      calls += 1;
+      return { entries: [], scannedAt: Date.now() };
+    };
+    const res = await mod.ensureFreshRepoIndex({ scanner });
+    expect(res.index?.scannedAt).toBe(fresh.scannedAt);
+    expect(res.scanning).toBe(false);
+    expect(calls).toBe(0);
+  });
+
+  test("returns { index: <stale>, scanning: true } when index is stale, kicks off a scan", async () => {
+    const mod = await import("@/lib/git-repo-index");
+    const staleIdx: RepoIndex = {
+      entries: [{ path: "/old", discoveredAt: 1 }],
+      scannedAt: Date.now() - 2 * mod.RESCAN_TTL_MS,
+    };
+    await mod.saveRepoIndex(staleIdx);
+    let calls = 0;
+    const scanner = async () => {
+      calls += 1;
+      return { entries: [], scannedAt: Date.now() };
+    };
+    const res = await mod.ensureFreshRepoIndex({ scanner });
+    expect(res.index?.scannedAt).toBe(staleIdx.scannedAt);
+    expect(res.scanning).toBe(true);
+    await new Promise<void>((r) => setTimeout(r, 10));
+    expect(calls).toBe(1);
+  });
+
+  test("concurrent calls share a single in-flight scan", async () => {
+    const mod = await import("@/lib/git-repo-index");
+    let calls = 0;
+    let resolveScan!: (v: RepoIndex) => void;
+    const scanner = () =>
+      new Promise<RepoIndex>((resolve) => {
+        calls += 1;
+        resolveScan = resolve;
+      });
+    const r1 = await mod.ensureFreshRepoIndex({ scanner });
+    const r2 = await mod.ensureFreshRepoIndex({ scanner });
+    const r3 = await mod.ensureFreshRepoIndex({ scanner });
+    expect(r1.scanning).toBe(true);
+    expect(r2.scanning).toBe(true);
+    expect(r3.scanning).toBe(true);
+    expect(calls).toBe(1);
+    resolveScan({ entries: [], scannedAt: Date.now() });
+    await new Promise<void>((r) => setTimeout(r, 10));
+    expect(mod.isScanning()).toBe(false);
+  });
+});
+
 describe("saveRepoIndex / loadRepoIndex", () => {
   test("saveRepoIndex round-trips with loadRepoIndex and is atomic", async () => {
     // Redirect HOME so REPO_INDEX_PATH resolves into our fixture dir
