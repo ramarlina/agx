@@ -8,6 +8,7 @@ import { TicketRecapSection } from "./TicketRecapSection";
 import { TicketSessionList } from "./TicketSessionList";
 import { LinkedPrsSection } from "./LinkedPrsSection";
 import { PrReviewView } from "@/components/prs/review/PrReviewView";
+import { TicketWorkspaceView } from "./TicketWorkspaceView";
 import { IssueStatusSelect, type FilterOption } from "./TrackerBoardFilters";
 import type { TrackerItem } from "@/lib/tracker/types";
 import type { TrackerRunRecord } from "@/lib/tracker/tracker-run-store";
@@ -310,36 +311,82 @@ export function TicketPanel({
             }
           />
         </div>
-      ) : (
-        <>
-          <div className="min-h-0 flex-1 overflow-y-auto pb-64">
-            <TicketRecapSection issueId={item.id} trackerType={trackerType} projectId={projectId} />
-            {projectSlug && (
-              <LinkedPrsSection
-                targetType="linear_issue"
-                targetId={item.identifier}
-                projectSlug={projectSlug}
+      ) : (() => {
+        const chatColumn = (
+          <div className="flex h-full min-h-0 flex-col bg-[var(--bg-card)]">
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <TicketRecapSection
+                issueId={item.id}
+                trackerType={trackerType}
+                projectId={projectId}
               />
-            )}
-            <TicketSessionList runs={runs} onSelect={onSelectRun} />
+              {projectSlug && (
+                <LinkedPrsSection
+                  targetType="linear_issue"
+                  targetId={item.identifier}
+                  projectSlug={projectSlug}
+                />
+              )}
+              <TicketSessionList runs={runs} onSelect={onSelectRun} />
+            </div>
+            <div className="shrink-0 border-t border-[var(--card-border)] p-2">
+              <Composer
+                onSend={handleSend}
+                onStop={() => {}}
+                participants={participants}
+                projectId={projectId ?? undefined}
+                projectSlug={projectSlug ?? undefined}
+                loading={activityStatus !== "ready"}
+                commands={[]}
+                activityStatus={activityStatus}
+                placeholder={`Ask about ${item.identifier}...`}
+                initialPinnedParticipantId={defaultAgent?.id}
+              />
+            </div>
           </div>
+        );
 
-          <div className="absolute bottom-3 left-3 right-3 p-2">
-            <Composer
-              onSend={handleSend}
-              onStop={() => {}}
-              participants={participants}
-              projectId={projectId ?? undefined}
-              projectSlug={projectSlug ?? undefined}
-              loading={activityStatus !== "ready"}
-              commands={[]}
-              activityStatus={activityStatus}
-              placeholder={`Ask about ${item.identifier}...`}
-              initialPinnedParticipantId={defaultAgent?.id}
+        const existingNonPrLayout = (
+          <>
+            <div className="min-h-0 flex-1 overflow-y-auto pb-64">
+              <TicketRecapSection issueId={item.id} trackerType={trackerType} projectId={projectId} />
+              {projectSlug && (
+                <LinkedPrsSection
+                  targetType="linear_issue"
+                  targetId={item.identifier}
+                  projectSlug={projectSlug}
+                />
+              )}
+              <TicketSessionList runs={runs} onSelect={onSelectRun} />
+            </div>
+
+            <div className="absolute bottom-3 left-3 right-3 p-2">
+              <Composer
+                onSend={handleSend}
+                onStop={() => {}}
+                participants={participants}
+                projectId={projectId ?? undefined}
+                projectSlug={projectSlug ?? undefined}
+                loading={activityStatus !== "ready"}
+                commands={[]}
+                activityStatus={activityStatus}
+                placeholder={`Ask about ${item.identifier}...`}
+                initialPinnedParticipantId={defaultAgent?.id}
+              />
+            </div>
+          </>
+        );
+
+        return (
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <TicketWorkspaceView
+              ticketId={item.identifier}
+              rightPane={chatColumn}
+              fallback={existingNonPrLayout}
             />
           </div>
-        </>
-      )}
+        );
+      })()}
     </div>
   );
 }

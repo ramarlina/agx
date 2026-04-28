@@ -5,6 +5,9 @@ import type {
   GithubPrFile,
   GithubPrComment,
 } from "./github-types";
+import { splitUnifiedDiffByFile } from "./git-diff-cli";
+
+export { splitUnifiedDiffByFile };
 
 const execFileP = promisify(execFile);
 
@@ -106,52 +109,6 @@ function stateFromGh(s: string, mergedAt: string | null): GithubPr["state"] {
     default:
       return "open";
   }
-}
-
-/**
- * Splits a single unified diff (output of `gh pr diff`) into per-file patches.
- * Returns a map of `path` -> patch text starting at the first `@@` hunk header.
- */
-export function splitUnifiedDiffByFile(diff: string): Map<string, string> {
-  const result = new Map<string, string>();
-  if (!diff) return result;
-
-  const lines = diff.split("\n");
-  let currentPath: string | null = null;
-  let buffer: string[] = [];
-  const flush = () => {
-    if (currentPath) {
-      const text = buffer.join("\n").trimEnd();
-      if (text.length > 0) result.set(currentPath, text);
-    }
-    buffer = [];
-  };
-
-  for (const line of lines) {
-    if (line.startsWith("diff --git ")) {
-      flush();
-      const m = line.match(/diff --git a\/(.+?) b\/(.+)$/);
-      currentPath = m ? m[2] : null;
-      continue;
-    }
-    if (!currentPath) continue;
-    if (
-      line.startsWith("index ") ||
-      line.startsWith("--- ") ||
-      line.startsWith("+++ ") ||
-      line.startsWith("new file mode") ||
-      line.startsWith("deleted file mode") ||
-      line.startsWith("similarity index") ||
-      line.startsWith("rename from") ||
-      line.startsWith("rename to") ||
-      line.startsWith("Binary files")
-    ) {
-      continue;
-    }
-    buffer.push(line);
-  }
-  flush();
-  return result;
 }
 
 interface FetchResult {
