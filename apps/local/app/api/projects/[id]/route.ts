@@ -7,6 +7,11 @@ import { getObjectiveRepository } from "@/src/objectives/repository";
 import { ensureObjectiveWorkerJob } from "@/src/prompt-scheduler/objective-worker-job";
 import { hydrateProjectObjectiveMetadata } from "../objective-metadata";
 import { logger } from "@/lib/logger";
+import {
+  filterReposRequiringPathValidation,
+  InvalidProjectRepoPathError,
+  validateProjectRepoPaths,
+} from "@/lib/project-repo-paths";
 
 type ParamsArg = Promise<{ id: string }>;
 
@@ -67,6 +72,16 @@ export async function PATCH(request: NextRequest, { params }: { params: ParamsAr
       return NextResponse.json({ error: "No fields to update" }, { status: 400 });
     }
 
+    if (updates.repos) {
+      const existingProject = await db.getProjectWithRepos(projectId, user.id);
+      if (!existingProject) {
+        return NextResponse.json({ error: "Project not found" }, { status: 404 });
+      }
+      await validateProjectRepoPaths(
+        filterReposRequiringPathValidation(updates.repos, existingProject.repos)
+      );
+    }
+
     const project = await db.updateProject(projectId, user.id, updates);
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
@@ -98,7 +113,7 @@ export async function PATCH(request: NextRequest, { params }: { params: ParamsAr
 
     return NextResponse.json({ project: hydrateProjectObjectiveMetadata(project) });
   } catch (err) {
-    if (err instanceof InvalidProjectPayloadError) {
+    if (err instanceof InvalidProjectPayloadError || err instanceof InvalidProjectRepoPathError) {
       return NextResponse.json({ error: err.message }, { status: 400 });
     }
     logger.error("Error updating project", logger.formatError(err));

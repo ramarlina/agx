@@ -3,6 +3,9 @@
  */
 
 import { NextRequest } from "next/server";
+import { mkdirSync, mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import path from "path";
 import {
   createProjectObjective,
   readProjectObjectivesWorkspace,
@@ -131,5 +134,103 @@ describe("/api/projects", () => {
       "Folder name is required for repos[0] when a local path is provided"
     );
     expect(mockCreateProject).not.toHaveBeenCalled();
+  });
+
+  test("POST returns 400 when a repo path does not exist", async () => {
+    const { POST } = await import("@/app/api/projects/route");
+    const missingPath = path.join(tmpdir(), `agx-missing-${Date.now()}`);
+    const request = new NextRequest("http://localhost/api/projects", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Test Project",
+        repos: [{ name: "Missing", path: missingPath }],
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(data.error).toBe(`Folder path does not exist for repos[0]: ${missingPath}`);
+    expect(mockCreateProject).not.toHaveBeenCalled();
+  });
+
+  test("POST accepts a real local directory as a project folder", async () => {
+    const repoPath = mkdtempSync(path.join(tmpdir(), "agx-project-repo-"));
+    const mockProject = {
+      id: "proj-1",
+      slug: "test-project",
+      name: "Test Project",
+      metadata: {},
+      repos: [{ id: "repo-1", name: "Repo", path: repoPath }],
+    };
+    mockCreateProject.mockResolvedValue(mockProject);
+
+    const { POST } = await import("@/app/api/projects/route");
+    const request = new NextRequest("http://localhost/api/projects", {
+      method: "POST",
+      body: JSON.stringify({
+        name: "Test Project",
+        repos: [{ name: "Repo", path: repoPath }],
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const response = await POST(request);
+    const data = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(data.project).toEqual(mockProject);
+    expect(mockCreateProject).toHaveBeenCalledWith(
+      "2c3cc1ca-956d-4b62-b295-4d2d3374103f",
+      expect.objectContaining({
+        name: "Test Project",
+        repos: [{ name: "Repo", path: repoPath }],
+      })
+    );
+  });
+
+  test("POST accepts a home-relative local directory as a project folder", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "agx-home-"));
+    const repoPath = path.join(home, "repo");
+    const previousHome = process.env.HOME;
+    process.env.HOME = home;
+    mkdirSync(repoPath);
+    const mockProject = {
+      id: "proj-1",
+      slug: "test-project",
+      name: "Test Project",
+      metadata: {},
+      repos: [{ id: "repo-1", name: "Repo", path: "~/repo" }],
+    };
+    mockCreateProject.mockResolvedValue(mockProject);
+
+    try {
+      const { POST } = await import("@/app/api/projects/route");
+      const request = new NextRequest("http://localhost/api/projects", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Test Project",
+          repos: [{ name: "Repo", path: "~/repo" }],
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+      const response = await POST(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(201);
+      expect(data.project).toEqual(mockProject);
+      expect(mockCreateProject).toHaveBeenCalledWith(
+        "2c3cc1ca-956d-4b62-b295-4d2d3374103f",
+        expect.objectContaining({
+          repos: [{ name: "Repo", path: "~/repo" }],
+        })
+      );
+    } finally {
+      if (previousHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = previousHome;
+      }
+    }
   });
 });
