@@ -26,9 +26,18 @@ interface Props {
   files: GithubPrFile[];
   comments: GithubPrComment[];
   rightPane?: React.ReactNode;
+  header?: React.ReactNode;
+  statusBar?: React.ReactNode;
 }
 
-export function ReviewLayout({ pr, files, comments, rightPane }: Props) {
+export function ReviewLayout({
+  pr,
+  files,
+  comments,
+  rightPane,
+  header,
+  statusBar,
+}: Props) {
   const [selected, setSelected] = useState<string | null>(
     files[0]?.path ?? null,
   );
@@ -68,7 +77,7 @@ export function ReviewLayout({ pr, files, comments, rightPane }: Props) {
     <div className={styles.root}>
       <div className={styles.reviewBody}>
         <div className={styles.leftCol}>
-          <TopBar pr={pr} />
+          {header ?? <TopBar pr={pr} />}
           <div className={styles.midRow}>
             <div style={{ width: filesWidth, flex: "0 0 auto", minWidth: 0, display: "flex" }}>
               <FilesPane
@@ -107,13 +116,15 @@ export function ReviewLayout({ pr, files, comments, rightPane }: Props) {
               )}
             </div>
           </div>
-          <StatusBar
-            pr={pr}
-            fileCount={files.length}
-            totalAdditions={totals.a}
-            totalDeletions={totals.d}
-            threadCount={comments.length}
-          />
+          {statusBar ?? (
+            <StatusBar
+              pr={pr}
+              fileCount={files.length}
+              totalAdditions={totals.a}
+              totalDeletions={totals.d}
+              threadCount={comments.length}
+            />
+          )}
         </div>
         <ResizeHandle
           ariaLabel="Resize right pane"
