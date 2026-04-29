@@ -3,6 +3,9 @@
  */
 
 import { NextRequest } from "next/server";
+import { mkdtempSync } from "fs";
+import { tmpdir } from "os";
+import path from "path";
 import {
   createProjectObjective,
   readProjectObjectivesWorkspace,
@@ -88,6 +91,7 @@ describe("/api/projects/[id]", () => {
 
   describe("PATCH", () => {
     test("updates a project and returns payload", async () => {
+      const repoPath = mkdtempSync(path.join(tmpdir(), "agx-project-repo-"));
       const mockProject = {
         id: "proj-1",
         name: "Project Alpha",
@@ -97,6 +101,10 @@ describe("/api/projects/[id]", () => {
         ci_cd_info: "GitHub Actions",
         repos: [],
       };
+      mockGetProjectWithRepos.mockResolvedValue({
+        ...mockProject,
+        repos: [{ id: "repo-1", project_id: "proj-1", name: "repo-1", path: repoPath }],
+      });
       mockUpdateProject.mockResolvedValue(mockProject);
 
       const { PATCH } = await import("@/app/api/projects/[id]/route");
@@ -108,7 +116,7 @@ describe("/api/projects/[id]", () => {
           description: "Updated",
           metadata: { stack: "nextjs" },
           ci_cd_info: "GitHub Actions",
-          repos: [{ name: "repo-1", path: "/tmp/repo" }],
+          repos: [{ name: "repo-1", path: repoPath }],
         }),
         headers: { "Content-Type": "application/json" },
       });
@@ -124,7 +132,7 @@ describe("/api/projects/[id]", () => {
         expect.objectContaining({
           name: "Project Alpha",
           description: "Updated",
-          repos: [{ name: "repo-1", path: "/tmp/repo" }],
+          repos: [{ name: "repo-1", path: repoPath }],
         })
       );
     });
@@ -160,6 +168,77 @@ describe("/api/projects/[id]", () => {
         "Local path is required for repos[0] when a folder name is provided"
       );
       expect(mockUpdateProject).not.toHaveBeenCalled();
+    });
+
+    test("returns 400 when a repo path does not exist", async () => {
+      const missingPath = path.join(tmpdir(), `agx-missing-${Date.now()}`);
+      mockGetProjectWithRepos.mockResolvedValue({
+        id: "proj-1",
+        name: "Project Alpha",
+        slug: "project-alpha",
+        repos: [],
+      });
+      const { PATCH } = await import("@/app/api/projects/[id]/route");
+      const request = new NextRequest("http://localhost/api/projects/proj-1", {
+        method: "PATCH",
+        body: JSON.stringify({
+          repos: [{ name: "Missing", path: missingPath }],
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await PATCH(request, { params: Promise.resolve({ id: "proj-1" }) });
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.error).toBe(`Folder path does not exist for repos[0]: ${missingPath}`);
+      expect(mockUpdateProject).not.toHaveBeenCalled();
+    });
+
+    test("allows unrelated edits when an unchanged existing repo path is stale", async () => {
+      const stalePath = path.join(tmpdir(), `agx-stale-${Date.now()}`);
+      const existingRepo = {
+        id: "repo-1",
+        project_id: "proj-1",
+        name: "Repo",
+        path: stalePath,
+        created_at: "2026-04-28T00:00:00.000Z",
+        updated_at: "2026-04-28T00:00:00.000Z",
+      };
+      const mockProject = {
+        id: "proj-1",
+        name: "Project Alpha",
+        slug: "project-alpha",
+        description: "Renamed",
+        metadata: {},
+        repos: [existingRepo],
+      };
+      mockGetProjectWithRepos.mockResolvedValue(mockProject);
+      mockUpdateProject.mockResolvedValue(mockProject);
+
+      const { PATCH } = await import("@/app/api/projects/[id]/route");
+      const request = new NextRequest("http://localhost/api/projects/proj-1", {
+        method: "PATCH",
+        body: JSON.stringify({
+          description: "Renamed",
+          repos: [{ id: "repo-1", name: "Repo", path: stalePath }],
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      const response = await PATCH(request, { params: Promise.resolve({ id: "proj-1" }) });
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.project).toEqual(mockProject);
+      expect(mockUpdateProject).toHaveBeenCalledWith(
+        "proj-1",
+        "2c3cc1ca-956d-4b62-b295-4d2d3374103f",
+        expect.objectContaining({
+          description: "Renamed",
+          repos: [{ id: "repo-1", name: "Repo", path: stalePath }],
+        })
+      );
     });
   });
 

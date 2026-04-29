@@ -125,7 +125,9 @@ export default function ProjectCard({ project, onEdit, onDelete, onClick, onMana
             Folders
           </span>
           <span className="text-[12px] text-[var(--muted-foreground)]">
-            {hasRepos ? `${project.repos.length} connected` : "Unlinked"}
+            {hasRepos
+              ? `${project.repos.length} folder${project.repos.length === 1 ? "" : "s"} added`
+              : "Unlinked"}
           </span>
         </div>
 

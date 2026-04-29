@@ -4,6 +4,7 @@ import { buildProjectInput, InvalidProjectPayloadError } from "./payload";
 import { LOCAL_USER } from "@/lib/auth-mode";
 import { hydrateProjectsObjectiveMetadata } from "./objective-metadata";
 import { logger } from "@/lib/logger";
+import { InvalidProjectRepoPathError, validateProjectRepoPaths } from "@/lib/project-repo-paths";
 
 function isMissingProjectsSchemaError(error: unknown): boolean {
 // ... (rest of helper)
@@ -54,10 +55,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Project name is required" }, { status: 400 });
     }
 
+    await validateProjectRepoPaths(projectInput.repos);
+
     const project = await db.createProject(userId, projectInput);
     return NextResponse.json({ project }, { status: 201 });
   } catch (error) {
-    if (error instanceof InvalidProjectPayloadError) {
+    if (error instanceof InvalidProjectPayloadError || error instanceof InvalidProjectRepoPathError) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
     logger.error("Error creating project", logger.formatError(error));
